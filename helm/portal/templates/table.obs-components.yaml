@@ -1,11 +1,12 @@
-# Settings → Krateo tab content — the Krateo control-plane workloads (real
-# Deployments in the Krateo namespace), shaped here in widgetDataTemplate from
-# the thin settings-krateo-status RA. Ready = readyReplicas/replicas; Image =
-# the first container image basename. No fabricated status.
+# Observability → Components tab content (moved from Settings — this is platform
+# health, not configuration) — the Krateo control-plane workloads (real Deployments
+# in the Krateo namespace), shaped here in widgetDataTemplate from the thin
+# obs-components RA. Ready = readyReplicas/replicas; Image = the first container
+# image basename. No fabricated status.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: settings-krateo-status
+  name: obs-components
   namespace: {{ .Release.Namespace }}
   annotations:
     "krateo.io/verbose": "true"
@@ -16,7 +17,7 @@ spec:
     size: middle
     # Row click → the component drill-down ({name} resolves from the visible name
     # cell; rows without a name simply don't navigate — buildRowPath guard).
-    rowNavigateTo: /settings/components/{name}
+    rowNavigateTo: /observability/components/{name}
     columns:
     - valueKey: name
       title: Component
@@ -29,7 +30,7 @@ spec:
   - forPath: dataSource
     expression: '${ [ .list[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.metadata.name}, {valueKey:"ready",kind:"jsonSchemaType",type:"string",stringValue:( ((.status.readyReplicas // 0)|tostring) + "/" + ((.spec.replicas // 0)|tostring) )}, {valueKey:"image",kind:"jsonSchemaType",type:"string",stringValue:( (.spec.template.spec.containers[0].image // "") | split("/") | last )} ] ] }'
   apiRef:
-    name: settings-krateo-status
+    name: obs-components
     namespace: {{ .Release.Namespace }}
   resourcesRefs:
     items: []

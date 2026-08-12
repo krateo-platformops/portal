@@ -1,7 +1,8 @@
 # Page wrapper for /settings: a vertical Flex stacking the page header (title + subtitle)
-# above the admin Tabs (Krateo / Users). Previously the /settings route rendered
-# `settings-admin` (the Tabs) directly with no header at all — this adds the mockup's
-# `.pg-head` (H1 + subtitle). The nav `id: settings` is repointed here.
+# above the Users table. User administration is now the ONLY thing Settings hosts — the
+# Krateo control-plane status tab moved to Observability (Components tab; it was platform
+# health, not configuration), which also dropped the need for a Tabs wrapper around a
+# single remaining tab. The nav `id: settings` is repointed here.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,12 +14,12 @@ spec:
   widgetData:
     allowedResources:
     - flexes
-    - tabs
+    - tables
     vertical: true
     gap: large
     items:
     - resourceRefId: settings-title-stack
-    - resourceRefId: settings-admin
+    - resourceRefId: settings-users
   resourcesRefs:
     items:
     - id: settings-title-stack
@@ -27,9 +28,9 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: settings-admin
+    - id: settings-users
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: settings-admin
+      name: settings-users
       namespace: {{ .Release.Namespace }}
-      resource: tabs
+      resource: tables
       verb: GET
