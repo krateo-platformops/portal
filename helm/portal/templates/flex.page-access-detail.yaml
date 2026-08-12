@@ -1,9 +1,13 @@
 # Page wrapper for /settings/access/{username} (W3-2 persona drill-down). A
 # vertical Flex stacking: title (persona + the checked-as honesty line) →
-# namespace scope Select (?ns= → extras) → capability preview (SAR table) →
-# grant Form (Role + RoleBinding, ONE gated ops[] submit) → existing grants +
-# the conditional Revoke row (inert when no managed grant in scope). Route-only
-# (hidden from the sidebar) — reached from the Settings → Access personas table.
+# namespace scope Select (?ns= → extras) → capability preview Card (SAR table)
+# → grant Card (Role + RoleBinding, ONE gated ops[] submit) → existing-grants
+# Card (table + the conditional Revoke row, inert when no managed grant in
+# scope). Route-only (hidden from the sidebar) — reached from the Settings →
+# Users table. #88 §0.6: each section is now its own Card (titleVariant:
+# eyebrow + variant: outlined) instead of a flat label/desc/content run — the
+# Cards' own padding plus the larger inter-card gap give the visual separation
+# that was missing.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,24 +21,15 @@ spec:
   widgetData:
     allowedResources:
     - flexes
-    - paragraphs
-    - tables
-    - forms
+    - cards
     vertical: true
-    gap: middle
+    gap: large
     items:
     - resourceRefId: access-detail-title-stack
     - resourceRefId: access-scope-row
-    - resourceRefId: access-preview-label
-    - resourceRefId: access-preview-desc
-    - resourceRefId: access-preview
-    - resourceRefId: access-grant-label
-    - resourceRefId: access-grant-desc
-    - resourceRefId: access-grant
-    - resourceRefId: access-grants-label
-    - resourceRefId: access-grants-desc
-    - resourceRefId: access-grants
-    - resourceRefId: access-grants-actions
+    - resourceRefId: access-preview-card
+    - resourceRefId: access-grant-card
+    - resourceRefId: access-grants-card
   resourcesRefs:
     items:
     - id: access-detail-title-stack
@@ -49,63 +44,21 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: access-preview-label
+    - id: access-preview-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-preview-label
+      name: access-preview-card
       namespace: {{ .Release.Namespace }}
-      resource: paragraphs
+      resource: cards
       verb: GET
-    - id: access-preview-desc
+    - id: access-grant-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-preview-desc
+      name: access-grant-card
       namespace: {{ .Release.Namespace }}
-      resource: paragraphs
+      resource: cards
       verb: GET
-    - id: access-preview
+    - id: access-grants-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-preview
+      name: access-grants-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
-      verb: GET
-    - id: access-grant-label
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grant-label
-      namespace: {{ .Release.Namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: access-grant-desc
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grant-desc
-      namespace: {{ .Release.Namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: access-grant
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grant
-      namespace: {{ .Release.Namespace }}
-      resource: forms
-      verb: GET
-    - id: access-grants-label
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grants-label
-      namespace: {{ .Release.Namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: access-grants-desc
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grants-desc
-      namespace: {{ .Release.Namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: access-grants
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grants
-      namespace: {{ .Release.Namespace }}
-      resource: tables
-      verb: GET
-    - id: access-grants-actions
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: access-grants-actions
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: cards
       verb: GET

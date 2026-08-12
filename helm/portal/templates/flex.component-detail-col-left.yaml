@@ -1,5 +1,7 @@
-# Left column (wider): Conditions, Pods, Events. #88 (fedepini): Conditions moved here from the right
-# column (which now holds only Overview).
+# Left column (wider): Pods, Conditions, Events. #88 §0.4: Conditions moved here
+# from the right column (Conditions reads as "why is it in this state," Events as
+# "what happened," so Conditions leads before Events) — the right column keeps
+# only Overview.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,6 +20,7 @@ spec:
     items:
       - resourceRefId: card-component-detail-conditions
       - resourceRefId: card-component-detail-pods
+      - resourceRefId: card-component-detail-conditions
       - resourceRefId: card-component-detail-events
   resourcesRefs:
     items:
@@ -30,6 +33,12 @@ spec:
       - id: card-component-detail-pods
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: card-component-detail-pods
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: card-component-detail-conditions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-component-detail-conditions
         namespace: {{ .Release.Namespace }}
         resource: cards
         verb: GET

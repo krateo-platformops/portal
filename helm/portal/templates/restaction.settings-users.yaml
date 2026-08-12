@@ -13,15 +13,18 @@
 # back to authn's compiled 24h default when unset). The Table computes the expiry
 # as creationTimestamp + this duration in its widgetDataTemplate.
 #
-# W3-2 (Access tab): the same RA additionally emits `.personas` — one row per
-# clientconfig user with the username (name minus "-clientconfig"), the groups
-# joined from the basic-strategy User CR when one exists (OIDC/LDAP groups live
-# in the IdP, unknowable from cluster CRs → blank), and the count of managed
-# access grants (RoleBindings labeled krateo.io/managed-by=portal-access whose
-# krateo.io/subject label matches). The two extra stages are ADMIN reads
+# #88 §0.7: the former Access tab's persona view merged into this ONE Users
+# table (same clientconfig-Secret dataset, same /settings/access/{name}
+# drill-down — there was no real scope difference to separate). `.personas` —
+# one row per clientconfig user with the username (name minus "-clientconfig"),
+# the certificate expiry (creationTimestamp + certDuration, the same jq the
+# table used to do client-side, moved here so it can live next to grants/groups),
+# the groups joined from the basic-strategy User CR when one exists (OIDC/LDAP
+# groups live in the IdP, unknowable from cluster CRs → blank), and the count of
+# managed access grants (RoleBindings labeled krateo.io/managed-by=portal-access
+# whose krateo.io/subject label matches). The two extra stages are ADMIN reads
 # (per-user dispatch, no UAF): non-admins get a 403 → continueOnError → the
-# Users tab keeps working with groups/grants blank. `.list`/`.certDuration`
-# are untouched so table.settings-users is unaffected.
+# Users table keeps working with groups/grants blank.
 #
 # Label values must be RFC1123-safe, so the grant convention slugifies the
 # subject (lowercase, [a-z0-9-]) — the join here applies the SAME slug to the
@@ -88,8 +91,14 @@ spec:
               namespace: (.metadata.namespace // "") } ]
   filter: >
     def slug: ascii_downcase | gsub("[^a-z0-9-]"; "-");
+    def durSeconds:
+      . as $d
+      | ((($d|capture("(?<v>[0-9]+)h")) // {v:"0"} | .v|tonumber)*3600)
+      + ((($d|capture("(?<v>[0-9]+)m")) // {v:"0"} | .v|tonumber)*60)
+      + ((($d|capture("(?<v>[0-9]+)s")) // {v:"0"} | .v|tonumber));
     ((if (.basicUsers // []) | type == "array" then .basicUsers else [] end) // []) as $users
     | ((if (.grantBindings // []) | type == "array" then .grantBindings else [] end) // []) as $grants
+    | ((.authnDeployments // "24h") | durSeconds) as $secs
     | {
       list: (.clientconfigs // []),
       certDuration: (.authnDeployments // "24h"),
@@ -98,6 +107,7 @@ spec:
           | ((.name // "") | rtrimstr("-clientconfig")) as $u
           | { username: $u,
               created: (.creationTimestamp // ""),
+              expires: (if .creationTimestamp then ((.creationTimestamp|fromdateiso8601) + $secs | todateiso8601) else "" end),
               groups: ((([ $users[] | select(.name == $u) ] | first) | .groups) // []),
               grants: ([ $grants[] | select(.subject == ($u | slug)) ] | length) }
         ] | sort_by(.username)

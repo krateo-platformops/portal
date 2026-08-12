@@ -1,0 +1,37 @@
+# Access persona existing-grants section (#88 §0.6) — wraps the grants table +
+# the conditional Revoke row behind the same unified Card language as every
+# other section-heavy detail page (titleVariant: eyebrow + variant: outlined +
+# headerLeft one-line desc), replacing the old bare "strong Paragraph label +
+# secondary Paragraph desc" pair.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: access-grants-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [username, ns]
+  widgetData:
+    title: Existing grants
+    titleVariant: eyebrow
+    variant: outlined
+    headerLeft: grants managed by this page (label-selected) · click a row to focus its namespace and arm Revoke
+    items:
+    - resourceRefId: access-grants
+    - resourceRefId: access-grants-actions
+  resourcesRefs:
+    items:
+    - id: access-grants
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: access-grants
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
+    - id: access-grants-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: access-grants-actions
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

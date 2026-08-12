@@ -1,9 +1,12 @@
 # Settings → Users tab content — platform users from their authn clientconfig
-# Secret. Username = secret name minus the "-clientconfig" suffix; "Certificate
-# expires" = creationTimestamp + authn's cert duration, computed server-side via
-# jq (fromdateiso8601 + duration-seconds → todateiso8601). The duration string
-# (e.g. "24h"/"168h") is parsed into seconds here. All shaping in the widget; the
-# RA stays thin. Empty on a cluster without authn (no clientconfig Secrets).
+# Secret, via the RA's `.personas` (#88 §0.7: merged with the former Access tab
+# — same dataset, same drill-down, so one table replaces two). Username = secret
+# name minus the "-clientconfig" suffix; groups join the basic-strategy User CR
+# ("—" for OIDC/LDAP identities, unknowable from the cluster); "Certificate
+# expires" = creationTimestamp + authn's cert duration, computed server-side by
+# the RA (fromdateiso8601 + duration-seconds → todateiso8601); "Managed grants" =
+# count of portal-access RoleBindings for that persona. Empty on a cluster
+# without authn (no clientconfig Secrets).
 #
 # ACCEPTED APPROXIMATION (by design): creationTimestamp is the FIRST issuance —
 # authn updates the clientconfig Secret in place on re-login, so the timestamp
@@ -24,28 +27,30 @@ spec:
     bordered: false
     size: middle
     # Row click → the user's access-detail page (CTA-audit S1: the Users table was a
-    # dead-end — informational only, no drill-in). {name} = the username cell.
-    rowNavigateTo: /settings/access/{name}
+    # dead-end — informational only, no drill-in). {user} = the username cell.
+    rowNavigateTo: /settings/access/{user}
     columns:
-    - valueKey: name
+    - valueKey: user
       title: User
+    - valueKey: groups
+      title: Groups
     - valueKey: issued
       title: Issued
     - valueKey: expires
       title: Certificate expires
+    - valueKey: grants
+      title: Managed grants
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
     expression: >
-      ${ (.certDuration // "24h") as $d
-        | ( ((($d|capture("(?<v>[0-9]+)h")) // {v:"0"} | .v|tonumber)*3600)
-          + ((($d|capture("(?<v>[0-9]+)m")) // {v:"0"} | .v|tonumber)*60)
-          + ((($d|capture("(?<v>[0-9]+)s")) // {v:"0"} | .v|tonumber) ) ) as $secs
-        | [ .list[] | [
-            {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:((.name // "") | rtrimstr("-clientconfig"))},
-            {valueKey:"issued",kind:"jsonSchemaType",type:"string",stringValue:(.creationTimestamp // "")},
-            {valueKey:"expires",kind:"jsonSchemaType",type:"string",stringValue:( if .creationTimestamp then ((.creationTimestamp|fromdateiso8601) + $secs | todateiso8601) else "" end )}
-          ] ] }
+      ${ [ (.personas // [])[] | [
+          {valueKey:"user",kind:"jsonSchemaType",type:"string",stringValue:(.username // "")},
+          {valueKey:"groups",kind:"jsonSchemaType",type:"string",stringValue:(if ((.groups // [])|length) > 0 then (.groups|join(", ")) else "—" end)},
+          {valueKey:"issued",kind:"jsonSchemaType",type:"string",stringValue:(.created // ""),format:"relative"},
+          {valueKey:"expires",kind:"jsonSchemaType",type:"string",stringValue:(.expires // "")},
+          {valueKey:"grants",kind:"jsonSchemaType",type:"string",stringValue:((.grants // 0)|tostring)}
+        ] ] }
   apiRef:
     name: settings-users
     namespace: {{ .Release.Namespace }}

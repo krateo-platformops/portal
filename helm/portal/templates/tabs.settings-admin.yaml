@@ -1,10 +1,11 @@
 # Settings page — the admin console, converted from the krateoplatformops-blueprints
 # portal-admin-page (TabList → my antd Tabs; Column/Panel → tab content widgets).
-# The genuinely-admin tabs: Krateo status + Users + Access (Blueprints and
-# Compositions already have their own nav pages; FinOps dropped). Each tab's
-# content resolves through resourcesRefs, rendered by the Tabs widget's nested
-# WidgetRenderer. Access (W3-2 RBAC guardrails) hosts the persona table behind a
-# Col wrapper — the Tabs allowedResources enum has `cols` but no `flexes`.
+# The genuinely-admin tabs: Krateo status + Users (Access merged into Users — same
+# clientconfig-Secret dataset, same persona drill-down; Blueprints and Compositions
+# already have their own nav pages; FinOps dropped). Each tab's content resolves
+# through resourcesRefs, rendered by the Tabs widget's nested WidgetRenderer.
+# #88 §0.1: no per-tab `title:` — matches tabs.obs-main's leaner tile look (the
+# `title` field rendered an extra heading line under the tab strip).
 kind: Tabs
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,16 +17,11 @@ spec:
   widgetData:
     allowedResources:
       - tables
-      - cols
-    # #88 (fedepini): dropped the per-tab `title:` (rendered an extra heading line under the tab strip)
-    # to match tabs.obs-main.yaml's leaner tile look — label + resourceRefId only.
     items:
       - label: Krateo
         resourceRefId: settings-krateo-status
       - label: Users
         resourceRefId: settings-users
-      - label: Access
-        resourceRefId: settings-access
   resourcesRefs:
     items:
       - id: settings-krateo-status
@@ -39,10 +35,4 @@ spec:
         name: settings-users
         namespace: {{ .Release.Namespace }}
         resource: tables
-        verb: GET
-      - id: settings-access
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: settings-access
-        namespace: {{ .Release.Namespace }}
-        resource: cols
         verb: GET

@@ -1,40 +1,13 @@
-# Access-page paragraphs (W3-2): the Settings-tab intro, the persona-page header
-# pieces (eyebrow / H1 / the honesty line) and the three section label+caption
-# pairs (mockup .blocklabel style). The honesty line is LOAD-BEARING UX: the
-# capability preview is a run-as-admin SubjectAccessReview about the persona —
-# it must say exactly which identity+groups were checked, and that IdP-managed
-# (OIDC/LDAP) groups are unknowable from the cluster (user-only check
-# understates group-granted access).
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-intro
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  widgetData:
-    text: Pick a persona to preview what it can do, grant namespaced access (Role + RoleBinding in one gated submit) and revoke managed grants. Grants land as native RBAC — enforcement follows within seconds.
-    type: secondary
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-detail-eyebrow
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: Settings · Access
-    type: secondary
-  resourcesRefs:
-    items: []
----
+# Access-page paragraphs (W3-2): the persona-page header pieces (H1 / the
+# honesty line). #88 §0.5/§0.6: the Settings-tab intro (merged into the Users
+# table), the "Settings · Access" eyebrow (redundant with the breadcrumb) and
+# the three section label+caption pairs (their text now lives in the section
+# Cards' title — see card.access-*) are gone. The honesty line is LOAD-BEARING
+# UX: the capability preview is a run-as-admin SubjectAccessReview about the
+# persona — it must say exactly which identity+groups were checked, and that
+# IdP-managed (OIDC/LDAP) groups are unknowable from the cluster (user-only
+# check understates group-granted access).
+
 # H1 — the persona name, echoed server-side from the route's ?extras by
 # access-grants (never parsed client-side).
 kind: Paragraph
@@ -84,101 +57,5 @@ spec:
              then " + groups [" + (.groups | join(", ")) + ", system:authenticated]"
              else " — groups unknown (IdP-managed identity): user-only check, group-granted access may be understated" end)
           + " · run as the calling admin via SubjectAccessReview, in namespace " + (.ns // "") }
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-preview-label
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: What can this persona do?
-    strong: true
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-preview-desc
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: apiserver-authorizer truth per capability — a snapshot, not the persona's live session
-    type: secondary
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-grant-label
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: Grant access
-    strong: true
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-grant-desc
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: Role + RoleBinding in one gated submit · namespaced only (cluster-wide grants are out of scope in v1)
-    type: secondary
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-grants-label
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: Existing grants
-    strong: true
-  resourcesRefs:
-    items: []
----
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: access-grants-desc
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [username]
-  widgetData:
-    text: grants managed by this page (label-selected) · click a row to focus its namespace and arm Revoke
-    type: secondary
   resourcesRefs:
     items: []
