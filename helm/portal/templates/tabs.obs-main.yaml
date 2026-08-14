@@ -1,9 +1,11 @@
 # Observability main Tabs (R2 #9) — splits the page into Reconciliation (composition health
-# from live cluster snapshots) and Telemetry (OTel → ClickHouse error digest, log stream and
-# resource usage). Mirrors tabs.settings-admin: each tab's content is a single Col wrapper
-# resolved through resourcesRefs and rendered by the Tabs widget's nested WidgetRenderer (the
-# Tabs allowedResources enum has `cols` but not `flexes`). The range chips stay ABOVE the tabs
-# (shared filter), so both tabs re-render on a range change — hence keyExtras carries `range`
+# from live cluster snapshots), Telemetry (OTel → ClickHouse error digest, log stream and
+# resource usage) and Components (platform-health drill-down for the control-plane's own
+# Deployments — moved here from Settings, which is user administration only now). The
+# Reconciliation/Telemetry/Components tabs are each a single Col wrapper resolved through
+# resourcesRefs (the Tabs allowedResources enum has `cols` but not `flexes`), so every tab opens
+# with its own section header + caption. The range chips stay ABOVE the tabs
+# (shared filter), so all tabs re-render on a range change — hence keyExtras carries `range`
 # (and `projects`, the shell scope selector that rides every route) so the Tabs' own cache cell
 # partitions per range+scope like its children do.
 kind: Tabs
@@ -20,6 +22,7 @@ spec:
   widgetData:
     allowedResources:
       - cols
+      - tables
     # #83 §0.1: no per-tab `title:` — each tab's content already opens with its own section
     # heading + subtitle (obs-tab-reconciliation / obs-tab-telemetry), so a Tabs-level title here
     # rendered a second, redundant heading line above that. The `label` is the tab's name.
@@ -28,6 +31,8 @@ spec:
         resourceRefId: obs-tab-reconciliation
       - label: Telemetry
         resourceRefId: obs-tab-telemetry
+      - label: Components
+        resourceRefId: obs-tab-components
   resourcesRefs:
     items:
       - id: obs-tab-reconciliation
@@ -39,6 +44,12 @@ spec:
       - id: obs-tab-telemetry
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: obs-tab-telemetry
+        namespace: {{ .Release.Namespace }}
+        resource: cols
+        verb: GET
+      - id: obs-tab-components
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: obs-tab-components
         namespace: {{ .Release.Namespace }}
         resource: cols
         verb: GET

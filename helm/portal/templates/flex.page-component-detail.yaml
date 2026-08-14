@@ -1,8 +1,13 @@
-# Convention page root for /settings/components/{name} — the Settings component
-# drill-down ("is my control plane healthy, and why not?"). Mirrors the
-# composition-detail page structure: a pagehead (title + ready Tag + subtitle |
-# actions) over a 2-column grid: left = Pods / Events, right = Conditions /
-# Overview. Every figure is shaped server-side by the component-detail RA.
+# Convention page root for /observability/components/{name} — the Components-tab
+# drill-down ("is my control plane healthy, and why not?"). Moved here from
+# Settings (this is platform health, not configuration) — Settings now hosts only
+# user administration. Mirrors the composition-detail page structure: a pagehead
+# (title + ready Tag + subtitle) over a 2-column grid: left = Pods / Conditions /
+# Events, right = Overview. Every figure is shaped server-side by the
+# component-detail RA. The "View logs" action button that used to sit beside the
+# pagehead is gone — it only ever redirected to the Observability section (no
+# detail page of its own), so the pagehead is now just the title-stack, no
+# header-block action-cluster wrapper needed.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -20,13 +25,13 @@ spec:
       - flexes
       - rows
     items:
-      - resourceRefId: component-detail-header-block
+      - resourceRefId: component-detail-title-stack
       - resourceRefId: component-detail-grid
   resourcesRefs:
     items:
-      - id: component-detail-header-block
+      - id: component-detail-title-stack
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: component-detail-header-block
+        name: component-detail-title-stack
         namespace: {{ .Release.Namespace }}
         resource: flexes
         verb: GET
