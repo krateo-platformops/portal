@@ -2,9 +2,9 @@
 # from live cluster snapshots), Telemetry (OTel → ClickHouse error digest, log stream and
 # resource usage) and Components (platform-health drill-down for the control-plane's own
 # Deployments — moved here from Settings, which is user administration only now). The
-# Reconciliation/Telemetry tabs are each a single Col wrapper resolved through resourcesRefs
-# (the Tabs allowedResources enum has `cols` but not `flexes`); Components is a plain Table,
-# referenced directly like Settings' own Users tab did. The range chips stay ABOVE the tabs
+# Reconciliation/Telemetry/Components tabs are each a single Col wrapper resolved through
+# resourcesRefs (the Tabs allowedResources enum has `cols` but not `flexes`), so every tab opens
+# with its own section header + caption. The range chips stay ABOVE the tabs
 # (shared filter), so all tabs re-render on a range change — hence keyExtras carries `range`
 # (and `projects`, the shell scope selector that rides every route) so the Tabs' own cache cell
 # partitions per range+scope like its children do.
@@ -32,7 +32,7 @@ spec:
       - label: Telemetry
         resourceRefId: obs-tab-telemetry
       - label: Components
-        resourceRefId: obs-components
+        resourceRefId: obs-tab-components
   resourcesRefs:
     items:
       - id: obs-tab-reconciliation
@@ -47,9 +47,9 @@ spec:
         namespace: {{ .Release.Namespace }}
         resource: cols
         verb: GET
-      - id: obs-components
+      - id: obs-tab-components
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: obs-components
+        name: obs-tab-components
         namespace: {{ .Release.Namespace }}
-        resource: tables
+        resource: cols
         verb: GET
