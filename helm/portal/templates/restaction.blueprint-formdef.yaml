@@ -125,8 +125,10 @@ spec:
     # first properties and a top-level required injected. Kept as a STRING — never parsed/re-emitted
     # — so JSON key order survives to the client (which JSON.parses it). null when the CM is absent
     # or has no "properties": — the Form then falls back to schemaSpec. __composition_namespace__ is
-    # pinned (enum+default) to $blueprintNs so the user cannot retarget the composition record to a
-    # nonexistent namespace; it renders read-only-in-effect (single-option Select, pre-filled).
+    # spliced with enum:$nsOpts / default:$nsDefault (the userAccessFilter create-permitted set — see
+    # the #66 B.2 note above), IDENTICAL to the schemaSpec branch: a picker over namespaces the user
+    # can create in, defaulting to $blueprintNs when allowed (admin) else the first allowed ns
+    # (tenant → own ns). Renders single-option/pre-filled only when exactly one ns is permitted.
     | ((.jsonschema.data["values.schema.json"]) // null) as $raw
     | (if $raw == null then null
        else ("\"properties\": ") as $n
