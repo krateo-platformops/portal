@@ -1,7 +1,7 @@
 # Install-form schema source — renders the CompositionDefinition CRD's spec (the FULL spec)
 # as the form schema, so "installing a blueprint" = filling a CompositionDefinition. The
 # blueprint `name` arrives via ?extras (route /marketplace/{name}/install). Pre-fills
-# chart.{url,repo,version} by looking the blueprint up in the braghettos helm index (needs
+# chart.{url,repo,version} by looking the blueprint up in the helm index (needs
 # snowplow >= 1.4.0 for the external YAML fetch). Prepends a synthetic `name` (the
 # CompositionDefinition metadata.name; namespace is fixed to the release ns by the form).
 # Returns { schemaSpec, initialValues, apiVersion/kind/resource } — mirrors blueprint-formdef.
@@ -21,7 +21,7 @@ spec:
       headers:
         - 'Accept: application/json'
     # The helm indexes — used only to pre-fill chart.{url,repo,version} for the selected item.
-    # The marketplace lists items from TWO braghettos helm-repo indexes: /charts/blueprints
+    # The marketplace lists items from TWO helm-repo indexes: /charts/blueprints
     # (CompositionDefinition blueprints) AND /charts/operators (Kubernetes operators, e.g.
     # the ACK ec2-chart). Both must be fetched here or an OPERATOR name (not present in the
     # blueprints index) resolves to an empty $entry → empty url/version → the empty-prune in
@@ -95,12 +95,12 @@ spec:
     | ((.targets // []) | map(select(. != null and . != ""))) as $targetNames
     # Resolve the selected item across BOTH helm indexes (blueprints first, then operators).
     # A helm-repo entry carries urls[0] = the full .tgz URL and version. The core-provider
-    # ChartInfo convention (verified in braghettos-core-provider types.go + composition.go:
+    # ChartInfo convention (verified in krateo-platformops/core-provider types.go + composition.go:
     # Reconcile is called with URL=chart.url, ChartName=chart.repo, ChartVersion=chart.version)
     # for a helm-repo-INDEX install is: chart.url = the repo BASE URL (tgz filename stripped),
     # chart.repo = the chart NAME, chart.version = the version. That is exactly what the
     # marketplace catalog's installed-join keys on (restaction.blueprints-catalog). So for an
-    # operator like ec2-chart this yields url=https://braghettos.github.io/charts/operators,
+    # operator like ec2-chart this yields url=https://krateo-blueprints.github.io/charts/operators,
     # repo=ec2-chart, version=1.15.2 — a well-formed CD (chart.url is non-empty, so it survives
     # the form's empty-prune and satisfies the CRD's required:[url]).
     | (((.catalog.entries[$bp]?) // (.operators.entries[$bp]?) // [])[0]) as $entry
