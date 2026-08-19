@@ -1,7 +1,7 @@
 # /blueprint-builder deliverables — one row per Autopilot-authored blueprint, sourced
 # from the git PullRequest CRs to the blueprints repo (spec.repo == krateo-blueprints),
 # JOINED to (a) the registered CompositionDefinition — is the merged chart live yet? — and
-# (b) the braghettos blueprints helm index — is the chart published to the marketplace yet?
+# (b) the blueprints helm index — is the chart published to the marketplace yet?
 # Cluster-native for the CR joins (no GitHub token/endpoint); the catalog step is an external
 # endpointRef fetch of the public helm index. continueOnError everywhere so a narrow-RBAC user
 # (or a missing index) degrades to a partial/empty table instead of a failed widget. The chart
@@ -54,7 +54,7 @@ spec:
           | { name: (.metadata.name // ""),
               version: ((.spec.chart.version) // ""),
               ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
-    # The braghettos blueprints helm index — the marketplace catalog. Mirrors
+    # The krateo-blueprints blueprints helm index — the marketplace catalog. Mirrors
     # restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's
     # `entries` map is keyed by chart NAME, so the marketplace-availability join is a simple
     # membership test (does the index list this chart?) — projected to just the chart names here.
