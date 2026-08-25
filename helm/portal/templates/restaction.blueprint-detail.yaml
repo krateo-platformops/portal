@@ -31,16 +31,7 @@ spec:
       headers:
         - 'Accept: application/json'
     # The helm index — used to enumerate the chart's available versions (update picker).
-    - name: catalog
-      endpointRef:
-        name: blueprints-endpoint
-        namespace: {{ .Release.Namespace }}
-      path: /charts/blueprints/index.yaml
-      verb: GET
-      headers:
-        - 'Accept: application/x-yaml, text/yaml, application/json'
-      continueOnError: true
-      errorKey: catalogError
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     # IA correlation (blueprint → running instances): the compositions CREATED FROM this
     # blueprint are the instances of the CD's GENERATED kind — its status.apiVersion +
     # status.resource (e.g. composition.krateo.io/v0-1-0 + keystonedemoes). Listed

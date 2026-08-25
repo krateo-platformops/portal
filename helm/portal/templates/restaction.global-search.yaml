@@ -43,16 +43,7 @@ spec:
     # blueprints-catalog), so search finds installable blueprints, not just installed ones.
     # Requires snowplow >= 1.4.0 (external YAML fetch). Each entry's version list is newest
     # -first → .value[0]. continueOnError so a missing index degrades to compositions-only.
-    - name: catalog
-      endpointRef:
-        name: blueprints-endpoint
-        namespace: {{ .Release.Namespace }}
-      path: /charts/blueprints/index.yaml
-      verb: GET
-      headers:
-        - 'Accept: application/x-yaml, text/yaml, application/json'
-      continueOnError: true
-      errorKey: catalogError
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
       filter: >
         [ ((.catalog.entries) // {}) | to_entries[] | .value[0]
           | {name: .name, category: (((.annotations // {})["krateo.io/category"]) // (.keywords[0]) // "uncategorized")} ]

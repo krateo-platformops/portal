@@ -28,26 +28,8 @@ spec:
     # form.blueprint-install leaves spec.chart={repo:"<name>"}, which the CD CRD rejects
     # (chart.url is REQUIRED) → the install silently produces NO CompositionDefinition. Mirror
     # the two-index fetch of restaction.blueprints-catalog so the pre-fill covers both sources.
-    - name: catalog
-      endpointRef:
-        name: blueprints-endpoint
-        namespace: {{ .Release.Namespace }}
-      path: /charts/blueprints/index.yaml
-      verb: GET
-      headers:
-        - 'Accept: application/x-yaml, text/yaml, application/json'
-      continueOnError: true
-      errorKey: catalogError
-    - name: operators
-      endpointRef:
-        name: blueprints-endpoint
-        namespace: {{ .Release.Namespace }}
-      path: /charts/operators/index.yaml
-      verb: GET
-      headers:
-        - 'Accept: application/x-yaml, text/yaml, application/json'
-      continueOnError: true
-      errorKey: operatorsError
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
     # Namespaces the user may create CompositionDefinitions in → the Namespace select's enum
     # (UAF SubjectAccessReview, mirrors blueprint-formdef).
     - name: namespaces
@@ -103,9 +85,15 @@ spec:
     # operator like ec2-chart this yields url=https://krateo-blueprints.github.io/charts/operators,
     # repo=ec2-chart, version=1.15.2 — a well-formed CD (chart.url is non-empty, so it survives
     # the form's empty-prune and satisfies the CRD's required:[url]).
+    #
+    # OCI entries differ: for an oci:// urls[0] the core-provider convention (installer definitions.yaml:
+    # OCI branch) is chart.url = the FULL oci ref (oci://<base>/<name>, NOT filename-stripped) and NO
+    # chart.repo (appending the name to url would double it). So branch on the url scheme below: oci://
+    # keeps the raw url + omits repo; a helm-repo url strips the filename + carries repo=name.
     | (((.catalog.entries[$bp]?) // (.operators.entries[$bp]?) // [])[0]) as $entry
     | ($entry.version // "") as $ver
-    | (($entry.urls[0]? // "") | sub("/[^/]+$"; "")) as $repoUrl
+    | ($entry.urls[0]? // "") as $rawUrl
+    | ($rawUrl | sub("/[^/]+$"; "")) as $repoUrl
     | {
         schemaSpec: ($spec
           | .properties = ({
@@ -119,7 +107,7 @@ spec:
         initialValues: {
           name: $bp,
           namespace: "{{ .Release.Namespace }}",
-          chart: { url: $repoUrl, repo: $bp, version: $ver }
+          chart: (if ($rawUrl | startswith("oci://")) then { url: $rawUrl, version: $ver } else { url: $repoUrl, repo: $bp, version: $ver } end)
         },
         apiVersion: "core.krateo.io/v1alpha1",
         kind: "CompositionDefinition",
