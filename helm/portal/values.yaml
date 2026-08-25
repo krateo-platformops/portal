@@ -69,3 +69,22 @@ tiers:
   tenant: ""
   # Admin-only pages (Compositions, Clusters, Observability, Incidents, Alerts, Marketplace, Settings, the three Builders). Empty = release namespace.
   admin: ""
+
+# @schema
+# description: Where the portal reads the blueprint/operator marketplace catalog. `configmap` (default) reads the two indexes from the in-cluster ConfigMap that the krateo-marketplace-catalog composition renders — no external fetch, mirror-friendly, air-gap-safe. `external` keeps the legacy endpointRef GET of the blueprints-endpoint Helm repo (one-release rollback fallback). All catalog RESTActions switch together via templates/_catalog.tpl; the blueprints-endpoint Secret is only rendered when source=external.
+# type: object
+# @schema
+marketplace:
+  # @schema
+  # description: configmap (in-cluster ConfigMap, default) | external (legacy Helm-repo endpointRef)
+  # type: string
+  # enum: [configmap, external]
+  # default: configmap
+  # @schema
+  source: configmap
+  # @schema
+  # description: Name of the ConfigMap the krateo-marketplace-catalog composition renders (holds blueprints-index.json + operators-index.json). Only used when source=configmap.
+  # type: string
+  # default: blueprints-catalog-index
+  # @schema
+  configMapName: blueprints-catalog-index

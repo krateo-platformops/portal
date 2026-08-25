@@ -28,26 +28,8 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    - name: catalog
-      endpointRef:
-        name: blueprints-endpoint
-        namespace: {{ .Release.Namespace }}
-      path: /charts/blueprints/index.yaml
-      verb: GET
-      headers:
-        - 'Accept: application/x-yaml, text/yaml, application/json'
-      continueOnError: true
-      errorKey: catalogError
-    - name: operators
-      endpointRef:
-        name: blueprints-endpoint
-        namespace: {{ .Release.Namespace }}
-      path: /charts/operators/index.yaml
-      verb: GET
-      headers:
-        - 'Accept: application/x-yaml, text/yaml, application/json'
-      continueOnError: true
-      errorKey: operatorsError
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
