@@ -1,5 +1,6 @@
-# Right-aligned holder for the /alerts "New alert" primary CTA (Button has no self-alignment
-# field, so a flush-right Flex row wraps it). Mirrors flex.kog-builder-ask-cta.
+# Right-aligned holder for the /alerts CTAs (Buttons have no self-alignment field, so a flush-right
+# Flex row wraps them). Two paths: "Ask Autopilot →" (conversational, default) then "New alert"
+# (deterministic form, primary — rightmost). Mirrors flex.kog-builder-ask-cta.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,9 +14,16 @@ spec:
     - buttons
     justify: flex-end
     items:
+    - resourceRefId: alerts-ask
     - resourceRefId: alerts-new
   resourcesRefs:
     items:
+    - id: alerts-ask
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-ask
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
     - id: alerts-new
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: alerts-new
