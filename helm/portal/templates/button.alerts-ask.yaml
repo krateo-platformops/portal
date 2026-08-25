@@ -1,0 +1,27 @@
+# "Ask Autopilot →" on /alerts — the conversational entry to alert authoring, beside the
+# deterministic "New alert" button. Navigates to /alerts?ask=<seed>, which the rail's askDeepLink
+# consumer reads to open Autopilot seeded with the alert-authoring flow (gather intent → navigate
+# /alerts/new → prefillForm the create form → the user reviews + creates). The seed matches the
+# orchestrator prompt's "Authoring an alert" section. Mirrors button.kog-builder-ask (?ask= deep-link),
+# but default-type (secondary) since "New alert" is the primary path. Same urlquery encoding.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-ask
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    label: Ask Autopilot →
+    icon: fa-wand-magic-sparkles
+    size: middle
+    type: default
+    clickActionId: alerts-ask
+    actions:
+      navigate:
+        - id: alerts-ask
+          type: navigate
+          path: /alerts?ask={{ "I want to set up a new observability alert. Help me define what to watch — a Lucene filter over the logs — plus the trigger threshold, the comparison type and the evaluation interval, then prefill the alert create form so I can review and create it." | urlquery }}
+  resourcesRefs:
+    items: []

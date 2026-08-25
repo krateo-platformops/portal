@@ -1,0 +1,90 @@
+# Alert create Form — SAME logic as form.blueprint-create, pointed at alert-formdef:
+#   - apiRef → alert-formdef: returns the live Alert CRD spec schema (with reserved-key identity
+#     fields __alert_name__ + __alert_namespace__ prepended) + the static GVR (apiVersion/kind/
+#     resource) for the create POST target.
+#   - schema ← schemaSpec: SchemaFields renders Name, the create-permitted Namespace picker, and
+#     the Alert's own spec fields (displayName, where, interval, threshold, thresholdType, message)
+#     straight from the CRD — required fields (interval/threshold/thresholdType) up-front.
+#   - submit routes __alert_name__/__alert_namespace__ into metadata and the rest into spec, then
+#     POSTs to the GVR-derived target (resourcesRefsTemplate) — no hardcoded endpoint.
+# Reached from /alerts/new (flex.page-alert-create); the /alerts page "New alert" CTA + the
+# empty-state hint both navigate here.
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-create
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: alert-formdef
+    namespace: {{ .Release.Namespace }}
+  # alert-formdef reads the authenticated username SERVER-SIDE to scope the per-user draft key
+  # (__owner in initialValues). Under the cache-identity architecture the frontend stops
+  # volunteering identity in extras, so declare it here: snowplow injects the server-trusted
+  # username (JWT principal) into this widget's L1 key + resolve input. Enum-bounded to username.
+  identityContext:
+    - username
+  widgetData:
+    layout: vertical
+    # Configure → Review: the primary button validates and reveals an in-place read-only Review
+    # of the entered values; only the Review step's button creates.
+    reviewBeforeSubmit: true
+    submitActionId: submit
+    # Save draft: persists the CURRENT field values un-validated to the BROWSER (localStorage) so
+    # an incomplete form survives a reload with NO backend persistence. Keyed by __owner (seeded
+    # into initialValues, never rendered/validated). draftActionId only ENABLES the button.
+    draftActionId: save-draft
+    schema: {}
+    buttonConfig:
+      primary:
+        label: Create alert
+      secondary:
+        label: Cancel
+        # Cancel → back to the /alerts rule catalog (navigate, not a form reset); this form is
+        # reached from /alerts, so that is the user's origin.
+        navigateTo: /alerts
+      draft:
+        label: Save draft
+        icon: fa-floppy-disk
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-alert
+          headers:
+            - 'Content-Type: application/json'
+          # Redirect to the new Alert's detail page. resolveJq sees the built request body as
+          # `.json`, which carries metadata.name + metadata.namespace (set by payloadToOverride).
+          onSuccessNavigateTo: '${ "/alerts/" + .json.metadata.namespace + "/" + .json.metadata.name }'
+          successMessage: Alert created
+          # metadata.name      ← __alert_name__       (user-entered Alert name)
+          # metadata.namespace ← __alert_namespace__  (the create-permitted ns picker; snowplow's
+          #                      POST /call derives the target namespace from body metadata.namespace,
+          #                      so this single value is BOTH the CR's ns AND the POST-target ns).
+          # spec               ← everything EXCEPT the two reserved identity keys (the Alert's own
+          #                      spec fields: displayName/where/interval/threshold/thresholdType/message).
+          payloadToOverride:
+            - { name: metadata.name,      value: '${ .json.__alert_name__ }' }
+            - { name: metadata.namespace, value: '${ .json.__alert_namespace__ }' }
+            - { name: spec,               value: '${ .json | del(.__alert_name__) | del(.__alert_namespace__) }' }
+  widgetDataTemplate:
+    - forPath: schema
+      expression: '${ .schemaSpec }'
+    - forPath: propertiesToHide
+      expression: '${ .propertiesToHide }'
+    # Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these over schema
+    # defaults; __owner has no schema field so it stays unrendered.
+    - forPath: initialValues
+      expression: '${ .initialValues }'
+  resourcesRefs:
+    # The create POST target is built from the discovered GVR in resourcesRefsTemplate below.
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: create-alert
+        apiVersion: '${ .apiVersion }'
+        resource: '${ .resource }'
+        namespace: '${ .namespace }'
+        verb: POST

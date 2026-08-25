@@ -1,0 +1,27 @@
+# /alerts/new page head — eyebrow + H1 + subtitle stack (sibling of alerts-header / create-header).
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-create-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    vertical: true
+    items:
+    - resourceRefId: alert-create-eyebrow
+    - resourceRefId: alert-create-title
+    - resourceRefId: alert-create-subtitle
+  resourcesRefs:
+    items:
+    {{- range (list "alert-create-eyebrow" "alert-create-title" "alert-create-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}
