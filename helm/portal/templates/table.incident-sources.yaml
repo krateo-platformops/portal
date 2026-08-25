@@ -1,7 +1,14 @@
 # EVIDENCE SOURCES table — the verbatim sources the agent read, rendered as a Table for the
 # "Sources" tab of the "What happened" Tabs widget. Columns: type (source kind, uppercased),
-# ref (the URL/path/object identifier), excerpt (the verbatim text the agent read). No row
-# navigation — sources are evidence records, not navigable cluster objects.
+# ref (the URL/path/object identifier), excerpt (the verbatim text the agent read).
+#
+# Ask-4 (clickable sources): each row navigates to THIS incident's page with an ?ask seed whose verb
+# matches the source type — logs → "retrieve the logs", object/resource → "get object details", event
+# → "show the events", else a generic "show this source" — so the click opens Autopilot pre-seeded to
+# actually retrieve/get that source (it has the k8s tools). The whole destination is precomputed
+# server-side into a hidden `route` cell (incident-detail .sourcesRows[].route); rowNavigateTo is
+# `{route}` (frontend Table >= 1.3.78 uses a whole-placeholder cell VERBATIM — the query string is
+# preserved). A row with an empty route stays inert.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,6 +22,7 @@ spec:
     allowedResources: []
     bordered: false
     size: small
+    rowNavigateTo: '{route}'
     columns:
     - valueKey: type
       title: Type
@@ -25,7 +33,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.sourcesRows // [])[] | [ {valueKey:"type",kind:"jsonSchemaType",type:"string",stringValue:(.type // "")}, {valueKey:"ref",kind:"jsonSchemaType",type:"string",stringValue:(.ref // ""),color:"#8c8c8c"}, {valueKey:"excerpt",kind:"jsonSchemaType",type:"string",stringValue:(.excerpt // ""),color:"#595959"} ] ] }'
+    expression: '${ [ (.sourcesRows // [])[] | [ {valueKey:"type",kind:"jsonSchemaType",type:"string",stringValue:(.type // "")}, {valueKey:"ref",kind:"jsonSchemaType",type:"string",stringValue:(.ref // ""),color:"#8c8c8c"}, {valueKey:"excerpt",kind:"jsonSchemaType",type:"string",stringValue:(.excerpt // ""),color:"#595959"}, {valueKey:"route",kind:"jsonSchemaType",type:"string",stringValue:(.route // "")} ] ] }'
   apiRef:
     name: incident-detail
     namespace: {{ .Release.Namespace }}

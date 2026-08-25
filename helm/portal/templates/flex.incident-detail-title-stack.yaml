@@ -1,0 +1,46 @@
+# Left side of the incident-detail pagehead: the vertical title stack —
+#   [ title line (H2 + Lifecycle/Trigger tags) ] / [ chips (affected ref + Alert link) ] / [ meta card ].
+# Split out of incident-detail-header-block so the header can be a space-between row with the action
+# cluster on the right (mirrors composition-detail-title-stack). `flex:1 1 auto` on this column so a
+# long title wraps rather than crowding the actions.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-title-stack
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+      - flexes
+      - paragraphs
+      - cards
+    vertical: true
+    gap: small
+    items:
+      - resourceRefId: incident-detail-titleline
+      - resourceRefId: incident-detail-chips
+      - resourceRefId: incident-meta-card
+  resourcesRefs:
+    items:
+      - id: incident-detail-titleline
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-titleline
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
+      - id: incident-detail-chips
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-chips
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
+      - id: incident-meta-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-meta-card
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET

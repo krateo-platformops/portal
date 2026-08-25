@@ -1,7 +1,8 @@
-# Incident detail pagehead — back-link, H1 title (UX-17: the short alert name, incident-first),
-# chips line (lifecycle / trigger / affected-resource ref / triggering-alert link) and the meta
-# strip (started · updated · phase as an antd Descriptions — UX-19). Mirrors
-# composition-detail-header-block.
+# Incident detail pagehead — a space-between row (mirrors composition-detail-header-block):
+#   [ title-stack: H2 title (UX-17 short alert name) + lifecycle/trigger tags / chips / meta ]
+#   [ actions:    Diagnose (Autopilot ?ask) · Discard (delete report, confirmed) ]
+# The title stack + chips + meta moved into incident-detail-title-stack so the action cluster can
+# dock top-right. align:flex-start keeps the buttons pinned to the top of the (taller) title column.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,39 +15,25 @@ spec:
   keyExtras: [name, namespace]
   widgetData:
     allowedResources:
-    - buttons
-    - paragraphs
     - flexes
-    - cards
-    vertical: true
-    gap: small
+    vertical: false
+    justify: space-between
+    align: flex-start
+    gap: middle
     items:
-    # UX-27 (#69 §0.2): the "Back to incidents" link was removed — the breadcrumb's clickable
-    # "Incidents" segment is the single way back (no duplicate navigation control).
-    # #69 §0.4: the title now shares its line with the Lifecycle + Trigger tags (incident-detail-
-    # titleline); the chips row below keeps only the affected-resource ref + the clickable Alert link.
-    - resourceRefId: incident-detail-titleline
-    - resourceRefId: incident-detail-chips
-    # UX-19: the meta is now a Descriptions list hosted in a borderless Card (the Descriptions
-    # plural isn't in the Flex child enum; Card children are unconstrained — incident-meta-card).
-    - resourceRefId: incident-meta-card
+    - resourceRefId: incident-detail-title-stack
+    - resourceRefId: incident-detail-actions
   resourcesRefs:
     items:
-    - id: incident-detail-titleline
+    - id: incident-detail-title-stack
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-detail-titleline
+      name: incident-detail-title-stack
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: incident-detail-chips
+    - id: incident-detail-actions
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-detail-chips
+      name: incident-detail-actions
       namespace: {{ .Release.Namespace }}
       resource: flexes
-      verb: GET
-    - id: incident-meta-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-meta-card
-      namespace: {{ .Release.Namespace }}
-      resource: cards
       verb: GET

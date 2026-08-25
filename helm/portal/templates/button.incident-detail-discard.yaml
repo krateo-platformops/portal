@@ -1,0 +1,48 @@
+# Discard the incident — deletes the underlying TroubleshootingReport CR. Destructive, so
+# requireConfirmation gates it behind the engine's antd confirm modal; RBAC via the user token.
+# On success the engine redirects back to the /incidents list (onSuccessNavigateTo). Target GVR
+# resolved server-side from incident-detail (.reportGvr) — no hardcode. A TroubleshootingReport
+# DELETEs directly (the reconciler's finalizer runs cleanup, then the object is removed), so this
+# is fully effective on any cluster. Mirrors button.composition-detail-delete.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-discard
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Discard
+    icon: fa-trash
+    type: default
+    danger: true
+    size: small
+    clickActionId: discard
+    actions:
+      rest:
+        - id: discard
+          type: rest
+          resourceRefId: delete-report
+          headers:
+            - 'Accept: application/json'
+          requireConfirmation: true
+          successMessage: Incident discarded
+          onSuccessNavigateTo: /incidents
+          loading:
+            display: true
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: delete-report
+        apiVersion: ${ .reportGvr.apiVersion }
+        resource: ${ .reportGvr.resource }
+        name: ${ .reportGvr.name }
+        namespace: ${ .reportGvr.namespace }
+        verb: DELETE

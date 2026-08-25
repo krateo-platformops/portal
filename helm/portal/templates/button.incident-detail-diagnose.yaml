@@ -1,0 +1,39 @@
+# "Diagnose with Autopilot" — a copilot entry-point in the incident-detail action cluster. It
+# navigates to THIS incident's own page with an ?ask seed the AutopilotProvider consumes on mount
+# (opens the rail pre-seeded with a grounded investigation prompt describing what the incident
+# contains, what happened, the likely root cause and how to fix it). The concrete href is baked
+# server-side by incident-detail (.diagnoseHref, @uri-encoded), so the click is a plain literal
+# navigate — same pattern as button.composition-detail-diagnose. Graceful: if Autopilot is disabled,
+# frontend >= 1.3.76 shows an honest "Autopilot is not enabled on this portal" notice and strips the
+# ?ask. Kept type:default (secondary) so it reads as an assistive action, not a destructive one.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-diagnose
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Diagnose
+    type: default
+    size: small
+    icon: fa-wand-magic-sparkles
+    clickActionId: diagnose
+    actions:
+      navigate:
+        - id: diagnose
+          type: navigate
+          path: /incidents
+  widgetDataTemplate:
+    # Server-built self-page href with the ?ask seed. Defensive fallback to the bare /incidents list
+    # (never a 404) if diagnoseHref is somehow empty.
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "diagnose", type: "navigate", path: (if (.diagnoseHref // "") != "" then .diagnoseHref else "/incidents" end) } ] } }'
+  resourcesRefs:
+    items: []
