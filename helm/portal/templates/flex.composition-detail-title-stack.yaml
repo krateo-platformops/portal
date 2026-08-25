@@ -1,6 +1,10 @@
-# Left side of the detail pagehead: the title line (name + status Tag) stacked
-# over the subtitle. Extracted from the old header-block so the header can become
-# a space-between row (title-stack | actions), matching the enterprise-detail mockup.
+# Second header row: the subtitle on the left and the action button group on the right,
+# sharing one line with justify space-between and centre alignment — sitting BENEATH the
+# title line (name + status), which composition-detail-header-block now renders on its own
+# row. Mirrors blueprint-detail-title-stack.
+# #97 (fedepini): the "Back to compositions" button was removed from this stack — the
+# breadcrumb's clickable "Compositions" segment is the single way back (no duplicate
+# navigation control), same as incident-detail / Settings / Clusters.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,33 +16,28 @@ spec:
   # F6 (snowplow#130): extras keys that partition this widget's cache cell.
   keyExtras: [name, namespace]
   widgetData:
-    vertical: true
-    gap: small
+    vertical: false
+    justify: space-between
+    align: center
+    gap: middle
+    wrap: true
     allowedResources:
-      - buttons
       - flexes
       - paragraphs
     items:
-      - resourceRefId: composition-detail-back
-      - resourceRefId: composition-detail-title-line
       - resourceRefId: composition-detail-subtitle
+      - resourceRefId: composition-detail-actions
   resourcesRefs:
     items:
-      - id: composition-detail-back
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-back
-        namespace: {{ .Release.Namespace }}
-        resource: buttons
-        verb: GET
-      - id: composition-detail-title-line
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-title-line
-        namespace: {{ .Release.Namespace }}
-        resource: flexes
-        verb: GET
       - id: composition-detail-subtitle
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: composition-detail-subtitle
         namespace: {{ .Release.Namespace }}
         resource: paragraphs
+        verb: GET
+      - id: composition-detail-actions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-actions
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
         verb: GET
