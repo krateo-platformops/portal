@@ -1,0 +1,37 @@
+# Right side of the incident-detail pagehead: the action button cluster —
+#   [ Diagnose (Autopilot ?ask) · Discard (delete the report, confirmed) ].
+# Both buttons resolve their per-incident target from the incident-detail RA (.diagnoseHref /
+# .reportGvr), so this Flex itself is data-agnostic. Mirrors composition-detail-actions.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    allowedResources:
+      - buttons
+    items:
+      - resourceRefId: incident-detail-diagnose
+      - resourceRefId: incident-detail-discard
+  resourcesRefs:
+    items:
+      - id: incident-detail-diagnose
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-diagnose
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: incident-detail-discard
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-discard
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET

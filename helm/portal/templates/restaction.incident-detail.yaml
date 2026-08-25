@@ -171,6 +171,18 @@ spec:
         # route is owned by the alerts page group.
         alertName: $alertName,
         alertRoute: (if $alertRealName != "" then ("/alerts/" + $alertNs + "/" + $alertRealName) else "" end),
+        # Ask-1 (Diagnose with Autopilot): a SELF-PAGE ?ask seed the Autopilot rail consumes on mount —
+        # opens the rail pre-seeded with a grounded investigation prompt for THIS incident. The path
+        # stays literal; only the ask string is @uri-encoded (mirrors composition-detail.diagnoseHref).
+        diagnoseHref: ("/incidents/" + $ns + "/" + $n + "?ask="
+          + (("Diagnose this incident (\"" + $n + "\" in namespace \"" + $ns
+             + "\"). Explain what it contains, what happened, the most likely root cause,"
+             + " and how to fix it — grounded in the evidence on this page.") | @uri)),
+        # Ask-2 (Discard): the incident CR's own GVR identity so the Discard button can DELETE it via the
+        # user token (requireConfirmation gates it, onSuccessNavigateTo returns to /incidents). A
+        # TroubleshootingReport DELETEs directly (no controller needed) — effective on any cluster. The
+        # apiVersion/resource are the fixed observability GVR; name/namespace are the route extras.
+        reportGvr: { apiVersion: "observability.krateo.io/v1alpha1", resource: "troubleshootingreports", name: $n, namespace: $ns },
         # HONESTY: the header meta line is lifecycle metadata only (started/updated/phase).
         # The raw model `confidence` is deliberately NOT surfaced here — a fabricated NN%
         # presented as if measured erodes trust. The verdict card states the DETERMINISTIC
@@ -270,12 +282,26 @@ spec:
           description: "",
           status: (if (.applied // false) then "finish" elif (.i == $remCurrentStep) then "process" else "wait" end)
         })),
-        # Evidence sources as table rows for the "Sources" tab — each row is {type, ref, excerpt}.
-        sourcesRows: ($sources | map({
-          type: ((.type // "object") | ascii_upcase),
-          ref: (.ref // ""),
-          excerpt: (.excerpt // "")
-        })),
+        # Evidence sources as table rows for the "Sources" tab — each row is {type, ref, excerpt, route}.
+        # Ask-4 (clickable sources): every source row navigates to THIS incident's page with an ?ask seed
+        # whose VERB matches the source type — logs → "retrieve the logs", object/resource → "get object
+        # details", event → "show the events", else a generic "show this source". Autopilot has the k8s
+        # tools to actually perform the retrieve/get, so the click answers the next question instead of
+        # dead-ending. The path is literal; only the ask string is @uri-encoded. The Sources table sets
+        # rowNavigateTo:'{route}' (whole-placeholder cell → used verbatim, query string preserved).
+        sourcesRows: ($sources | map(
+          (.ref // "") as $ref
+          | ((.type // "object") | ascii_downcase) as $tl
+          | (if ($tl | test("log")) then ("Retrieve the logs from " + (if $ref != "" then ("\"" + $ref + "\"") else "the source cited in this incident" end) + " and summarise what they show about this incident.")
+             elif ($tl | test("event")) then ("Show the Kubernetes events for " + (if $ref != "" then ("\"" + $ref + "\"") else "the object cited in this incident" end) + " that are relevant to this incident.")
+             elif ($tl | test("object|resource|manifest|spec|status|pod|deploy")) then ("Get the full details of " + (if $ref != "" then ("\"" + $ref + "\"") else "the object cited in this incident" end) + " and explain its current state in the context of this incident.")
+             else ("Show me what the source " + (if $ref != "" then ("\"" + $ref + "\"") else "cited in this incident" end) + " contains and why it is relevant to this incident.") end) as $srcAsk
+          | {
+              type: ((.type // "object") | ascii_upcase),
+              ref: $ref,
+              excerpt: (.excerpt // ""),
+              route: ("/incidents/" + $ns + "/" + $n + "?ask=" + ($srcAsk | @uri))
+            })),
         remediationDesc: ((($plan | length) | tostring) + " ordered steps · each is a gated action you review before anything changes" + (if ($plan | length) > 6 then " · showing the first 6" else "" end)),
         similar: $similar,
         # HONESTY (IA incidents-deepdive): a FAILED run must not be dressed up as analysis.
