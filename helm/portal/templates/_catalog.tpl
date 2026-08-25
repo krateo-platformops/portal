@@ -39,7 +39,7 @@
   verb: GET
   headers:
     - 'Accept: application/json'
-  filter: '.data["{{ $index }}-index.json"] | fromjson'
+  filter: '.{{ $name }}.data["{{ $index }}-index.json"] | fromjson'
 {{- end }}
   continueOnError: true
   errorKey: {{ $name }}Error
