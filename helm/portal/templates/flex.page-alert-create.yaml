@@ -1,0 +1,36 @@
+# Convention page root for /alerts/new (nav item `page: alert-create` → resource `flexes`, name
+# `page-<slug>`). Renders the generic alert create Form (forms/alert-create) wrapped in a card,
+# under a pagehead. No route params/extras — the Alert GVR is static, so alert-formdef needs no
+# blueprint identity (unlike page-blueprint-create). Reached from the /alerts "New alert" CTA and
+# the empty-state hint.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-alert-create
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+      - flexes
+      - cards
+    vertical: true
+    gap: large
+    items:
+      - resourceRefId: alert-create-header
+      - resourceRefId: alert-create-form-card
+  resourcesRefs:
+    items:
+      - id: alert-create-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-create-header
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
+      - id: alert-create-form-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-create-form-card
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET

@@ -1,0 +1,26 @@
+# Bounded "Configuration" panel wrapping the alert-create Form so /alerts/new reads as a card
+# instead of an edge-to-edge band (mirrors create-form-card on the blueprint create page). Card
+# imposes no allowedResources enum, so a `forms` child is accepted with no image release.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-create-form-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Configuration
+    titleVariant: eyebrow
+    variant: outlined
+    extra: 'Fields come from the Alert CRD'
+    items:
+      - resourceRefId: alert-create-form
+  resourcesRefs:
+    items:
+      - id: alert-create-form
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-create
+        namespace: {{ .Release.Namespace }}
+        resource: forms
+        verb: GET

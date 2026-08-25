@@ -40,4 +40,9 @@ spec:
         state: (.status.state // "PENDING"),
         ask: ("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is currently " + (.status.state // "PENDING") + "; explain what it watches, why it is in this state, and give me the concrete next steps.")
       } ],
-      firing: ([ ((.alerts.items) // [])[] | select((.status.state // "") == "ALERT") ] | length) }
+      firing: ([ ((.alerts.items) // [])[] | select((.status.state // "") == "ALERT") ] | length),
+      # Empty-state hint for listy.alerts-hint: one actionable row ONLY when zero alerts exist,
+      # else []. hideWhenEmpty removes the strip once the first alert lands (exception-only UX).
+      hint: (if (([ ((.alerts.items) // [])[] ] | length) == 0)
+             then [ { title: "Create your first alert", detail: "Define a threshold rule over your telemetry — what to watch, the trigger value and the evaluation interval." } ]
+             else [] end) }
