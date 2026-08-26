@@ -41,8 +41,9 @@ spec:
         ask: ("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is currently " + (.status.state // "PENDING") + "; explain what it watches, why it is in this state, and give me the concrete next steps.")
       } ],
       firing: ([ ((.alerts.items) // [])[] | select((.status.state // "") == "ALERT") ] | length),
-      # Empty-state hint for listy.alerts-hint: one actionable row ONLY when zero alerts exist,
-      # else []. hideWhenEmpty removes the strip once the first alert lands (exception-only UX).
-      hint: (if (([ ((.alerts.items) // [])[] ] | length) == 0)
-             then [ { title: "Create your first alert", detail: "Define a threshold rule over your telemetry — what to watch, the trigger value and the evaluation interval." } ]
-             else [] end) }
+      # Always-visible "author with Autopilot" CTA for listy.alerts-hint (was empty-state-only, and
+      # had no ask link — this replaces the separate "Ask Autopilot" button). askHref opens the rail
+      # seeded with the alert-authoring flow; copy reworded off "your first".
+      hint: [ { title: "Author an alert with Autopilot",
+                detail: "Describe what to watch, the trigger value and the evaluation interval in the rail — the agent drafts the alert and you confirm before it's created.",
+                askHref: ("/alerts?ask=" + (("I want to create a new observability alert. Help me define what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm.") | @uri)) } ] }

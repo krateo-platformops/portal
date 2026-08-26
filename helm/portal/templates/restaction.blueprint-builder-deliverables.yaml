@@ -95,8 +95,8 @@ spec:
         counts: { total: ($rows | length),
                   registered: ([ $rows[] | select(.status == "Registered") ] | length),
                   published: ([ $rows[] | select(.marketLabel == "Available") ] | length) },
-        hint: (if ($rows | length) == 0
-               then [ { title: "Author your first blueprint with Autopilot",
-                        detail: "Describe the blueprint in the rail — the agent drafts the Helm chart, previews a live helm-render, and opens a gated pull request. Merged, it publishes an OCI chart and lands on the Blueprints page.",
-                        askHref: ("/blueprint-builder?ask=" + (("I want to author a new blueprint (a Helm chart) with the Blueprint builder. Help me define its Chart.yaml, values.yaml, values.schema.json and templates, preview it with previewBlueprint, and publish it via a gated pull request to the blueprints repo once I confirm.") | @uri)) } ]
-               else [] end) }
+        # Always-visible: the "author with Autopilot" CTA shows whether or not deliverables exist
+        # (was empty-state-only). Copy reworded off "your first" so it reads right when items exist.
+        hint: [ { title: "Author a blueprint with Autopilot",
+                  detail: "Describe the blueprint in the rail — the agent drafts the Helm chart, previews a live helm-render, and opens a gated pull request. Merged, it publishes an OCI chart and lands on the Blueprints page.",
+                  askHref: ("/blueprint-builder?ask=" + (("I want to author a new blueprint (a Helm chart) with the Blueprint builder. Help me define its Chart.yaml, values.yaml, values.schema.json and templates, preview it with previewBlueprint, and publish it via a gated pull request to the blueprints repo once I confirm.") | @uri)) } ] }

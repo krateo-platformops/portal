@@ -1,0 +1,48 @@
+# "Resolve" — marks the incident resolved by writing spec.lifecycle=resolved on the
+# TroubleshootingReport (a main-resource merge-patch via the user token; NOT the status subresource,
+# which the portal can't cleanly patch). The alert-troubleshooter reconciler mirrors spec.lifecycle
+# to status.lifecycle, and the incident-detail RA reads spec.lifecycle first, so the lifecycle chip
+# flips to green immediately. Non-destructive, so no confirmation gate. Target GVR resolved
+# server-side from incident-detail (.reportGvr). Requires the troubleshooter CRD with spec.lifecycle.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-resolve
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Resolve
+    icon: fa-circle-check
+    type: default
+    size: small
+    clickActionId: resolve
+    actions:
+      rest:
+        - id: resolve
+          type: rest
+          resourceRefId: resolve-report
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          payload:
+            spec:
+              lifecycle: resolved
+          successMessage: Incident marked resolved
+          loading:
+            display: true
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: resolve-report
+        apiVersion: ${ .reportGvr.apiVersion }
+        resource: ${ .reportGvr.resource }
+        name: ${ .reportGvr.name }
+        namespace: ${ .reportGvr.namespace }
+        verb: PATCH

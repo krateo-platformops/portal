@@ -61,7 +61,9 @@ spec:
     | ($st.assumptions // []) as $assump
     | (($st.reasoningTrace // []) | sort_by(.step // 0)) as $trace
     | ($st.remediationPlan // []) as $plan
-    | ($st.lifecycle // "open") as $lc
+      # spec.lifecycle (the portal Resolve/Close action) takes precedence so a manual resolve shows
+      # immediately; else status.lifecycle (the reconciler's auto-resolve on alert-clear); else open.
+    | (($sp.lifecycle // $st.lifecycle) // "open") as $lc
       # UX-20 (Ready homonym): the CR's analysis-complete phase is spelled "Ready" — presented
       # as "Analyzed" (matches the troubleshooting feed; "Ready" stays K8s-readiness-only).
     | (($st.phase // "Pending") | if . == "Ready" then "Analyzed" else . end) as $phase
@@ -91,17 +93,36 @@ spec:
         description: (if ((.value.evidenceRefs // []) | length) > 0 then ("→ evidence " + ((.value.evidenceRefs // []) | map("#" + ((. + 1) | tostring)) | join(", "))) else "" end),
         status: "finish"
       })) as $ti0
-    | (if (($ti0 | length) > 0) and (($rc.statement // "") != "") then ($ti0[0:-1] + [ ($ti0[-1] + {status: "error"}) ]) else $ti0 end) as $traceItems
+      # The final step is the CONCLUSION (where the RCA declares the root cause), not a failure — so
+      # it stays status "finish" like the rest. It used to be flipped to antd Steps status "error"
+      # (crimson) as a "here's the problem" marker, but "error" means "this step failed", which
+      # misreads a successful conclusion (and breaks the red=failure-only palette). The Root cause
+      # card below already carries the emphasis.
+    | $ti0 as $traceItems
     | ($plan | to_entries | map(
         .key as $i | .value as $s
         | (($s.verb // "") | ascii_downcase) as $vb
         | (if $vb == "delete" then "DELETE" elif ($vb == "create" or $vb == "post") then "POST" elif ($vb == "put" or $vb == "replace") then "PUT" else "PATCH" end) as $rv
         | (($s.gvr // "") | split("/")) as $g
-        | (if ($g | length) >= 3 then { apiVersion: ($g[0] + "/" + $g[1]), resource: $g[2] } else { apiVersion: "", resource: "" } end) as $tv
+        | (if ($g | length) >= 3 then { apiVersion: ($g[0] + "/" + $g[1]), resource: $g[2] } elif ($g | length) == 2 then { apiVersion: $g[0], resource: $g[1] } else { apiVersion: "", resource: "" } end) as $tv
         | ($s.target.name // "") as $tn
         | ($s.target.namespace // "") as $tns
-        | (($tv.resource != "") and ($tn != "") and ($vb != "apply") and ($vb != "install")) as $actionable
+        | (["get","list","watch","describe"] | index($vb)) as $isRead
+        # ACTIONABLE = a real mutation the "Review & apply" button can perform. READ verbs
+        # (get/list/watch/describe) are verification steps — NOT actionable — so they never get a
+        # mutate button (previously a "get" slipped through and the button PATCHed the object it was
+        # only meant to read). apply/install need a manifest we don't synthesize, so they're out too.
+        | (($tv.resource != "") and ($tn != "") and ($vb != "apply") and ($vb != "install") and ($isRead == null)) as $actionable
         | (if $actionable then ($rv + " " + $tv.resource + "/" + $tn + (if $tns != "" then (" -n " + $tns) else "" end)) else "" end) as $op
+        # The exact command a user can copy and run in their own terminal (the primary path — most
+        # SREs apply from a real shell, not the portal). Verb-accurate: delete/patch for mutations,
+        # get for reads. The button remains the optional in-portal path for mutations.
+        | (if ($tv.resource != "") and ($tn != "") then
+             (if $vb == "delete" then ("kubectl delete " + $tv.resource + " " + $tn)
+              elif $actionable then ("kubectl patch " + $tv.resource + " " + $tn + " --type merge -p '" + (($s.payload // {}) | tojson) + "'")
+              else ("kubectl get " + $tv.resource + " " + $tn) end)
+             + (if $tns != "" then (" -n " + $tns) else "" end)
+           else "" end) as $cmd
         | {
             i: $i,
             restVerb: $rv,
@@ -120,14 +141,19 @@ spec:
             successMessage: ("Remediation step " + (($i + 1) | tostring) + " submitted — verify: " + ($s.successCriterion // "see plan")),
             md: (
               (if $actionable then (
-                "Clicking **Review & apply** will **" + $vb + "** `" + $tv.resource + "/" + $tn + "`"
+                # Truthful: name the verb the button ACTUALLY sends ($rv, the mapped REST verb), not
+                # the raw plan verb — they diverged (a "get" printed "get" but the button PATCHed).
+                "Clicking **Review & apply** will send a **" + $rv + "** to `" + $tv.resource + "/" + $tn + "`"
                 + (if $tns != "" then (" in namespace `" + $tns + "`") else "" end) + "."
                 + (if ($s.payload // {}) != {} then (
                     "\n\nThe following changes will be sent:\n\n```json\n" + (($s.payload // {}) | tojson) + "\n```"
                   ) else "" end)
               ) else (
-                "→ evidence #" + ((($s.sourceRef // 0) + 1) | tostring)
+                # A read/verify step: state what it checks, not a bare "Review & apply" it can't do.
+                (if ($s.description // "") != "" then $s.description else ("→ evidence #" + ((($s.sourceRef // 0) + 1) | tostring)) end)
               ) end)
+              # Copyable command for a terminal outside the portal (the primary way to run it).
+              + (if $cmd != "" then ("\n\nRun it in your terminal:\n\n```bash\n" + $cmd + "\n```") else "" end)
               + (if ($s.successCriterion // "") != "" then (
                   "\n\n---\n\n**Verify:** " + $s.successCriterion
                   + (if ($s.verifyCommand // "") != "" then ("\n\n```bash\n" + $s.verifyCommand + "\n```") else "" end)
