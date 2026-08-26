@@ -1,8 +1,7 @@
-# Left side of the incident-detail pagehead: the vertical title stack —
-#   [ title line (H2 + Lifecycle/Trigger tags) ] / [ chips (affected ref + Alert link) ] / [ meta card ].
-# Split out of incident-detail-header-block so the header can be a space-between row with the action
-# cluster on the right (mirrors composition-detail-title-stack). `flex:1 1 auto` on this column so a
-# long title wraps rather than crowding the actions.
+# Second header row (#105): the chips (affected ref + Alert link) on the left and the action
+# button cluster on the right, sharing one line with justify space-between and centre alignment —
+# sitting BENEATH the title line (name + Lifecycle/Trigger tags), which
+# incident-detail-header-block renders on its own row. Mirrors composition-detail-title-stack.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,31 +15,25 @@ spec:
   widgetData:
     allowedResources:
       - flexes
-      - paragraphs
-      - cards
-    vertical: true
-    gap: small
+    vertical: false
+    justify: space-between
+    align: center
+    gap: middle
+    wrap: true
     items:
-      - resourceRefId: incident-detail-titleline
       - resourceRefId: incident-detail-chips
-      - resourceRefId: incident-meta-card
+      - resourceRefId: incident-detail-actions
   resourcesRefs:
     items:
-      - id: incident-detail-titleline
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: incident-detail-titleline
-        namespace: {{ .Release.Namespace }}
-        resource: flexes
-        verb: GET
       - id: incident-detail-chips
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: incident-detail-chips
         namespace: {{ .Release.Namespace }}
         resource: flexes
         verb: GET
-      - id: incident-meta-card
+      - id: incident-detail-actions
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: incident-meta-card
+        name: incident-detail-actions
         namespace: {{ .Release.Namespace }}
-        resource: cards
+        resource: flexes
         verb: GET
