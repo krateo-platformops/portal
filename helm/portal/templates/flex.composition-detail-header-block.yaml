@@ -1,5 +1,8 @@
-# Page header block — a space-between row matching enterprise-detail.html:
-#   [ title-stack (name + status + subtitle) ]      [ actions (Sync · Pause · Edit · Delete) ]
+# Page header block — a vertical stack of two rows, matching blueprint-detail-header-block:
+#   [ title-line (name + status Tag) ]
+#   [ title-stack: subtitle (left) · actions (Blueprint · Diagnose · Sync · Pause · Edit · Delete) (right) ]
+# #97 (fedepini): was a single space-between row [title-stack | actions] with align: flex-start,
+# which put the actions level with the top of the title stack instead of the subtitle.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,26 +14,24 @@ spec:
   # F6 (snowplow#130): extras keys that partition this widget's cache cell.
   keyExtras: [name, namespace]
   widgetData:
-    vertical: false
-    justify: space-between
-    align: flex-start
-    gap: middle
+    vertical: true
+    gap: small
     allowedResources:
       - flexes
     items:
+      - resourceRefId: composition-detail-title-line
       - resourceRefId: composition-detail-title-stack
-      - resourceRefId: composition-detail-actions
   resourcesRefs:
     items:
-      - id: composition-detail-title-stack
+      - id: composition-detail-title-line
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-title-stack
+        name: composition-detail-title-line
         namespace: {{ .Release.Namespace }}
         resource: flexes
         verb: GET
-      - id: composition-detail-actions
+      - id: composition-detail-title-stack
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-actions
+        name: composition-detail-title-stack
         namespace: {{ .Release.Namespace }}
         resource: flexes
         verb: GET
