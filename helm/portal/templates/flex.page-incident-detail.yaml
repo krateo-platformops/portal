@@ -61,6 +61,7 @@ spec:
         + (if ($s.evidence // false) then [ { resourceRefId: "incident-sec-evidence-card" } ] else [] end)
         + (if (($s.rootcause // false) or ($s.gaps // false) or ($s.trace // false)) then [ { resourceRefId: "incident-why-card" } ] else [] end)
         + (if ($s.remediation // false) then [ { resourceRefId: "incident-sec-remediation-card" } ] else [] end)
+        + (if ($s.audit // false) then [ { resourceRefId: "incident-sec-audit-card" } ] else [] end)
         + (if ($s.similar // false) then [ { resourceRefId: "incident-similar-card" } ] else [] end)
         + (if (.alertName // "") != "" then [ { resourceRefId: "incident-related-alerts-card" } ] else [] end)
         + (if ($s.prose == true) or ($s == {}) then [ { resourceRefId: "incident-prose" } ] else [] end) }
@@ -97,6 +98,14 @@ spec:
     - id: incident-sec-remediation-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-sec-remediation-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    # Feature #7: the Remediation audit section Card (wraps the audit Table; defined in
+    # paragraphs.incident-section-labels). Gated on sections.audit in the items template above.
+    - id: incident-sec-audit-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-sec-audit-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET

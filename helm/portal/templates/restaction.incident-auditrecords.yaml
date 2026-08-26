@@ -1,0 +1,113 @@
+# REMEDIATION AUDIT LOG (feature #7) — the data-plane audit trail (audit.krateo.io/AuditRecord,
+# written by the gated-mutation producers) filtered to THIS incident's target resource(s), so the
+# incident detail can show "what has actually been applied against the objects this incident is
+# about" (actor · verb · resource · outcome · when). Nothing-hardcoded: the target set is DERIVED
+# server-side from the same report incident-detail resolves.
+#
+# Route params (name/namespace) ride in as ?extras (same mechanism as incident-detail). We list:
+#   · troubleshootingreports — to resolve THIS report and read its target resources
+#       (remediationPlan[].{gvr,target} + the analyzed composition), building a set of match keys
+#       "<resource-plural>/<name>" (namespace-agnostic — an AuditRecord may omit namespace).
+#   · auditrecords — the full audit trail (namespace-scoped list of the release namespace).
+# Then keep only the audit records whose action targets one of this incident's resources, shape the
+# display rows, and emit `count`/`hasRecords` so the page renders the section EXCEPTION-ONLY (hidden
+# when there are no records — matching the status-indicators-exception-only convention).
+#
+# AuditRecord shape verified live (gke_operations-dev … krateo-057, CRD auditrecords.audit.krateo.io
+# v1alpha1): spec.actor (human|agent), spec.agent.{id,sessionId}, spec.prompt,
+# spec.action.{verb,group,version,resource,namespace,name}, spec.blastRadius.{count,irreversible,
+# summary}, spec.outcome.{ok,status,message}, spec.requestedAt, spec.resolvedAt. No records exist on
+# the cluster yet (data-plane producers have not written any), so the row-shaping is authored to the
+# verified CRD schema; it is empty-safe (no report / no records → count 0, hasRecords false).
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: incident-auditrecords
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: reports
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
+      verb: GET
+      continueOnError: true
+      errorKey: reportsError
+    # AuditRecords are namespace-scoped (audit.krateo.io/v1alpha1). continueOnError: if the CRD is
+    # not installed on a given cluster the list 404s and the section simply stays empty (never an
+    # error) — the incident detail still resolves fully.
+    - name: audits
+      path: /apis/audit.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/auditrecords
+      verb: GET
+      continueOnError: true
+      errorKey: auditsError
+  # Literal `|` block (NOT folded `>`) — the filter carries `#` comments; a folded block would
+  # collapse newlines to spaces and comment out the rest of the jq (see incident-detail note).
+  filter: |
+    # UX-19 rel: normalise Python isoformat (drop `.ffffff`, fold +00:00 → Z) before parsing; render
+    # a compact relative age. Unparseable → the raw first-10 (a date). (Same helper as incident-detail.)
+    def rel: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else . end) as $norm
+      | ($norm | fromdateiso8601? // null) as $t
+      | if $t == null then (. // "" | tostring | .[0:10]) else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
+    (.name // "") as $n
+    | (.namespace // "") as $ns
+    | ((.reports.items) // []) as $items
+    | ([ $items[] | select((.metadata.name // "") == $n and (.metadata.namespace // "") == $ns) ] | first // {}) as $r
+    | ($r.status // {}) as $st
+    | ($st.remediationPlan // []) as $plan
+    | ($st.analyzedResources // []) as $analyzed
+      # This incident's TARGET resources → a set of namespace-agnostic match keys
+      # "<resource-plural>/<name>". Two sources: the remediation plan's targets (gvr last segment is
+      # the plural; target.name), and every analyzed resource (gvr last segment; name). We match an
+      # AuditRecord on (resource-plural, name) and ignore namespace (an AuditRecord may omit it, and
+      # these reports are single-namespace). Empty tokens are dropped so a partial report can't match
+      # everything.
+    | ([ ($plan[]
+           | (((.gvr // "") | split("/") | last) // "") as $res
+           | (.target.name // "") as $tn
+           | select($res != "" and $tn != "")
+           | ($res + "/" + $tn)),
+         ($analyzed[]
+           | (((.gvr // "") | split("/") | last) // "") as $res
+           | (.name // "") as $an
+           | select($res != "" and $an != "")
+           | ($res + "/" + $an))
+       ] | unique) as $targetKeys
+    | ((.audits.items) // []) as $ars
+    | ([ $ars[]
+         | (.spec // {}) as $sp
+         | ($sp.action // {}) as $act
+         | ((($act.resource // "")) + "/" + ($act.name // "")) as $akey
+         # Keep only audit records whose write targets one of this incident's resources.
+         | select(($targetKeys | length) > 0 and ($targetKeys | index($akey) != null))
+         | {
+             # actor — human, or the agent identity when actor=agent (falls back to the enum value).
+             actor: (if ($sp.actor // "") == "agent" then ("agent" + (if ($sp.agent.id // "") != "" then (" · " + $sp.agent.id) else "" end)) else ($sp.actor // "—") end),
+             verb: (($act.verb // "") | ascii_upcase),
+             # resource = "<group>/<resource>/<name>" (gvr + target name), namespace appended when set.
+             resource: (((if ($act.group // "") != "" then ($act.group + "/") else "" end) + ($act.resource // "") + "/" + ($act.name // ""))
+               + (if ($act.namespace // "") != "" then (" · " + $act.namespace) else "" end)),
+             # result/outcome — OK/FAILED with the HTTP status; honest "—" when the producer left it unset.
+             result: (if ($sp.outcome | type) == "object" then
+                        ((if ($sp.outcome.ok // false) then "OK" else "FAILED" end)
+                         + (if ($sp.outcome.status // 0) != 0 then (" " + ($sp.outcome.status | tostring)) else "" end))
+                      else "—" end),
+             resultColor: (if ($sp.outcome.ok // false) then "#389e0d" else (if ($sp.outcome | type) == "object" then "#cf1322" else "#8c8c8c" end) end),
+             # timestamp — the dispatch time (resolvedAt) preferred, else the ask time (requestedAt),
+             # else the record's own creationTimestamp; rendered as a compact relative age.
+             timestamp: ((($sp.resolvedAt // "") | if . != "" then . else ($sp.requestedAt // "") end
+                          | if . != "" then . else (.metadata.creationTimestamp // "") end) | rel),
+             # raw sortable key (unnormalised) — newest first.
+             ts: (($sp.resolvedAt // $sp.requestedAt // .metadata.creationTimestamp // ""))
+           }
+       ] | sort_by(.ts) | reverse) as $rows
+    | {
+        rows: $rows,
+        count: ($rows | length),
+        # EXCEPTION-ONLY: the page renders the "Remediation audit" section ONLY when hasRecords is
+        # true (no records → no empty section). Also the number of matched target resources, for the
+        # section desc.
+        hasRecords: (($rows | length) > 0),
+        targetCount: ($targetKeys | length),
+        auditDesc: (($rows | length | tostring) + " recorded action" + (if ($rows | length) == 1 then "" else "s" end) + " against this incident's resources")
+      }

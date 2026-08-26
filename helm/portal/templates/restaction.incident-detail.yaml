@@ -37,6 +37,17 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: alertsError
+    # Feature #7 (remediation audit log): list the data-plane audit trail so the page can gate the
+    # "Remediation audit" section on whether THIS incident's resources have any recorded actions
+    # (sections.audit below). The section CONTENT (the row table) is shaped by the sibling
+    # restaction.incident-auditrecords; here we only need the count to decide visibility, keeping the
+    # single sections-flag gating authority the page Flex already uses. continueOnError: if the
+    # audit.krateo.io CRD is absent the list 404s → the section stays hidden (never an error).
+    - name: audits
+      path: /apis/audit.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/auditrecords
+      verb: GET
+      continueOnError: true
+      errorKey: auditsError
   # NOTE: literal `|` block (NOT folded `>`) — the filter contains `#` comments, and a folded
   # block collapses newlines to spaces so every `#` would comment out the rest of the (now single-
   # line) jq, silently breaking the whole RA. `|` preserves the line breaks so comments terminate.
@@ -61,6 +72,26 @@ spec:
     | ($st.assumptions // []) as $assump
     | (($st.reasoningTrace // []) | sort_by(.step // 0)) as $trace
     | ($st.remediationPlan // []) as $plan
+      # Feature #7 (remediation audit log): does THIS incident's resource set have any recorded audit
+      # actions? Build the same namespace-agnostic "<resource-plural>/<name>" target keys the sibling
+      # incident-auditrecords RA uses (remediationPlan targets + analyzed resources), then count the
+      # matched AuditRecords. Only the COUNT is needed here — to gate sections.audit (the content
+      # table is shaped by incident-auditrecords). Empty/absent → 0 → the section stays hidden.
+    | ([ ($plan[]
+           | (((.gvr // "") | split("/") | last) // "") as $res
+           | (.target.name // "") as $tn
+           | select($res != "" and $tn != "")
+           | ($res + "/" + $tn)),
+         ($analyzed[]
+           | (((.gvr // "") | split("/") | last) // "") as $res
+           | (.name // "") as $an
+           | select($res != "" and $an != "")
+           | ($res + "/" + $an))
+       ] | unique) as $auditTargetKeys
+    | ([ (((.audits.items) // [])[])
+         | ((.spec.action // {}) as $act | (($act.resource // "") + "/" + ($act.name // "")))
+         | select(($auditTargetKeys | length) > 0 and ($auditTargetKeys | index(.) != null))
+       ] | length) as $auditCount
       # spec.lifecycle (the portal Resolve/Close action) takes precedence so a manual resolve shows
       # immediately; else status.lifecycle (the reconciler's auto-resolve on alert-clear); else open.
     | (($sp.lifecycle // $st.lifecycle) // "open") as $lc
@@ -133,6 +164,11 @@ spec:
             namespace: $tns,
             payload: ($s.payload // {}),
             actionable: $actionable,
+            # A step whose verb is a READ (get/list/watch/describe) is a VERIFICATION step, not a
+            # remediation. Surfaced so the rendered markdown can label it "Verify" vs "Remediate"
+            # (server-side classification the row eyebrow consumes) AND so the sequential-lock
+            # pointer can SKIP it when advancing to the next actionable fix.
+            isRead: ($isRead != null),
             navigateTo: ("/incidents?ask=" + (("Help me provision the missing resource" + (if $tn != "" then (" “" + $tn + "”") else "" end) + " needed to resolve this incident. Find and install the right blueprint from the Marketplace.") | @uri)),
             danger: ($rv == "DELETE" and $actionable),
             applied: (($s.observedOutcome // "") != ""),
@@ -140,7 +176,13 @@ spec:
             headers: (if $rv == "PATCH" then ["Content-Type: application/merge-patch+json"] else ["Content-Type: application/json"] end),
             successMessage: ("Remediation step " + (($i + 1) | tostring) + " submitted — verify: " + ($s.successCriterion // "see plan")),
             md: (
-              (if $actionable then (
+              # Eyebrow (issue: verify-vs-remediate): a subtle uppercased label distinguishes a
+              # VERIFICATION step (read verb — get/list/watch/describe) from a REMEDIATION step (a
+              # real mutation). Driven by the same $isRead classification the actionable flag uses,
+              # so the two labels never disagree with the button state. Rendered as small muted
+              # markdown above the step body — consistent with the mono/eyebrow styling elsewhere.
+              (if $isRead != null then "**VERIFY**\n\n" else "**REMEDIATE**\n\n" end)
+              + (if $actionable then (
                 # Truthful: name the verb the button ACTUALLY sends ($rv, the mapped REST verb), not
                 # the raw plan verb — they diverged (a "get" printed "get" but the button PATCHed).
                 "Clicking **Review & apply** will send a **" + $rv + "** to `" + $tv.resource + "/" + $tn + "`"
@@ -162,7 +204,17 @@ spec:
             )
           }
       )) as $remSteps
-    | ([ $remSteps[] | select((.applied // false) | not) | .i ] | first // ($remSteps | length)) as $remCurrentStep
+    # CURRENT (first-unapplied) step pointer — gates which step shows the "Review & apply" button
+    # (sequential lock). Advancing skips NON-ACTIONABLE steps: a leading verification step (verb
+    # get/list/watch/describe) is never "applied" (it records no observedOutcome), so under the old
+    # "first unapplied" rule it stayed the current step FOREVER and blocked the button of any later
+    # actionable fix. Now the pointer lands on the first unapplied step that is ALSO actionable, so a
+    # leading verify step no longer wedges the plan. If none is actionable-and-unapplied, fall back
+    # to the first unapplied step (keeps the previous cursor for an all-verify / all-applied plan),
+    # then past-the-end (no button) — preserving every existing behaviour for actionable steps.
+    | ([ $remSteps[] | select((.applied // false) | not) | select(.actionable // false) | .i ] | first
+        // ([ $remSteps[] | select((.applied // false) | not) | .i ] | first
+        // ($remSteps | length))) as $remCurrentStep
     | (if ($rc.category // "") != "" then
         ([ $items[]
            | select(((.metadata.name // "") != $n) or ((.metadata.namespace // "") != $ns))
@@ -355,6 +407,9 @@ spec:
           rootcause: (($rc.statement // "") != ""),
           remediation: (($remSteps | length) > 0),
           remCount: ([ ($remSteps | length), 6 ] | min),
+          # Feature #7: the "Remediation audit" section shows ONLY when this incident's resources have
+          # recorded audit actions (exception-only — no empty audit section).
+          audit: ($auditCount > 0),
           similar: (($similar | length) > 0),
           prose: ($structured | not)
         }
