@@ -30,10 +30,15 @@ spec:
       title: Reference
     - valueKey: excerpt
       title: Excerpt
+    # Ask-4 affordance: a trailing accent cell so a Sources row VISIBLY announces it hands off to
+    # Autopilot (vs the Resources tab, whose rows drill into a detail page). Same-looking table rows
+    # behaving differently was the confusing bit; this signals the click target before the click.
+    - valueKey: action
+      title: ''
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.sourcesRows // [])[] | [ {valueKey:"type",kind:"jsonSchemaType",type:"string",stringValue:(.type // "")}, {valueKey:"ref",kind:"jsonSchemaType",type:"string",stringValue:(.ref // ""),color:"#8c8c8c"}, {valueKey:"excerpt",kind:"jsonSchemaType",type:"string",stringValue:(.excerpt // ""),color:"#595959"}, {valueKey:"route",kind:"jsonSchemaType",type:"string",stringValue:(.route // "")} ] ] }'
+    expression: '${ [ (.sourcesRows // [])[] | [ {valueKey:"type",kind:"jsonSchemaType",type:"string",stringValue:(.type // "")}, {valueKey:"ref",kind:"jsonSchemaType",type:"string",stringValue:(.ref // ""),color:"#8c8c8c"}, {valueKey:"excerpt",kind:"jsonSchemaType",type:"string",stringValue:(.excerpt // ""),color:"#595959"}, {valueKey:"action",kind:"jsonSchemaType",type:"string",stringValue:"✨ Ask Autopilot →",color:"#11B2E2"}, {valueKey:"route",kind:"jsonSchemaType",type:"string",stringValue:(.route // "")} ] ] }'
   apiRef:
     name: incident-detail
     namespace: {{ .Release.Namespace }}
