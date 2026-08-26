@@ -1,0 +1,34 @@
+# Always-visible "build with Autopilot" CTA strip, matching blueprint-builder-hint /
+# kog-builder-hint (this page previously had no footer at all). The row navigates to a
+# server-built /portal-builder?ask= deep-link that opens the Autopilot rail seeded with
+# the page-authoring flow. (A Paragraph cannot carry a link — the Listy item is the house
+# pattern for an actionable hint.)
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: portal-builder-hint
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: builder-prs
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    dataSource: []
+    itemLayout: horizontal
+    split: false
+    hideWhenEmpty: true
+    itemTemplate:
+      navigateTo: '{askHref}'
+      iconVariant: tile
+      icon: fa-wand-magic-sparkles
+      color:
+        default: blue
+      primaryText: '{title}'
+      subPrimaryText: '{detail}'
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .hint // [] }'
+  resourcesRefs:
+    items: []
