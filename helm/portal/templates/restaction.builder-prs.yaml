@@ -26,7 +26,7 @@ spec:
       continueOnError: true
       errorKey: prsError
   filter: >
-    { rows: [ ((.prs.items) // [])[]
+    ([ ((.prs.items) // [])[]
         | (((.spec.owner) // "") + "/" + ((.spec.repo) // "")) as $repo
         | ((.spec.head) // "") as $head
         | ((.status.state) // "pending") as $rawState
@@ -60,4 +60,10 @@ spec:
             # The GitHub PR URL (status.html_url) — the Listy row's external navigateTo. A PR
             # with no URL yet (freshly created, pre-reconcile) gets "" → the row is inert.
             url:   ((.status.html_url) // "")
-          } ] }
+          } ]) as $rows
+    | { rows: $rows,
+        # #101: always-visible "build with Autopilot" CTA strip, matching the blueprint-builder /
+        # kog-builder deliverables pattern (was missing here entirely — this page had no footer).
+        hint: [ { title: "Build a portal page with Autopilot",
+                  detail: "Describe the page in the rail — Autopilot composes it from the widget catalog, previews the draft live in the portal, and opens a gated pull request to the platform's git repos. Merged, it goes live in the portal.",
+                  askHref: ("/portal-builder?ask=" + (("I want to build a new portal page with the Portal builder. Help me compose it from the widget catalog, preview the draft live in the portal, and publish it as a gated pull request to the portal chart once I confirm.") | @uri)) } ] }
