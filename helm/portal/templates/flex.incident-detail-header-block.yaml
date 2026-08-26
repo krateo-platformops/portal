@@ -1,8 +1,13 @@
-# Incident detail pagehead — a space-between row (mirrors composition-detail-header-block):
-#   [ title-stack: H2 title (UX-17 short alert name) + lifecycle/trigger tags / chips / meta ]
-#   [ actions:    Diagnose (Autopilot ?ask) · Discard (delete report, confirmed) ]
-# The title stack + chips + meta moved into incident-detail-title-stack so the action cluster can
-# dock top-right. align:flex-start keeps the buttons pinned to the top of the (taller) title column.
+# Incident detail pagehead — a vertical stack of three rows (#105, mirrors the
+# composition-detail-header-block fix in frontend#98):
+#   [ title-line: H2 title (UX-17 short alert name) + Lifecycle/Trigger tags ]
+#   [ title-stack: chips (affected ref + Alert link) (left) · actions (right) ]
+#   [ meta card: Started / Updated / Analysis stage — its own full-width row ]
+# Was a single space-between row [title-stack | actions] with align:flex-start — that put the
+# actions level with the top of the (taller) title-stack column instead of the chips line right
+# under the title, AND left incident-meta-card nested inside the shrink-wrapped title-stack
+# column (sharing horizontal space with the action buttons), so its Started/Updated/Analysis
+# stage bar never reached full width. Pulling meta-card out to its own row fixes both.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,24 +21,30 @@ spec:
   widgetData:
     allowedResources:
     - flexes
-    vertical: false
-    justify: space-between
-    align: flex-start
-    gap: middle
+    - cards
+    vertical: true
+    gap: small
     items:
+    - resourceRefId: incident-detail-titleline
     - resourceRefId: incident-detail-title-stack
-    - resourceRefId: incident-detail-actions
+    - resourceRefId: incident-meta-card
   resourcesRefs:
     items:
+    - id: incident-detail-titleline
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-titleline
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
     - id: incident-detail-title-stack
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-detail-title-stack
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: incident-detail-actions
+    - id: incident-meta-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-detail-actions
+      name: incident-meta-card
       namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: cards
       verb: GET
