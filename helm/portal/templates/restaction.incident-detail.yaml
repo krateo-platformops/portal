@@ -61,7 +61,9 @@ spec:
     | ($st.assumptions // []) as $assump
     | (($st.reasoningTrace // []) | sort_by(.step // 0)) as $trace
     | ($st.remediationPlan // []) as $plan
-    | ($st.lifecycle // "open") as $lc
+      # spec.lifecycle (the portal Resolve/Close action) takes precedence so a manual resolve shows
+      # immediately; else status.lifecycle (the reconciler's auto-resolve on alert-clear); else open.
+    | (($sp.lifecycle // $st.lifecycle) // "open") as $lc
       # UX-20 (Ready homonym): the CR's analysis-complete phase is spelled "Ready" — presented
       # as "Analyzed" (matches the troubleshooting feed; "Ready" stays K8s-readiness-only).
     | (($st.phase // "Pending") | if . == "Ready" then "Analyzed" else . end) as $phase
