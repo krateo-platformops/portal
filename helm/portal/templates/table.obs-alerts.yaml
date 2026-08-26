@@ -19,13 +19,16 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    # Row click → the per-alert detail page /alerts/{namespace}/{name} (item 25; there was no
-    # detail page before, so the row deep-linked straight to /incidents?ask=). The route params
-    # ride in hidden routeNs/routeName cells (the CR's metadata.namespace/name — NOT the human
-    # displayName, which may carry an emoji and wouldn't resolve the per-name GET). The Table
-    # URI-encodes each interpolated cell, so an emoji/space slug lands safely. The Autopilot ask
-    # flow the old row-click owned now lives on the detail pagehead ("Investigate with Autopilot").
-    rowNavigateTo: /alerts/{routeNs}/{routeName}
+    # No-scroll: fit the columns to the width (the wide "Watching" SQL cell ellipsis-truncates, full
+    # text on hover) instead of a horizontal scrollbar. Needs the Table `fitContent` field on the
+    # deployed frontend CRD (frontend >= the release that adds it) — a no-op until then.
+    fitContent: true
+    # Row click → the Alert CR's GENERIC resource-detail view (/resources/{ns}/{group}/{version}/
+    # {plural}/{name}), the same last-mile drill-in compositions and analyzed resources use — so an
+    # alert is consistent with every other resource (retires the bespoke /alerts/{ns}/{name} page).
+    # Route params ride in hidden routeNs/routeName cells (the CR's metadata.namespace/name, NOT the
+    # emoji-bearing displayName); the Table URI-encodes each interpolated cell.
+    rowNavigateTo: /resources/{routeNs}/observability.krateo.io/v1alpha1/alerts/{routeName}
     pagination:
       defaultPageSize: 10
     columns:
