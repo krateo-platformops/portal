@@ -129,6 +129,43 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: steps
       verb: GET
+---
+# REMEDIATION AUDIT LOG section (feature #7) — the read-only trail of gated mutations recorded
+# against THIS incident's resources (actor · verb · resource · result · when), same section-CARD
+# family as Evidence/Why/Remediation. apiRef is incident-auditrecords (its own data source) so the
+# card reads hasRecords/auditDesc; it hosts the audit Table. The page Flex includes this card ONLY
+# when there are records (incident-auditrecords .hasRecords) — exception-only, no empty section.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-sec-audit-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-auditrecords
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    anchorId: incident-remediation-audit
+    title: Remediation audit
+    titleVariant: eyebrow
+    variant: outlined
+    icon:
+      name: fa-clipboard-list
+      color: cyan
+    items:
+    - resourceRefId: incident-auditrecords-table
+  resourcesRefs:
+    items:
+    - id: incident-auditrecords-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-auditrecords
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
 # #86 §0.7: the standalone "Similar incidents" strong-label Paragraph (incident-sec-similar-label)
 # was retired — Similar incidents is now the section Card card.incident-similar.yaml, matching the
 # Evidence/Why/Remediation family (its title replaces this label).
