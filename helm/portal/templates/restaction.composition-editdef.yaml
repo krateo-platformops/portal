@@ -36,7 +36,11 @@ spec:
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
       continueOnError: true
-      filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, kind: (.status.kind // \"\"), group: (.status.apiVersion | split(\"/\")[0]), version: (.status.apiVersion | split(\"/\")[1]), cdNamespace: (.metadata.namespace // \"\")}]"
+      # Guarded: a 404/odd body can make .crds a non-object (string) or an item's .status a
+      # scalar — type-guard .items and `try` the select so a malformed response yields [] (no
+      # discovered types → empty form) instead of a "Cannot index" crash that surfaces as the
+      # generic "couldn't reach the server" widget error.
+      filter: "[(.crds // {} | if type == \"object\" then .items else null end) // [] | .[]? | select((try (.status.resource != null and .status.apiVersion != null) catch false)) | {plural: .status.resource, kind: (.status.kind // \"\"), group: ((.status.apiVersion | split(\"/\")[0]) // \"\"), version: ((.status.apiVersion | split(\"/\")[1]) // \"\"), cdNamespace: (.metadata.namespace // \"\")}]"
     - name: found
       dependsOn:
         name: crds
@@ -48,7 +52,11 @@ spec:
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      filter: "[.found.items[]? | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])]"
+      # Guarded: a 404/odd body can make .found a non-object (string) — type-guard .items so it
+      # yields [] (composition not found → empty form) instead of a "Cannot index" crash. `del`
+      # is wrapped in `try` (bind the item, catch returns it unchanged) so an item with a scalar
+      # .metadata survives rather than aborting the whole step.
+      filter: "[(.found // {} | if type == \"object\" then .items else null end) // [] | .[]? | . as $it | (try ($it | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])) catch $it)]"
     # #74: the form SCHEMA — the per-version jsonschema ConfigMap in the CD's OWN namespace
     # (namespaced, tenant-readable), keyed <resource>-<version>-jsonschema-configmap. Iterate ONLY the
     # CD whose kind matches THIS composition (from found), so exactly one CM is fetched. The
@@ -57,7 +65,7 @@ spec:
     - name: jsonschema
       dependsOn:
         name: found
-        iterator: '.name as $n | .namespace as $ns | ([ .found[]? | select(.metadata.name == $n and .metadata.namespace == $ns) ][0].kind // "") as $k | [ .crds[]? | select($k != "" and .kind == $k) ]'
+        iterator: '.name as $n | .namespace as $ns | ([ .found[]? | select((try (.metadata.name == $n and .metadata.namespace == $ns) catch false)) ][0].kind // "") as $k | [ .crds[]? | select((try ($k != "" and .kind == $k) catch false)) ]'
       path: ${ "/api/v1/namespaces/" + .cdNamespace + "/configmaps/" + .plural + "-" + .version + "-jsonschema-configmap" }
       verb: GET
       headers:
@@ -70,24 +78,35 @@ spec:
   filter: |
     .name as $n
     | .namespace as $ns
-    | ([ .found[]? | select(.metadata.name == $n and .metadata.namespace == $ns) ][0] // {}) as $d
+    # The matched composition ($d). `.found[]?` swallows a non-array `.found`; the inner `try`
+    # guards a `found` item whose `.metadata` is a scalar (error body / odd shape) so a malformed
+    # item is skipped rather than crashing the whole filter. `[0] // {}` → composition-not-found
+    # still yields an object.
+    | ([ .found[]? | select((try (.metadata.name == $n and .metadata.namespace == $ns) catch false)) ][0] // {}) as $d
     | ($d.apiVersion // "") as $av
-    | ([ .crds[]? | select(.group == ($av | split("/")[0]) and .kind == $d.kind) ][0] // {}) as $crd
+    | ([ .crds[]? | select((try (.group == ($av | split("/")[0]) and .kind == $d.kind) catch false)) ][0] // {}) as $crd
     # Form fields from the blueprint's values.schema.json (in the jsonschema CM), parsed to an object
     # for the Form's `schema` (form.composition-edit reads .schemaSpec). Absent/malformed CM → empty
     # schema (the form shows no fields rather than erroring). Field ORDER isn't preserved (the Form
     # consumes the parsed object, not a stringSchema) — same as the prior CRD-derived schema.
-    | ((.jsonschema.data["values.schema.json"]) // null) as $raw
-    | (if $raw == null then {} else (try ($raw | fromjson) catch {}) end) as $schema
-    | ([ (($schema.properties) // {}) | to_entries[] | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden
+    # A 404/absent CM can hand back a non-object `.jsonschema` (error string) or a non-object `.data`;
+    # type-guard each hop so it degrades to null → {} instead of a "Cannot index string" crash (the
+    # path that was surfacing the generic "couldn't reach the server" widget error).
+    | (((.jsonschema // {}) | if type == "object" then .data else {} end) // {}) as $data
+    | ((if ($data | type) == "object" then $data["values.schema.json"] else null end) // null) as $raw
+    | (if $raw == null then {} else (try ($raw | fromjson) catch {}) end) as $parsed
+    # fromjson can yield valid-but-non-object JSON (a bare string/number) → coerce to {} so the
+    # `.properties` lookups below never index a scalar.
+    | (if ($parsed | type) == "object" then $parsed else {} end) as $schema
+    | ([ (($schema.properties) // {}) | (if type == "object" then to_entries[] else empty end) | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden
     | {
         schemaSpec: $schema,
-        values: ($d.spec // {}),
+        values: (($d.spec // {}) | if type == "object" then . else {} end),
         propertiesToHide: $hidden,
         gvr: {
           apiVersion: $av,
           resource: ($crd.plural // ""),
-          name: ($d.metadata.name // $n),
-          namespace: ($d.metadata.namespace // $ns)
+          name: (($d.metadata // {} | if type == "object" then .name else null end) // $n),
+          namespace: (($d.metadata // {} | if type == "object" then .namespace else null end) // $ns)
         }
       }
