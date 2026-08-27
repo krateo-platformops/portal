@@ -2,9 +2,13 @@
 # krateo composition-events source (events flow k8s -> OTel -> ClickHouse ->
 # sse-proxy), NOT raw k8s core events.
 #
-# This page is generic/runtime. `found` discovers THIS composition's
-# `krateo.io/composition-id` LABEL (the krateo composition-id, NOT the k8s uid) —
-# that is the id the OTel→ClickHouse pipeline tags events with. `getEvents` then
+# This page is generic/runtime. `found` resolves THIS composition's event-collection id:
+# its `krateo.io/composition-id` LABEL when present (installer-created children inherit the
+# root/installer id), ELSE its own `metadata.uid` — an editor-created ROOT composition carries
+# no such label, and the OTel `compositionresolver` processor stamps a composition's own
+# reconcile events (involvedObject = the composition CR) with the composition's uid when it has
+# no inherited label, so this uid fallback matches those events.
+# That id is what the OTel→ClickHouse pipeline tags events with. `getEvents` then
 # asks the presenter to filter SERVER-SIDE via ?composition_id=<that label>
 # (sse-proxy >= 1.1.0, PR #1: bound as a ClickHouse param against
 # LogAttributes['krateo.io/composition-id']). So `list` is already scoped to this
@@ -59,7 +63,7 @@ spec:
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      filter: "[.found.items[]? | {name: .metadata.name, namespace: .metadata.namespace, uid: .metadata.uid, compositionId: (.metadata.labels[\"krateo.io/composition-id\"] // \"\")}]"
+      filter: "[.found.items[]? | {name: .metadata.name, namespace: .metadata.namespace, uid: .metadata.uid, compositionId: (.metadata.labels[\"krateo.io/composition-id\"] // .metadata.uid)}]"
     - name: getEvents
       endpointRef:
         name: sse-proxy-internal-endpoint
