@@ -1,11 +1,13 @@
-# Alert detail pagehead — just the title-line now (H1 + inline live State tag). #83 cleanup:
+# Alert detail pagehead — the title-line (H1 + inline live State tag) on the LEFT and the action
+# button cluster (Investigate · Edit · Delete) on the RIGHT, sharing one line with justify
+# space-between and centre alignment. Mirrors flex.composition-detail-title-stack.
 #   §0.3 back-link removed (the breadcrumb already covers back-navigation);
 #   §0.4 title + State tag folded into flex.alert-detail-titleline (was a separate title row + a
 #        full-width chips row);
 #   §0.5 the phase/synced meta line moved into the Info card's Descriptions (Phase + Synced rows);
-#   §0.7 the "Investigate with Autopilot" CTA moved into the Info card's header action slot.
-# So the pagehead is now a single title-line wrapper (kept as its own block so the page structure
-# and the incident/composition pagehead parity are unchanged).
+#   G (Vincenzo): the "Investigate with Autopilot" CTA is no longer the ONLY action — it moved out
+#     of the Info card's header slot into flex.alert-detail-actions here, alongside plain Edit +
+#     Delete, so opening an alert offers real lifecycle controls, not just an Autopilot diagnose.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,15 +21,25 @@ spec:
   widgetData:
     allowedResources:
     - flexes
-    vertical: true
-    gap: small
+    vertical: false
+    justify: space-between
+    align: center
+    gap: middle
+    wrap: true
     items:
     - resourceRefId: alert-detail-titleline
+    - resourceRefId: alert-detail-actions
   resourcesRefs:
     items:
     - id: alert-detail-titleline
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: alert-detail-titleline
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: alert-detail-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-actions
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET

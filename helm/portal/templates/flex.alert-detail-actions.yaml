@@ -1,0 +1,46 @@
+# Right side of the alert-detail pagehead: the action button cluster.
+# "Investigate with Autopilot" is now ONE affordance among plain Edit + Delete — Vincenzo's
+# feedback (item F/G): opening an alert previously only offered "diagnose with Autopilot"; a real
+# detail view gives direct lifecycle controls too. Buttons resolve their per-alert target from the
+# alert-detail RA (.gvr) / the edit drawer, so this Flex itself is data-agnostic. Mirrors
+# flex.composition-detail-actions.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    allowedResources:
+      - buttons
+    items:
+      - resourceRefId: alert-detail-investigate
+      - resourceRefId: alert-detail-edit
+      - resourceRefId: alert-detail-delete
+  resourcesRefs:
+    items:
+      - id: alert-detail-investigate
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-detail-investigate
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: alert-detail-edit
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-detail-edit
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: alert-detail-delete
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-detail-delete
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
