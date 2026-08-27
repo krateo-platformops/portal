@@ -94,7 +94,14 @@ spec:
     # path that was surfacing the generic "couldn't reach the server" widget error).
     | (((.jsonschema // {}) | if type == "object" then .data else {} end) // {}) as $data
     | ((if ($data | type) == "object" then $data["values.schema.json"] else null end) // null) as $raw
-    | (if $raw == null then {} else (try ($raw | fromjson) catch {}) end) as $parsed
+    # fromjson yields Go json.Number for numeric literals (ports/replicas/min/max in every real
+    # blueprint schema) — snowplow's jqutil encoder has no `case json.Number` and PANICS ("invalid
+    # type: json.Number"), aborting the connection with no response (the Edit drawer's "Couldn't
+    # reach the server" / Failed to fetch). Coerce every number back to a plain gojq int/float with
+    # `walk(if type == "number" then . + 0 else . end)` — the `+ 0` forces gojq arithmetic, which
+    # emits a native number the encoder can serialize. INSIDE the try/catch so a missing/invalid
+    # schema still degrades to {} (no crash path reintroduced).
+    | (if $raw == null then {} else (try ($raw | fromjson | walk(if type == "number" then . + 0 else . end)) catch {}) end) as $parsed
     # fromjson can yield valid-but-non-object JSON (a bare string/number) → coerce to {} so the
     # `.properties` lookups below never index a scalar.
     | (if ($parsed | type) == "object" then $parsed else {} end) as $schema
