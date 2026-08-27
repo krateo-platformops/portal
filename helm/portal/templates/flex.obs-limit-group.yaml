@@ -1,0 +1,39 @@
+# Row-limit chip group for the live log stream ("extend the base set" affordance). Sits in the
+# Telemetry tab directly ABOVE the log-stream card, so it reads as scoping THAT panel (the log
+# tail) rather than the whole page — unlike the SHARED time-range group (obs-range-group) which
+# sits above the tabs and re-scopes both tabs at once. The chips (40/100/200/500) drive the
+# log-stream RESTAction's ClickHouse LIMIT via ?limit= in the URL → extras (server-side, bounded:
+# default 40, hard cap 1000). Mirrors obs-range-group exactly (eyebrow label + data-driven
+# Listy(chip)).
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-limit-group
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: obs-limit-label
+    - resourceRefId: obs-limit-chips
+  resourcesRefs:
+    items:
+    - id: obs-limit-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-limit-label
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-limit-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-limit-chips
+      namespace: {{ .Release.Namespace }}
+      resource: listies
+      verb: GET
