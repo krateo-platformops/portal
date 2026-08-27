@@ -5,6 +5,14 @@
 # service+msg → the DISTINCT problems with an occurrence count + last-seen (collapses the
 # same error repeating every reconcile into one row, ordered most-frequent-first). Step
 # `tot` is the headline totals. External-fetch endpointRef, ClickHouse FORMAT JSON.
+#
+# COUNT-VS-ROWS (Vincenzo R): the grouping message is COALESCEd
+# msg-from-Body-JSON → raw Body → 'unlabeled error' (truncated to 160), and `digest` NO LONGER
+# filters `msg!=''`. Previously an error line whose Body wasn't the {level,msg} JSON shape
+# extracted an empty msg, and the digest-only `AND msg!=''` guard dropped EVERY grouped row →
+# digest.data=[] → the list rendered "No data" while the header (from `tot`, which had no such
+# guard) still counted e.g. "130185 errors · 97 distinct". `tot`'s distinct_problems now uses the
+# SAME coalesced expression so the headline reconciles with the rendered groups.
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -18,7 +26,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20ServiceName%20AS%20service%2C%20JSONExtractString%28Body%2C%27msg%27%29%20AS%20msg%2C%20count%28%29%20AS%20occurrences%2C%20formatDateTime%28max%28Timestamp%29%2C%20%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20last_ts%20FROM%20otel_logs%20WHERE%20lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20AND%20JSONExtractString%28Body%2C%27msg%27%29%21%3D%27%27%20GROUP%20BY%20service%2C%20msg%20ORDER%20BY%20occurrences%20DESC%20LIMIT%2040%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20ServiceName%20AS%20service%2C%20substring%28coalesce%28nullIf%28JSONExtractString%28Body%2C%27msg%27%29%2C%27%27%29%2C%20nullIf%28Body%2C%27%27%29%2C%20%27unlabeled%20error%27%29%2C1%2C160%29%20AS%20msg%2C%20count%28%29%20AS%20occurrences%2C%20formatDateTime%28max%28Timestamp%29%2C%20%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20last_ts%20FROM%20otel_logs%20WHERE%20lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20service%2C%20msg%20ORDER%20BY%20occurrences%20DESC%20LIMIT%2040%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -28,7 +36,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20count%28%29%20AS%20total%2C%20uniqExact%28%28ServiceName%2C%20JSONExtractString%28Body%2C%27msg%27%29%29%29%20AS%20distinct_problems%20FROM%20otel_logs%20WHERE%20lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20count%28%29%20AS%20total%2C%20uniqExact%28%28ServiceName%2C%20substring%28coalesce%28nullIf%28JSONExtractString%28Body%2C%27msg%27%29%2C%27%27%29%2C%20nullIf%28Body%2C%27%27%29%2C%20%27unlabeled%20error%27%29%2C1%2C160%29%29%29%20AS%20distinct_problems%20FROM%20otel_logs%20WHERE%20lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
