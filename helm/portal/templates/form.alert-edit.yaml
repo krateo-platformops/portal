@@ -1,0 +1,55 @@
+# Edit alert — schema-driven Form hosted in the Edit drawer on /alerts/{namespace}/{name}.
+# Mirrors form.composition-edit but for the plain Alert CRD:
+#   (1) schema     = the Alert CRD's OWN spec schema (alert-editdef, straight off the live CRD),
+#   (2) fields are PRE-FILLED from the current .spec (initialValues ← alert-editdef .values),
+#   (3) submit is a merge-PATCH of spec (no resourceVersion read-modify-write needed).
+# The alert identity (name/namespace) comes from the detail route params (?extras → alert-editdef).
+# On success the engine closes the drawer + invalidates widget queries → the detail page refreshes.
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-edit
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-editdef
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    layout: vertical
+    submitActionId: submit
+    schema: {}
+    buttonConfig:
+      primary:
+        label: Save changes
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: edit-alert
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          successMessage: Alert updated
+          # The whole form payload becomes spec (merge-patch updates spec in place).
+          payloadToOverride:
+            - { name: spec, value: '${ .json }' }
+  widgetDataTemplate:
+    - forPath: schema
+      expression: '${ .schemaSpec }'
+    - forPath: initialValues
+      expression: '${ .values }'
+    - forPath: propertiesToHide
+      expression: '${ .propertiesToHide }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: edit-alert
+        apiVersion: ${ .gvr.apiVersion }
+        resource: ${ .gvr.resource }
+        name: ${ .gvr.name }
+        namespace: ${ .gvr.namespace }
+        verb: PATCH

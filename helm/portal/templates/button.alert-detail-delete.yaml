@@ -1,0 +1,48 @@
+# Delete the alert — destructive, so requireConfirmation gates it behind the engine's antd confirm
+# modal; RBAC via the user token. On success the engine redirects to /alerts (onSuccessNavigateTo).
+# Target GVR resolved server-side from alert-detail (.gvr) — no hardcode. A DELETE removes the Alert
+# object directly; the reconciler's finalizer (krateo-alert-troubleshooter) runs its HyperDX cleanup,
+# then the object is removed, so this is fully effective on any cluster. Mirrors
+# button.composition-detail-delete / button.incident-detail-discard.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-delete
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Delete
+    icon: fa-trash
+    type: default
+    danger: true
+    size: middle
+    clickActionId: delete
+    actions:
+      rest:
+        - id: delete
+          type: rest
+          resourceRefId: delete-alert
+          headers:
+            - 'Accept: application/json'
+          requireConfirmation: true
+          successMessage: Alert deleted
+          onSuccessNavigateTo: /alerts
+          loading:
+            display: true
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: delete-alert
+        apiVersion: ${ .gvr.apiVersion }
+        resource: ${ .gvr.resource }
+        name: ${ .gvr.name }
+        namespace: ${ .gvr.namespace }
+        verb: DELETE

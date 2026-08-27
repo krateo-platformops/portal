@@ -93,5 +93,15 @@ spec:
         sections: {
           incident: ($rep != null),
           console: (($console != "") and (($haid != "") or ($hdid != "")))
+        },
+        # Static GVR for the plain Alert CRD — the DELETE target for button.alert-detail-delete
+        # (mirrors composition-detail's .gvr feeding composition-detail-delete). name/namespace come
+        # from the fetched CR (falls back to the route params when the read degraded). resource/
+        # apiVersion are constant: an Alert is always alerts.observability.krateo.io/v1alpha1.
+        gvr: {
+          apiVersion: "observability.krateo.io/v1alpha1",
+          resource: "alerts",
+          name: (.alert.metadata.name // $n),
+          namespace: (.alert.metadata.namespace // $ns)
         }
       }

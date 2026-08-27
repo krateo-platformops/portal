@@ -1,0 +1,64 @@
+# Alert EDIT-form data source — the edit-drawer sibling of alert-formdef (create). Resolves, for
+# ONE Alert (?extras .name/.namespace, same route params as alert-detail):
+#   schemaSpec : the form fields — the live Alert CRD's openAPIV3Schema.properties.spec
+#                (observability.krateo.io/v1alpha1). The Alert is a plain namespaced CRD, so the
+#                GVR is known statically and the schema comes straight off the CRD (NO reserved
+#                identity fields prepended — on EDIT the name/namespace are fixed, not user input).
+#   values     : the Alert's current .spec (pre-fills the form)
+#   gvr        : apiVersion/resource/name/namespace (the merge-PATCH target)
+# Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly:
+#   crd   : GET the Alert CRD (apiextensions.k8s.io) — its openAPIV3Schema.properties.spec IS the
+#           form's live JSON schema (so the form always tracks the deployed CRD; add a spec field
+#           to the CRD and the form grows it, no chart change). Same source as alert-formdef step 1.
+#   alert : GET the per-name Alert CR — its .spec pre-fills the form (initialValues) and supplies
+#           metadata.name/.namespace for the PATCH target.
+# Consumed by form.alert-edit (schema ← schemaSpec, PATCH target ← resourcesRefsTemplate off gvr).
+# Only fetched when the Edit drawer opens. Mirrors restaction.composition-editdef, but simpler:
+# the Alert GVR is static (no compdef/jsonschema-ConfigMap indirection).
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: alert-editdef
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    - name: crd
+      path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/alerts.observability.krateo.io
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: crdError
+    # The Alert being edited — its .spec pre-fills the form. Namespace-scoped to the release ns
+    # (Alerts live in the portal release namespace, same as alert-detail's read path).
+    - name: alert
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/alerts/{name}
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: alertError
+  # LITERAL block (|), NOT folded (>): the filter carries `#` comments; folding joins lines with
+  # spaces so a `#` would swallow the jq after it. `|` preserves newlines so comments terminate.
+  filter: |
+    "v1alpha1" as $ver
+    | (.name // "") as $n
+    | (.namespace // "{{ .Release.Namespace }}") as $ns
+    | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
+    | (.alert.spec // {}) as $curSpec
+    | {
+        # The CRD spec schema verbatim — no reserved identity fields (name/namespace are fixed on
+        # edit). Absent CRD → empty object schema (the form shows no fields rather than erroring).
+        schemaSpec: ($spec // { type: "object", properties: {} }),
+        propertiesToHide: [],
+        # Pre-fill the form with the Alert's CURRENT spec.
+        values: $curSpec,
+        gvr: {
+          apiVersion: "observability.krateo.io/v1alpha1",
+          resource: "alerts",
+          name: (.alert.metadata.name // $n),
+          namespace: (.alert.metadata.namespace // $ns)
+        }
+      }
