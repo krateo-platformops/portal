@@ -1,0 +1,36 @@
+# Log-stream row-limit chips — the "extend the base set" affordance for the live log tail.
+# Loading Telemetry is slow when the ClickHouse history is large, so the log stream loads a
+# BASE set (40 rows) by default; this chip group lets the user extend it on demand without
+# paying that cost on every page load. Mirrors obs-range-chips EXACTLY (data-driven Listy(chip),
+# no apiRef): the selected limit is URL state (?limit=40|100|200|500) — each chip navigates to
+# /observability?limit=<n>, which the frontend forwards into the request `extras`, so the
+# log-stream RESTAction interpolates the value into its ClickHouse LIMIT (bounded server-side:
+# default 40, hard cap 1000) and this widget's own active flag reads `.limit` SYNCHRONOUSLY per
+# request. Default 40 when no ?limit is in the URL (matches the RA default and the base set).
+# Chip navigateTo bypasses the client-side same-path query merge; the shell scope (?projects)
+# and the shared ?range= / ?svc= extras are re-emitted onto each chip's route from extras
+# (@uri-encoded) so switching the limit preserves the current window and service scope.
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-limit-chips
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell — `limit` drives
+  # the active flag, `range`/`svc`/`projects` are carried into the routes.
+  keyExtras: [projects, range, svc, limit]
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  # No apiRef — snowplow merges request extras into a no-apiRef widget's
+  # widgetDataTemplate data source (same mechanism the range chips use).
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ ((.limit // "40") | tostring) as $sel | ((.range // "24h") | tostring) as $range | ((.svc // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.projects // "") | tostring) as $projects | (if $svc != "" then ("&svc=" + ($svc | @uri)) else "" end) as $svcCarry | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $projCarry | [{key: "40", label: "40"}, {key: "100", label: "100"}, {key: "200", label: "200"}, {key: "500", label: "500"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + ($range | @uri) + "&limit=" + .key + $svcCarry + $projCarry)}) }'
+  resourcesRefs:
+    items: []

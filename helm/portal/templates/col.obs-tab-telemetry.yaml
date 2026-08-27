@@ -25,6 +25,7 @@ spec:
     - paragraphs
     - rows
     - listies
+    - flexes
     items:
     - resourceRefId: obs-sec-logs-label
     - resourceRefId: obs-sec-logs-desc
@@ -39,6 +40,9 @@ spec:
     {{- end }}
     - resourceRefId: obs-errors-row
     - resourceRefId: obs-svc-filter-note
+    # Row-limit selector ("extend the base set") — sits directly above the log-stream card so
+    # it reads as scoping THAT panel; drives the log-stream RA's ClickHouse LIMIT via ?limit=.
+    - resourceRefId: obs-limit-group
     - resourceRefId: obs-log-stream-row
     - resourceRefId: obs-resource-row
   resourcesRefs:
@@ -104,6 +108,12 @@ spec:
       name: obs-svc-filter-note
       namespace: {{ .Release.Namespace }}
       resource: listies
+      verb: GET
+    - id: obs-limit-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-limit-group
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
       verb: GET
     - id: obs-log-stream-row
       apiVersion: widgets.templates.krateo.io/v1beta1
