@@ -3,7 +3,7 @@
 # errors" card above). R2 #13: the title says "Live error & warning stream" so
 # chronological-vs-grouped reads at a glance. The extra explains the scope (excludes the
 # snowplow request-noise WARN) so the numbers/omission are honest and self-describing; when a
-# ?svc= scope is active (Settings component drill-down hand-off) the extra names it, so the
+# ?serviceName= scope is active (Settings component drill-down hand-off) the extra names it, so the
 # narrowed tail is never mistaken for the full stream (a legible dismissible filter indicator
 # also sits ABOVE this card — obs-svc-filter-note, R2 #11).
 kind: Card
@@ -15,7 +15,7 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [svc]
+  keyExtras: [serviceName]
   widgetData:
     title: Live error & warning stream
     titleVariant: eyebrow
@@ -26,7 +26,7 @@ spec:
   # No apiRef — request extras are merged into the template input (the range-chips pattern).
   widgetDataTemplate:
   - forPath: extra
-    expression: '${ ((.svc // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $s | if $s == "" then "chronological · newest first · excl. snowplow request noise" else ("chronological · service ~ " + $s + " · newest first · excl. snowplow request noise") end }'
+    expression: '${ ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $s | if $s == "" then "chronological · newest first · excl. snowplow request noise" else ("chronological · service ~ " + $s + " · newest first · excl. snowplow request noise") end }'
   resourcesRefs:
     items:
     - id: obs-log-stream
