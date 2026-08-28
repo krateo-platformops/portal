@@ -47,6 +47,6 @@ spec:
   # (/observability?svc= — the same hand-off the component-detail logs CTA uses); a row
   # with no ServiceName carries route:"" and stays INERT in the list.
   filter: >
-    { rows: (((.digest.data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?svc=" + ($s | @uri)) end) })),
+    { rows: (((.digest.data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?svc=" + ($s | @uri) + "&tab=Telemetry") end) })),
       total: (((.tot.data) // [])[0].total // 0),
       distinct: (((.tot.data) // [])[0].distinct_problems // 0) }
