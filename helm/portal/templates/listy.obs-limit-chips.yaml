@@ -8,7 +8,7 @@
 # default 40, hard cap 1000) and this widget's own active flag reads `.limit` SYNCHRONOUSLY per
 # request. Default 40 when no ?limit is in the URL (matches the RA default and the base set).
 # Chip navigateTo bypasses the client-side same-path query merge; the shell scope (?projects)
-# and the shared ?range= / ?svc= extras are re-emitted onto each chip's route from extras
+# and the shared ?range= / ?serviceName= extras are re-emitted onto each chip's route from extras
 # (@uri-encoded) so switching the limit preserves the current window and service scope.
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -20,7 +20,7 @@ metadata:
 spec:
   # F6 (snowplow#130): extras keys that partition this widget's cache cell — `limit` drives
   # the active flag, `range`/`svc`/`projects` are carried into the routes.
-  keyExtras: [projects, range, svc, limit]
+  keyExtras: [projects, range, serviceName, limit]
   widgetData:
     itemTemplate:
       rowVariant: chip
@@ -31,6 +31,6 @@ spec:
   # widgetDataTemplate data source (same mechanism the range chips use).
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.limit // "40") | tostring) as $sel | ((.range // "24h") | tostring) as $range | ((.svc // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.projects // "") | tostring) as $projects | (if $svc != "" then ("&svc=" + ($svc | @uri)) else "" end) as $svcCarry | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $projCarry | [{key: "40", label: "40"}, {key: "100", label: "100"}, {key: "200", label: "200"}, {key: "500", label: "500"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + ($range | @uri) + "&limit=" + .key + $svcCarry + $projCarry + "&tab=Telemetry")}) }'
+      expression: '${ ((.limit // "40") | tostring) as $sel | ((.range // "24h") | tostring) as $range | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.projects // "") | tostring) as $projects | (if $svc != "" then ("&serviceName=" + ($svc | @uri)) else "" end) as $svcCarry | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $projCarry | [{key: "40", label: "40"}, {key: "100", label: "100"}, {key: "200", label: "200"}, {key: "500", label: "500"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + ($range | @uri) + "&limit=" + .key + $svcCarry + $projCarry + "&tab=Telemetry")}) }'
   resourcesRefs:
     items: []

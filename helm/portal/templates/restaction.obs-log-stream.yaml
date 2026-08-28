@@ -4,7 +4,7 @@
 # is pure request noise (76k/h against the 60k benchapp scale-test set) and is excluded; all
 # ERRORs, including snowplow's, are kept. level+msg are parsed from the Body JSON (SeverityText
 # is empty at ingest). External-fetch endpointRef, ClickHouse FORMAT JSON.
-# Optional ?svc= extras (the Settings component drill-down's "View logs" hand-off) scopes the
+# Optional ?serviceName= extras (the Settings component drill-down's "View logs" hand-off) scopes the
 # tail to one service SERVER-SIDE: a case-insensitive contains match in EITHER direction
 # (deployment names and OTel ServiceNames don't always match exactly). Empty svc = unscoped,
 # byte-identical to the pre-svc query.
@@ -27,7 +27,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.svc // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | (if $svc == "" then "" else "%20AND%20%28positionCaseInsensitive%28ServiceName%2C%27" + $svc + "%27%29%3E0%20OR%20positionCaseInsensitive%28%27" + $svc + "%27%2CServiceName%29%3E0%29" end) as $svcCond | (((.limit // "40") | tonumber? // 40) as $n | (if $n > 1000 then 1000 elif $n < 1 then 40 else $n end) | tostring) as $lim | "/?query=SELECT%20formatDateTime%28Timestamp%2C%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20ts%2C%20ServiceName%20AS%20svc%2C%20upper%28JSONExtractString%28Body%2C%27level%27%29%29%20AS%20lvl%2C%20substring%28JSONExtractString%28Body%2C%27msg%27%29%2C1%2C120%29%20AS%20msg%20FROM%20otel_logs%20WHERE%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20OR%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27warn%27%20AND%20ServiceName%21%3D%27snowplow%27%29%29%20AND%20Timestamp%20%3E%20now%28%29-INTERVAL%20" + $iv + $svcCond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20" + $lim + "%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | (if $svc == "" then "" else "%20AND%20%28positionCaseInsensitive%28ServiceName%2C%27" + $svc + "%27%29%3E0%20OR%20positionCaseInsensitive%28%27" + $svc + "%27%2CServiceName%29%3E0%29" end) as $svcCond | (((.limit // "40") | tonumber? // 40) as $n | (if $n > 1000 then 1000 elif $n < 1 then 40 else $n end) | tostring) as $lim | "/?query=SELECT%20formatDateTime%28Timestamp%2C%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20ts%2C%20ServiceName%20AS%20svc%2C%20upper%28JSONExtractString%28Body%2C%27level%27%29%29%20AS%20lvl%2C%20substring%28JSONExtractString%28Body%2C%27msg%27%29%2C1%2C120%29%20AS%20msg%20FROM%20otel_logs%20WHERE%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20OR%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27warn%27%20AND%20ServiceName%21%3D%27snowplow%27%29%29%20AND%20Timestamp%20%3E%20now%28%29-INTERVAL%20" + $iv + $svcCond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20" + $lim + "%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'

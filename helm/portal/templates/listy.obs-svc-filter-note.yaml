@@ -1,12 +1,12 @@
 # Service-scope indicator for the Telemetry tab (R2 #11). When the log stream is narrowed by
-# ?svc= (the Settings/resource-table component drill-down hand-off), the filtered state was
+# ?serviceName= (the Settings/resource-table component drill-down hand-off), the filtered state was
 # only legible inside the log-stream card's `extra` line — easy to miss, and no way to clear
 # it without hand-editing the URL. This is a single dismissible chip that appears ABOVE the
 # log-stream card ONLY when svc is set: it names the active service filter and, on click,
 # navigates back to the UNSCOPED page (/observability?range=…, svc dropped) — the "clear".
 #
 # No apiRef — snowplow merges request extras into a no-apiRef widget's widgetDataTemplate data
-# source (the range-chips pattern), so `.svc` and `.range`/`.projects` are read SYNCHRONOUSLY
+# source (the range-chips pattern), so `.serviceName` and `.range`/`.projects` are read SYNCHRONOUSLY
 # per request. svc is sanitized identically to the log-stream RA (contains-match alphabet) so
 # the label can't inject markup. When svc is empty the template emits [] and hideWhenEmpty
 # renders nothing at all (exception-only: no indicator in the healthy/default unfiltered case).
@@ -22,7 +22,7 @@ metadata:
 spec:
   # F6 (snowplow#130): extras keys that partition this widget's cache cell — `svc` gates the
   # chip's presence, `range`/`projects` are carried into the clear route.
-  keyExtras: [svc, range, projects]
+  keyExtras: [serviceName, range, projects]
   widgetData:
     # Empty dataSource (svc unset) => render nothing, no antd "No data" placeholder.
     hideWhenEmpty: true
@@ -34,6 +34,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.svc // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.range // "24h") | tostring) as $range | ((.projects // "") | tostring) as $projects | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $carry | (if $svc == "" then [] else [{label: ("filtered: service ~ " + $svc + " · clear"), route: ("/observability?range=" + ($range | @uri) + $carry + "&tab=Telemetry")}] end) }'
+      expression: '${ ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.range // "24h") | tostring) as $range | ((.projects // "") | tostring) as $projects | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $carry | (if $svc == "" then [] else [{label: ("filtered: service ~ " + $svc + " · clear"), route: ("/observability?range=" + ($range | @uri) + $carry + "&tab=Telemetry")}] end) }'
   resourcesRefs:
     items: []
