@@ -5,9 +5,28 @@
 # ERRORs, including snowplow's, are kept. level+msg are parsed from the Body JSON (SeverityText
 # is empty at ingest). External-fetch endpointRef, ClickHouse FORMAT JSON.
 # Optional ?serviceName= extras (the Settings component drill-down's "View logs" hand-off) scopes the
-# tail to one service SERVER-SIDE: a case-insensitive contains match in EITHER direction
-# (deployment names and OTel ServiceNames don't always match exactly). Empty svc = unscoped,
-# byte-identical to the pre-svc query.
+# tail to one service SERVER-SIDE. The hand-offs pass three DIFFERENT shapes for this value — an
+# exact OTel ServiceName (obs-error-log-digest's .service), a pod name (obs-resource-table),
+# or a deployment name (component-detail) — and ServiceName (= app.kubernetes.io/instance) is
+# COARSER than either: e.g. deployment installer-core-provider and all three kagent-* deployments
+# collapse to ServiceName 'installer' / 'kagent'. So we RESOLVE the passed value to its canonical
+# ServiceName with a scalar subquery — the ServiceName that either equals the value or whose
+# "<name>-" prefixes it (longest wins) — then filter the outer query by `ServiceName IN (<subquery>)`.
+# `IN` (not `=`): a scalar `= (SELECT ...)` THROWS INCORRECT_RESULT_OF_SCALAR_SUBQUERY when the
+# resolver finds no match (garbage/typo service), 500-ing the whole tail; `IN` on an empty set just
+# matches nothing (0 rows, like the old contains) and STILL prunes via the primary key.
+# WHY not the old bidirectional positionCaseInsensitive contains: (1) CORRECTNESS — a substring
+# match bled unrelated services in (serviceName=installer also returned installers-v0-3-78..84-
+# controller, 8 services); exact resolution returns only 'installer'. (2) SPEED — ServiceName is the
+# LEADING primary-key column (ORDER BY (ServiceName, Timestamp)), so the exact `IN` set prunes via the
+# PK (~0.06s on a small service) where the un-indexable position() full-scanned (~2.7s, ~40x slower) —
+# the observability slowness Vincenzo flagged. The resolver subquery scans only the LowCardinality
+# ServiceName column (~0.1s, no time bound so a service quiet in the window still resolves).
+# The time filter is on TimestampTime (the partition/MinMax key toDate(TimestampTime)), NOT Timestamp:
+# filtering the DateTime64 Timestamp pruned ZERO partitions (all 7 TTL days read); TimestampTime prunes
+# to the window's days (~12832->2010 granules, identical result count) — a free extra cut on every
+# service. Display + ORDER BY still use the precise Timestamp. Empty svc = unscoped (no ServiceName
+# clause); the time filter still switches to TimestampTime.
 # Optional ?limit= extras (the obs-limit-chips selector) sets the row cap SERVER-SIDE so a user
 # can "extend the base set" without loading a huge history by default: LIMIT is dynamic from
 # .limit with a safe default (40) and a hard cap (1000 — protects ClickHouse). Any non-positive,
@@ -27,7 +46,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | (if $svc == "" then "" else "%20AND%20%28positionCaseInsensitive%28ServiceName%2C%27" + $svc + "%27%29%3E0%20OR%20positionCaseInsensitive%28%27" + $svc + "%27%2CServiceName%29%3E0%29" end) as $svcCond | (((.limit // "40") | tonumber? // 40) as $n | (if $n > 1000 then 1000 elif $n < 1 then 40 else $n end) | tostring) as $lim | "/?query=SELECT%20formatDateTime%28Timestamp%2C%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20ts%2C%20ServiceName%20AS%20svc%2C%20upper%28JSONExtractString%28Body%2C%27level%27%29%29%20AS%20lvl%2C%20substring%28JSONExtractString%28Body%2C%27msg%27%29%2C1%2C120%29%20AS%20msg%20FROM%20otel_logs%20WHERE%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20OR%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27warn%27%20AND%20ServiceName%21%3D%27snowplow%27%29%29%20AND%20Timestamp%20%3E%20now%28%29-INTERVAL%20" + $iv + $svcCond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20" + $lim + "%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | (if $svc == "" then "" else "%20AND%20ServiceName%20IN%20%28SELECT%20ServiceName%20FROM%20otel_logs%20WHERE%20ServiceName%3D%27" + $svc + "%27%20OR%20startsWith%28%27" + $svc + "%27%2Cconcat%28ServiceName%2C%27-%27%29%29%20GROUP%20BY%20ServiceName%20ORDER%20BY%20length%28ServiceName%29%20DESC%20LIMIT%201%29" end) as $svcCond | (((.limit // "40") | tonumber? // 40) as $n | (if $n > 1000 then 1000 elif $n < 1 then 40 else $n end) | tostring) as $lim | "/?query=SELECT%20formatDateTime%28Timestamp%2C%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20ts%2C%20ServiceName%20AS%20svc%2C%20upper%28JSONExtractString%28Body%2C%27level%27%29%29%20AS%20lvl%2C%20substring%28JSONExtractString%28Body%2C%27msg%27%29%2C1%2C120%29%20AS%20msg%20FROM%20otel_logs%20WHERE%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20OR%20%28lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27warn%27%20AND%20ServiceName%21%3D%27snowplow%27%29%29%20AND%20TimestampTime%20%3E%20now%28%29-INTERVAL%20" + $iv + $svcCond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20" + $lim + "%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
