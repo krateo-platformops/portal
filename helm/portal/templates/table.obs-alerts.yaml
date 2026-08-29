@@ -23,12 +23,15 @@ spec:
     # text on hover) instead of a horizontal scrollbar. Needs the Table `fitContent` field on the
     # deployed frontend CRD (frontend >= the release that adds it) — a no-op until then.
     fitContent: true
-    # Row click → the Alert CR's GENERIC resource-detail view (/resources/{ns}/{group}/{version}/
-    # {plural}/{name}), the same last-mile drill-in compositions and analyzed resources use — so an
-    # alert is consistent with every other resource (retires the bespoke /alerts/{ns}/{name} page).
+    # Row click → the ENRICHED per-alert detail page /alerts/{ns}/{name} (flex.page-alert-detail),
+    # which carries the pagehead actions — Investigate with Autopilot · Edit · Delete — built off the
+    # live CRD schema. NOT the generic /resources/{ns}/{group}/{version}/{plural}/{name} manifest view:
+    # that shows the raw CR but none of those actions, which regressed feedback G ("see alert details
+    # on open — not only 'diagnose with Autopilot'"). Matches this file's header + button.incident-
+    # alert-link, which both route to /alerts/{ns}/{name}.
     # Route params ride in hidden routeNs/routeName cells (the CR's metadata.namespace/name, NOT the
     # emoji-bearing displayName); the Table URI-encodes each interpolated cell.
-    rowNavigateTo: /resources/{routeNs}/observability.krateo.io/v1alpha1/alerts/{routeName}
+    rowNavigateTo: /alerts/{routeNs}/{routeName}
     pagination:
       defaultPageSize: 10
     columns:
