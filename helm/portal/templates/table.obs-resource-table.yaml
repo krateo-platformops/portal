@@ -3,10 +3,10 @@
 # are the memory hogs). Memory cell is tinted by magnitude (>1 GiB crimson, >512 MiB amber);
 # the numbers are the real measured gauge values.
 # Rows deep-link to the log stream scoped to the pod (CTA audit #89 F8): /observability?serviceName={pod}
-# where {pod} is the raw pod name. obs-log-stream's ?svc does a bidirectional case-insensitive
-# CONTAINS against OTel ServiceName, so a pod name resolves to its owning service (the service
-# name is a substring of the pod name) — verified live on krateo-installer-release. This closes
-# the loop "this pod is the memory hog → what is it logging?". Empty/absent pod → the Table's
+# where {pod} is the raw pod name. obs-log-stream RESOLVES that pod name to its owning OTel
+# ServiceName server-side (the ServiceName whose "<name>-" prefixes the pod name) then exact-matches,
+# so the pod's service logs show (exact resolution replaced an earlier bidirectional substring match).
+# This closes the loop "this pod is the memory hog → what is it logging?". Empty/absent pod → the Table's
 # buildRowPath returns undefined, so the row is inert (no broken link).
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
