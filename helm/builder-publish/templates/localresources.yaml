@@ -1,0 +1,61 @@
+{{/*
+  builder-publish — renders ONE git-provider LocalResource per held file. Each file lands
+  verbatim (fromString) at its path, on a builder/<slug> branch cut off base, additively. No
+  PR/MR is created (Option A: the UI opens one via a host-aware deep link). Works on any SCM
+  git-provider can reach. Proven end-to-end on git-provider 0.10.0 (kind + gitea).
+
+  Value split:
+    • PER-PUBLISH (the BuilderPublish claim the frontend emits): .Values.target{namespace,repo,base},
+      .Values.files[{path,content}], .Values.builder, .Values.name, .Values.branch.
+    • INSTALL-LEVEL (values.yaml defaults, set once per install): .Values.git{scheme,host,insecure}
+      and .Values.credentials{authMethod,secretRef,usernameRef} — the claim never carries a secret.
+*/}}
+{{- $t := .Values.target -}}
+{{- $git := .Values.git | default dict -}}
+{{- $cred := .Values.credentials | default dict -}}
+{{- $ns := .Release.Namespace -}}
+{{- $url := printf "%s://%s/%s/%s.git" ($git.scheme | default "https") $git.host $t.namespace $t.repo -}}
+{{- range $i, $f := .Values.files }}
+---
+# LocalResource fileName is a BASENAME (CRD pattern forbids slashes); the directory rides in
+# toRepo.path. base/dir split the held file path.
+apiVersion: git.krateo.io/v1alpha1
+kind: LocalResource
+metadata:
+  name: {{ printf "%s-%03d" $.Values.name (int $i) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    # neutral discriminator — the portal deliverables RAs select on this. page|blueprint|controller.
+    krateo.io/builder: {{ $.Values.builder }}
+    krateo.io/publish: {{ $.Values.name }}
+spec:
+  fromResource:
+    fileName: {{ base $f.path | quote }}     # basename only (dir goes in toRepo.path)
+    fromString: |                            # held bytes — verbatim, exact ordering preserved
+{{ $f.content | indent 6 }}
+  toRepo:
+    url: {{ $url | quote }}                   # any SCM git-provider can reach
+    branch: {{ $.Values.branch | quote }}     # builder/<slug>
+    path: {{ if eq (dir $f.path) "." }}"/"{{ else }}{{ printf "/%s" (dir $f.path) | quote }}{{ end }}   # the file's directory
+    cloneFromBranch: {{ $t.base | default "main" | quote }}   # cut off base, not orphan
+    credentials:
+      authMethod: {{ $cred.authMethod | default "bearer" | quote }}
+      secretRef:
+        name: {{ $cred.secretRef.name | quote }}
+        namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
+        key: {{ $cred.secretRef.key | default "token" | quote }}
+      {{- if $cred.usernameRef }}
+      usernameRef:            # required for authMethod: basic (self-hosted git / gitea)
+        name: {{ $cred.usernameRef.name | quote }}
+        namespace: {{ $cred.usernameRef.namespace | default $ns | quote }}
+        key: {{ $cred.usernameRef.key | default "username" | quote }}
+      {{- end }}
+  override: false        # additive — only this file; leaves the rest of the repo intact
+  syncEnabled: false     # one-shot: a publish is a single commit; source is then immutable
+  createCommitMessage: {{ printf "feat(%s): add %s" $.Values.builder $f.path | quote }}
+  insecure: {{ $git.insecure | default false }}   # true for Azure DevOps
+{{- end }}
+{{/*
+  SERIALIZATION — RESOLVED (S0 spike): N LocalResources to the same fresh branch produce N clean
+  sequential commits (git-provider serialises per-repo), all ReconcileSuccess. No dependsOn needed.
+*/}}

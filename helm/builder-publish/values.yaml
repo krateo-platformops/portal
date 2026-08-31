@@ -1,0 +1,27 @@
+# PER-PUBLISH — supplied by the BuilderPublish claim (see values.schema.json). The values below are
+# EXAMPLES (schema-valid so `helm lint`/smoke-render pass); every real claim overrides them.
+name: example
+builder: controller   # page | blueprint | controller  (krateo.io/builder discriminator)
+branch: builder/example
+target:
+  namespace: example  # org / group[/subgroup] / workspace
+  repo: example        # repository / project
+  base: main           # base branch the builder branch is cut from
+files:                 # [{ path, content }] — each becomes one LocalResource
+  - path: README.md
+    content: |
+      # placeholder — overridden by the BuilderPublish claim
+
+# INSTALL-LEVEL — the real per-install defaults (set once; override via the CompositionDefinition or
+# the installer). The claim never carries these, so a git token never rides in a per-publish CR.
+git:
+  scheme: https    # http for self-hosted git without TLS (host may include :port)
+  host: github.com
+  insecure: false  # true for Azure DevOps
+credentials:
+  authMethod: bearer   # bearer (token) | basic (needs usernameRef) | cookiefile
+  secretRef:
+    name: git-provider-credentials   # the install's git-token secret (namespace = release ns)
+    key: token
+  # For authMethod: basic (self-hosted git / gitea), also set:
+  # usernameRef: { name: git-provider-credentials, key: username }

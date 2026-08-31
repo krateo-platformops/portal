@@ -1,0 +1,21 @@
+# Registers the builder-publish composition (helm/builder-publish, co-released with this portal
+# chart under the SAME version). Once registered, core-provider generates the BuilderPublish CRD
+# (apps.krateo.io/v1alpha1) from that chart's values.schema.json; the frontend (F1) then creates a
+# gated BuilderPublish claim per publish, and the composition commits the builder's held files to a
+# git branch via git-provider LocalResources (SCM-agnostic; no PR/MR — the UI opens one by deep link).
+#
+# The install-level git connection + credentials for builder-publish come from its values.yaml
+# defaults; override them here (spec.values) or via the installer to point at the install's git host
+# + token secret. Prereq: git-provider (git.krateo.io, chart >= 0.14.0 / appVersion >= 0.10.0) is a
+# mandatory install component (it renders the LocalResource CRD this composition applies).
+apiVersion: core.krateo.io/v1alpha1
+kind: CompositionDefinition
+metadata:
+  name: builder-publish
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/connector-verbose": "true"
+spec:
+  chart:
+    url: oci://ghcr.io/krateo-platformops/charts/builder-publish
+    version: {{ .Chart.Version | quote }}
