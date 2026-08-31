@@ -1,0 +1,26 @@
+# "Manifest" card wrapping the Alert's YAML view. Replaces the rule-config Descriptions card as the
+# alert detail body — the page shows the raw Alert CR, consistent with resource/composition detail.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-alert-detail-manifest
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Manifest
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+    - resourceRefId: alert-detail-manifest
+  resourcesRefs:
+    items:
+    - id: alert-detail-manifest
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-manifest
+      namespace: {{ .Release.Namespace }}
+      resource: yamlviewers
+      verb: GET

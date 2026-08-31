@@ -1,13 +1,13 @@
 # Convention page root for /alerts/{namespace}/{name} — the per-alert detail (item 25;
 # there was none before, /alerts was header + rules table and the row-click deep-linked to
 # /incidents?ask=). Strict top-to-bottom: pagehead (back-link + H1 + State tag + meta +
-# "Investigate with Autopilot") → Rule card (Watching/Threshold/Every/Message) → Console card
+# "Investigate with Autopilot") → Manifest card (the raw Alert CR as YAML) → Console card
 # (HyperDX external links) → Investigation card (linked-incident back-link).
 #
 # Reuses the composition-detail / incident-detail page structure/wrappers for consistency. The
 # Console and Investigation cards are templated SERVER-SIDE off alert-detail's `sections` flags:
 # each renders ONLY when its data exists (a configured console + recorded id; a matched report),
-# so an alert with no console and no incident degrades to just pagehead + Rule — nothing ever
+# so an alert with no console and no incident degrades to just pagehead + Manifest — nothing ever
 # renders as fabricated empty structure (exception-only, honest data). resourcesRefs stay static
 # (the full pool); unreferenced children are simply never fetched.
 kind: Flex
@@ -31,12 +31,12 @@ spec:
     gap: middle
     items:
     - resourceRefId: alert-detail-header-block
-    - resourceRefId: card-alert-detail-config
+    - resourceRefId: card-alert-detail-manifest
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
-        | [ { resourceRefId: "alert-detail-header-block" }, { resourceRefId: "card-alert-detail-config" } ]
+        | [ { resourceRefId: "alert-detail-header-block" }, { resourceRefId: "card-alert-detail-manifest" } ]
         + (if ($s.console // false) then [ { resourceRefId: "card-alert-detail-console" } ] else [] end)
         + (if ($s.incident // false) then [ { resourceRefId: "card-alert-detail-incident" } ] else [] end) }
   resourcesRefs:
@@ -47,9 +47,9 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: card-alert-detail-config
+    - id: card-alert-detail-manifest
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: card-alert-detail-config
+      name: card-alert-detail-manifest
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
