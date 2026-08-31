@@ -1,0 +1,25 @@
+# The Alert's full manifest. alert-detail emits it as a JSON string (.manifestJson, managedFields +
+# last-applied stripped); YamlViewer converts JSON → YAML for display. Mirrors
+# yamlviewer.resource-detail-manifest.
+kind: YamlViewer
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-manifest
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    json: "{}"
+  widgetDataTemplate:
+    # Fall back to "" (not "{}"): an absent manifest renders the YamlViewer's honest
+    # "No data to display" empty state, not a misleading empty object.
+    - forPath: json
+      expression: '${ .manifestJson // "" }'
+  resourcesRefs:
+    items: []

@@ -103,5 +103,9 @@ spec:
           resource: "alerts",
           name: (.alert.metadata.name // $n),
           namespace: (.alert.metadata.namespace // $ns)
-        }
+        },
+        # The raw Alert CR as a JSON string for the Manifest YamlViewer (managedFields +
+        # last-applied stripped; YamlViewer converts JSON → YAML). Empty when the read degraded so
+        # the viewer shows its honest empty state, not "{}". Same shape as resource-detail.
+        manifestJson: ((.alert // {}) | if (.metadata.name // "") != "" then ((del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) | tojson) else "" end)
       }
