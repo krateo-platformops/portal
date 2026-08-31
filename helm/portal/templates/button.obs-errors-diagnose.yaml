@@ -1,0 +1,38 @@
+# "Diagnose with Autopilot" — on-demand RCA of the most frequent errors, WITHOUT an incident.
+# Navigates to /incidents with an ?ask seed the AutopilotProvider consumes on mount (opens the
+# rail pre-seeded to root-cause the top recurring errors and propose recovery steps). The concrete
+# href is baked server-side by obs-error-log-digest (.diagnoseHref, @uri-encoded once), so the
+# click is a plain literal navigate — the SAME pattern as alert-detail-investigate. Defensive
+# fallback to bare /incidents (never a 404) when diagnoseHref is empty. Hosted in the "Top
+# recurring errors" card ONLY when there are errors (obs-errors-card gates it on .hasErrors).
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-errors-diagnose
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  # Same cache partition as the digest/card — the seed depends on the ?range= window.
+  keyExtras: [range]
+  apiRef:
+    name: obs-error-log-digest
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Diagnose with Autopilot
+    type: primary
+    size: middle
+    icon: fa-wand-magic-sparkles
+    clickActionId: diagnose
+    actions:
+      navigate:
+        - id: diagnose
+          type: navigate
+          path: /incidents
+  widgetDataTemplate:
+    # Server-built /incidents?ask= seed (the top errors). Fallback to bare /incidents if empty.
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "diagnose", type: "navigate", path: (if (.diagnoseHref // "") != "" then .diagnoseHref else "/incidents" end) } ] } }'
+  resourcesRefs:
+    items: []
