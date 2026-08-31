@@ -26,11 +26,22 @@ spec:
   widgetDataTemplate:
   - forPath: extra
     expression: '${ ((.total // 0)|tostring) + " errors · " + ((.distinct // 0)|tostring) + " distinct · grouped" }'
+  # "Diagnose with Autopilot" sits ABOVE the list, but ONLY when there are errors (exception-only):
+  # a clean estate shows the empty digest with no diagnose CTA. When present it seeds an on-demand
+  # RCA of the top errors (see button.obs-errors-diagnose / the digest's diagnoseHref).
+  - forPath: items
+    expression: '${ (if (.hasErrors // false) then [ { resourceRefId: "obs-errors-diagnose" } ] else [] end) + [ { resourceRefId: "obs-error-log-list" } ] }'
   apiRef:
     name: obs-error-log-digest
     namespace: {{ .Release.Namespace }}
   resourcesRefs:
     items:
+    - id: obs-errors-diagnose
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-errors-diagnose
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
     - id: obs-error-log-list
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-error-log-list

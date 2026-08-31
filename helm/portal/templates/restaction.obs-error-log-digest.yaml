@@ -46,7 +46,17 @@ spec:
   # Each row gains a server-baked `route` into the log stream scoped to its component
   # (/observability?serviceName= — the same hand-off the component-detail logs CTA uses); a row
   # with no ServiceName carries route:"" and stays INERT in the list.
-  filter: >
-    { rows: (((.digest.data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?serviceName=" + ($s | @uri) + "&tab=Telemetry") end) })),
-      total: (((.tot.data) // [])[0].total // 0),
-      distinct: (((.tot.data) // [])[0].distinct_problems // 0) }
+  # diagnoseHref: an on-demand "Diagnose with Autopilot" seed (button.obs-errors-diagnose) — the
+  # top-8 errors baked into an /incidents?ask= prompt (@uri-encoded ONCE, navigate uses it verbatim),
+  # so the rail opens pre-seeded to RCA the most frequent errors WITHOUT an alert/incident. Empty +
+  # hasErrors:false on a clean estate (the button is gated off), so it never links to a bare ask.
+  # Literal `|` block (NOT folded `>`) — the seed string carries newlines; folding would mangle them.
+  filter: |
+    (((.digest.data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?serviceName=" + ($s | @uri) + "&tab=Telemetry") end) })) as $rows
+    | ([ $rows[0:8] | to_entries[] | (((.key) + 1) | tostring) + ". " + (.value.service // "unknown") + " — \"" + (.value.msg // "") + "\" (x" + ((.value.occurrences // 0) | tostring) + ")" ] | join("\n")) as $top
+    | ("Diagnose the most frequent errors in my platform's telemetry. The top recurring errors are:\n" + $top + "\n\nFor the most frequent ones, explain the likely root cause and give concrete, ordered recovery steps; where a fix is a safe Kubernetes change, propose it so I can apply it (I will confirm before anything is applied).") as $ask
+    | { rows: $rows,
+        total: (((.tot.data) // [])[0].total // 0),
+        distinct: (((.tot.data) // [])[0].distinct_problems // 0),
+        hasErrors: (($rows | length) > 0),
+        diagnoseHref: (if ($rows | length) > 0 then ("/incidents?ask=" + ($ask | @uri)) else "" end) }
