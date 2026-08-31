@@ -10,9 +10,11 @@
 #   found     → per CRD, emit EVERY composition's managed entries (the step
 #               filter can't see extras), each TAGGED with its parent name/ns
 #               (_cn/_cns) + a reconstructed fetchable GET path (_getpath).
-#               Krateo's .status.managed[].path omits the namespace for
-#               namespaced kinds (→404), so inject /namespaces/<compNs>/;
-#               cluster-scoped kinds keep .path.
+#               core-provider's .status.managed[].path now INCLUDES /namespaces/
+#               <ns>/ for namespaced kinds (it used to omit it), so _getpath uses
+#               .path as-is when it already carries /namespaces/ and injects only
+#               when absent (idempotent for both shapes; issue #152 — double-inject
+#               → 404 → healthy-by-presence). Cluster-scoped kinds keep .path.
 #   resources → ITERATOR (full dict) filters _cn/_cns to the target (only the
 #               target's ~N resources are fetched), GETs each at _getpath, and
 #               its filter shapes the live object to {kind,name,ns,conditions}.
@@ -86,7 +88,12 @@ spec:
                 _grp: (if ($p[1] // "") == "apis" then ($p[2] // "") else "core" end),
                 _ver: (if ($p[1] // "") == "apis" then ($p[3] // "v1") else ($p[2] // "v1") end),
                 _cluster: ($cluster != null),
-                _getpath: (if $cluster != null then $m.path
+                # core-provider's .status.managed[].path now ALREADY carries /namespaces/<ns>/ for
+                # namespaced kinds (verified live: /api/v1/namespaces/<ns>/serviceaccounts/<n>), so
+                # inject it ONLY when absent — else the URL doubles the namespace segment → 404, and
+                # the fetch-miss silently defaults the resource to healthy (issue #152). Idempotent
+                # for both path shapes (old omitted-ns and new included-ns).
+                _getpath: (if $cluster != null or ($m.path | contains("/namespaces/")) then $m.path
                            else ($pre + "/namespaces/" + $cns + "/" + $res + "/" + $nm) end) } ]
     - name: resources
       dependsOn:
@@ -123,6 +130,7 @@ spec:
     | ( $managed | map(
           . as $m
           | ( [ $fetched[] | select(.rname == $m._name and ((.rns == $m._cns) or (.rns == ""))) ][0] ) as $obj
+          | ($obj != null) as $found
           | (($obj.conditions) // []) as $c
           | ([ $c[]? | select(.type == "Ready" or .type == "Available") ][0]) as $rc
           | ($rc.status == "True") as $ready
@@ -133,12 +141,18 @@ spec:
               kind: ($kindMap[$m._kind] // (if (($obj.rkind) // "") != "" then $obj.rkind else (($m._kind | .[0:1] | ascii_upcase) + ($m._kind[1:] | sub("s$"; ""))) end)),
               name: $m._name,
               ns: $m._cns,
-              state: (if $noconds then "healthy"
+              # healthy-by-presence applies ONLY to a child we actually FETCHED (a conditionless kind
+              # like ServiceAccount/ConfigMap that exists). A managed child we could NOT fetch
+              # ($found=false — 404 / API error) is NOT healthy: report it "pending" (issue #152), so
+              # it neither shows a green tag nor counts toward convergence.
+              state: (if ($found | not) then "pending"
+                      elif $noconds then "healthy"
                       elif $ready and ($unsynced | not) then "healthy"
                       elif $ready and $unsynced then "drift"
                       elif $notready then "failed"
                       else "pending" end),
-              healthPercent: (if $noconds or ($ready and ($unsynced|not)) then 100
+              healthPercent: (if ($found | not) then 50
+                              elif $noconds or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70
                               elif $notready then 20 else 50 end),
               # IA F5 + F5-full: composition.krateo.io children drill into the first-class
