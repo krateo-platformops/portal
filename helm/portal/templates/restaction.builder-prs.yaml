@@ -25,6 +25,28 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: prsError
+    # P1 — SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER): a publish opens NO
+    # PullRequest CR — it commits held files via git-provider LocalResources labelled
+    # krateo.io/builder (any of page|blueprint|controller) + krateo.io/publish: <name> (one per
+    # file). This general feed shows ALL builders' publishes, grouped per publish in the final
+    # filter → a "branch pushed, awaiting PR" row alongside the PR rows (continueOnError → empty
+    # if git-provider/RBAC absent). The repo is parsed from the LocalResource toRepo URL.
+    - name: publishes
+      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: publishesError
+      filter: >
+        [ (.publishes.items // [])[]
+          | select(((.metadata.labels["krateo.io/publish"]) // "") != "")
+          | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+              branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
+              repo: (((.spec.toRepo.url) // "") | rtrimstr(".git") | split("/")
+                     | (if length >= 2 then (.[-2] + "/" + .[-1]) else "" end)),
+              synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
+              created: ((.metadata.creationTimestamp) // "") } ]
   filter: >
     ([ ((.prs.items) // [])[]
         | (((.spec.owner) // "") + "/" + ((.spec.repo) // "")) as $repo
@@ -60,5 +82,22 @@ spec:
             # The GitHub PR URL (status.html_url) — the Listy row's external navigateTo. A PR
             # with no URL yet (freshly created, pre-reconcile) gets "" → the row is inert.
             url:   ((.status.html_url) // "")
-          } ]) as $rows
-    | { rows: $rows }
+          } ]) as $prRows
+    | ([ (.publishes // []) | group_by(.publish)[]
+         | select((.[0].publish // "") != "")
+         | .[0] as $p0
+         | (all(.[]; .synced == "True")) as $pushed
+         # Claim-path row: the branch is pushed; the PR/MR is opened by the human (Option A), so
+         # there is no PR number/URL/merge-state — state is "pushed" (gold) until then.
+         | { name: $p0.publish,
+             repo: $p0.repo,
+             head: $p0.branch,
+             sub: ($p0.repo + (if ($p0.branch // "") != "" then (" · " + $p0.branch) else "" end)),
+             title: ($p0.publish | sub("^publish-"; "")),
+             state: (if $pushed then "pushed" else "pending" end),
+             stateLabel: (if $pushed then "Pushed" else "Pending" end),
+             stateColor: "gold",
+             pr: "",
+             created: ($p0.created // ""),
+             url: "" } ]) as $claimRows
+    | { rows: (($prRows + $claimRows) | sort_by(.created // "") | reverse) }

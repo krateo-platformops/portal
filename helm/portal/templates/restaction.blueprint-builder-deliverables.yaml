@@ -54,6 +54,24 @@ spec:
           | { name: (.metadata.name // ""),
               version: ((.spec.chart.version) // ""),
               ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
+    # P1 — SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER): no PullRequest CR, the
+    # blueprint's held chart files ride git-provider LocalResources labelled krateo.io/builder:
+    # blueprint + krateo.io/publish: <name> (one per file). Grouped per publish in the final filter
+    # → a deliverable row alongside the PR rows. continueOnError → empty if git-provider/RBAC absent.
+    - name: publishes
+      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: publishesError
+      filter: >
+        [ (.publishes.items // [])[]
+          | select(((.metadata.labels["krateo.io/builder"]) // "") == "blueprint")
+          | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+              branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
+              synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
+              created: ((.metadata.creationTimestamp) // "") } ]
     # The krateo-blueprints blueprints helm index — the marketplace catalog. Mirrors
     # restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's
     # `entries` map is keyed by chart NAME, so the marketplace-availability join is a simple
@@ -88,8 +106,29 @@ spec:
              marketLabel: (if $published then "Available" else "" end),
              marketColor: (if $published then "green" else "" end),
              ns: "{{ .Release.Namespace }}",
-             age: $pr.created }
-       ] | sort_by(.age // "") | reverse) as $rows
+             age: $pr.created } ]) as $prRows
+    | ([ (.publishes // []) | group_by(.publish)[]
+         | select((.[0].publish // "") != "")
+         | .[0] as $p0
+         | ($p0.publish | sub("^publish-"; "")) as $chart
+         | ( [ $cds[] | select(.name == $chart) ] | first ) as $cd
+         | ($inCatalog[$chart] // false) as $published
+         | (all(.[]; .synced == "True")) as $pushed
+         | { chart: $chart,
+             title: "",
+             pr: ($p0.branch // ""),
+             url: "",
+             version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
+             status: (if ($cd != null and $cd.ready == "True") then "Registered"
+                      elif ($cd != null) then "Reconciling"
+                      elif $pushed then "In review" else "Pushing" end),
+             statusColor: (if ($cd != null and $cd.ready == "True") then "green"
+                           else "gold" end),
+             marketLabel: (if $published then "Available" else "" end),
+             marketColor: (if $published then "green" else "" end),
+             ns: "{{ .Release.Namespace }}",
+             age: ($p0.created // "") } ]) as $claimRows
+    | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows
     | { rows: $rows,
         counts: { total: ($rows | length),
                   registered: ([ $rows[] | select(.status == "Registered") ] | length),

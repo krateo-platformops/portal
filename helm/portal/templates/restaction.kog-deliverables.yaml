@@ -66,6 +66,26 @@ spec:
               genKind: (.status.resource.kind // ""),
               genApiVersion: (.status.resource.apiVersion // ""),
               ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
+    # P1 — the SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER). When on, a publish
+    # opens NO PullRequest CR — it commits held files via git-provider LocalResources labelled
+    # krateo.io/builder: controller + krateo.io/publish: <name>. One publish = N LocalResources
+    # (one per file) sharing the publish label; each carries the target branch + a Synced condition.
+    # Read them here (continueOnError → empty if git-provider/RBAC absent) so the final filter can
+    # emit a deliverable row per publish alongside the PR rows — the table works on both paths.
+    - name: publishes
+      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: publishesError
+      filter: >
+        [ (.publishes.items // [])[]
+          | select(((.metadata.labels["krateo.io/builder"]) // "") == "controller")
+          | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+              branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
+              synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
+              created: ((.metadata.creationTimestamp) // "") } ]
   # Join PRs → RestDefinitions. The generated GVK + Ready verdict chip (Ready=green,
   # Failed=red, Pending=gold) are computed HERE, server-side. Rows are newest-first. The PR
   # domain state (open/merged/closed) rides too so the age + PR "#N" columns read honestly.
@@ -87,8 +107,26 @@ spec:
                      elif $rd != null then "Pending" else "In review" end),
              readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red"
                           else "gold" end),
-             age: $pr.created }
-       ] | sort_by(.age // "") | reverse) as $rows
+             age: $pr.created } ]) as $prRows
+    | ([ (.publishes // []) | group_by(.publish)[]
+         | select((.[0].publish // "") != "")
+         | .[0] as $p0
+         | ($p0.publish | sub("^publish-"; "")) as $kind
+         | ( [ $rds[] | select(.name == $kind) ] | first ) as $rd
+         | ($rd.ready // "") as $rs
+         | (all(.[]; .synced == "True")) as $pushed
+         | { restdef: $kind,
+             title: "",
+             pr: ($p0.branch // ""),
+             url: "",
+             gvk: (if ($rd != null and (($rd.genKind // "") != ""))
+                   then ($rd.genKind + " · " + ($rd.genApiVersion // "")) else "—" end),
+             ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed"
+                     elif $rd != null then "Pending" elif $pushed then "In review" else "Pushing" end),
+             readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red"
+                          else "gold" end),
+             age: ($p0.created // "") } ]) as $claimRows
+    | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows
     | { rows: $rows,
         counts: { total: ($rows | length),
                   ready: ([ $rows[] | select(.ready == "Ready") ] | length) },
