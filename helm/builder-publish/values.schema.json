@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "BuilderPublish",
+  "description": "One Autopilot builder publish. The frontend emits this (gated); the composition renders one git-provider LocalResource per file, committing the held bytes verbatim to a builder/<slug> branch on any SCM. PER-PUBLISH fields (name/builder/branch/target/files) come from the claim; git/credentials are INSTALL-LEVEL defaults (values.yaml) — the claim never carries a secret.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "builder", "branch", "target", "files"],
+  "properties": {
+    "name": { "type": "string", "description": "Publish identity; LocalResource name prefix + krateo.io/publish label." },
+    "builder": { "type": "string", "enum": ["page", "blueprint", "controller"], "description": "Neutral krateo.io/builder discriminator." },
+    "branch": { "type": "string", "description": "Branch to commit onto, e.g. builder/my-dashboard (created off target.base)." },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "repo"],
+      "description": "The repo to publish into, within the install's git host.",
+      "properties": {
+        "namespace": { "type": "string", "description": "org (GitHub) / group[/subgroup] (GitLab) / workspace (Bitbucket)." },
+        "repo": { "type": "string", "description": "repository / project." },
+        "base": { "type": "string", "default": "main", "description": "base branch the builder branch is cut from." }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The held files — each becomes one LocalResource (verbatim, at path).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "content"],
+        "properties": {
+          "path": { "type": "string", "description": "Full in-repo path; the composition splits it into fileName + toRepo.path." },
+          "content": { "type": "string", "description": "Exact file bytes — committed verbatim." }
+        }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "INSTALL-LEVEL git connection (values.yaml default). Not part of a claim.",
+      "properties": {
+        "scheme": { "type": "string", "enum": ["https", "http"], "default": "https" },
+        "host": { "type": "string", "default": "github.com" },
+        "insecure": { "type": "boolean", "default": false }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "INSTALL-LEVEL git auth (values.yaml default). Not part of a claim.",
+      "properties": {
+        "authMethod": { "type": "string", "enum": ["bearer", "basic", "cookiefile"], "default": "bearer" },
+        "secretRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "namespace": { "type": "string" },
+            "key": { "type": "string", "default": "token" }
+          }
+        },
+        "usernameRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "namespace": { "type": "string" },
+            "key": { "type": "string", "default": "username" }
+          }
+        }
+      }
+    }
+  }
+}
