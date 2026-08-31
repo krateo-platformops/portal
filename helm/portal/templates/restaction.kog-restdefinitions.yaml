@@ -11,11 +11,9 @@
 #            "why is it Failed?", auth = status.hasSecuritySchemes for the day-2
 #            "configure credentials for <Kind>" hint).
 #   counts : total/ready/failed/pending over the full set (header/summary use).
-#   hint   : the empty-state CTA — ONLY when zero RestDefinitions exist (exception-only
-#            UX), one item carrying askHref: an /api-builder?ask= Autopilot deep-link
-#            (the page's public route was renamed /kog-builder to /api-builder, issue
-#            #29; the widget names + page slug stay kog-builder — internal)
-#            (@uri, server-built) seeding the paste-an-OpenAPI builder flow.
+# (The Autopilot deep-link hint is no longer emitted here — the page's single "Ask Autopilot →"
+# CTA is the one entry point; the redundant hint strip was removed. The page's public route was
+# renamed /kog-builder to /api-builder, issue #29; the widget names + page slug stay kog-builder.)
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -56,8 +54,8 @@ spec:
               genApiVersion: (.status.resource.apiVersion // ""),
               oasPath: (.status.oasPath // .spec.oasPath // ""),
               hasAuth: (.status.hasSecuritySchemes // false) } ]
-  # Build the registry rows (newest first) + counts + the empty-state hint. The Ready
-  # verdict and its chip colour are computed HERE (server-side), never client-side.
+  # Build the registry rows (newest first) + counts. The Ready verdict and its chip colour
+  # are computed HERE (server-side), never client-side.
   filter: >
     ([ (.restdefs // [])[]
         | (.readyCond.status // "") as $rs
@@ -78,9 +76,5 @@ spec:
           ready: ([ $rows[] | select(.ready == "Ready") ] | length),
           failed: ([ $rows[] | select(.ready == "Failed") ] | length),
           pending: ([ $rows[] | select(.ready == "Pending") ] | length)
-        },
-        # Always-visible (was empty-state-only); copy reworded off "your first" + API→controller.
-        hint: [ { title: "Author a controller with Autopilot",
-                  detail: "Paste an OpenAPI document (or give its URL) in the rail — the agent proposes the RestDefinition mapping, you preview it, one gated confirm publishes it.",
-                  askHref: ("/controller-builder?ask=" + (("I want to author a new controller with the Controller builder. I will paste an OpenAPI document (or give you its URL): propose the RestDefinition mapping (kind, resourceGroup, verbs, identifiers), preview it with previewRestDef, and publish it only after I confirm.") | @uri)) } ]
+        }
       }

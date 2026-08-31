@@ -63,9 +63,8 @@ spec:
         [ (((.catalog // {}).entries) // {}) | keys[] ]
   # Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/In review) + its
   # chip colour, the marketplace-available chip, and the PR "#N" cell are all computed HERE,
-  # server-side. Rows are newest-first. The empty-state hint is emitted ONLY when zero
-  # deliverables exist (exception-only UX), carrying a /blueprint-builder?ask= Autopilot deep-link
-  # that seeds the blueprint-authoring flow.
+  # server-side. Rows are newest-first. (The Autopilot deep-link is no longer emitted here — the
+  # page's single "Ask Autopilot →" CTA is the one entry point; the redundant hint strip was removed.)
   filter: >
     (.cds // []) as $cds
     | ((.catalog // []) | map({key: ., value: true}) | from_entries) as $inCatalog
@@ -94,9 +93,4 @@ spec:
     | { rows: $rows,
         counts: { total: ($rows | length),
                   registered: ([ $rows[] | select(.status == "Registered") ] | length),
-                  published: ([ $rows[] | select(.marketLabel == "Available") ] | length) },
-        # Always-visible: the "author with Autopilot" CTA shows whether or not deliverables exist
-        # (was empty-state-only). Copy reworded off "your first" so it reads right when items exist.
-        hint: [ { title: "Author a blueprint with Autopilot",
-                  detail: "Describe the blueprint in the rail — the agent drafts the Helm chart, previews a live helm-render, and opens a gated pull request. Merged, it publishes an OCI chart and lands on the Blueprints page.",
-                  askHref: ("/blueprint-builder?ask=" + (("I want to author a new blueprint (a Helm chart) with the Blueprint builder. Help me define its Chart.yaml, values.yaml, values.schema.json and templates, preview it with previewBlueprint, and publish it via a gated pull request to the blueprints repo once I confirm.") | @uri)) } ] }
+                  published: ([ $rows[] | select(.marketLabel == "Available") ] | length) } }

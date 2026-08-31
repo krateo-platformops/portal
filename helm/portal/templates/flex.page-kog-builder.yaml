@@ -4,10 +4,11 @@
 # (the page's own entry into the flow), the PR-published DELIVERABLES table (blueprint-builder
 # parity, issue #30 — the API mappings shipped via a gated PR, joined to their generated
 # RestDefinition Ready status), the RestDefinition REGISTRY table (READY / generated
-# kind+apiVersion / OAS source, all derived server-side — the full live-CRD state), and the
-# empty-state Autopilot CTA strip (visible only while zero mappings exist). The route is hidden
-# (label-less nav item) — Autopilot navigates here after a gated publish; the authoring flow
-# itself lives in the rail, not on this page (the create Form is the deferred CHART-K2).
+# kind+apiVersion / OAS source, all derived server-side — the full live-CRD state). The route is
+# hidden (label-less nav item) — Autopilot navigates here after a gated publish; the authoring flow
+# itself lives in the rail, not on this page (the create Form is the deferred CHART-K2). The
+# redundant "author with Autopilot" hint strip was removed — the three builder pages share the
+# single Ask-Autopilot CTA.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -20,13 +21,12 @@ spec:
     allowedResources:
     - flexes
     - tables
-    - listies
-    - buttons
     vertical: true
     gap: middle
     items:
     - resourceRefId: kog-builder-header
     # #84 §0.1: CTA rides in a right-aligned wrapper Flex (was a bare left-aligned button).
+    - resourceRefId: kog-builder-ask-cta
     # The PR-published deliverables (KOG API mappings opened via a gated pull request), JOINED
     # to their generated RestDefinition Ready status — the blueprint-builder-parity surface
     # (issue #30). Above the raw restdef registry: the deliverables are the "what did I ship?"
@@ -34,7 +34,6 @@ spec:
     # frontend KOG-publish-via-PR path ships — then it fills like the blueprint table.
     - resourceRefId: kog-deliverables
     - resourceRefId: kog-restdefinitions
-    - resourceRefId: kog-builder-hint
   resourcesRefs:
     items:
     - id: kog-builder-header
@@ -60,10 +59,4 @@ spec:
       name: kog-restdefinitions
       namespace: {{ .Release.Namespace }}
       resource: tables
-      verb: GET
-    - id: kog-builder-hint
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-builder-hint
-      namespace: {{ .Release.Namespace }}
-      resource: listies
       verb: GET
