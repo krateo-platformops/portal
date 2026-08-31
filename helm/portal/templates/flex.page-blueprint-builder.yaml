@@ -1,9 +1,9 @@
 # Convention page root for /blueprint-builder — the Blueprint builder's home: a
 # how-it-works header, the always-visible "Ask Autopilot →" CTA (the page's own entry
-# into the flow), the published-blueprints deliverables table (each row links to
-# its blueprint detail), and the empty-state Autopilot CTA (visible only while zero
-# blueprints have been authored). The authoring flow itself lives in the Autopilot rail
-# (previewBlueprint → gated git publish); this page is the deliverables surface.
+# into the flow), and the published-blueprints deliverables table (each row links to its
+# blueprint detail). The authoring flow itself lives in the Autopilot rail (previewBlueprint
+# → gated git publish); this page is the deliverables surface. The redundant "author with
+# Autopilot" hint strip was removed — the three builder pages share the single Ask-Autopilot CTA.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,15 +16,13 @@ spec:
     allowedResources:
     - flexes
     - tables
-    - listies
-    - buttons
     vertical: true
     gap: middle
     items:
     - resourceRefId: blueprint-builder-header
     # #84 §0.1: CTA rides in a right-aligned wrapper Flex (was a bare left-aligned button).
+    - resourceRefId: blueprint-builder-ask-cta
     - resourceRefId: blueprint-builder-deliverables
-    - resourceRefId: blueprint-builder-hint
   resourcesRefs:
     items:
     - id: blueprint-builder-header
@@ -44,10 +42,4 @@ spec:
       name: blueprint-builder-deliverables
       namespace: {{ .Release.Namespace }}
       resource: tables
-      verb: GET
-    - id: blueprint-builder-hint
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: blueprint-builder-hint
-      namespace: {{ .Release.Namespace }}
-      resource: listies
       verb: GET
