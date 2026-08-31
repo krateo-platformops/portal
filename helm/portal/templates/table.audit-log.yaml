@@ -1,0 +1,39 @@
+# AUDIT LOG table — the browsable audit trail of gated mutations across the namespace, off
+# restaction.audit-log. Same read-only shape as the per-incident incident-auditrecords table
+# (Actor / Verb / Resource / Result / When), but unfiltered: it lists EVERY AuditRecord, so
+# records emitted for actions not tied to an incident are actually visible somewhere. Table is
+# an existing widget kind (no new CRD). Rows are inert (no rowNavigateTo) — a receipt, not a nav.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-log
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    pagination:
+      defaultPageSize: 15
+    columns:
+    - valueKey: actor
+      title: Actor
+    - valueKey: verb
+      title: Verb
+    - valueKey: resource
+      title: Resource
+    - valueKey: result
+      title: Result
+    - valueKey: timestamp
+      title: When
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"actor",kind:"jsonSchemaType",type:"string",stringValue:(.actor // "")}, {valueKey:"verb",kind:"jsonSchemaType",type:"string",stringValue:(.verb // "")}, {valueKey:"resource",kind:"jsonSchemaType",type:"string",stringValue:(.resource // ""),color:"#8c8c8c"}, {valueKey:"result",kind:"jsonSchemaType",type:"string",stringValue:(.result // ""),color:(.resultColor // "#8c8c8c")}, {valueKey:"timestamp",kind:"jsonSchemaType",type:"string",stringValue:(.timestamp // ""),color:"#8c8c8c"} ] ] }'
+  apiRef:
+    name: audit-log
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

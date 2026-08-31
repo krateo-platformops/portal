@@ -15,11 +15,16 @@ spec:
     allowedResources:
     - flexes
     - tables
+    - paragraphs
     vertical: true
     gap: large
     items:
     - resourceRefId: settings-title-stack
     - resourceRefId: settings-users
+    # Audit log — the browsable trail of gated mutations (AuditRecord CRs). Emitted for every
+    # gated write but previously shown only per-incident; surfaced here so it is actually visible.
+    - resourceRefId: settings-audit-log-title
+    - resourceRefId: settings-audit-log
   resourcesRefs:
     items:
     - id: settings-title-stack
@@ -31,6 +36,18 @@ spec:
     - id: settings-users
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: settings-users
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
+    - id: settings-audit-log-title
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-log-title
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: settings-audit-log
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-log
       namespace: {{ .Release.Namespace }}
       resource: tables
       verb: GET

@@ -1,0 +1,56 @@
+# General audit log — every gated mutating action the portal records as an AuditRecord
+# (audit.krateo.io/v1alpha1), newest first, across the whole namespace. Unlike
+# restaction.incident-auditrecords (which filters to ONE incident's target resources), this
+# lists ALL records so the audit trail is actually browsable — otherwise records emitted for
+# actions not tied to an incident (a plain create/edit/delete) are written but shown nowhere.
+# Each row: actor (human, or the agent identity), the write (verb + group/resource/name · ns),
+# the outcome (OK/FAILED + HTTP status), and a relative age. Read-only receipt; rows are inert.
+# continueOnError: a CRD-less cluster (404) leaves the table empty, never an error.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: audit-log
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: audits
+      path: /apis/audit.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/auditrecords
+      verb: GET
+      continueOnError: true
+      errorKey: auditsError
+  # Literal `|` block (NOT folded `>`) — the filter carries `#` comments; a folded block would
+  # collapse newlines to spaces and comment out the rest of the jq (same as incident-auditrecords).
+  filter: |
+    # Normalise Python isoformat (drop `.ffffff`, fold +00:00 → Z) before parsing; render a compact
+    # relative age. Unparseable → the raw first-10 (a date). Same helper as incident-auditrecords.
+    def rel: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else . end) as $norm
+      | ($norm | fromdateiso8601? // null) as $t
+      | if $t == null then (. // "" | tostring | .[0:10]) else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
+    ((.audits.items) // []) as $ars
+    | ([ $ars[]
+         | (.spec // {}) as $sp
+         | ($sp.action // {}) as $act
+         | {
+             # actor — human, or the agent identity when actor=agent (falls back to the enum value).
+             actor: (if ($sp.actor // "") == "agent" then ("agent" + (if ($sp.agent.id // "") != "" then (" · " + $sp.agent.id) else "" end)) else ($sp.actor // "—") end),
+             verb: (($act.verb // "") | ascii_upcase),
+             # resource = "<group>/<resource>/<name>" (gvr + target name), namespace appended when set.
+             resource: (((if ($act.group // "") != "" then ($act.group + "/") else "" end) + ($act.resource // "") + "/" + ($act.name // ""))
+               + (if ($act.namespace // "") != "" then (" · " + $act.namespace) else "" end)),
+             # result — OK/FAILED with the HTTP status; honest "—" when the producer left it unset.
+             result: (if ($sp.outcome | type) == "object" then
+                        ((if ($sp.outcome.ok // false) then "OK" else "FAILED" end)
+                         + (if ($sp.outcome.status // 0) != 0 then (" " + ($sp.outcome.status | tostring)) else "" end))
+                      else "—" end),
+             resultColor: (if ($sp.outcome.ok // false) then "#389e0d" else (if ($sp.outcome | type) == "object" then "#cf1322" else "#8c8c8c" end) end),
+             # timestamp — dispatch time (resolvedAt) preferred, else ask time (requestedAt), else the
+             # record's own creationTimestamp; rendered as a compact relative age.
+             timestamp: ((($sp.resolvedAt // "") | if . != "" then . else ($sp.requestedAt // "") end
+                          | if . != "" then . else (.metadata.creationTimestamp // "") end) | rel),
+             # raw sortable key (unnormalised) — newest first.
+             ts: (($sp.resolvedAt // $sp.requestedAt // .metadata.creationTimestamp // ""))
+           }
+       ] | sort_by(.ts) | reverse) as $rows
+    | { rows: $rows, count: ($rows | length) }
