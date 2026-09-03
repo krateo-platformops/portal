@@ -22,6 +22,14 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  # snowplow ≥1.12.3 (snowplow#173) strips the identity extras — username, groups,
+  # displayName — from a widget's request unless the widget declares them here. This
+  # table does not render the CALLER's identity (the .username/.groups below are the
+  # iterated personas from the RA), so it is not broken by the strip; the declaration
+  # makes the contract explicit: the server injects the caller's authoritative values
+  # and folds them into the cache key, so two users on this page get their own cell
+  # (portal#130).
+  identityContext: [username, groups]
   widgetData:
     allowedResources: []
     bordered: false
