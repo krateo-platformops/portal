@@ -14,6 +14,51 @@ Curated history, newest first. Point-in-time records live as archives (the
 ([marketplace-registry-discovery](./marketplace-registry-discovery.md),
 [snowplow-yaml-api-step-enabler](./snowplow-yaml-api-step-enabler.md)).
 
+## 2026-09-09 — builder-publish creates the destination repository
+
+Publishing required a repository someone had already made by hand, which is backwards for a
+brand-new blueprint: `toRepo.cloneFromBranch` presupposes a repo that already has that branch.
+`helm/builder-publish` now renders the repository itself, as a CR, from the same claim.
+
+**SCM dispatch is install-level.** `git.scm` sits beside `git.host`/`scheme` and selects WHICH
+repository kind is rendered; the file commits stay scm-blind through git-provider either way. Only
+`github` is implemented, because github-provider-kog is the only per-SCM provider that exists. An
+unsupported value **fails the render** — twice over, at the values schema (`enum: [github]`) and
+again at a template `fail` for consumers that skip schema validation. It deliberately does not skip
+creation: skipping would produce a publish that reports success and then dies inside git-provider
+with a clone error the author has to decode.
+
+**Ordering is solved with `lookup`, because there is no ordering primitive.** `LocalResource` has no
+`dependsOn` or `waitFor` field. The supported Krateo answer is Helm's `lookup`, which reads live
+cluster state, plus the fact that composition-dynamic-controller re-renders every reconcile: the
+first pass emits only the `Repository`, and a later pass — once the repo is real — emits the files.
+No manual sequencing. Same pattern as the `nutanix-chain-lookup` blueprint, which proved it.
+
+The gate keys on **`status.default_branch`**, not on the CR merely existing. That field comes from
+GitHub's GET response, so it proves the repository exists, is initialised, AND has a branch — which
+is exactly what `cloneFromBranch` needs. It also makes `repository.autoInit` load-bearing: a repo
+created without an initial commit never publishes a `default_branch`, so the files correctly never
+render against an empty repo.
+
+**Adoption is free.** `Repository` is level-based — Observe does `GET /repos/{org}/{name}` first and
+only creates when that reports absent. Declaring it unconditionally is therefore safe: an existing
+repository is adopted, not re-created and not 422'd. There is no "does it exist?" check anywhere.
+
+Two credential models now sit in one composition — `LocalResource` takes an inline
+`credentials.secretRef`, `Repository` takes a `configurationRef`. Both are rendered here from the
+SAME secret, so one token drives both halves and no operator wiring is added.
+
+`repository.create=false` restores the previous behaviour exactly, for installs that provision
+repositories out of band.
+
+**New install dependency:** unless `repository.create=false`, this chart now needs
+github-provider-kog, which owns `github.krateo.io/Repository`. That was a deliberate choice over
+degrading gracefully when the CRD is absent, for the same reason the SCM check fails loudly.
+
+Not verified end to end: no cluster available to this change has github-provider-kog installed, so
+the rendered `Repository` could not be server-validated. Its fields were cross-checked against the
+kind's OpenAPI document instead — every one resolves to a create-body property or a path parameter.
+
 ## 2026-08-07 — adopted the Krateo Documentation Standard
 
 This bundle: root `docs/` + `examples/` + thin README. The old README prescribed a

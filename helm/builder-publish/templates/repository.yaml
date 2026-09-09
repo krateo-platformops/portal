@@ -1,0 +1,72 @@
+{{/*
+  builder-publish — CREATE THE DESTINATION REPOSITORY.
+
+  Publishing used to require a repository someone had already made by hand, which is backwards for
+  a brand-new blueprint: `toRepo.cloneFromBranch` in localresources.yaml presupposes a repo that
+  already has that branch. This renders the repo itself, as a CR, from the same claim.
+
+  SCM DISPATCH. The kind is per-SCM (`.Values.git.scm`, install-level, alongside host/scheme).
+  Only `github` is implemented, because github-provider-kog is the only per-SCM provider that
+  exists. An unsupported value FAILS THE RENDER rather than skipping creation: skipping would
+  produce a publish that reports success and then dies in git-provider with a clone error the
+  author has to decode.
+
+  ADOPTION IS FREE. `Repository` is level-based — Observe does `GET /repos/{org}/{name}` first and
+  only creates when that reports absent. So declaring this unconditionally is safe: an existing
+  repository is adopted, not re-created and not 422'd. There is no "does it exist?" check to write.
+
+  REQUIRES github-provider-kog to be installed (it owns github.krateo.io). That is a deliberate
+  install-time dependency: see the chart description.
+*/}}
+{{- if .Values.repository.create }}
+{{- $git := .Values.git | default dict -}}
+{{- $scm := $git.scm | default "github" -}}
+{{- if ne $scm "github" -}}
+{{- fail (printf "builder-publish: git.scm=%q has no repository provider. Only \"github\" is implemented (github.krateo.io/Repository, from github-provider-kog). Either install a provider for %q and add its kind here, or set repository.create=false and pre-provision the destination repository yourself." $scm $scm) -}}
+{{- end -}}
+{{- $t := .Values.target -}}
+{{- $cred := .Values.credentials -}}
+{{- $ns := .Release.Namespace -}}
+{{- $repo := printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-" -}}
+---
+# The auth kind oasgen-provider generates per resource kind. Rendered here from the SAME secret
+# git-provider uses, so one token drives both halves and no operator wiring is needed.
+apiVersion: github.krateo.io/v1alpha1
+kind: RepositoryConfiguration
+metadata:
+  name: {{ $repo }}
+  namespace: {{ $ns }}
+  labels:
+    krateo.io/builder: {{ .Values.builder }}
+    krateo.io/publish: {{ .Values.name }}
+spec:
+  authentication:
+    bearer:
+      tokenRef:
+        name: {{ $cred.secretRef.name | quote }}
+        namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
+        key: {{ $cred.secretRef.key | default "token" | quote }}
+---
+apiVersion: github.krateo.io/v1alpha1
+kind: Repository
+metadata:
+  name: {{ $repo }}
+  namespace: {{ $ns }}
+  labels:
+    krateo.io/builder: {{ .Values.builder }}
+    krateo.io/publish: {{ .Values.name }}
+spec:
+  configurationRef:
+    name: {{ $repo }}
+  org: {{ $t.namespace | quote }}      # same field the LocalResource URL is built from
+  name: {{ $t.repo | quote }}
+  private: {{ .Values.repository.private }}
+  # LOAD-BEARING, do not default this to false. A repository created without an initial commit has
+  # no default branch, so `cloneFromBranch` in localresources.yaml has nothing to clone and every
+  # file in the publish fails. It is also what makes the readiness gate below meaningful: the gate
+  # keys on status.default_branch, which only exists once the repo has a commit.
+  auto_init: {{ .Values.repository.autoInit }}
+  {{- with .Values.repository.description }}
+  description: {{ . | quote }}
+  {{- end }}
+{{- end }}

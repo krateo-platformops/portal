@@ -18,6 +18,23 @@ git:
   scheme: https    # http for self-hosted git without TLS (host may include :port)
   host: github.com
   insecure: false  # true for Azure DevOps
+  # Which SCM this install targets. Drives WHICH repository kind is rendered (see
+  # templates/repository.yaml) — the write itself is scm-blind and goes through git-provider
+  # regardless. Only "github" has a provider today; any other value fails the render rather than
+  # silently skipping repository creation.
+  scm: github
+
+# DESTINATION REPOSITORY — created by this composition, so a brand-new blueprint no longer needs a
+# repo someone made by hand first. Requires github-provider-kog (it owns github.krateo.io/Repository).
+repository:
+  # false = the destination is pre-provisioned; render only the file commits, exactly as this chart
+  # did before. Use it on installs that create repositories out of band.
+  create: true
+  private: true
+  # Do NOT set false. Without an initial commit the repo has no default branch, so the file
+  # commits have nothing to clone from and the whole publish fails.
+  autoInit: true
+  description: "Created by Krateo"
 credentials:
   authMethod: bearer   # bearer (token) | basic (needs usernameRef) | cookiefile
   secretRef:
