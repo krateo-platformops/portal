@@ -35,7 +35,10 @@
 {{- if .Values.repository.create -}}
 {{- $gate = false -}}
 {{- $rname := printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-" -}}
-{{- $r := lookup "github.krateo.io/v1alpha1" "Repository" .Release.Namespace $rname -}}
+{{- /* v2022-11-28, not v1alpha1 — oasgen derives a resource kind's CRD version from the OAS
+       info.version. A wrong version here does not error: lookup simply never matches, the gate
+       never opens, and the publish silently commits nothing. See repository.yaml. */ -}}
+{{- $r := lookup "github.krateo.io/v2022-11-28" "Repository" .Release.Namespace $rname -}}
 {{- if $r -}}{{- if dig "status" "default_branch" "" $r -}}{{- $gate = true -}}{{- end -}}{{- end -}}
 {{- end -}}
 {{- if $gate -}}

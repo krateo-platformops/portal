@@ -47,7 +47,14 @@ spec:
         namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
         key: {{ $cred.secretRef.key | default "token" | quote }}
 ---
-apiVersion: github.krateo.io/v1alpha1
+# VERSION IS NOT v1alpha1, AND NOT ARBITRARY. oasgen-provider derives a RESOURCE kind's CRD
+# version from its OpenAPI document's `info.version`, which for GitHub is the dated API version
+# 2022-11-28 — so the served version is v2022-11-28. (The <Kind>Configuration auth kind above is
+# different: oasgen fixes those at v1alpha1.) Verified on a live install: the Repository CRD serves
+# exactly ["v2022-11-28"] and repositoryconfigurations serves ["v1alpha1"]. If github-provider-kog
+# ever bumps info.version in assets/repository.yaml, this string and the lookup in
+# localresources.yaml must move with it or the CR stops applying and the gate stops matching.
+apiVersion: github.krateo.io/v2022-11-28
 kind: Repository
 metadata:
   name: {{ $repo }}
