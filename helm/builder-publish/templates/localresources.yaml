@@ -10,7 +10,38 @@
     • INSTALL-LEVEL (values.yaml defaults, set once per install): .Values.git{scheme,host,insecure}
       and .Values.credentials{authMethod,secretRef,usernameRef} — the claim never carries a secret.
 */}}
+{{/*
+  READINESS GATE (see repository.yaml). When this chart also creates the destination repository,
+  the LocalResources must not run until that repository actually exists — `cloneFromBranch` has
+  nothing to clone otherwise, and every file in the publish fails.
+
+  There is no ordering primitive to reach for: LocalResource has no dependsOn/waitFor field. The
+  supported Krateo answer is Helm's `lookup`, which reads LIVE cluster state, combined with the
+  fact that composition-dynamic-controller RE-RENDERS ON EVERY RECONCILE. So the first pass emits
+  only the Repository, and a later pass — once the repo is real — emits the files. No manual
+  sequencing. (Same pattern as the nutanix-chain-lookup blueprint.)
+
+  The gate keys on `status.default_branch`, NOT merely on the CR existing. That field is populated
+  from GitHub's GET response, so it proves three things at once: the repository exists, it is
+  initialised, and it HAS a branch — which is exactly what cloneFromBranch needs. A repo created
+  without auto_init never publishes a default_branch, so the files correctly never render against
+  an empty repo.
+
+  With repository.create=false the gate is skipped entirely: the operator has asserted the repo is
+  pre-provisioned, and this chart renders exactly what it did before.
+*/}}
 {{- $t := .Values.target -}}
+{{- $gate := true -}}
+{{- if .Values.repository.create -}}
+{{- $gate = false -}}
+{{- $rname := printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-" -}}
+{{- /* v2022-11-28, not v1alpha1 — oasgen derives a resource kind's CRD version from the OAS
+       info.version. A wrong version here does not error: lookup simply never matches, the gate
+       never opens, and the publish silently commits nothing. See repository.yaml. */ -}}
+{{- $r := lookup "github.krateo.io/v2022-11-28" "Repository" .Release.Namespace $rname -}}
+{{- if $r -}}{{- if dig "status" "default_branch" "" $r -}}{{- $gate = true -}}{{- end -}}{{- end -}}
+{{- end -}}
+{{- if $gate -}}
 {{- $git := .Values.git | default dict -}}
 {{- $cred := .Values.credentials | default dict -}}
 {{- $ns := .Release.Namespace -}}
@@ -54,6 +85,7 @@ spec:
   syncEnabled: false     # one-shot: a publish is a single commit; source is then immutable
   createCommitMessage: {{ printf "feat(%s): add %s" $.Values.builder $f.path | quote }}
   insecure: {{ $git.insecure | default false }}   # true for Azure DevOps
+{{- end }}
 {{- end }}
 {{/*
   SERIALIZATION — RESOLVED (S0 spike): N LocalResources to the same fresh branch produce N clean
