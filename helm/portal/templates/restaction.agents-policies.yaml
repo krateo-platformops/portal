@@ -1,38 +1,64 @@
 # The POLICY SURFACE behind /agents/policies — what the agent gateway actually enforces.
 #
 # ONE RESTAction for the whole page: the role of each policy, the human-readable summary of the
-# values it carries and the aggregate counts in the pagehead are ALL computed here in jq. The seven
-# role Cards and their Tables render those strings verbatim — no widget does arithmetic, no widget
-# re-reads a spec block.
+# values it carries and the aggregate counts in the pagehead are ALL computed here in jq. The role
+# Cards and their Tables render those strings verbatim — no widget does arithmetic, no widget
+# re-reads a spec block, and no widget decides which columns exist.
 #
 # WHY A DERIVED "role" AT ALL: an AgentgatewayPolicy has no kind, category or label that says what
 # it is for. Its purpose is only legible from WHICH spec blocks it carries, so the classification
-# below IS the product decision — traffic.jwtAuthentication/authorization = identity,
-# backend.ai.promptGuard = guardrail, traffic.rateLimit|buffer = limits, traffic.retry = resiliency,
-# frontend.accessLog|metrics|tracing = observability, backend.auth = passthrough, traffic.cors =
-# cors. The order is a PRECEDENCE, not a set of independent tests, because policies combine blocks:
-# llm-bench-gate carries jwtAuthentication AND authorization (one identity policy, not two roles),
-# and resiliency-mcp carries retry AND timeouts. `limits` therefore keys off rateLimit/buffer only —
-# a bare timeouts block is a property of a retry policy, not a budget of its own, and testing it
-# would misfile resiliency-mcp under limits. A policy carrying none of these lands in "other" and
-# still renders: the taxonomy degrades, the object never disappears.
+# below IS the product decision. It is a PRECEDENCE, not a set of independent tests, because real
+# policies combine blocks — and this list is the implemented order, first match wins (:guardrail
+# before identity, cors before observability; a policy carrying promptGuard AND jwtAuthentication
+# files as guardrail):
+#
+#   1. backend.ai.promptGuard                                        -> guardrail
+#   2. traffic.jwtAuthentication|authorization|apiKeyAuthentication
+#      |basicAuthentication|extAuth                                  -> identity
+#   3. traffic.rateLimit(local|global|conditional)|buffer            -> limits
+#   4. traffic.retry                                                 -> resiliency
+#   5. traffic.cors                                                  -> cors
+#   6. frontend.accessLog|metrics|tracing                            -> observability
+#   7. backend.auth                                                  -> passthrough
+#   8. anything else                                                 -> other (Unclassified)
+#
+# resiliency-mcp carries retry AND timeouts, so `limits` keys off rateLimit/buffer only — a bare
+# timeouts block is a property of a retry policy, not a budget of its own. `limits` additionally
+# requires a rateLimit shape we can actually RENDER (local, global or conditional): a rateLimit in
+# a shape a future gateway introduces must NOT be filed under a card that asserts we understood it.
+#
+# NOTHING IS EVER SUMMARISED AS "—". Every role's summariser can come up empty (a block we classify
+# but whose sub-fields we do not read), and every unclassified policy has no summariser at all. Both
+# fall back to naming the spec blocks the object actually carries ("carries traffic.csrf,
+# traffic.timeouts"), so the cell always says what is enforced or admits it cannot summarise it.
 #
 # WHY httproutes IS A SECOND STEP: targetRefs names an HTTPRoute, which tells a reader nothing.
-# Joining to the route's own match paths turns "agentgateway-policies-llm" into "/llm/v1" — the URL
-# space the policy actually governs, which is the question this page answers. The join happens in
-# the global filter against a name-keyed index, so there is no dependsOn and no N+1: two independent
-# cluster-scope lists, one pass.
+# Joining to the route's own matches turns "agentgateway-policies-llm" into "/llm/v1" — the URL
+# space the policy actually governs. A BARE "/" is deliberately NOT rendered: 20 of the 33 routes on
+# krateo-057 match path "/" and are discriminated by an exact `x-kagent-host` header, so "· /" would
+# assert the policy governs the gateway root when it governs one header-selected backend. When the
+# targeted routes share a single distinct header match, that header is shown instead; when they do
+# not, the count alone is shown, which claims less. The join happens in the global filter against a
+# name-keyed index, so there is no dependsOn and no N+1: two independent cluster-scope lists, one pass.
 #
-# WHY THE GUARDRAIL IS COUNTED, NOT PRINTED: promptGuard.request/response are arrays of regex rules
-# whose `matches` are multi-hundred-character jailbreak patterns. Printing them would drown the page
+# WHY THE GUARDRAIL IS COUNTED, NOT PRINTED: promptGuard.request/response are arrays of guards whose
+# regex `matches` are multi-hundred-character jailbreak patterns. Printing them would drown the page
 # and tell an operator nothing they can act on; the actionable fact is the SHAPE — how many guards
-# run per direction and whether each masks or rejects. group_by collapses them to "3 Mask, 4 Reject".
+# run per direction and what each one is. A guard is not always a regex (the CRD also allows webhook,
+# openAIModeration, googleModelArmor and bedrockGuardrails), so each entry is labelled by its own
+# kind rather than by `.regex.action`, which would render a webhook guard as "1 ?".
 #
-# RBAC: each step carries a userAccessFilter, so snowplow lists as its SA and then REFILTERS to the
-# namespaces where the CALLER holds the grant — same shape as restaction.agents-list. A tenant with
-# no agentgateway.dev grant sees empty cards, not an error. httproutes is a SEPARATE grant: a caller
-# who may read policies but not routes still gets every policy, with the route path silently absent
-# from the "Attached to" cell (the `// ""` guard), never a broken row.
+# RBAC — AND WHY THE ERROR KEYS ARE READ, NOT JUST DECLARED. Each step carries a userAccessFilter,
+# so snowplow lists as its SA and then REFILTERS to the namespaces where the CALLER holds the grant.
+# That refilter is SILENT: a caller with no agentgateway.dev grant gets `items: []`, byte-identical
+# to a cluster with no policies (refilter.go applyUserAccessFilterOnPig drops items, it does not
+# error). A transport/403 failure on the list itself is different — continueOnError leaves the step
+# absent and populates the errorKey. So this filter exports BOTH facts:
+#   * policiesReadable=false  -> the step itself failed; the page must say so, never "0 policies".
+#   * policiesReadable=true, total=0 -> ambiguous by construction; the subtitle names BOTH readings
+#     ("none installed, or you cannot list them") rather than asserting the gateway enforces nothing.
+# Same for routes: a caller who may read policies but not routes keeps every policy, and the subtitle
+# says the URL spaces are missing instead of the rows quietly losing their path.
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -65,14 +91,20 @@ spec:
     continueOnError: true
     errorKey: routesError
   filter: |
-    ( reduce ((.routes.items // [])[]) as $r ({};
+    ( (.policiesError // null) == null ) as $policiesOK
+    | ( (.routesError // null) == null ) as $routesOK
+    | ( reduce ((.routes.items // [])[]) as $r ({};
         .[($r.metadata.namespace + "/" + $r.metadata.name)] =
-          ( [ ($r.spec.rules // [])[] | (.matches // [])[] | .path.value // empty ] | unique | join(", ") ) ) ) as $routePath
+          { paths:   ( [ ($r.spec.rules // [])[] | (.matches // [])[] | .path.value // empty
+                         | select(. != "" and . != "/") ] | unique ),
+            headers: ( [ ($r.spec.rules // [])[] | (.matches // [])[] | (.headers // [])[]
+                         | ((.name // "?") + ": " + (.value // "")) ] | unique ) } ) ) as $routeIdx
     | ( { "Seconds": "s", "Minutes": "min", "Hours": "h", "Days": "d" } ) as $U
     | ( [ (.policies.items // [])[] | (.spec.targetRefs // [])[] ] ) as $allTargets
     | ( [ $allTargets[] | select(.kind == "Gateway")   | .name ] | unique | length ) as $gwCount
     | ( [ $allTargets[] | select(.kind == "HTTPRoute") | .name ] | unique | length ) as $rtCount
     | ( [ $allTargets[] | select(.kind == "Service")   | .name ] | unique | length ) as $svcCount
+    | ( [ (.policies.items // [])[] | select((((.spec.targetSelectors // []) | length) > 0)) ] | length ) as $selCount
     | { rows: [ (.policies.items // [])[]
         | . as $p
         | ($p.metadata.namespace) as $ns
@@ -80,12 +112,21 @@ spec:
         | ($p.spec.backend  // {}) as $b
         | ($p.spec.frontend // {}) as $f
         | ($p.spec.targetRefs // []) as $tr
+        | ($p.spec.targetSelectors // []) as $tsel
         | ( [ $tr[] | select(.kind == "Gateway")   | .name ] ) as $gw
         | ( [ $tr[] | select(.kind == "HTTPRoute") | .name ] ) as $rt
         | ( [ $tr[] | select(.kind == "Service")   | .name ] ) as $svc
+        # Every spec block the object carries, named. This is the fallback summary for anything the
+        # branches below do not read, so a block we do not understand is still visible as itself.
+        | ( [ (($p.spec.traffic  // {}) | keys[] | "traffic."  + .),
+              (($p.spec.backend  // {}) | keys[] | "backend."  + .),
+              (($p.spec.frontend // {}) | keys[] | "frontend." + .) ] | unique ) as $blocks
         | ( if   ($b.ai.promptGuard // null) != null                                              then "guardrail"
-            elif (($t.jwtAuthentication // null) != null or ($t.authorization // null) != null)   then "identity"
-            elif (($t.rateLimit // null) != null or ($t.buffer // null) != null)                  then "limits"
+            elif (($t.jwtAuthentication // null) != null or ($t.authorization // null) != null
+                  or ($t.apiKeyAuthentication // null) != null or ($t.basicAuthentication // null) != null
+                  or ($t.extAuth // null) != null)                                                then "identity"
+            elif (((($t.rateLimit.local // []) | length) > 0) or ($t.rateLimit.global // null) != null
+                  or ((($t.rateLimit.conditional // []) | length) > 0) or ($t.buffer // null) != null) then "limits"
             elif ($t.retry // null) != null                                                       then "resiliency"
             elif ($t.cors // null) != null                                                        then "cors"
             elif (($f.accessLog // null) != null or ($f.metrics // null) != null or ($f.tracing // null) != null) then "observability"
@@ -105,19 +146,41 @@ spec:
                       + ( ( [ ($t.jwtAuthentication.providers // [])[] | .jwks.remote.cacheDuration // empty ] | unique | join(", ") )
                           | if . == "" then "" else (" · JWKS cache " + .) end ) )
                   else empty end ),
+                # matchExpressions are CONJUNCTS, not rules: the CRD defines them as "CEL expressions
+                # that must all evaluate to true for the rule to match", under a singular `policy`
+                # ("The authorization rule"). Rendering the count as "N rules" inverted AND into OR
+                # on the one column that answers "who may call what" — and hid the second reading,
+                # that a policy whose conjuncts are mutually exclusive matches nothing at all.
                 ( if ($t.authorization // null) != null then
                     ( ( [ ($t.authorization.policy.matchExpressions // [])[] ] | length ) as $n
-                      | ($t.authorization.action // "?") + " on " + ($n | tostring)
-                        + ( if $n == 1 then " rule" else " rules" end ) )
-                  else empty end ) ]
+                      | ($t.authorization.action // "Allow") + " · " + ($n | tostring)
+                        + ( if $n == 1 then " CEL expression" else " CEL expressions, all must match" end ) )
+                  else empty end ),
+                ( if ($t.apiKeyAuthentication // null) != null then
+                    ("API key " + ($t.apiKeyAuthentication.mode // "?")) else empty end ),
+                ( if ($t.basicAuthentication // null) != null then
+                    ("Basic auth " + ($t.basicAuthentication.mode // "?")) else empty end ),
+                ( if ($t.extAuth // null) != null then
+                    ("external authorization → " + ($t.extAuth.backendRef.name // "?")) else empty end ) ]
             elif $role == "guardrail" then
               ( ($b.ai.promptGuard) as $pg
                 | [ ( if (($pg.request // []) | length) > 0 then
-                        ( "request: " + ( [ ($pg.request // [])[] | .regex.action // "?" ]
+                        ( "request: " + ( [ ($pg.request // [])[]
+                                            | if   (.regex             // null) != null then (.regex.action // "Mask")
+                                              elif (.webhook           // null) != null then "webhook"
+                                              elif (.openAIModeration  // null) != null then "OpenAI moderation"
+                                              elif (.googleModelArmor  // null) != null then "Model Armor"
+                                              elif (.bedrockGuardrails // null) != null then "Bedrock guardrails"
+                                              else "unrecognised guard" end ]
                                           | group_by(.) | map( (length | tostring) + " " + .[0] ) | join(", ") ) )
                       else empty end ),
                     ( if (($pg.response // []) | length) > 0 then
-                        ( "response: " + ( [ ($pg.response // [])[] | .regex.action // "?" ]
+                        ( "response: " + ( [ ($pg.response // [])[]
+                                             | if   (.regex             // null) != null then (.regex.action // "Mask")
+                                               elif (.webhook           // null) != null then "webhook"
+                                               elif (.googleModelArmor  // null) != null then "Model Armor"
+                                               elif (.bedrockGuardrails // null) != null then "Bedrock guardrails"
+                                               else "unrecognised guard" end ]
                                            | group_by(.) | map( (length | tostring) + " " + .[0] ) | join(", ") ) )
                       else empty end ),
                     ( if ($pg.streaming // "") != "" then ("streaming " + ($pg.streaming | ascii_downcase)) else empty end ) ] )
@@ -133,6 +196,18 @@ spec:
                           | join("") )
                         + " tokens/" + ($U[.unit // ""] // (.unit // "")) )
                     else empty end ),
+                # rateLimit has three sibling shapes in the CRD. Reading only `.local` filed a
+                # global-only policy under "Rate & token limits" with an empty cell — the card
+                # asserting we understood a budget we had not read.
+                ( if ($t.rateLimit.global // null) != null then
+                    ( "global limit → " + ($t.rateLimit.global.backendRef.name // "?")
+                      + ( if ($t.rateLimit.global.domain // "") != "" then (" · domain " + $t.rateLimit.global.domain) else "" end )
+                      + ( (($t.rateLimit.global.descriptors // []) | length) as $d
+                          | if $d > 0 then (" · " + ($d | tostring) + (if $d == 1 then " descriptor" else " descriptors" end)) else "" end )
+                      + ( if ($t.rateLimit.global.failureMode // "") != "" then (" (" + $t.rateLimit.global.failureMode + ")") else "" end ) )
+                  else empty end ),
+                ( (($t.rateLimit.conditional // []) | length) as $c
+                  | if $c > 0 then (($c | tostring) + (if $c == 1 then " conditional limit" else " conditional limits" end)) else empty end ),
                 ( if ($t.buffer.request.maxBytes // null) != null then
                     ( ($t.buffer.request.maxBytes) as $mb
                       | ( if   ($mb % 1048576) == 0 then (($mb / 1048576 | floor | tostring) + " MiB")
@@ -177,22 +252,38 @@ spec:
                 ( "credentials " + ( if ($t.cors.allowCredentials // false) then "allowed" else "denied" end ) ),
                 ( if ($t.cors.maxAge // null) != null then ("max-age " + (($t.cors.maxAge) | tostring) + "s") else empty end ) ]
             else [] end ) as $frag
+        # The route scope: real paths first; when every targeted route matches "/" (or the routes
+        # step was denied) fall back to the single distinct header match, and otherwise say nothing.
+        | ( [ $rt[] | ($routeIdx[$ns + "/" + .] // {}) | (.paths // [])[] ] | unique ) as $paths
+        | ( [ $rt[] | ($routeIdx[$ns + "/" + .] // {}) | (.headers // [])[] ] | unique ) as $hdrs
+        | ( if   ($paths | length) > 0 then (" · " + ($paths | join(", ")))
+            elif ($hdrs  | length) == 1 then (" · " + $hdrs[0])
+            else "" end ) as $scope
+        | ( if ($gw | length) > 0 then
+              ( ( if ($gw | length) == 1 then "Gateway " else "Gateways " end ) + ($gw | join(", ")) )
+            elif ($rt | length) > 0 then
+              ( ( if ($rt | length) == 1
+                  then ("Route " + ($rt[0] | ltrimstr("agentgateway-policies-")))
+                  else (($rt | length | tostring) + " routes") end ) + $scope )
+            elif ($svc | length) > 0 then
+              ( ($svc | length | tostring) + ( if ($svc | length) == 1 then " service" else " services" end ) )
+            else "" end ) as $byRef
+        # targetSelectors is the CRD's OTHER attachment mechanism, and the one it recommends for
+        # exactly the fan-out this chart has ("Prefer targetRefs when reconciliation latency is
+        # important, especially when many policies target the same resource"). Reading only
+        # targetRefs rendered a selector-attached policy as attached to nothing.
+        | ( [ $tsel[] | ((.kind // "?") + "s labelled "
+                         + (((.matchLabels // {}) | to_entries | map(.key + "=" + .value) | join(","))))
+              + ( if (.sectionName // "") != "" then (" · section " + .sectionName) else "" end ) ] | unique ) as $bySel
         | {
             name:    ($p.metadata.name | ltrimstr("agentgateway-policies-")),
             namespace: $ns,
             role:    $role,
-            attaches: ( if ($gw | length) > 0 then
-                          ( ( if ($gw | length) == 1 then "Gateway " else "Gateways " end ) + ($gw | join(", ")) )
-                        elif ($rt | length) > 0 then
-                          ( ( [ $rt[] | ($routePath[$ns + "/" + .] // "") | select(. != "") ] | unique ) as $paths
-                            | ( if ($rt | length) == 1
-                                then ("Route " + ($rt[0] | ltrimstr("agentgateway-policies-")))
-                                else (($rt | length | tostring) + " routes") end )
-                              + ( if ($paths | length) > 0 then (" · " + ($paths | join(", "))) else "" end ) )
-                        elif ($svc | length) > 0 then
-                          ( ($svc | length | tostring) + ( if ($svc | length) == 1 then " service" else " services" end ) )
-                        else "—" end ),
-            enforces: ( $frag | join(" · ") ),
+            attaches: ( ( [ $byRef, ($bySel | join(" · ")) ] | map(select(. != "")) | join(" · ") )
+                        | if . == "" then "not attached" else . end ),
+            enforces: ( if   ($frag   | length) > 0 then ($frag | join(" · "))
+                        elif ($blocks | length) > 0 then ("carries " + ($blocks | join(", ")))
+                        else "no traffic, backend or frontend block" end ),
             statusLabel: ( [ $exc[].label ] | unique | join(" · ") ),
             statusColor: ( if   ( [ $exc[] | select(.bad) ] | length ) > 0 then "red"
                            elif ( $exc | length ) > 0 then "gold"
@@ -203,5 +294,8 @@ spec:
             byRole:       ( reduce (.rows[]) as $r ({}; .[$r.role] = ((.[$r.role] // 0) + 1)) ),
             gatewayCount: $gwCount,
             routeCount:   $rtCount,
-            serviceCount: $svcCount }
+            serviceCount: $svcCount,
+            selectorCount: $selCount,
+            policiesReadable: $policiesOK,
+            routesReadable:   $routesOK }
     | . + { roleCount: (.byRole | keys | length) }

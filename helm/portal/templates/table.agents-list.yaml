@@ -6,6 +6,15 @@
 # would silently drop the only real warning on the cluster today (4 agents ignore context.compaction
 # on the Go runtime). Colours: red = a failed Ready/Accepted, gold = an advisory, gray = Unknown.
 #
+# Exception-only has to mean the COLUMN, not just the value: there is no way to render an empty
+# jsonSchemaType cell — an empty stringValue renders a literal "-" (Table.tsx: `if (!stringValue)
+# return '-'`), as does a missing cell, as does type "null". So `columns` is templated off the same
+# payload as `dataSource` and the Status column is appended ONLY when some agent has something to
+# report. Today it is present (the compaction advisory); on a fully healthy cluster it disappears
+# instead of ruling a column of dashes. The status cell is still emitted on every row, because antd
+# renders only declared columns and a MISSING cell logs a console error — so once the column is
+# there, a healthy agent correctly shows "-" beside the unhealthy one.
+#
 # `model` is the RESOLVED model, not the ModelConfig name — gemini-pro and gemini-flash both point
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
@@ -49,6 +58,9 @@ spec:
       title: Status
     dataSource: []
   widgetDataTemplate:
+  # Status is appended ONLY when an agent is not healthy — see the header.
+  - forPath: columns
+    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | [ {valueKey:"name",title:"Agent"}, {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
   - forPath: dataSource
     expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
   apiRef:
