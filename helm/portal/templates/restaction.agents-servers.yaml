@@ -1,0 +1,141 @@
+# Tool servers — the data behind the "Tool servers" section of /agents (flex.agents-servers).
+#
+# ONE RESTAction feeds BOTH tables of the section: `.servers` (one row per RemoteMCPServer) and
+# `.bindings` (one row per agent x server pair). Two widgets share this apiRef; nothing here is
+# computed in the browser.
+#
+# FIELD PATHS ARE v1alpha2, NOT v1alpha1. The served CRD (verified live on krateo-057:
+# remotemcpservers.kagent.dev has exactly ONE version, v1alpha2, served+storage) puts the endpoint
+# at .spec.url / .spec.protocol / .spec.timeout — there is NO .spec.remote wrapper, and
+# .status.discoveredTools[] holds OBJECTS ({name, description}), not bare strings. Reading
+# .spec.remote.url returns null on every object on every cluster we run.
+#
+# THE GATEWAY JOIN IS BY SERVICE HOST, NOT BY CR NAME. RemoteMCPServer `kagent-tool-server` dials
+# http://kagent-tools.krateo-system:8084/mcp, and the AgentgatewayBackend target is the SERVICE
+# (`kagent-tools`). Matching CR name to backend target name would have reported the single
+# busiest server on the cluster as unrouted. So the host is parsed out of .spec.url and matched
+# against .spec.mcp.targets[].static.backendRef.name, namespace-scoped on both sides.
+#
+# GATEWAY EXPOSURE FAILS TO SILENT, NOT TO ALARM. A caller with no agentgateway.dev /
+# gateway.networking.k8s.io grant gets empty steps here; if we treated "no backend found" as the
+# answer, that tenant would see EVERY server flagged as unrouted. The `$gwKnown` guard asserts
+# nothing unless at least one MCP AgentgatewayBackend is visible. Verified by simulation on the
+# live payload: dropping the backends step yields zero gateway tags, not nine.
+#
+# RBAC: every step carries a userAccessFilter, so snowplow lists as its SA then REFILTERS to the
+# namespaces where the CALLER holds the grant — same contract as restaction.agents-list. All four
+# steps are continueOnError so a partial grant degrades a column, never the page.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-servers
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: servers
+    path: /apis/kagent.dev/v1alpha2/remotemcpservers
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: remotemcpservers
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: serversError
+  - name: agents
+    path: /apis/kagent.dev/v1alpha2/agents
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: agents
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: agentsError
+  - name: backends
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaybackends
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaybackends
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: backendsError
+  - name: routes
+    path: /apis/gateway.networking.k8s.io/v1/httproutes
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: httproutes
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: routesError
+  filter: >-
+    ( [ (.routes.items // [])[] | .metadata.namespace as $rns | (.spec.rules // [])[] | (.backendRefs // [])[]
+        | select((.kind // "") == "AgentgatewayBackend") | ($rns + "/" + .name) ] | unique ) as $routed
+    | ( [ (.backends.items // [])[] | select(.spec.mcp != null) | .metadata.namespace as $bns
+          | select( ($bns + "/" + .metadata.name) as $k | $routed | any(. == $k) )
+          | ((.spec.mcp.targets // [])[] | .static.backendRef.name // empty)
+          | ($bns + "/" + .) ] | unique ) as $exposed
+    | ( [ (.backends.items // [])[] | select(.spec.mcp != null) ] | length > 0 ) as $gwKnown
+    | ( reduce ((.servers.items // [])[]) as $s ({};
+          .[$s.metadata.namespace + "/" + $s.metadata.name] = [ ($s.status.discoveredTools // [])[] | .name ]) ) as $discovered
+    | ( [ (.agents.items // [])[]
+          | .metadata.name as $an | .metadata.namespace as $ans
+          | ( (.spec.declarative.tools // []) | map(select(.type == "McpServer")) ) as $ts
+          | ( [ $ts[] | .mcpServer.name ] | unique )[] as $sn
+          | ( [ $ts[] | select(.mcpServer.name == $sn) | (.mcpServer.toolNames // [])[] ] | unique ) as $bound
+          | ( [ $ts[] | select(.mcpServer.name == $sn) | (.mcpServer.requireApproval // [])[] ] | unique ) as $appr
+          | ( $discovered[$ans + "/" + $sn] ) as $disc
+          | { agent: $an, ns: $ans, server: $sn, key: ($ans + "/" + $sn), bound: $bound, approvals: $appr,
+              served: ( if $disc == null or ($disc | length) == 0 then null
+                        else [ $bound[] | select( . as $t | $disc | any(. == $t) ) ] end ) } ] ) as $bindings
+    | ( ( [ ((.agents.items // [])[].metadata.namespace), ((.servers.items // [])[].metadata.namespace) ]
+          | unique | length ) > 1 ) as $multiNs
+    | { servers: [ (.servers.items // [])[]
+          | . as $s
+          | ( .metadata.namespace ) as $ns
+          | ( .spec.url // "" ) as $url
+          | ( $url | split("://") | (if length > 1 then .[1] else .[0] end) | split("/") | .[0] | split(":") | .[0] ) as $host
+          | ( $host | split(".") | .[0] ) as $svc
+          | ( ($host | contains(".") | not)
+              or ($host | endswith("." + $ns))
+              or ($host | endswith("." + $ns + ".svc"))
+              or ($host | endswith("." + $ns + ".svc.cluster.local")) ) as $inCluster
+          | ( [ $bindings[] | select(.key == ($ns + "/" + $s.metadata.name)) ] ) as $cons
+          | ( [ ($s.status.conditions // [])[]
+                | select( ((.type == "Ready" or .type == "Accepted") and .status == "True") | not )
+                | { label: ( if .status == "True" then .type
+                             elif .status == "False" then ("Not" + .type)
+                             else (.type + "Unknown") end ),
+                    bad: (.status == "False") } ] ) as $exc
+          | ( if ($gwKnown | not) then null
+              elif ($inCluster | not) then "external endpoint"
+              elif ( ($ns + "/" + $svc) as $x | $exposed | any(. == $x) ) then null
+              else "no gateway route" end ) as $gw
+          | { name:       ( if $multiNs then ($ns + "/" + $s.metadata.name) else $s.metadata.name end ),
+              url:        $url,
+              protocol:   ( $s.spec.protocol // "—" ),
+              timeout:    ( $s.spec.timeout // "—" ),
+              discovered: ( ($s.status.discoveredTools // []) | length ),
+              inUse:      ( [ $cons[] | (.served // [])[] ] | unique | length ),
+              agents:     ( $cons | length ),
+              statusLabel: ( [ ($exc[].label), ($gw // empty) ] | join(" · ") ),
+              statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "gold" end ) } ]
+          | sort_by(.name),
+        bindings: [ $bindings[]
+          | { agent:  ( if $multiNs then (.ns + "/" + .agent) else .agent end ),
+              server: ( if $multiNs then .key else .server end ),
+              bound:  (.bound | length),
+              served: ( if .served == null then -1 else (.served | length) end ),
+              approvals: (.approvals | length),
+              sample: ( ( .bound[0:5] | join(", ") )
+                        + ( if (.bound | length) > 5 then (" +" + (((.bound | length) - 5) | tostring) + " more") else "" end ) ) } ]
+          | sort_by(.server, .agent) }
+    | . + { serverCount: (.servers | length),
+            bindingCount: (.bindings | length),
+            consumerCount: ( [ .bindings[].agent ] | unique | length ) }
