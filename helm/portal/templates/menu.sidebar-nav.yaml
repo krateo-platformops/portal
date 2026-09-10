@@ -39,6 +39,10 @@ spec:
       # table (thresholds/intervals/state). Rules are config, not incidents, so they moved off
       # the /incidents triage page to here; /incidents keeps only firing signal + investigation.
       - { label: Alerts,       icon: fa-bell,         order: 13, path: /alerts,       resourceRefId: alerts }
+      # Agent control plane — the kagent fleet, the tool servers they may call and the gateway
+      # policies that gate each hop. Sits with Observability/Incidents/Alerts: it is an operational
+      # surface, not a builder.
+      - { label: Agents,       icon: fa-robot,        order: 14, path: /agents,       resourceRefId: agents }
       # ── Builders ─────────────────────────────────────────────────────────────────
       - { type: divider, order: 20 }
       # The Autopilot builders — three sibling deliverables surfaces, each = how-it-works +
@@ -196,6 +200,12 @@ spec:
       - id: alerts
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: page-alerts
+        namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+        resource: flexes
+        verb: GET
+      - id: agents
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: page-agents
         namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
         resource: flexes
         verb: GET

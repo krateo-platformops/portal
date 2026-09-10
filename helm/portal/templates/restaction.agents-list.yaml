@@ -1,0 +1,88 @@
+# Agent control plane — the inventory behind /agents (flex.page-agents).
+#
+# ONE RESTAction per page: every derived value below is computed HERE in jq and rendered verbatim
+# by the widgets. The three steps are independent cluster-scope lists; the join happens in the
+# global filter, so there is no dependsOn and no N+1.
+#
+# RBAC: each step carries a userAccessFilter, so snowplow lists as its SA and then REFILTERS to the
+# namespaces where the CALLER holds the grant. A tenant with no kagent grant sees an empty table,
+# not an error — same shape as restaction.compositions-list.
+#
+# NOTE the resource: `remotemcpservers`, NOT `toolservers`. Both CRDs are installed, but
+# toolservers.kagent.dev and mcpservers.kagent.dev hold ZERO objects on every cluster we run —
+# all 9 real tool servers are RemoteMCPServer/v1alpha2. Listing toolservers renders an
+# honest-but-permanently-empty table that looks like a data bug (verified live on krateo-057).
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-list
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: agents
+    path: /apis/kagent.dev/v1alpha2/agents
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: agents
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: agentsError
+  - name: models
+    path: /apis/kagent.dev/v1alpha2/modelconfigs
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: modelconfigs
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: modelsError
+  - name: servers
+    path: /apis/kagent.dev/v1alpha2/remotemcpservers
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: remotemcpservers
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: serversError
+  filter: >-
+    ( reduce ((.models.items // [])[]) as $m ({}; .[$m.metadata.name] = ($m.spec.model // "")) ) as $modelOf
+    | ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) as $toolsDiscovered
+    | { rows: [ (.agents.items // [])[]
+        | . as $a
+        | (.spec.declarative // {}) as $d
+        | (($d.tools // [])) as $tools
+        | ( [ ($a.status.conditions // [])[]
+              | select( ((.type == "Ready" or .type == "Accepted") and .status == "True") | not )
+              | { label: ( if .status == "True" then .type
+                           elif .status == "False" then ("Not" + .type)
+                           else (.type + "Unknown") end ),
+                  bad:   ( .status == "False" ) } ] ) as $exc
+        | ( $d.modelConfig // "default-model-config" ) as $mc
+        | {
+            name:        $a.metadata.name,
+            namespace:   $a.metadata.namespace,
+            role:        ( ($a.spec.description // "") | if (. | length) > 120 then (.[0:120] + "…") else . end ),
+            modelConfig: $mc,
+            model:       ( $modelOf[$mc] // "—" ),
+            runtime:     ( $d.runtime // "python" ),
+            tools:       ( [ $tools[] | select(.type == "McpServer") | .mcpServer as $m | (($m.toolNames // [])[]) | { s: $m.name, t: . } ] | unique | length ),
+            servers:     ( [ $tools[] | select(.type == "McpServer") | .mcpServer.name ] | unique | length ),
+            delegates:   ( [ $tools[] | select(.type == "Agent") ] | length ),
+            approvals:   ( [ $tools[] | select(.type == "McpServer") | .mcpServer as $m | (($m.requireApproval // [])[]) | { s: $m.name, t: . } ] | unique | length ),
+            bench:       ( ( ($a.metadata.labels // {})["krateo.io/composition-id"] ) == null ),
+            statusLabel: ( [ $exc[].label ] | join(" · ") ),
+            statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red"
+                           elif ( $exc | length ) > 0 then "gold"
+                           else "" end )
+          } ]
+        | sort_by( (if .bench then 1 else 0 end), .name ) }
+    | . + { total: (.rows | length),
+            benchCount: ( [ .rows[] | select(.bench) ] | length ),
+            toolsDiscovered: $toolsDiscovered }

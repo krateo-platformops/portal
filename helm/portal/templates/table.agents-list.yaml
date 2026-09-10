@@ -1,0 +1,58 @@
+# Agent inventory for /agents, from restaction.agents-list.
+#
+# Status is EXCEPTION-ONLY: a healthy agent (Ready=True, Accepted=True) renders an EMPTY cell, not
+# a green pill. The predicate is type-aware, not status-aware — `UnsupportedFeatures=True` is an
+# advisory whose True means "there ARE unsupported features", so a plain `.status != "True"` filter
+# would silently drop the only real warning on the cluster today (4 agents ignore context.compaction
+# on the Go runtime). Colours: red = a failed Ready/Accepted, gold = an advisory, gray = Unknown.
+#
+# `model` is the RESOLVED model, not the ModelConfig name — gemini-pro and gemini-flash both point
+# at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
+# one. Both are shown: the config on top, what it resolves to underneath.
+#
+# No rowNavigateTo yet: there is no /agents/{namespace}/{name} detail page. A Table whose
+# rowNavigateTo has any empty placeholder goes silently inert, so the link is added with the detail
+# page, not before it.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-list
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 20
+    columns:
+    - valueKey: name
+      title: Agent
+    - valueKey: role
+      title: What it is for
+    - valueKey: model
+      title: Model
+    - valueKey: runtime
+      title: Runtime
+    - valueKey: tools
+      title: Tools
+    - valueKey: servers
+      title: Servers
+    - valueKey: delegates
+      title: Delegates
+    - valueKey: approvals
+      title: HITL
+    - valueKey: status
+      title: Status
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
+  apiRef:
+    name: agents-list
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
