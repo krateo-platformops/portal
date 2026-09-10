@@ -12,10 +12,15 @@
 #                                     tool survives either server version, so this reads gold
 #                                     (advisory), never red.
 # `Gated` lists the requireApproval names — the tools that pause for a human — and is EMPTY for an
-# agent that holds only read tools (exception-only: no "0", no green "none" pill). `Route` is the
-# HTTPRoute the gateway matches on `x-kagent-host: <server host>`; "not routed" is a real finding
-# (a server called directly, outside every policy), while a blank means the caller cannot read
-# HTTPRoutes at all — the card caption distinguishes the two.
+# agent that holds only read tools (exception-only: no "0", no green "none" pill).
+#
+# `Route` has THREE states, not two, because "(routes | length) > 0" cannot tell a failed read from
+# an empty cluster: "not routed" is a real finding (a server called directly, outside every
+# policy); "no HTTPRoute is visible" means the read SUCCEEDED and returned nothing, which is
+# either a cluster that routes nothing or a grant that covers no HTTPRoute — never phrased as the
+# reader's fault; a blank means the HTTPRoute read itself failed. The card caption quotes the
+# reason for the last one. `Bound` likewise distinguishes a failed RemoteMCPServer read
+# ("the RemoteMCPServer read failed, catalogue unchecked") from a server that is simply not there.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

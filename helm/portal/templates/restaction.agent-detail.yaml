@@ -24,9 +24,41 @@
 #             fabricated "NotFound".
 #   routes  : HTTPRoutes — the gateway's real routing table. An agent's inbound A2A route, the LLM
 #             route its ModelConfig baseUrl lands on, and each tool server's /mcp route are all
-#             derived from these live objects, never from a hardcoded map. A caller who cannot list
-#             HTTPRoutes gets routesVisible=false, and every route-derived string says so instead
-#             of claiming "not routed" (absence of read permission is not absence of a route).
+#             derived from these live objects, never from a hardcoded map.
+#
+# THREE-STATE READS, NOT TWO. Every step carries continueOnError + errorKey, and every errorKey is
+# CONSUMED below (agentError, modelsError, serversError, peersError, routesError). `(list | length)
+# > 0` cannot tell a failed read from an empty cluster, so it is never used as a visibility test:
+#   · <step>Error != null   — the read FAILED. Nothing derived from it is asserted; the page says
+#                             the read failed and quotes the reason.
+#   · read OK, list empty   — genuinely nothing visible. This is a FINDING, not an RBAC excuse:
+#                             "no HTTPRoute is visible to you" (with the honest disjunction, since
+#                             snowplow's userAccessFilter empties a list it may not show rather than
+#                             erroring), never "your permissions are insufficient".
+#   · read OK, list present — resolve for real.
+# The same rule governs the ModelConfig: when `$mc` is null NOTHING about the agent's egress is
+# claimed — not the baseUrl, not the gateway route. An unreadable ModelConfig must never render as
+# "no baseUrl · not applicable — no baseUrl to route", which is an affirmative claim that the agent
+# talks straight to the provider, un-gatewayed.
+#
+# GATEWAY MATCHING IS GATEWAY-API MATCHING. Path matches honour `.path.type` — Exact, or PathPrefix
+# compared SEGMENT-WISE so a route declared `/llm` really does serve `/llm/v1` and `/llmx` really
+# does not, with RegularExpression attempted and failing closed — instead of exact string equality
+# on `.path.value`, which only worked because every live prefix happens to be spelled out to the
+# full baseUrl path. Among the rules that match, the LONGEST prefix wins (Exact beats every
+# prefix), which is Gateway API's own precedence.
+#
+# A HEADER CONDITION IS UNEVALUABLE FROM MANIFESTS, so it is never asserted either way. Only
+# header-FREE rules can win a path lookup; rules that match the path but carry header constraints
+# are reported separately ("header-scoped: X matches this path only for requests carrying specific
+# headers"), so a gateway that scopes its LLM route by header no longer reads as flatly unrouted —
+# and equally, such a route is never claimed as the one this agent's tokens take. A winner that
+# matched only through a bare `/` catch-all says so too, because "routed" via the A2A catch-all is
+# a very different fact from a route declared for this path.
+#
+# Backends are named from THE MATCHING RULE only, never unioned across every rule of the route: a
+# multi-rule HTTPRoute would otherwise attribute a backend to this agent that its traffic provably
+# never reaches.
 #
 # Everything the page renders is computed HERE. The widgets only place strings.
 apiVersion: templates.krateo.io/v1
@@ -91,18 +123,36 @@ spec:
   filter: >-
     def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
     def clip($n): if ((. // "") | length) > $n then ((.[0:$n]) + "…") else (. // "") end;
+    def errOf($e): if $e == null then "" else ($e | tostring | clip(120)) end;
     def condLabel: if .status == "True" then .type elif .status == "False" then ("Not" + .type) else (.type + "Unknown") end;
     def hostOf: if ((. // "") == "") then "" else (sub("^[A-Za-z0-9+.-]+://"; "") | split("/")[0] | split(":")[0]) end;
     def pathOf: if ((. // "") == "") then "" else ((sub("^[A-Za-z0-9+.-]+://"; "") | split("/")) as $seg | (if (($seg | length) < 2) then "" else ("/" + ($seg[1:] | join("/"))) end) | rtrimstr("/")) end;
-    def routeByHost($rs; $h): if $h == "" then null else ([ $rs[] | select( any((.spec.rules // [])[]; any((.matches // [])[]; any((.headers // [])[]; ((.name // "") | ascii_downcase) == "x-kagent-host" and (.value // "") == $h)))) ] | first) end;
-    def backendsOf($r): if $r == null then "" else ([ (($r.spec.rules // [])[]) | ((.backendRefs // [])[]) | ((.kind // "Service") + " " + (.name // "") + (if (.port // null) != null then (":" + ((.port)|tostring)) else "" end)) ] | unique | join(" · ")) end;
+    def matchesOf: ((.matches // []) | if length == 0 then [ {} ] else . end);
+    def pathHit($target): (.path // null) as $p | if $p == null then true else (($p.type // "PathPrefix")) as $t | (($p.value // "/") | rtrimstr("/")) as $v | (if $t == "Exact" then ($v == $target) elif $t == "PathPrefix" then ($v == "" or $target == $v or ($target | startswith($v + "/"))) else (try ($target | test($v)) catch false) end) end;
+    def pathRank: (.path // null) as $p | if $p == null then 0 else ((($p.value // "/") | rtrimstr("/") | length) + (if (($p.type // "PathPrefix") == "Exact") then 10000 else 0 end)) end;
+    def hostHit($h): any(((.headers // [])[]); ((.name // "") | ascii_downcase) == "x-kagent-host" and (.value // "") == $h);
+    def pathCands($rs; $gw; $target): [ $rs[] | select( any((((.spec.parentRefs // []))[]); (.name // "") == $gw) ) | . as $r | ((.spec.rules // [])[]) | . as $rule | ( [ (matchesOf | .[]) | select(pathHit($target)) ] ) as $mm | select(($mm | length) > 0) | { route: $r, rule: $rule, hdrs: ( [ $mm[] | ((.headers // []) | length) ] | min ), rank: ( [ $mm[] | pathRank ] | max ), nm: ($r.metadata.name // "") } ];
+    def selByHost($rs; $h): if $h == "" then null else ( [ $rs[] | . as $r | ((.spec.rules // [])[]) | . as $rule | select( any((matchesOf | .[]); hostHit($h)) ) | { route: $r, rule: $rule, hdrs: 1, rank: 0, nm: ($r.metadata.name // "") } ] | sort_by(.nm) | first ) end;
+    def selName($sel): if $sel == null then "" else ($sel.route.metadata.name // "") end;
+    def selBackends($sel): if $sel == null then "" else ( [ (($sel.rule.backendRefs // [])[]) | ((.kind // "Service") + " " + (.name // "") + (if (.port // null) != null then (":" + ((.port)|tostring)) else "" end)) ] | unique | join(" · ") ) end;
+    def selArrow($sel): if $sel == null then "" else (selName($sel) + (selBackends($sel) as $b | if $b == "" then "" else (" → " + $b) end)) end;
     ( .name // "" ) as $rn
     | ( .namespace // "{{ .Release.Namespace }}" ) as $rns
+    | ( .agentError // null ) as $agentErr
+    | ( .modelsError // null ) as $modelsErr
+    | ( .serversError // null ) as $serversErr
+    | ( .peersError // null ) as $peersErr
+    | ( .routesError // null ) as $routesErr
     | ( [ (.routes.items // [])[] ] ) as $routes
-    | ( ($routes | length) > 0 ) as $routesVisible
+    | ( $routesErr == null ) as $routesReadable
+    | ( $routesReadable and (($routes | length) == 0) ) as $routesNone
+    | ( $modelsErr == null ) as $modelsReadable
+    | ( $serversErr == null ) as $serversReadable
+    | ( $peersErr == null ) as $peersReadable
     | ( [ (.models.items // [])[] ] ) as $allModels
     | ( [ (.servers.items // [])[] ] ) as $allServers
     | ( [ (.peers.items // [])[] ] ) as $allAgents
+    | ( $peersReadable and (($allAgents | length) > 0) ) as $fleetListable
     | ( .agent // {} ) as $a
     | ( $a.metadata // {} ) as $md
     | ( $a.spec // {} ) as $sp
@@ -122,12 +172,18 @@ spec:
     | ( $mcs.openAI.baseUrl // $mcs.anthropic.baseUrl // $mcs.sapAICore.baseUrl // $mcs.azureOpenAI.azureEndpoint // $mcs.ollama.host // "" ) as $baseUrl
     | ( $baseUrl | hostOf ) as $mHost
     | ( $baseUrl | pathOf ) as $mPath
+    | ( if $mPath == "" then "/" else $mPath end ) as $mPathT
     | ( $mHost | split(".")[0] ) as $mGw
-    | ( if $mPath == "" then null else ([ $routes[]
-          | select( any((.spec.parentRefs // [])[]; (.name // "") == $mGw) )
-          | select( any((.spec.rules // [])[]; any((.matches // [])[]; ((.path.value // "") | rtrimstr("/")) == $mPath and (((.headers // []) | length) == 0)))) ] | first) end ) as $mRoute
+    | ( if $baseUrl == "" then [] else pathCands($routes; $mGw; $mPathT) end ) as $mCands
+    | ( [ $mCands[] | select(.hdrs == 0) ] | sort_by([ (0 - .rank), .nm ]) | first ) as $mSel
+    | ( [ $mCands[] | select(.hdrs > 0) ] ) as $mHdrCands
+    | ( [ $mHdrCands[] | select(.rank > 0) | .nm ] | unique ) as $mHdrNamed
+    | ( if ($mHdrNamed | length) > 0 then (" · also matched — but only for requests carrying specific headers, which cannot be evaluated from the manifests — by: " + ($mHdrNamed | join(", ")))
+        elif ($mHdrCands | length) > 0 then (" · " + ($mHdrCands | length | tostring) + " header-scoped catch-all route(s) on this gateway also match the path, none declared for it")
+        else "" end ) as $mHdrNote
+    | ( $mSel != null and (($mSel.rank // 0) == 0) and $mPathT != "/" ) as $mCatchAll
     | ( ($an + "." + $ans) ) as $aHost
-    | ( routeByHost($routes; $aHost) ) as $aRoute
+    | ( selByHost($routes; $aHost) ) as $aSel
     | ( if $d == null then [] else ($d.tools // []) end ) as $tools
     | ( [ $tools[] | select(.type == "McpServer") | .mcpServer ] ) as $mcps
     | ( [ $tools[] | select(.type == "Agent") | { name: (.agent.name // ""), namespace: (.agent.namespace // $ans) } ] | unique ) as $delRefs
@@ -143,22 +199,26 @@ spec:
           | ( [ (($srv.status // {}).discoveredTools // [])[] | (.name // "") ] ) as $disc
           | ( [ $bound[] | . as $bn | select( ($disc | index($bn)) == null ) ] ) as $undisc
           | ( ($ss.url // "") | hostOf ) as $sHost
-          | ( routeByHost($routes; $sHost) ) as $sRoute
+          | ( selByHost($routes; $sHost) ) as $sSel
           | {
               server:   $sn,
               endpoint: ($ss.url // ""),
               transport: ( [ ($ss.protocol // ""), ($ss.timeout // "") ] | map(select(. != "")) | join(" · ") ),
               bound: ( ($bound | length | tostring)
-                       + ( if $srv == null then " bound · server not visible"
+                       + ( if ($serversReadable | not) then " bound · the RemoteMCPServer read failed, catalogue unchecked"
+                           elif $srv == null then " bound · server not visible"
                            elif ($disc | length) == 0 then " bound · catalogue not discovered"
                            elif ($undisc | length) == 0 then (" of " + ($disc | length | tostring))
                            else (" bound · " + ($disc | length | tostring) + " discovered · "
                                  + ($undisc | length | tostring) + " not in the catalogue") end ) ),
-              boundIsException: ( $srv == null or ($disc | length) == 0 or ($undisc | length) > 0 ),
+              boundIsException: ( ($serversReadable | not) or $srv == null or ($disc | length) == 0 or ($undisc | length) > 0 ),
               tools: ( $bound | join(" · ") | clip(110) ),
               gated: ( $gated | join(" · ") ),
-              route: ( if ($routesVisible | not) or $sHost == "" then "" elif $sRoute != null then ($sRoute.metadata.name // "") else "not routed" end ),
-              routeIsException: ( $routesVisible and $sHost != "" and $sRoute == null )
+              route: ( if ($routesReadable | not) or $sHost == "" then ""
+                       elif $sSel != null then selName($sSel)
+                       elif $routesNone then "no HTTPRoute is visible"
+                       else "not routed" end ),
+              routeIsException: ( $routesReadable and $sHost != "" and $sSel == null )
             } ] | sort_by(.server) ) as $serverRows
     | ( [ $delRefs[]
           | . as $dr
@@ -166,22 +226,26 @@ spec:
               // ( [ $allAgents[] | select((.metadata.name // "") == $dr.name) ] | first ) ) as $pa
           | ( ($pa.metadata.namespace // $dr.namespace) ) as $pns
           | ( [ (($pa.status // {}).conditions // [])[] | select( ((.type == "Ready" or .type == "Accepted") and .status == "True") | not ) ] ) as $pexc
-          | ( routeByHost($routes; ($dr.name + "." + $pns)) ) as $pRoute
-          | ( $pa == null and ($allAgents | length) > 0 ) as $known404
+          | ( selByHost($routes; ($dr.name + "." + $pns)) ) as $pSel
+          | ( $pa == null and $fleetListable ) as $known404
           | {
               name: $dr.name,
               routeNs:   ( if $known404 then "" else $pns end ),
               routeName: ( if $known404 then "" else $dr.name end ),
               role: ( ($pa.spec.description // "") | clip(90) ),
               status: ( if $pa != null then ( [ $pexc[] | condLabel ] | join(" · ") )
-                        elif ($allAgents | length) > 0 then "NotFound"
+                        elif $known404 then "NotFound"
                         else "" end ),
-              statusColor: ( if $pa == null then (if ($allAgents | length) > 0 then "red" else "" end)
+              statusColor: ( if $pa == null then (if $known404 then "red" else "" end)
                              elif ( [ $pexc[] | select(.status == "False") ] | length ) > 0 then "red"
                              elif ( $pexc | length ) > 0 then "gold"
                              else "" end ),
-              route: ( if ($routesVisible | not) then "" elif $pRoute != null then ($pRoute.metadata.name // "") else "not routed" end ),
-              routeIsException: ( $routesVisible and $pRoute == null )
+              route: ( if ($routesReadable | not) then ""
+                       elif $known404 then ( if $pSel != null then (selName($pSel) + " — orphaned, the target does not exist") else "" end )
+                       elif $pSel != null then selName($pSel)
+                       elif $routesNone then "no HTTPRoute is visible"
+                       else "not routed" end ),
+              routeIsException: ( $routesReadable and (if $known404 then ($pSel != null) else ($pSel == null) end) )
             } ] | sort_by(.name) ) as $delegateRows
     | ( if $d == null then null else ($d.memory // null) end ) as $mem
     | ( if $d == null then null else (($d.context // {}).compaction // null) end ) as $comp
@@ -198,6 +262,7 @@ spec:
         found: $found,
         description: ( $sp.description // "" ),
         emptyText: ( if ($rn == "") then "No agent was named in the route."
+                     elif ($agentErr != null) then ("The Agent " + $rns + "/" + $rn + " could not be read — " + errOf($agentErr) + ". That is a failed read, not evidence the agent is absent.")
                      else ("No Agent named " + $rn + " is readable in namespace " + $rns + " — it does not exist, or your permissions do not cover it.") end ),
         statusLabel: ( [ $exc[] | condLabel ] | join(" · ") ),
         statusColor: ( if ( [ $exc[] | select(.status == "False") ] | length ) > 0 then "red"
@@ -215,8 +280,9 @@ spec:
           created: ( ($md.creationTimestamp // "") | if . == "" then "" else (.[0:10] + " " + .[11:16] + " UTC · " + rel) end ),
           conditions: ( [ $conds[] | condLabel ] | join(" · ") ),
           advisories: ( [ $exc[] | select((.message // "") != "") | (.type + " — " + .message) ] | join("  ") ),
-          inboundRoute: ( if ($routesVisible | not) then ("x-kagent-host: " + $aHost + " — HTTPRoutes are not readable with your permissions")
-                          elif $aRoute != null then (($aRoute.metadata.name // "") + " → " + backendsOf($aRoute) + "  (x-kagent-host: " + $aHost + ")")
+          inboundRoute: ( if ($routesReadable | not) then ("x-kagent-host: " + $aHost + " — the HTTPRoute read failed (" + errOf($routesErr) + "), so reachability is unknown")
+                          elif $aSel != null then (selArrow($aSel) + "  (x-kagent-host: " + $aHost + ")")
+                          elif $routesNone then ("no HTTPRoute is visible to you — either this cluster routes nothing through a gateway, or your permissions do not cover HTTPRoutes (x-kagent-host: " + $aHost + ")")
                           else ("no HTTPRoute matches x-kagent-host: " + $aHost + " — this agent cannot be reached through the gateway") end )
         },
         model: {
@@ -224,14 +290,21 @@ spec:
           configFound: ( $mc != null ),
           provider: ( $mcs.provider // "" ),
           model: ( $mcs.model // "" ),
-          resolved: ( if $mc == null then ($mcName + " — no ModelConfig of that name is readable")
-                      else (($mcs.provider // "unknown provider") + " · " + ($mcs.model // "no model set")) end ),
-          baseUrl: ( if $baseUrl == "" then "none — the provider SDK's own default endpoint is used" else $baseUrl end ),
+          resolved: ( if $mc != null then (($mcs.provider // "unknown provider") + " · " + ($mcs.model // "no model set"))
+                      elif ($modelsReadable | not) then ($mcName + " — the ModelConfig read failed (" + errOf($modelsErr) + "), so neither the model nor the egress endpoint can be resolved")
+                      else ($mcName + " — no ModelConfig of that name is readable (it does not exist, or your permissions do not cover it), so neither the model nor the egress endpoint can be resolved") end ),
+          baseUrl: ( if $mc == null then ("unknown — " + $mcName + " is not readable, so the endpoint this agent's traffic leaves through cannot be determined")
+                     elif $baseUrl == "" then "none — the provider SDK's own default endpoint is used"
+                     else $baseUrl end ),
           apiKeyPassthrough: ( if $mc == null then "" elif ($mcs.apiKeyPassthrough // false) then "the caller's key is passed through" else "the ModelConfig's own key is used" end ),
-          route: ( if $baseUrl == "" then "not applicable — no baseUrl to route"
-                   elif ($routesVisible | not) then ("HTTPRoutes are not readable with your permissions (baseUrl host " + $mHost + ")")
-                   elif $mRoute != null then (($mRoute.metadata.name // "") + " → " + backendsOf($mRoute) + "  (" + $mGw + " " + $mPath + ")")
-                   else ("no HTTPRoute on " + $mGw + " matches " + $mPath + " — the baseUrl does not resolve to a gateway route") end )
+          route: ( if $mc == null then ("unknown — the ModelConfig that would set the baseUrl is not readable, so its gateway route cannot be resolved")
+                   elif $baseUrl == "" then "not applicable — no baseUrl to route"
+                   elif ($routesReadable | not) then ("the HTTPRoute read failed (" + errOf($routesErr) + "), so the route for baseUrl host " + $mHost + " is unknown")
+                   elif $mSel != null then (selArrow($mSel) + "  (" + $mGw + " " + $mPathT + ")"
+                                             + ( if $mCatchAll then (" · matched by a catch-all prefix, not a route declared for this path" + $mHdrNote) else "" end ))
+                   elif ($mHdrCands | length) > 0 then ("no HTTPRoute on " + $mGw + " matches " + $mPathT + " without a header condition" + $mHdrNote)
+                   elif $routesNone then ("no HTTPRoute is visible to you — either " + $mGw + " routes nothing, or your permissions do not cover HTTPRoutes")
+                   else ("no HTTPRoute on " + $mGw + " matches " + $mPathT + " — the baseUrl does not resolve to a gateway route") end )
         },
         memory: {
           store: ( if $mem == null then "Not configured — this agent keeps no long-term memory"
@@ -249,13 +322,16 @@ spec:
         },
         serverRows: $serverRows,
         delegateRows: $delegateRows,
-        routesVisible: $routesVisible,
-        toolsCaption: ( if $routesVisible
-                        then ("Bound tools per RemoteMCPServer, checked against each server's discovered catalogue, with the gateway route the server sits behind.")
-                        else ("Bound tools per RemoteMCPServer, checked against each server's discovered catalogue. HTTPRoutes are not readable with your permissions, so Route is blank.") end ),
-        delegatesCaption: ( if ($allAgents | length) > 0
-                            then ("Sub-agents this agent may hand a task to (tools[].type=Agent), with the state of each target.")
-                            else ("Sub-agents this agent may hand a task to (tools[].type=Agent). The agent fleet is not listable with your permissions, so target state is blank.") end ),
+        toolsCaption: ( "Bound tools per RemoteMCPServer, checked against each server's discovered catalogue"
+                        + ( if ($routesReadable and ($routesNone | not)) then ", with the gateway route the server sits behind." else "." end )
+                        + ( if ($serversReadable | not) then (" The RemoteMCPServer read failed (" + errOf($serversErr) + "), so every ratio here is unchecked.") else "" end )
+                        + ( if ($routesReadable | not) then (" The HTTPRoute read failed (" + errOf($routesErr) + "), so Route is blank.")
+                            elif $routesNone then " No HTTPRoute is visible to you, so no server here shows a gateway route — either nothing is routed, or your permissions do not cover HTTPRoutes."
+                            else "" end ) ),
+        delegatesCaption: ( "Sub-agents this agent may hand a task to (tools[].type=Agent)"
+                            + ( if ($peersReadable | not) then (". The Agent list read failed (" + errOf($peersErr) + "), so target state is blank.")
+                                elif $fleetListable then ", with the state of each target."
+                                else ". This agent is visible but the Agent list came back empty, so your permissions do not cover the fleet and target state is blank." end ) ),
         sections: {
           found:     $found,
           model:     ( $found and $d != null ),
