@@ -31,10 +31,13 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: crdError
-    # The Alert being edited — its .spec pre-fills the form. Namespace-scoped to the release ns
-    # (Alerts live in the portal release namespace, same as alert-detail's read path).
+    # The Alert being edited — its .spec pre-fills the form. Namespaced off the route's ?extras
+    # (.namespace, release ns as the fallback) — same read path as alert-detail. A `${ jq }`
+    # expression, NOT a `{name}` brace placeholder: snowplow only templates `${ }` in api[].path,
+    # so a literal `{name}` reaches the apiserver verbatim ("not found") and the pre-fill silently
+    # degrades to an empty spec.
     - name: alert
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/alerts/{name}
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/alerts/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
