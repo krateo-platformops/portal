@@ -1,0 +1,248 @@
+# Agent create-form schema source — the alert-formdef pattern (live CRD → form schema), with the
+# three departures the kagent Agent CRD forces. Consumed by form.agent-create.
+#
+# 1. SUBSET, NOT PASSTHROUGH. alert-formdef hands the whole `spec` schema to the Form because the
+#    Alert spec is six flat scalars. The Agent CRD is 1.3 MB: `spec.byo.deployment` alone carries a
+#    full PodSpec (affinity/tolerations/volumes/…), and `declarative` carries a2aConfig, context,
+#    deployment, memory, promptTemplate, sandbox, skills. Passing that through renders an
+#    unusable form, so this filter SELECTS the properties by key — but takes each one's `type`,
+#    `enum`, `default` and (mostly) `description` from the LIVE CRD node, so the convention still
+#    holds: change the CRD's runtime enum and this form's Runtime picker changes with it. Only the
+#    SET of exposed keys is authored here.
+#
+# 2. NO `spec.type` PICKER — Declarative is pinned. `type: BYO` needs `spec.byo.deployment.image`
+#    (minLength 1); the two branches are a union the schema renderer cannot express (SchemaFields
+#    has no oneOf/if-then, so both branches render at once and both sets of fields are "required"),
+#    and a BYO Agent created without an image is admitted by the apiserver and then never Accepted.
+#    Offering a picker the form cannot back is the dead-UI failure, so it is not offered.
+#
+# 3. `tools[]` IS SYNTHESIZED, not rendered. The CRD node is an array of objects with a `type`
+#    discriminator and two sibling branches (mcpServer | agent) — SchemaFields renders any
+#    object/array without an items.enum as a raw JSON textarea. Instead this filter emits three
+#    CLOSED multi-selects (array + items.enum → antd multi-select) built from live cluster state:
+#      __tools__      "<server>/<tool>" over every RemoteMCPServer's status.discoveredTools
+#      __approvals__  the same list — the subset that must pause for human approval (HITL)
+#      __delegates__  Agent names this agent may hand work to
+#    form.agent-create's payloadToOverride jq folds them back into the real
+#    spec.declarative.tools[] shape (verified byte-for-byte against the live autopilot Agent).
+#
+# NAMESPACE/REFERENCE SAFETY. kagent resolves `declarative.modelConfig` in the AGENT's OWN
+# namespace ("Must be in the same namespace as the Agent" — CRD), and the shipped Agent CRs
+# reference MCP servers and delegate agents by bare name with no namespace. A namespace picker and
+# a name picker that are chosen independently can therefore produce a dangling reference. So every
+# offered option is the INTERSECTION across the offered namespaces: the namespace enum keeps only
+# create-permitted namespaces that hold at least one ModelConfig, and the ModelConfig / server /
+# delegate enums keep only names present in ALL of those namespaces. Whatever pair the user picks
+# resolves. On a single-namespace install (every cluster we run) this is a no-op.
+#
+# RBAC: `crd` is a hard dependency — no schema, no form, so it fails loudly. Every list step carries
+# a userAccessFilter + continueOnError/errorKey, so a tenant without kagent grants gets a form with
+# EMPTY enums on required fields (visibly un-submittable) rather than a form that quietly offers a
+# model it cannot see. Fail closed, never fail silent.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agent-formdef
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    - name: crd
+      path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/agents.kagent.dev
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+    # Model catalogue. `.spec.model` is carried into the field description so the picker shows what
+    # a config actually resolves to — gemini-pro and gemini-flash both point at gemini-3.8-flash
+    # today, and a bare config name would imply two models where there is one.
+    - name: models
+      path: /apis/kagent.dev/v1alpha2/modelconfigs
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: modelconfigs
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: modelsError
+    # Tool catalogue. remotemcpservers, NOT toolservers/mcpservers — those two CRDs hold zero
+    # objects on every cluster we run (see restaction.agents-list for the same note).
+    - name: servers
+      path: /apis/kagent.dev/v1alpha2/remotemcpservers
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: remotemcpservers
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: serversError
+    # Delegation targets.
+    - name: agents
+      path: /apis/kagent.dev/v1alpha2/agents
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: agents
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: agentsError
+    # Namespaces the user can `create` an Agent in — RBAC-filtered by snowplow's userAccessFilter
+    # (SSAR against the caller's bearer token), same create-permitted-picker pattern as
+    # alert-formdef. Never offers a namespace the create POST would 403 on.
+    - name: namespaces
+      path: /api/v1/namespaces
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      dependsOn:
+        name: crd
+      userAccessFilter:
+        verb: create
+        group: kagent.dev
+        resourcesFrom: '["agents"]'
+        namespaceFrom: .metadata.name
+      continueOnError: true
+      errorKey: namespacesError
+      filter: '[ (.namespaces.items // [])[] | .metadata.name ]'
+  # Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }.
+  # schemaString is the schema ALREADY SERIALISED (`tojson`): the Form prefers widgetData.stringSchema
+  # over widgetData.schema precisely because an object schema round-trips through a Go map and comes
+  # back alphabetised, which would scatter Name/Namespace/Model/Runtime into arbitrary order. The
+  # string freezes the authoring order below (and SchemaFields then partitions it: the six required
+  # fields up-front, the three tool multi-selects inside the "Advanced · 3 settings" collapse — they
+  # are force-mounted there, so they still validate and submit).
+  filter: |
+    def commonNames($byNs; $nsList):
+      if ($nsList | length) == 0 then []
+      else ( [ $nsList[] | (($byNs[.] // []) | unique) ]
+             | reduce .[] as $x (null; if . == null then $x else (. - (. - $x)) end) ) // []
+      end;
+    "v1alpha2" as $ver
+    | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
+    | ($spec.properties.description // { type: "string" }) as $pDesc
+    | ($spec.properties.declarative.properties.runtime // { type: "string" }) as $pRuntime
+    | ($spec.properties.declarative.properties.systemMessage // { type: "string" }) as $pSysMsg
+    # ── namespaces × model configs ──────────────────────────────────────────────────────────────
+    | ( [ (.namespaces // [])[] ] | unique ) as $nsCreate
+    | ( reduce ((.models.items // [])[]) as $m ({};
+          .[$m.metadata.namespace] = ((.[$m.metadata.namespace] // []) + [$m.metadata.name])) ) as $mcByNs
+    | ( [ $nsCreate[] | select($mcByNs[.] != null) ] ) as $nsWithMc
+    | ( commonNames($mcByNs; $nsWithMc) ) as $mcCommon
+    | ( if ($nsWithMc | length) == 0 then []
+        elif ($mcCommon | length) > 0 then $nsWithMc
+        else $nsWithMc[0:1] end ) as $nsOpts
+    | ( if ($nsOpts | length) == 0 then []
+        elif ($mcCommon | length) > 0 then ($mcCommon | sort)
+        else (($mcByNs[$nsOpts[0]] // []) | unique) end ) as $mcOpts
+    | ( if ($nsOpts | index("{{ .Release.Namespace }}")) then "{{ .Release.Namespace }}" else ($nsOpts[0] // "") end ) as $nsDefault
+    | ( if ($mcOpts | index("default-model-config")) then "default-model-config" else ($mcOpts[0] // "") end ) as $mcDefault
+    # What each offered ModelConfig actually resolves to, folded into the field description.
+    # NOTE the `. as $m` bindings here and below: `$list | index(.foo)` evaluates its ARGUMENT with
+    # `.` already re-bound to $list by the pipe, so `.metadata.namespace` would index the array and
+    # abort the whole filter ("Cannot index array with string"). Bind the item first, always.
+    | ( [ (.models.items // [])[]
+          | . as $m
+          | select(($nsOpts | index($m.metadata.namespace)) and ($mcOpts | index($m.metadata.name)))
+          | ($m.metadata.name + " → " + ($m.spec.model // "?")) ] | unique | join(" · ") ) as $mcHint
+    # ── tool catalogue (servers present in EVERY offered namespace) ──────────────────────────────
+    | ( reduce ((.servers.items // [])[]) as $s ({};
+          .[$s.metadata.namespace] = ((.[$s.metadata.namespace] // []) + [$s.metadata.name])) ) as $srvByNs
+    | ( commonNames($srvByNs; $nsOpts) ) as $srvOpts
+    | ( [ (.servers.items // [])[]
+          | . as $sv
+          | select(($nsOpts | index($sv.metadata.namespace)) and ($srvOpts | index($sv.metadata.name)))
+          | (($sv.status.discoveredTools // [])[] | .name)
+          | ($sv.metadata.name + "/" + .) ] | unique ) as $toolOpts
+    # ── delegation targets ──────────────────────────────────────────────────────────────────────
+    # Fan-out ORCHESTRATORS are excluded: the orchestrator is what routes work INTO this new agent
+    # (that is what krateo-autopilot's extraAgents does), so offering it back as a delegate target
+    # builds a cycle — autopilot → new agent → autopilot.
+    #
+    # The test is "delegates to MORE THAN ONE agent", not "delegates at all". On krateo-057 that
+    # excludes exactly autopilot (10 delegates) and autopilot-bench (3) while keeping
+    # frontend-agent, which sub-delegates to snowplow-agent alone — a specialist that calls one
+    # peer is a legitimate delegate target and an "any delegation at all" test wrongly hid it.
+    # This is a calibrated guard against the obvious cycle, not a hard invariant: a genuine
+    # specialist that fans out to two peers would also be withheld. If that ever bites, drop the
+    # filter rather than raising the threshold — the cycle is a judgement call for the author.
+    | ( [ (.agents.items // [])[]
+          | select( ([ (.spec.declarative.tools // [])[] | select(.type == "Agent") ] | length) <= 1 ) ] ) as $delegatable
+    | ( reduce ($delegatable[]) as $a ({};
+          .[$a.metadata.namespace] = ((.[$a.metadata.namespace] // []) + [$a.metadata.name])) ) as $agByNs
+    | ( commonNames($agByNs; $nsOpts) | sort ) as $agentOpts
+    # Per-user client draft key (localStorage), seeded as __owner but never rendered/validated —
+    # same mechanism as alert-create. .username is the snowplow-injected JWT principal
+    # (identityContext: [username] on the Form); absent → "anon".
+    | (((.username // "anon") | gsub("[^a-zA-Z0-9_.-]"; "-")) + "__agent-create") as $draftKey
+    | {
+        type: "object",
+        properties: {
+          __agent_name__: {
+            type: "string",
+            title: "Name",
+            description: "Name for the new Agent (metadata.name). This is also the Service name the gateway route has to be registered against, so pick it deliberately — renaming later means re-registering."
+          },
+          __agent_namespace__: {
+            type: "string",
+            title: "Namespace",
+            description: "Namespace to create the Agent in. Limited to namespaces you can create Agents in that also hold a ModelConfig — kagent resolves the model in the Agent's own namespace.",
+            enum: $nsOpts,
+            default: $nsDefault
+          },
+          description: ($pDesc + {
+            title: "What it is for",
+            description: "One line the orchestrator reads when deciding whether to hand work to this agent. Write it as a capability (\"reads ClickHouse traces and correlates them with pod restarts\"), not as a name."
+          }),
+          __model_config__: ({
+            type: "string",
+            title: "Model",
+            description: ("The kagent ModelConfig backing this agent." + (if $mcHint == "" then " No ModelConfig is readable in a namespace you can create Agents in — this form cannot create a working agent until one exists." else (" Available: " + $mcHint + ".") end)),
+            enum: $mcOpts
+          } + (if $mcDefault == "" then {} else { default: $mcDefault } end)),
+          runtime: ($pRuntime + { title: "Runtime" }),
+          # The CRD description for systemMessage is about promptTemplate/Go-template machinery this
+          # form does not expose, so it would describe behaviour the user cannot reach. Type comes
+          # from the CRD; the prose is written for what this form actually does.
+          systemMessage: ($pSysMsg + {
+            title: "System message",
+            description: "The agent's standing instructions — its whole behaviour. Say what it may do, what it must refuse, and what it should hand back to the orchestrator."
+          }),
+          __tools__: {
+            type: "array",
+            title: "Tools",
+            description: ("Tools this agent may call, as <server>/<tool> over the RemoteMCPServers discovered on this cluster" + (if ($toolOpts | length) == 0 then " — none are readable, so this agent will have no tools." else ("; " + ($toolOpts | length | tostring) + " available.") end)),
+            items: { type: "string", enum: $toolOpts }
+          },
+          __approvals__: {
+            type: "array",
+            title: "Require human approval (HITL)",
+            description: "The subset of the tools above that must pause for a human to approve or reject before the agent may run them. Anything selected here that is not also selected above is dropped on submit.",
+            items: { type: "string", enum: $toolOpts }
+          },
+          __delegates__: {
+            type: "array",
+            title: "Delegate to",
+            description: ("Existing agents this one may hand work to. Fan-out orchestrators are excluded — delegating back to the agent that routes work here would build a cycle." + (if ($agentOpts | length) == 0 then " None available." else "" end)),
+            items: { type: "string", enum: $agentOpts }
+          }
+        },
+        required: ["__agent_name__", "__agent_namespace__", "description", "__model_config__", "runtime", "systemMessage"]
+      } as $schema
+    | {
+        schemaString: ($schema | tojson),
+        propertiesToHide: [],
+        initialValues: { __owner: $draftKey },
+        apiVersion: "kagent.dev/v1alpha2",
+        kind: "Agent",
+        resource: "agents",
+        namespace: $nsDefault
+      }

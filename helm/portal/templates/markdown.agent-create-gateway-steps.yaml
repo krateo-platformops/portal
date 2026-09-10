@@ -1,0 +1,66 @@
+# The exact values change the warning above refers to, copyable in one click (allowCopy).
+#
+# Both keys were read off the live cluster, not invented:
+#   - agentgateway-policies spec.extraSubAgents  → one HTTPRoute
+#     (agentgateway-policies-subagent-<name>), two AgentgatewayPolicy Allow clauses (the
+#     agent-card GET and the authenticated x-kagent-host route), one resiliency-a2a targetRef and
+#     one backend Service entry. Verified against the rendered agentgateway-policies-0.2.3 manifest.
+#   - krateo-autopilot spec.extraAgents → appends to the orchestrator Agent's
+#     spec.declarative.tools[] as a type:Agent entry. The orchestrator does NOT discover agents;
+#     its delegate list is an explicit array, so an agent that is gateway-reachable but not listed
+#     here is reachable and never reached.
+# Both surface as componentValues on the Installer CR, which is where the change has to be made on
+# an installer-managed cluster (and, durably, in the installer chart's own values).
+#
+# extraSubAgents, NOT subAgents. They are different knobs: the agentgateway-policies chart's own
+# `subAgents` default is the PERMANENT fleet (autopilot, k8s-agent, … — a platform release decision),
+# while `extraSubAgents` is the per-install override. An agent spawned from this portal is the second
+# kind, so it belongs in extraSubAgents. Both arrays REPLACE rather than merge, which is why the
+# snippet says to keep the existing entries: dropping them de-registers the running fleet.
+#
+# NOTE the NetworkPolicy is NOT part of this: agentgateway-policies-kagent-agents selects pods by
+# app.kubernetes.io/part-of=kagent, so a new agent is inside containment automatically. That makes
+# the un-registered state worse, not better — containment applies, the route does not.
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create-gateway-steps
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowCopy: true
+    markdown: |
+      Append both entries, replacing `<agent-name>` with the Name you enter below, then let the
+      Installer reconcile. Until then, treat the agent as created but out of service.
+
+      Both arrays **replace** rather than merge, so keep every entry already there — dropping one
+      de-registers a running agent. Use `extraSubAgents` (the per-install override), not the
+      chart's own `subAgents` default, which is the permanent platform fleet.
+
+      ```yaml
+      # Installer CR — {{ .Release.Namespace }}/installer (composition.krateo.io)
+      spec:
+        componentValues:
+          agentgateway-policies:
+            extraSubAgents:
+              # …keep every existing entry…
+              - name: <agent-name>
+                port: 8080
+                subjects:
+                  anyAuthenticated: true
+          krateo-autopilot:
+            extraAgents:
+              # …keep every existing entry…
+              - apiGroup: kagent.dev
+                kind: Agent
+                name: <agent-name>
+      ```
+
+      Registration is observable, so you can check rather than trust: the agent is wired when
+      `httproutes.gateway.networking.k8s.io/agentgateway-policies-subagent-<agent-name>` exists in
+      `{{ .Release.Namespace }}`, and it is reachable by the orchestrator when `<agent-name>` appears
+      in the `autopilot` Agent's `spec.declarative.tools[]`.
+  resourcesRefs:
+    items: []

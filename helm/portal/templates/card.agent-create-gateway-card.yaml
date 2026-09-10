@@ -1,0 +1,37 @@
+# Host for the pre-flight gateway warning + the exact values change. It sits ABOVE the
+# configuration card so it is read before anything is typed, not after the create has fired.
+#
+# Card, not Flex: the Alert widget's plural is not in the Flex allowedResources enum, and Card
+# children are unconstrained (same reason card.incident-gaps-card hosts alert.incident-gaps).
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create-gateway-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Before this agent can be used
+    titleVariant: eyebrow
+    variant: outlined
+    extra: 'Rendered by another chart — not by this form'
+    extraVariant: tag
+    extraStatus: warning
+    items:
+      - resourceRefId: agent-create-gateway
+      - resourceRefId: agent-create-gateway-steps
+  resourcesRefs:
+    items:
+      - id: agent-create-gateway
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: agent-create-gateway
+        namespace: {{ .Release.Namespace }}
+        resource: alerts
+        verb: GET
+      - id: agent-create-gateway-steps
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: agent-create-gateway-steps
+        namespace: {{ .Release.Namespace }}
+        resource: markdowns
+        verb: GET
