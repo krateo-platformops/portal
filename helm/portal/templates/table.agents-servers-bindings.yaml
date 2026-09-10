@@ -20,7 +20,12 @@
 # and the note under the table says why they differ.
 #
 # `Currently served` renders "—", not 0, when the server has published no discoveredTools at all —
-# a server that has not finished discovery must not make every one of its consumers look empty.
+# a server that has not finished discovery must not make every one of its consumers look empty. It
+# also reads "—" for a ref whose kind is not RemoteMCPServer (the row is labelled with that kind:
+# this section inventories RemoteMCPServers, so it will not pretend to know what another kind
+# serves) and for a ref that omits toolNames, where Bound reads "—" and Tools "not specified"
+# rather than an unearned 0 and a blank cell. When the Agent list itself did not answer, the table
+# is ONE row saying so — never an empty table, which would read as "no agent binds anything".
 #
 # Sorted by server then agent so the section reads as "for each server, its consumers", which is
 # the question the Tool servers section is asked. defaultPageSize 50 + hideOnSinglePage keeps the
@@ -58,7 +63,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.bindings // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:.server}, {valueKey:"agent",kind:"jsonSchemaType",type:"string",stringValue:.agent}, {valueKey:"bound",kind:"jsonSchemaType",type:"string",stringValue:((.bound // 0)|tostring)}, {valueKey:"served",kind:"jsonSchemaType",type:"string",stringValue:(if (.served // -1) < 0 then "—" else ((.served)|tostring) end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:(.sample // "—"),color:"#8c8c8c"} ] ] }'
+    expression: '${ [ (.bindings // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.server // "—")}, {valueKey:"agent",kind:"jsonSchemaType",type:"string",stringValue:(.agent // "—")}, {valueKey:"bound",kind:"jsonSchemaType",type:"string",stringValue:(.bound // "—")}, {valueKey:"served",kind:"jsonSchemaType",type:"string",stringValue:(.served // "—")}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(.approvals // "—")}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:(.tools // "—"),color:"#8c8c8c"} ] ] }'
   apiRef:
     name: agents-servers
     namespace: {{ .Release.Namespace }}

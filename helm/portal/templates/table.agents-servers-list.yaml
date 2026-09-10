@@ -21,6 +21,12 @@
 # "external endpoint" (https://schemas.fluxoperator.dev/mcp — it leaves the cluster, so no
 # AgentgatewayBackend can front it and its absence is correct, not a gap).
 #
+# EVERY CELL IS RENDERED VERBATIM. The RA emits each cell as the string to print — including
+# "not readable", which is what In use / Agents say when the Agent list did not answer, and the
+# single explanatory row that replaces the table when the RemoteMCPServer list did not answer. An
+# unreadable list must never render as an empty one, and a count that could not be computed must
+# never render as 0, so no `// 0` fallback survives in this template.
+#
 # No rowNavigateTo: there is no /agents/servers/{namespace}/{name} detail page, and a Table whose
 # rowNavigateTo substitutes an empty cell goes silently inert. The link lands with the page.
 kind: Table
@@ -59,7 +65,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(if (.url // "") == "" then "—" else .url end),color:"#8c8c8c"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"#8c8c8c"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"#8c8c8c"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:((.discovered // 0)|tostring)}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:((.inUse // 0)|tostring)}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(if (.agents // 0) > 0 then ((.agents)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
+    expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.name // "—")}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(.endpoint // "—"),color:"#8c8c8c"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"#8c8c8c"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"#8c8c8c"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:(.discovered // "—")}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:(.inUse // "—")}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(.agents // "—")}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
   apiRef:
     name: agents-servers
     namespace: {{ .Release.Namespace }}
