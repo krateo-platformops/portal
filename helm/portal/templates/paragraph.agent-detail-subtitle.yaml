@@ -1,0 +1,24 @@
+# The Agent CR's own spec.description, verbatim, under the title — what this agent is FOR, in the
+# author's words rather than a label the portal invents. Referenced by the header block only when
+# the CR carries one.
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-subtitle
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ .description // "" }'
+  resourcesRefs:
+    items: []

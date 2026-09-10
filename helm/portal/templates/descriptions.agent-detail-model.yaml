@@ -1,0 +1,40 @@
+# Model rows. Two facts are deliberately kept apart, because collapsing them has misled people
+# before: the CONFIG NAME (gemini-pro) and what it RESOLVES to. On krateo-057 gemini-pro and
+# gemini-flash both resolve to the same gemini-3.8-flash behind the same gateway, so showing only
+# the config name implies two models where there is one.
+#
+# `Gateway route` is resolved live: the ModelConfig's baseUrl is split into gateway host + path
+# prefix and matched against the HTTPRoute set (parentRef name == the host's first label, a
+# path-prefix match carrying no header match), then the matching rule's backendRefs are named.
+# Four honest outcomes instead of a guess — routed (name → backend), the ModelConfig sets no
+# baseUrl at all, no HTTPRoute matches this baseUrl, or HTTPRoutes are not readable with your
+# permissions. `column: 1` because these values are full URLs.
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: descriptions-agent-detail-model
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    column: 1
+    bordered: true
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.model // {}) as $m
+        | [ { label: "ModelConfig", value: ($m.configName // "") },
+            { label: "Resolves to", value: ($m.resolved // "") },
+            { label: "baseUrl", value: ($m.baseUrl // "") },
+            { label: "Gateway route", value: ($m.route // "") } ]
+        + (if (($m.apiKeyPassthrough // "") != "") then [ { label: "Credentials", value: $m.apiKeyPassthrough } ] else [] end) }
+  resourcesRefs:
+    items: []

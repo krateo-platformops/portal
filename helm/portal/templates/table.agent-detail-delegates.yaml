@@ -1,0 +1,64 @@
+# One row per tools[].type=Agent reference — who this agent delegates to, and whether that target
+# is actually there and reachable.
+#
+# Rows LINK to this same detail page for the delegate (/agents/{routeNs}/{routeName}), so the
+# delegation tree is walkable. The two placeholder cells are non-column, hidden cells emitted by
+# the RA (the `agent` column carries the display name, and a display name is not a safe route
+# input). They are emitted EMPTY — which makes the row inert, the frontend's own guard — in exactly
+# one case: the fleet was listable AND the delegate is not in it. A delegate we merely could not
+# SEE (the caller holds `get` but not `list`) keeps its link, because the detail route needs only
+# `get` and may well resolve.
+#
+# Status is EXCEPTION-ONLY and type-aware: a healthy delegate renders an empty cell. Red = a
+# Ready/Accepted condition is False, or the target does not exist at all (NotFound); gold = an
+# advisory such as UnsupportedFeatures=True. `Route` is the HTTPRoute matching
+# `x-kagent-host: <delegate>.<namespace>` — an unrouted delegate cannot be reached over A2A no
+# matter how healthy it looks, which is precisely the kind of thing this page exists to show.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-delegates
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    rowNavigateTo: /agents/{routeNs}/{routeName}
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: agent
+      title: Agent
+    - valueKey: role
+      title: What it is for
+    - valueKey: route
+      title: Route
+    - valueKey: status
+      title: Status
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: >-
+        ${ [ (.delegateRows // [])[]
+        | [ { valueKey: "agent", kind: "jsonSchemaType", type: "string", stringValue: (.name // "") },
+            { valueKey: "role",  kind: "jsonSchemaType", type: "string", stringValue: (.role // ""), color: "#8c8c8c" },
+            (if (.routeIsException // false)
+             then { valueKey: "route", kind: "tag", stringValue: (.route // ""), color: "gold" }
+             else { valueKey: "route", kind: "jsonSchemaType", type: "string", stringValue: (.route // "") } end),
+            (if ((.status // "") == "")
+             then { valueKey: "status", kind: "jsonSchemaType", type: "string", stringValue: "" }
+             else { valueKey: "status", kind: "tag", stringValue: (.status), color: (if ((.statusColor // "") == "") then "gold" else .statusColor end) } end),
+            { valueKey: "routeNs",   kind: "jsonSchemaType", type: "string", stringValue: (.routeNs // "") },
+            { valueKey: "routeName", kind: "jsonSchemaType", type: "string", stringValue: (.routeName // "") } ] ] }
+  resourcesRefs:
+    items: []

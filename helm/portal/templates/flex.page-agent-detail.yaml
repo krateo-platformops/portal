@@ -1,0 +1,102 @@
+# Convention page root for /agents/{namespace}/{name} — the per-agent specification page ("what one
+# agent is made of"): identity, the resolved model and the gateway route its baseUrl lands on, the
+# tools it binds grouped by server, who it delegates to, and its memory/context posture.
+#
+# NAMESPACE: the release namespace, NOT the admin tier namespace. The route is declared with the
+# `page: agent-detail` convention, and that convention resolves `flexes/page-<slug>` in the MENU's
+# OWN namespace ({{ .Release.Namespace }}) — a page root parked in the tier namespace is a silent
+# 404. (page-agents can live in the tier namespace only because its nav entry uses resourceRefId,
+# which carries an explicit namespace; this one deliberately does not, so it stays here.) Same
+# reasoning as flex.page-alert-detail.
+#
+# Sections are chosen SERVER-SIDE off agent-detail's `sections` flags, so nothing renders as empty
+# structure: a BYO agent (.spec.byo, no .spec.declarative) has no model, no tools, no delegates and
+# no memory to show and simply degrades to identity + manifest; an agent that binds no MCP server
+# gets no tool table; one that delegates to nobody gets no delegation table. An unreadable or
+# missing agent collapses to the header plus one honest sentence. resourcesRefs stay static (the
+# full pool) — unreferenced children are never fetched.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-agent-detail
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - flexes
+    - cards
+    - paragraphs
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agent-detail-header-block
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.sections // {}) as $s
+        | [ { resourceRefId: "agent-detail-header-block" } ]
+        + (if ($s.found // false)
+           then ( [ { resourceRefId: "card-agent-detail-identity" } ]
+                  + (if ($s.model // false)     then [ { resourceRefId: "card-agent-detail-model" } ]     else [] end)
+                  + (if ($s.tools // false)     then [ { resourceRefId: "card-agent-detail-tools" } ]     else [] end)
+                  + (if ($s.delegates // false) then [ { resourceRefId: "card-agent-detail-delegates" } ] else [] end)
+                  + (if ($s.memory // false)    then [ { resourceRefId: "card-agent-detail-memory" } ]    else [] end)
+                  + [ { resourceRefId: "card-agent-detail-manifest" } ] )
+           else [ { resourceRefId: "agent-detail-empty" } ] end) }
+  resourcesRefs:
+    items:
+    - id: agent-detail-header-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-header-block
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agent-detail-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-empty
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: card-agent-detail-identity
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-identity
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-model
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-model
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-tools
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-tools
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-delegates
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-delegates
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-memory
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-memory
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-manifest
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-manifest
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
