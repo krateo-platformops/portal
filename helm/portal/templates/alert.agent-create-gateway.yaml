@@ -3,10 +3,13 @@
 # post-create toast — by the time a toast fires the agent already exists and the person has moved on.
 # That is exactly how krateo-blueprint-agent sat unreachable for a week (2026-09-04).
 #
-# antd Alert, type=warning. `alerts` is not in the Flex allowedResources enum; Card children are
-# unconstrained, so this is hosted inside agent-create-gateway-card (same arrangement as
-# alert.incident-gaps under the incident cards). Static text — there is nothing live to resolve
-# before the agent exists, so no apiRef.
+# antd Alert, type=warning. `alerts` is not in the Flex allowedResources enum, so this is hosted
+# inside agent-create-gateway-card — the Card CRD declares no allowedResources at all (see that
+# file for the checked enums). Tabs would also be legal; Card is a layout choice.
+#
+# Static text — there is nothing live to resolve before the agent exists, so no apiRef. Note this is
+# deliberately NOT the place read failures are reported: those are named in the field descriptions
+# agent-formdef builds, right under whichever picker they emptied.
 kind: Alert
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
