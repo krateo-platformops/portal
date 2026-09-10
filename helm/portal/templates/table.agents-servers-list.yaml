@@ -1,0 +1,67 @@
+# The tool-server inventory, from restaction.agents-servers (`.servers`).
+#
+# WHY A TABLE AND NOT CARDS: a Card's content is fixed in its own CR — there is no way to fan one
+# Card out per row of an apiRef result, so "a card per server" would mean nine hand-written CRs
+# carrying this cluster's server list inside the chart. The chart must render whatever servers a
+# cluster actually has, so the list has to be data-driven, and Table is the only data-driven
+# container in the widget set.
+#
+# `Discovered` is what the server reports it serves (.status.discoveredTools). `In use` is how many
+# of those at least one agent actually binds. The gap is the point of the column: kagent-tool-server
+# discovers 124 tools and agents bind 26 of them (verified live), so the surface an agent can reach
+# is a small, auditable subset of what the server offers — that is the security story this section
+# exists to tell.
+#
+# STATUS IS EXCEPTION-ONLY and carries BOTH the reconcile exceptions and the gateway advisory.
+# They share one column deliberately: split into "Status" and "Gateway" they would be two columns
+# that are empty on a healthy cluster, which reads as broken rendering rather than as good news.
+# The condition predicate is type-aware (Ready/Accepted True = healthy), so an advisory condition
+# whose True means "there IS a problem" is not silently dropped. Colours: red = a failed
+# Ready/Accepted, gold = an advisory. Today exactly ONE cell fills in: flux-schema-mcp-server is
+# "external endpoint" (https://schemas.fluxoperator.dev/mcp — it leaves the cluster, so no
+# AgentgatewayBackend can front it and its absence is correct, not a gap).
+#
+# No rowNavigateTo: there is no /agents/servers/{namespace}/{name} detail page, and a Table whose
+# rowNavigateTo substitutes an empty cell goes silently inert. The link lands with the page.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-list
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: server
+      title: Tool server
+    - valueKey: endpoint
+      title: Endpoint
+    - valueKey: protocol
+      title: Protocol
+    - valueKey: timeout
+      title: Timeout
+    - valueKey: discovered
+      title: Discovered
+    - valueKey: inUse
+      title: In use
+    - valueKey: agents
+      title: Agents
+    - valueKey: status
+      title: Status
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(if (.url // "") == "" then "—" else .url end),color:"#8c8c8c"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"#8c8c8c"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"#8c8c8c"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:((.discovered // 0)|tostring)}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:((.inUse // 0)|tostring)}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(if (.agents // 0) > 0 then ((.agents)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
+  apiRef:
+    name: agents-servers
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

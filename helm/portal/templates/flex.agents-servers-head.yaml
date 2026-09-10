@@ -1,0 +1,28 @@
+# Title + subtitle stack for the Tool servers table (sibling of agents-header).
+# Nested rather than flattened into flex.agents-servers so the caption sits tight under its title
+# instead of inheriting the section's `gap: middle`.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-head
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    vertical: true
+    items:
+    - resourceRefId: agents-servers-title
+    - resourceRefId: agents-servers-subtitle
+  resourcesRefs:
+    items:
+    {{- range (list "agents-servers-title" "agents-servers-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}
