@@ -27,6 +27,7 @@ spec:
     items:
     - resourceRefId: agents-header
     - resourceRefId: agents-list
+    - resourceRefId: agents-servers
   resourcesRefs:
     items:
     - id: agents-header
@@ -40,4 +41,14 @@ spec:
       name: agents-list
       namespace: {{ .Release.Namespace }}
       resource: tables
+      verb: GET
+    # The Tool servers section (flex.agents-servers) — a SECTION of this page, not a route of its
+    # own: it answers the question the table above raises ("5 tools across 2 servers — which ones,
+    # and who else can reach them?") off the same kagent.dev kinds. `flexes` is already in this
+    # page's allowedResources, so composing it needs nothing else.
+    - id: agents-servers
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
       verb: GET
