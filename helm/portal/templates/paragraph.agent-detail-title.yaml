@@ -1,0 +1,24 @@
+# Agent detail H1 — the Agent CR's metadata.name (the route's {name} is the honest fallback when
+# the read degraded). Level 1, matching the alerts/agents list-page H1 pattern: /agents is a
+# control-plane leaf, so its detail page keeps the top heading level.
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-title
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: Agent
+    level: 1
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ .name // "agent" }'
+  resourcesRefs:
+    items: []

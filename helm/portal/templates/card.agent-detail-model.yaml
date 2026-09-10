@@ -1,0 +1,28 @@
+# "Model" — which ModelConfig this agent names, what that config actually resolves to, and where
+# the traffic physically goes. Rendered only for a declarative agent (a BYO agent brings its own
+# image and names no ModelConfig, so the section is absent rather than empty).
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-agent-detail-model
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Model
+    titleVariant: eyebrow
+    variant: outlined
+    headerLeft: The ModelConfig this agent names, what it resolves to, and the gateway route its baseUrl lands on.
+    items:
+    - resourceRefId: descriptions-agent-detail-model
+  resourcesRefs:
+    items:
+    - id: descriptions-agent-detail-model
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: descriptions-agent-detail-model
+      namespace: {{ .Release.Namespace }}
+      resource: descriptions
+      verb: GET

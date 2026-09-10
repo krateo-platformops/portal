@@ -1,0 +1,45 @@
+# Agent detail pagehead: the title line (agent name + an exception-only condition chip) with the
+# CR's own `description` underneath as the subtitle. The subtitle row is included only when the CR
+# actually carries a description — an agent with none gets the title alone, never an empty line
+# holding space. No action cluster in this slice: a Button needs a real target, and the agent
+# lifecycle actions (edit / delete / spawn) belong to the spawn slice that introduces them.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-header-block
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - flexes
+    - paragraphs
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: agent-detail-titleline
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "agent-detail-titleline" } ]
+        + (if ((.description // "") != "") then [ { resourceRefId: "agent-detail-subtitle" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: agent-detail-titleline
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-titleline
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agent-detail-subtitle
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-subtitle
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET

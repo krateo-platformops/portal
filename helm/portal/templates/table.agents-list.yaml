@@ -10,9 +10,16 @@
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
 #
-# No rowNavigateTo yet: there is no /agents/{namespace}/{name} detail page. A Table whose
-# rowNavigateTo has any empty placeholder goes silently inert, so the link is added with the detail
-# page, not before it.
+# Rows LINK to the per-agent detail page (flex.page-agent-detail, route /agents/{namespace}/{name}),
+# which is what makes this table an index rather than a dead end.
+#
+# The placeholders are the RA's dedicated `routeNs`/`routeName` fields, carried as two NON-COLUMN
+# hidden cells — NOT the `name` column. The name cell appends a "  (bench)" marker for
+# composition-less agents, and interpolating that would build /agents/<ns>/autopilot-bench%20%20
+# (bench): a 404 that still looks clickable. Same split as table.access-grants' `pageUser` cell.
+# The RA pre-filters rows to objects carrying both a name and a namespace, so both placeholders are
+# non-empty on every emitted row — a rowNavigateTo with ANY empty placeholder is dropped whole by
+# the frontend (Table.tsx buildRowPath) and the row silently stops responding to clicks.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,6 +33,7 @@ spec:
     bordered: false
     size: small
     fitContent: true
+    rowNavigateTo: /agents/{routeNs}/{routeName}
     pagination:
       defaultPageSize: 20
     columns:
@@ -50,7 +58,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
   apiRef:
     name: agents-list
     namespace: {{ .Release.Namespace }}

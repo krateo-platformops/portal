@@ -1,0 +1,71 @@
+# One row per RemoteMCPServer this agent binds tools from — the agent's real tool surface, not the
+# servers' catalogues. Rows are INERT (no rowNavigateTo): there is no per-tool-server page to land
+# on, and a rowNavigateTo pointing nowhere is worse than no link at all.
+#
+# `Bound` is the honest ratio: bound tools out of what the controller actually DISCOVERED on that
+# server ("6 of 6", "1 of 124"). Three exception suffixes ride in the same cell because each is a
+# different truth and none of them is automatically a fault:
+#   · "server not visible"          — the RemoteMCPServer is not readable (RBAC) or does not exist;
+#   · "catalogue not discovered"    — the server exists but reported no tools;
+#   · "N not discovered"            — a bound name is absent from the catalogue. The clickhouse
+#                                     servers deliberately carry a dual-name binding so the SQL
+#                                     tool survives either server version, so this reads gold
+#                                     (advisory), never red.
+# `Gated` lists the requireApproval names — the tools that pause for a human — and is EMPTY for an
+# agent that holds only read tools (exception-only: no "0", no green "none" pill). `Route` is the
+# HTTPRoute the gateway matches on `x-kagent-host: <server host>`; "not routed" is a real finding
+# (a server called directly, outside every policy), while a blank means the caller cannot read
+# HTTPRoutes at all — the card caption distinguishes the two.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-tools
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: server
+      title: Server
+    - valueKey: bound
+      title: Bound
+    - valueKey: tools
+      title: Tools
+    - valueKey: gated
+      title: Gated
+    - valueKey: endpoint
+      title: Endpoint
+    - valueKey: route
+      title: Route
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: >-
+        ${ [ (.serverRows // [])[]
+        | [ { valueKey: "server",   kind: "jsonSchemaType", type: "string", stringValue: (.server // "") },
+            (if (.boundIsException // false)
+             then { valueKey: "bound", kind: "tag", stringValue: (.bound // ""), color: "gold" }
+             else { valueKey: "bound", kind: "jsonSchemaType", type: "string", stringValue: (.bound // "") } end),
+            { valueKey: "tools",    kind: "jsonSchemaType", type: "string", stringValue: (.tools // ""), color: "#8c8c8c" },
+            (if ((.gated // "") == "")
+             then { valueKey: "gated", kind: "jsonSchemaType", type: "string", stringValue: "" }
+             else { valueKey: "gated", kind: "tag", stringValue: (.gated), color: "gold" } end),
+            { valueKey: "endpoint", kind: "jsonSchemaType", type: "string", stringValue: (.endpoint // ""), color: "#8c8c8c" },
+            (if (.routeIsException // false)
+             then { valueKey: "route", kind: "tag", stringValue: (.route // ""), color: "gold" }
+             else { valueKey: "route", kind: "jsonSchemaType", type: "string", stringValue: (.route // "") } end) ] ] }
+  resourcesRefs:
+    items: []

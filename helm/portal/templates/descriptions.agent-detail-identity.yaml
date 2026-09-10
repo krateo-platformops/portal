@@ -1,0 +1,44 @@
+# Identity rows, shaped entirely server-side by the agent-detail RA.
+#
+# Rows that would be a lie are OMITTED rather than filled with a placeholder: `Streaming` only
+# exists on a declarative agent, and the advisory row only when a condition actually carries a
+# message. `Conditions` lists EVERY condition in Kubernetes vocabulary (Accepted · Ready ·
+# UnsupportedFeatures, NotReady for a False one) — the full posture, while the title-line chip
+# stays exception-only. Booleans never leak as bare true/false (streaming reads enabled/disabled).
+# `Reachable at` is derived from the live HTTPRoute set, so an agent nothing routes to says so
+# explicitly — and a caller who cannot READ HTTPRoutes is told that instead, because "no route
+# visible" is not the same claim as "no route exists".
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: descriptions-agent-detail-identity
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    column: 2
+    bordered: true
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.identity // {}) as $i
+        | [ { label: "Kind", value: ($i.kind // "") },
+            { label: "Namespace", value: ($i.namespace // "") },
+            { label: "Type", value: ($i.type // "") },
+            { label: "Runtime", value: ($i.runtime // "") } ]
+        + (if (($i.stream // "") != "") then [ { label: "Streaming", value: $i.stream } ] else [] end)
+        + [ { label: "Owner", value: ($i.owner // "") },
+            { label: "Created", value: ($i.created // "") },
+            { label: "Conditions", value: ($i.conditions // ""), span: 2 },
+            { label: "Reachable at", value: ($i.inboundRoute // ""), span: 2 } ]
+        + (if (($i.advisories // "") != "") then [ { label: "Advisory", value: $i.advisories, span: 2 } ] else [] end) }
+  resourcesRefs:
+    items: []

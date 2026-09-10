@@ -1,0 +1,39 @@
+# Memory / context rows.
+#
+# The third row is the one that matters and is the reason this card exists at all: a `context.
+# compaction` block is CONFIGURED on several agents here, and the kagent controller reports back on
+# the agent itself that the Go runtime IGNORES it (UnsupportedFeatures=True, message quoted
+# verbatim). So the card shows the declared configuration AND, when the cluster contradicts it,
+# what actually happens — rather than presenting a compaction policy that never runs as if it did.
+# The row is present only when that contradiction exists (an agent whose runtime honours its
+# config has nothing to disclaim).
+#
+# TTL: the CRD documents 15 days as the default when ttlDays is unset or zero, so an unset value
+# renders "15 days (default)" — the effective truth, marked as inherited rather than authored.
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: descriptions-agent-detail-memory
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    column: 1
+    bordered: true
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.memory // {}) as $m
+        | [ { label: "Long-term memory", value: ($m.store // "") },
+            { label: "History compaction", value: ($m.compaction // "") } ]
+        + (if (($m.effective // "") != "") then [ { label: "In effect", value: $m.effective } ] else [] end) }
+  resourcesRefs:
+    items: []

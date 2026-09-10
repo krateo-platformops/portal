@@ -8,6 +8,14 @@
 # namespaces where the CALLER holds the grant. A tenant with no kagent grant sees an empty table,
 # not an error — same shape as restaction.compositions-list.
 #
+# ROW LINKING: `routeName`/`routeNs` are emitted as SEPARATE fields from `name`/`namespace` and are
+# what table.agents-list's rowNavigateTo interpolates. They exist because the DISPLAY name is not a
+# safe route input — the table's `name` cell appends a "  (bench)" marker, and a rowNavigateTo built
+# from it would produce /agents/<ns>/autopilot-bench%20%20(bench), a 404 dressed up as a link.
+# The rows are also pre-filtered to objects that actually carry a name AND a namespace, so every
+# emitted row has a non-empty value for both placeholders — a rowNavigateTo with ANY empty
+# placeholder is silently dropped by the frontend and the row just stops responding to clicks.
+#
 # NOTE the resource: `remotemcpservers`, NOT `toolservers`. Both CRDs are installed, but
 # toolservers.kagent.dev and mcpservers.kagent.dev hold ZERO objects on every cluster we run —
 # all 9 real tool servers are RemoteMCPServer/v1alpha2. Listing toolservers renders an
@@ -56,6 +64,7 @@ spec:
     | ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) as $toolsDiscovered
     | { rows: [ (.agents.items // [])[]
         | . as $a
+        | select( (($a.metadata.name // "") != "") and (($a.metadata.namespace // "") != "") )
         | (.spec.declarative // {}) as $d
         | (($d.tools // [])) as $tools
         | ( [ ($a.status.conditions // [])[]
@@ -68,6 +77,8 @@ spec:
         | {
             name:        $a.metadata.name,
             namespace:   $a.metadata.namespace,
+            routeName:   ( $a.metadata.name // "" ),
+            routeNs:     ( $a.metadata.namespace // "{{ .Release.Namespace }}" ),
             role:        ( ($a.spec.description // "") | if (. | length) > 120 then (.[0:120] + "…") else . end ),
             modelConfig: $mc,
             model:       ( $modelOf[$mc] // "—" ),
