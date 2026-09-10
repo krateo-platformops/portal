@@ -27,13 +27,23 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
+    # Both paths are `${ jq }` expressions over the ?extras (route params) — the ONLY templating
+    # snowplow applies to api[].path (same as composition-detail / resource-detail). It does NOT
+    # substitute `{name}`-style brace placeholders: the former literal `.../alerts/{name}` reached
+    # the apiserver verbatim (`alerts.observability.krateo.io "{name}" not found`), the read
+    # degraded via continueOnError and EVERY alert rendered the honest-empty branch below
+    # (Manifest "No data", State "Pending", stage errors on the title/tag/buttons).
+    # Namespace comes off the route too (.namespace); the release ns is only the fallback when
+    # the extras carry none — so nothing changes where the alert already lives there.
     - name: alert
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/alerts/{name}
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/alerts/" + .name }
       verb: GET
       continueOnError: true
       errorKey: alertError
+    # The back-link lookup follows the alert's namespace as well (a report is keyed to the alert it
+    # investigates), release ns as the same fallback.
     - name: reports
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/troubleshootingreports" }
       verb: GET
       continueOnError: true
       errorKey: reportsError
