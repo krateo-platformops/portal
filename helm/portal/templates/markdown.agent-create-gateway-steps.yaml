@@ -3,8 +3,16 @@
 # Both keys were read off the live cluster, not invented:
 #   - agentgateway-policies spec.extraSubAgents  → one HTTPRoute
 #     (agentgateway-policies-subagent-<name>), two AgentgatewayPolicy Allow clauses (the
-#     agent-card GET and the authenticated x-kagent-host route), one resiliency-a2a targetRef and
-#     one backend Service entry. Verified against the rendered agentgateway-policies-0.2.3 manifest.
+#     agent-card GET and the authenticated x-kagent-host route) and one backend passthrough entry.
+#
+#     NOT a resiliency-a2a targetRef — an earlier draft of this file claimed one. Verified on the
+#     live cluster: agentgateway-policies-resiliency-a2a targets the 11 chart-default `subAgents`
+#     only, while all 4 current `extraSubAgents` (the -bench agents) appear in
+#     agentgateway-policies-passthrough but NOT in resiliency-a2a. So an extraSubAgent is reachable
+#     but has no A2A retry budget — it is partial registration, not full. agentgateway-policies
+#     PR #50 fixes this; once the deployed chart carries that fix, an extraSubAgent gets the
+#     resiliency targetRef too and this becomes five artifacts. Check which behaviour a cluster has
+#     with the resiliency command below rather than assuming.
 #   - krateo-autopilot spec.extraAgents → appends to the orchestrator Agent's
 #     spec.declarative.tools[] as a type:Agent entry. The orchestrator does NOT discover agents;
 #     its delegate list is an explicit array, so an agent that is gateway-reachable but not listed
@@ -62,5 +70,18 @@ spec:
       `httproutes.gateway.networking.k8s.io/agentgateway-policies-subagent-<agent-name>` exists in
       `{{ .Release.Namespace }}`, and it is reachable by the orchestrator when `<agent-name>` appears
       in the `autopilot` Agent's `spec.declarative.tools[]`.
+
+      One caveat worth checking on older policy charts: an `extraSubAgents` entry may get its route,
+      authz and passthrough but **no A2A retry budget** — reachable, but with no resilience on the
+      hop. Compare the two lists below. Note they name things differently: `passthrough` lists the
+      bare agent name (`<agent-name>`), while `resiliency-a2a` lists the route
+      (`agentgateway-policies-subagent-<agent-name>`). The agent is fully registered only when it
+      appears in both, under its respective name.
+
+      ```sh
+      kubectl -n {{ .Release.Namespace }} get agentgatewaypolicy \
+        agentgateway-policies-passthrough agentgateway-policies-resiliency-a2a \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.targetRefs[*].name}{"\n"}{end}'
+      ```
   resourcesRefs:
     items: []

@@ -1,14 +1,34 @@
 # Agent create-form schema source — the alert-formdef pattern (live CRD → form schema), with the
 # three departures the kagent Agent CRD forces. Consumed by form.agent-create.
 #
-# 1. SUBSET, NOT PASSTHROUGH. alert-formdef hands the whole `spec` schema to the Form because the
-#    Alert spec is six flat scalars. The Agent CRD is 1.3 MB: `spec.byo.deployment` alone carries a
-#    full PodSpec (affinity/tolerations/volumes/…), and `declarative` carries a2aConfig, context,
-#    deployment, memory, promptTemplate, sandbox, skills. Passing that through renders an
-#    unusable form, so this filter SELECTS the properties by key — but takes each one's `type`,
-#    `enum`, `default` and (mostly) `description` from the LIVE CRD node, so the convention still
-#    holds: change the CRD's runtime enum and this form's Runtime picker changes with it. Only the
-#    SET of exposed keys is authored here.
+# 1. SUBSET, NOT PASSTHROUGH — and the load-bearing reason is NOT size.
+#
+#    THE REQUIRED ARRAYS ARE EMPTY. On v1alpha2 the CRD declares `required` at exactly two places:
+#      top-level / spec / spec.declarative / spec.byo / tools[]  ->  NONE
+#      tools[].mcpServer -> ["name"]      tools[].agent -> ["name"]
+#    Verified by dry-run: `spec: {declarative: {}}` is ACCEPTED and defaults to
+#    `{type: Declarative, declarative: {runtime: python}}` — an agent with no model, no prompt and
+#    no tools. Valid to the apiserver, inert in practice.
+#
+#    SchemaFields partitions the form into "required" and the Advanced collapse BY `schema.required`.
+#    So handing over the raw CRD node yields a form in which NOTHING is required and every control
+#    is optional — the user can submit the empty agent above. The required-ness does not exist in
+#    the CRD to be forwarded; it has to be AUTHORED here. That is the argument for projecting.
+#    => Do not "simplify" the hand-written `required:` below by sourcing it from the CRD. It is
+#       empty there, and doing so would silently make every field on this form optional.
+#
+#    Size is a real but secondary reason (the whole CRD object is 1.32 MB across both versions;
+#    the v1alpha2 spec schema alone is ~395 KB compact — 56 groups, ~114 renderable controls, and
+#    ~55 fields that fall back to a JSON textarea, max depth 6). Nesting is NOT a reason: the Form
+#    recurses to arbitrary depth (SchemaFields `isGroup` = object-with-properties), so depth was
+#    never the constraint. `spec.byo.deployment` alone carries a full PodSpec
+#    (affinity/tolerations/volumes/…); `declarative` carries a2aConfig, context, deployment, memory,
+#    promptTemplate, sandbox, skills.
+#
+#    This filter therefore SELECTS the properties by key — but takes each one's `type`, `enum`,
+#    `default` and (mostly) `description` from the LIVE CRD node, so the convention still holds:
+#    change the CRD's runtime enum and this form's Runtime picker changes with it. Only the SET of
+#    exposed keys, and the `required` list, are authored here.
 #
 # 2. NO `spec.type` PICKER — Declarative is pinned. `type: BYO` needs `spec.byo.deployment.image`
 #    (minLength 1); the two branches are a union the schema renderer cannot express (SchemaFields
@@ -26,6 +46,12 @@
 #    form.agent-create's payloadToOverride jq folds them back into the real
 #    spec.declarative.tools[] shape (verified byte-for-byte against the live autopilot Agent).
 #
+#    PLATFORM FOLLOW-UP (not this slice): `controlFor` in ui/src/widgets/Form/SchemaFields.tsx sends
+#    ANY array that is neither items.enum nor items.type=string to JsonValueInput. An array-of-object
+#    REPEATER there would fix this for every Krateo form that has to describe a list of structured
+#    things — this one, and the ~55 textarea fallbacks in this CRD alone. Until then, flat closed
+#    selections folded in payloadToOverride is the only route that yields a usable control.
+#
 # NAMESPACE/REFERENCE SAFETY. kagent resolves `declarative.modelConfig` in the AGENT's OWN
 # namespace ("Must be in the same namespace as the Agent" — CRD), and the shipped Agent CRs
 # reference MCP servers and delegate agents by bare name with no namespace. A namespace picker and
@@ -34,6 +60,33 @@
 # create-permitted namespaces that hold at least one ModelConfig, and the ModelConfig / server /
 # delegate enums keep only names present in ALL of those namespaces. Whatever pair the user picks
 # resolves. On a single-namespace install (every cluster we run) this is a no-op.
+#
+# ENFORCEMENT LIVES IN CEL, WHICH THE FORM CANNOT SEE. The apiserver applies 8 x-kubernetes-
+# validations rules the JSON Schema does not express, so a form that satisfies the schema can still
+# be rejected on apply. All 8, and how this slice stays on the right side of each:
+#
+#   spec: has(type) && type in (Declarative|BYO)          -> ENFORCED: `type: "Declarative"` is
+#   spec: Declarative => declarative; BYO => byo             emitted literally, `declarative` always.
+#   tools[]: type=McpServer <=> mcpServer  (both ways)    -> ENFORCED by construction: the submit jq
+#   tools[]: type=Agent     <=> agent      (both ways)       only ever emits matched type+branch pairs.
+#   tools[].mcpServer: requireApproval SUBSET-OF toolNames -> ENFORCED by intersection (see
+#                                                            form.agent-create). This is the one that
+#                                                            would actually bite: unticking a tool
+#                                                            while its approval entry stays set is a
+#                                                            server-side reject with no visible cause,
+#                                                            so the orphan is dropped at submit.
+#   declarative: systemMessage XOR systemMessageFrom      -> AVOIDED: systemMessageFrom not exposed.
+#   deployment: serviceAccountName XOR serviceAccountConfig -> AVOIDED: deployment not exposed.
+#   headersFrom[]: exactly one of value / valueFrom       -> AVOIDED: headersFrom not exposed.
+#   allowedNamespaces: from=Selector => selector          -> AVOIDED: relies on the CRD default Same.
+#
+# Anything added to this form later must be checked against that list first — the Form has no way to
+# express these, so the only options are enforce-in-jq or do-not-expose.
+#
+# CRD defaults relied on rather than re-specified: allowedNamespaces.from=Same,
+# compaction.compactionInterval=5, overlapSize=2. (`type` and `runtime` ARE specified: `type`
+# because a literal is clearer than a default at the one place the union is pinned, `runtime`
+# because it is a user-facing choice.)
 #
 # RBAC: `crd` is a hard dependency — no schema, no form, so it fails loudly. Every list step carries
 # a userAccessFilter + continueOnError/errorKey, so a tenant without kagent grants gets a form with
