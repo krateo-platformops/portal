@@ -1,8 +1,15 @@
 # Host for the pre-flight gateway warning + the exact values change. It sits ABOVE the
 # configuration card so it is read before anything is typed, not after the create has fired.
 #
-# Card, not Flex: the Alert widget's plural is not in the Flex allowedResources enum, and Card
-# children are unconstrained (same reason card.incident-gaps-card hosts alert.incident-gaps).
+# Card, not Flex — and the reason is a CRD fact, checked on krateo-057, not a precedent:
+#   flexes.widgets.templates.krateo.io  v1beta1  widgetData.allowedResources.items.enum has no
+#                                                `alerts` entry, so a Flex cannot host this Alert.
+#   cards.widgets.templates.krateo.io   v1beta1  widgetData has NO allowedResources property at all,
+#                                                and Card.tsx renders every items[] child through
+#                                                WidgetRenderer with no kind check.
+# Card is therefore A legal host, not the ONLY one: `alerts` IS in the Tabs enum, and
+# tabs.incident-why-tabs does host alert.incident-gaps that way. Card is chosen here for layout —
+# this needs a titled, outlined panel above the form, not a tab.
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

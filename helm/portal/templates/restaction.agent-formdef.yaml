@@ -88,10 +88,28 @@
 # because a literal is clearer than a default at the one place the union is pinned, `runtime`
 # because it is a user-facing choice.)
 #
-# RBAC: `crd` is a hard dependency — no schema, no form, so it fails loudly. Every list step carries
-# a userAccessFilter + continueOnError/errorKey, so a tenant without kagent grants gets a form with
-# EMPTY enums on required fields (visibly un-submittable) rather than a form that quietly offers a
-# model it cannot see. Fail closed, never fail silent.
+# RBAC AND READ FAILURE ARE DIFFERENT THINGS, AND THE FORM SAYS WHICH. `crd` is a hard dependency —
+# no schema, no form, so it fails loudly. The four list steps carry continueOnError + an errorKey,
+# and the filter BRANCHES ON EVERY ONE of them (errText below). That matters because an empty enum
+# has three causes that look identical on the wire:
+#
+#   a. the step FAILED — CRD absent, apiserver 5xx, timeout. snowplow swallows it under
+#      continueOnError and writes the reason to the errorKey. `(<list> | length) > 0` cannot see
+#      this; `.modelsError != null` can. Every affected field description now names the failure and
+#      says the picker is empty because a READ FAILED — not because the cluster is empty.
+#   b. the caller cannot list the kind. A step WITH userAccessFilter lists as snowplow's own SA and
+#      then refilters to what the CALLER may read (snowplow internal/dynamic/sa_client.go), so a
+#      denied caller gets an EMPTY list and NO errorKey — the errorKey cannot distinguish this one.
+#      Every description is therefore worded "readable", never "exists": an empty picker is
+#      reported as nothing this caller can read, which is true under (b) and under (c).
+#   c. nothing of that kind exists.
+#
+# So: (a) is named explicitly with its error text, and (b)/(c) share one honest wording that claims
+# only what the read actually proves. Nothing here ever reports an absence it did not observe.
+#
+# The notice lives in the FIELD DESCRIPTIONS, not in a page-level banner, for two reasons: it lands
+# directly under the empty picker it explains, and a second widget with an apiRef to this action
+# would re-resolve the whole 1.32 MB Agent CRD read on a different L1 key.
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -167,19 +185,60 @@ spec:
       errorKey: namespacesError
       filter: '[ (.namespaces.items // [])[] | .metadata.name ]'
   # Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }.
-  # schemaString is the schema ALREADY SERIALISED (`tojson`): the Form prefers widgetData.stringSchema
-  # over widgetData.schema precisely because an object schema round-trips through a Go map and comes
-  # back alphabetised, which would scatter Name/Namespace/Model/Runtime into arbitrary order. The
-  # string freezes the authoring order below (and SchemaFields then partitions it: the six required
-  # fields up-front, the three tool multi-selects inside the "Advanced · 3 settings" collapse — they
-  # are force-mounted there, so they still validate and submit).
+  #
+  # WHY THE SCHEMA IS CONCATENATED AS TEXT AND NEVER BUILT AS A jq OBJECT. Form.tsx prefers
+  # widgetData.stringSchema over widgetData.schema because JSON.parse preserves key insertion order
+  # while the `schema` object arrives from a Go map, alphabetised. That is true — but `tojson` DOES
+  # NOT BUY IT. snowplow pins `replace github.com/itchyny/gojq => github.com/braghettos/gojq
+  # v0.12.21`, whose encodeObject (encoder.go:180) sorts kvs by key, and tojson → funcToJSON →
+  # jsonMarshal reaches exactly that encoder (func.go:89/:834, encoder.go:31). Upstream itchyny
+  # v0.12.17 sorts identically; gojq's README says outright that it does not keep object key order
+  # and has no keys_unsorted. LOCAL jq (jqlang) DOES preserve insertion order, which is why
+  # `$schema | tojson` looked correct when tested at a shell and was wrong on the engine that runs
+  # it: executed under the pinned fork against live cluster data it emitted
+  #   __agent_name__, __agent_namespace__, __approvals__, __delegates__, __model_config__,
+  #   __tools__, description, runtime, systemMessage
+  # — alphabetical. SchemaFields.tsx:163-166 partitions by `required` and keeps schema order within
+  # each partition, so that put Model above "What it is for", and put the HITL picker and Delegate-to
+  # ABOVE the Tools list whose description says "the subset of the tools above" — asking for
+  # approvals before anything had been offered to approve.
+  #
+  # The fix is the same one restaction.blueprint-formdef uses when it string-splices a ConfigMap
+  # rather than parsing it: the ORDERED thing must never become a jq object. $props below is an
+  # ARRAY (gojq preserves array order), and the properties block is assembled by concatenating
+  # "key":<value> pairs. Only each property NODE goes through tojson, where key order is
+  # semantically irrelevant (type/title/description/enum/default/items are read by name).
+  #
+  # If you ever need to add a field: add it to $props at the position you want it rendered, and add
+  # its key to $required only if it must render above the "Advanced" collapse.
   filter: |
     def commonNames($byNs; $nsList):
       if ($nsList | length) == 0 then []
       else ( [ $nsList[] | (($byNs[.] // []) | unique) ]
              | reduce .[] as $x (null; if . == null then $x else (. - (. - $x)) end) ) // []
       end;
+    # A step that fails under continueOnError writes its reason to the declared errorKey as an
+    # ACCUMULATING SLICE — snowplow accumulateErrorKey (internal/resolvers/restactions/api/
+    # resolve.go:189) always stores []any, one entry per failed item — and each entry is either the
+    # apiserver Status envelope decoded to a map (response.AsMap, resolve.go:1149) or a bare message
+    # string. errText flattens all three shapes (slice / map / scalar) into one line, and returns ""
+    # when the key is absent, i.e. when the step SUCCEEDED. Never use `length > 0` on the payload to
+    # infer this: an empty list and a swallowed 404 are the same length.
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
     "v1alpha2" as $ver
+    # Read state of each list step, bound once and consulted by every description that could
+    # otherwise present a failed read as an empty cluster.
+    | (errText(.modelsError))     as $mcErr
+    | (errText(.serversError))    as $srvErr
+    | (errText(.agentsError))     as $agErr
+    | (errText(.namespacesError)) as $nsErr
     | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
     | ($spec.properties.description // { type: "string" }) as $pDesc
     | ($spec.properties.declarative.properties.runtime // { type: "string" }) as $pRuntime
@@ -232,66 +291,110 @@ spec:
     | ( reduce ($delegatable[]) as $a ({};
           .[$a.metadata.namespace] = ((.[$a.metadata.namespace] // []) + [$a.metadata.name])) ) as $agByNs
     | ( commonNames($agByNs; $nsOpts) | sort ) as $agentOpts
+    # CASCADE. Every enum below is intersected across $nsOpts, so when $nsOpts is empty the tools
+    # and delegate pickers come back empty for a reason that has nothing to do with the servers or
+    # agents read. Without this, a failed modelconfigs read would make the Tools field claim "no
+    # RemoteMCPServer is readable" — an absence nobody observed. $nsBlocked names the real cause and
+    # every dependent description defers to it before reporting an emptiness of its own.
+    | ( if ($nsOpts | length) > 0 then ""
+        elif $nsErr != "" then ("the namespace list could not be read (" + $nsErr + ")")
+        elif $mcErr != "" then ("ModelConfigs could not be read (" + $mcErr + ")")
+        else "no namespace you can create Agents in holds a ModelConfig you can read" end ) as $nsBlocked
     # Per-user client draft key (localStorage), seeded as __owner but never rendered/validated —
     # same mechanism as alert-create. .username is the snowplow-injected JWT principal
     # (identityContext: [username] on the Form); absent → "anon".
     | (((.username // "anon") | gsub("[^a-zA-Z0-9_.-]"; "-")) + "__agent-create") as $draftKey
-    | {
-        type: "object",
-        properties: {
-          __agent_name__: {
+    # $props is an ARRAY, not an object, and that is the whole point — see the header note. gojq
+    # preserves array order; it does NOT preserve object key order through tojson. The rendered
+    # order below IS the rendered order on screen (required partition first, then Advanced).
+    | [
+        { k: "__agent_name__",
+          v: {
             type: "string",
             title: "Name",
             description: "Name for the new Agent (metadata.name). This is also the Service name the gateway route has to be registered against, so pick it deliberately — renaming later means re-registering."
-          },
-          __agent_namespace__: {
+          } },
+        { k: "__agent_namespace__",
+          v: ({
             type: "string",
             title: "Namespace",
-            description: "Namespace to create the Agent in. Limited to namespaces you can create Agents in that also hold a ModelConfig — kagent resolves the model in the Agent's own namespace.",
-            enum: $nsOpts,
-            default: $nsDefault
-          },
-          description: ($pDesc + {
+            description: ("Namespace to create the Agent in. Limited to namespaces you can create Agents in that also hold a readable ModelConfig — kagent resolves the model in the Agent's own namespace."
+              + (if $nsErr != "" then (" The namespace list could not be read (" + $nsErr + "), so this picker is empty because that READ FAILED — not because you have no namespaces.")
+                 elif ($nsOpts | length) == 0 then
+                   (if $mcErr != "" then (" ModelConfigs could not be read (" + $mcErr + "), so no namespace could be qualified. This picker is empty because a READ FAILED, not because no namespace qualifies.")
+                    else " No namespace you can create Agents in holds a ModelConfig you can read." end)
+                 else "" end)),
+            enum: $nsOpts
+          } + (if $nsDefault == "" then {} else { default: $nsDefault } end)) },
+        { k: "description",
+          v: ($pDesc + {
             title: "What it is for",
             description: "One line the orchestrator reads when deciding whether to hand work to this agent. Write it as a capability (\"reads ClickHouse traces and correlates them with pod restarts\"), not as a name."
-          }),
-          __model_config__: ({
+          }) },
+        { k: "__model_config__",
+          v: ({
             type: "string",
             title: "Model",
-            description: ("The kagent ModelConfig backing this agent." + (if $mcHint == "" then " No ModelConfig is readable in a namespace you can create Agents in — this form cannot create a working agent until one exists." else (" Available: " + $mcHint + ".") end)),
+            description: ("The kagent ModelConfig backing this agent."
+              + (if $mcErr != "" then (" ModelConfigs could not be read (" + $mcErr + ") — this picker is empty because that READ FAILED, not because none exist. Nothing can be created until the read succeeds; do not read the empty list as an absence.")
+                 elif $nsErr != "" then (" No namespace could be offered because the namespace list could not be read (" + $nsErr + "), so nothing could be qualified here. That is a FAILED READ, not an absence of models.")
+                 elif $mcHint == "" then " No ModelConfig is readable in a namespace you can create Agents in — this form cannot create a working agent until one exists and you can read it."
+                 else (" Available: " + $mcHint + ".") end)),
             enum: $mcOpts
-          } + (if $mcDefault == "" then {} else { default: $mcDefault } end)),
-          runtime: ($pRuntime + { title: "Runtime" }),
-          # The CRD description for systemMessage is about promptTemplate/Go-template machinery this
-          # form does not expose, so it would describe behaviour the user cannot reach. Type comes
-          # from the CRD; the prose is written for what this form actually does.
-          systemMessage: ($pSysMsg + {
+          } + (if $mcDefault == "" then {} else { default: $mcDefault } end)) },
+        { k: "runtime",
+          v: ($pRuntime + { title: "Runtime" }) },
+        # The CRD description for systemMessage is about promptTemplate/Go-template machinery this
+        # form does not expose, so it would describe behaviour the user cannot reach. Type comes
+        # from the CRD; the prose is written for what this form actually does.
+        { k: "systemMessage",
+          v: ($pSysMsg + {
             title: "System message",
             description: "The agent's standing instructions — its whole behaviour. Say what it may do, what it must refuse, and what it should hand back to the orchestrator."
-          }),
-          __tools__: {
+          }) },
+        # Tools BEFORE approvals: the approvals description refers to "the tools above", and the
+        # Advanced collapse renders these in exactly this order.
+        { k: "__tools__",
+          v: {
             type: "array",
             title: "Tools",
-            description: ("Tools this agent may call, as <server>/<tool> over the RemoteMCPServers discovered on this cluster" + (if ($toolOpts | length) == 0 then " — none are readable, so this agent will have no tools." else ("; " + ($toolOpts | length | tostring) + " available.") end)),
+            description: ("Tools this agent may call, as <server>/<tool> over the RemoteMCPServers on this cluster."
+              + (if $srvErr != "" then (" The RemoteMCPServer list could not be read (" + $srvErr + ") — this list is empty because that READ FAILED, not because there are no tools. Add tools once the read works rather than concluding the cluster has none.")
+                 elif $nsBlocked != "" then (" Nothing could be offered here because " + $nsBlocked + " — see the Namespace field. This is not a statement about which tools exist.")
+                 elif ($toolOpts | length) == 0 then " No RemoteMCPServer is readable in the offered namespaces, so this agent would have no tools."
+                 else (" " + ($toolOpts | length | tostring) + " available.") end)),
             items: { type: "string", enum: $toolOpts }
-          },
-          __approvals__: {
+          } },
+        { k: "__approvals__",
+          v: {
             type: "array",
             title: "Require human approval (HITL)",
-            description: "The subset of the tools above that must pause for a human to approve or reject before the agent may run them. Anything selected here that is not also selected above is dropped on submit.",
+            description: ("The subset of the tools above that must pause for a human to approve or reject before the agent may run them. Anything selected here that is not also selected above is dropped on submit."
+              + (if $srvErr != "" then (" The tool list could not be read (" + $srvErr + "), so there is nothing to select here — that is a failed read, not an agent with no tools.")
+                 elif $nsBlocked != "" then (" Nothing could be offered here because " + $nsBlocked + " — see the Namespace field.")
+                 else "" end)),
             items: { type: "string", enum: $toolOpts }
-          },
-          __delegates__: {
+          } },
+        { k: "__delegates__",
+          v: {
             type: "array",
             title: "Delegate to",
-            description: ("Existing agents this one may hand work to. Fan-out orchestrators are excluded — delegating back to the agent that routes work here would build a cycle." + (if ($agentOpts | length) == 0 then " None available." else "" end)),
+            description: ("Existing agents this one may hand work to. Fan-out orchestrators are excluded — delegating back to the agent that routes work here would build a cycle."
+              + (if $agErr != "" then (" The Agent list could not be read (" + $agErr + ") — this list is empty because that READ FAILED, not because there are no agents to delegate to.")
+                 elif $nsBlocked != "" then (" Nothing could be offered here because " + $nsBlocked + " — see the Namespace field. This is not a statement about which agents exist.")
+                 elif ($agentOpts | length) == 0 then " No other agent is readable in the offered namespaces."
+                 else "" end)),
             items: { type: "string", enum: $agentOpts }
-          }
-        },
-        required: ["__agent_name__", "__agent_namespace__", "description", "__model_config__", "runtime", "systemMessage"]
-      } as $schema
+          } }
+      ] as $props
+    | ["__agent_name__", "__agent_namespace__", "description", "__model_config__", "runtime", "systemMessage"] as $required
+    # Assembled as TEXT so the properties block never becomes a jq object. Each node still goes
+    # through tojson, where key order carries no meaning.
+    | ( "{\"type\":\"object\",\"properties\":{"
+        + ( [ $props[] | ((.k | tojson) + ":" + (.v | tojson)) ] | join(",") )
+        + "},\"required\":" + ($required | tojson) + "}" ) as $schemaString
     | {
-        schemaString: ($schema | tojson),
+        schemaString: $schemaString,
         propertiesToHide: [],
         initialValues: { __owner: $draftKey },
         apiVersion: "kagent.dev/v1alpha2",

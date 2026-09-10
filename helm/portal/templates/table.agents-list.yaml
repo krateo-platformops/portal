@@ -10,6 +10,13 @@
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
 #
+# That cell carries THREE states and the RA keeps them apart, because a dash here would be read as
+# "this agent has no model": `not readable` = the ModelConfig list read failed (see the red subtitle
+# for why), `unresolved` = the read succeeded but this agent's config was not in it (deleted, or
+# outside the caller's grant), anything else = the real resolved model. An empty table likewise is
+# never a claim that the cluster has no agents — restaction.agents-list branches on all three
+# errorKeys and paragraph.agents-subtitle says which read failed.
+#
 # No rowNavigateTo yet: there is no /agents/{namespace}/{name} detail page. A Table whose
 # rowNavigateTo has any empty placeholder goes silently inert, so the link is added with the detail
 # page, not before it.
