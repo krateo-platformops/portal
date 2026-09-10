@@ -1,0 +1,56 @@
+# Convention page root for /agents/policies — the policy surface of the agent gateway.
+#
+# Reached from the sidebar via `resourceRefId: agents-policies` in menu.sidebar-nav, whose
+# resourcesRefs entry carries this admin-tier namespace explicitly — the same indirection
+# flex.page-agents uses, and for the same two reasons: it makes the nav entry RBAC-aware (snowplow
+# resolves it as the caller, so the item disappears for a user who cannot GET this Flex) and it lets
+# the page root live in the tier namespace at all, which the bare `page:` convention could not.
+#
+# WHY THIS IS ITS OWN ROUTE AND NOT A SECTION OF /agents (recommendation for the lead):
+#   * Different question, different reader. /agents answers "what agents exist and what may they
+#     call" — an operator's inventory. This answers "what does the gateway enforce on every hop" —
+#     a platform/security question. The two are read at different times, by different people.
+#   * Different cadence. The agent inventory changes whenever someone spawns an agent; the policy
+#     set changes only when the gateway chart is upgraded. Bolting a rarely-changing 29-object
+#     appendix onto a live inventory buries the inventory.
+#   * Size. Seven sections over 29 policies is a full page. Appended to /agents it would sit below
+#     the agent table and, on every visit, cost a second RESTAction (two more cluster-scope lists)
+#     for content almost nobody scrolled to.
+# The PATH nests under /agents because this is the enforcement detail behind Agents, not a peer of
+# it. The SIDEBAR cannot express that nesting: the Menu widget is flat — its items[] offers only
+# label/icon/order/path/page/resourceRefId and a `divider` type, with no children (verified against
+# the live menus CRD). So the relationship is carried by ADJACENCY instead: a Policies entry at
+# order 15, immediately under Agents at 14. The better end state is no sidebar entry at all,
+# reached by a navigate action from /agents — but that needs an affordance on /agents which does
+# not exist yet, and a Button whose target does not exist is dead UI. The adjacent entry ships now
+# and can be dropped the day /agents grows the link.
+#
+# No page-level CTA: every action here (edit a policy, disable a guard) is a write to a
+# chart-managed object, and there is no form behind it yet. A Button whose target does not exist is
+# dead UI and a CI failure, so the button lands with the form, not before it.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-agents-policies
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-policies-header
+    - resourceRefId: agents-policies-groups
+  resourcesRefs:
+    items:
+    {{- range (list "agents-policies-header" "agents-policies-groups") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: flexes
+      verb: GET
+    {{- end }}

@@ -1,0 +1,38 @@
+# Subtitle for the /agents/policies pagehead — the ONLY place the page states its own size, so a
+# reader knows the shape before scrolling. Every number is server-side (agents-policies aggregates);
+# nothing here is a hardcoded count that could drift when the gateway chart adds a policy.
+#
+# Like paragraph.agents-subtitle it says WHERE the data comes from, and for the same reason: these
+# values are the live spec of the running policies, not the chart defaults someone remembers.
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-subtitle
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-policies
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: ' '
+    type: secondary
+  widgetDataTemplate:
+  # The zero case is a real sentence, not an empty subtitle: a cluster with no AgentgatewayPolicy is
+  # a meaningful (and alarming) state, and saying so beats rendering a bare title over seven
+  # absent cards.
+  - forPath: text
+    expression: >-
+      ${ (.total // 0) as $n | (.roleCount // 0) as $r | (.gatewayCount // 0) as $g
+      | (.routeCount // 0) as $rt | (.serviceCount // 0) as $sv
+      | if $n == 0 then "No AgentgatewayPolicy on this cluster — the agent gateway is enforcing nothing."
+      else ($n|tostring) + (if $n == 1 then " policy" else " policies" end)
+      + " in " + ($r|tostring) + (if $r == 1 then " role" else " roles" end)
+      + ", attached to " + ($g|tostring) + (if $g == 1 then " gateway" else " gateways" end)
+      + ", " + ($rt|tostring) + (if $rt == 1 then " route" else " routes" end)
+      + " and " + ($sv|tostring) + (if $sv == 1 then " backend service" else " backend services" end)
+      + ". Every value below is read from the live AgentgatewayPolicy resources, not from the chart that shipped them."
+      end }
+  resourcesRefs:
+    items: []

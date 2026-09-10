@@ -1,0 +1,207 @@
+# The POLICY SURFACE behind /agents/policies — what the agent gateway actually enforces.
+#
+# ONE RESTAction for the whole page: the role of each policy, the human-readable summary of the
+# values it carries and the aggregate counts in the pagehead are ALL computed here in jq. The seven
+# role Cards and their Tables render those strings verbatim — no widget does arithmetic, no widget
+# re-reads a spec block.
+#
+# WHY A DERIVED "role" AT ALL: an AgentgatewayPolicy has no kind, category or label that says what
+# it is for. Its purpose is only legible from WHICH spec blocks it carries, so the classification
+# below IS the product decision — traffic.jwtAuthentication/authorization = identity,
+# backend.ai.promptGuard = guardrail, traffic.rateLimit|buffer = limits, traffic.retry = resiliency,
+# frontend.accessLog|metrics|tracing = observability, backend.auth = passthrough, traffic.cors =
+# cors. The order is a PRECEDENCE, not a set of independent tests, because policies combine blocks:
+# llm-bench-gate carries jwtAuthentication AND authorization (one identity policy, not two roles),
+# and resiliency-mcp carries retry AND timeouts. `limits` therefore keys off rateLimit/buffer only —
+# a bare timeouts block is a property of a retry policy, not a budget of its own, and testing it
+# would misfile resiliency-mcp under limits. A policy carrying none of these lands in "other" and
+# still renders: the taxonomy degrades, the object never disappears.
+#
+# WHY httproutes IS A SECOND STEP: targetRefs names an HTTPRoute, which tells a reader nothing.
+# Joining to the route's own match paths turns "agentgateway-policies-llm" into "/llm/v1" — the URL
+# space the policy actually governs, which is the question this page answers. The join happens in
+# the global filter against a name-keyed index, so there is no dependsOn and no N+1: two independent
+# cluster-scope lists, one pass.
+#
+# WHY THE GUARDRAIL IS COUNTED, NOT PRINTED: promptGuard.request/response are arrays of regex rules
+# whose `matches` are multi-hundred-character jailbreak patterns. Printing them would drown the page
+# and tell an operator nothing they can act on; the actionable fact is the SHAPE — how many guards
+# run per direction and whether each masks or rejects. group_by collapses them to "3 Mask, 4 Reject".
+#
+# RBAC: each step carries a userAccessFilter, so snowplow lists as its SA and then REFILTERS to the
+# namespaces where the CALLER holds the grant — same shape as restaction.agents-list. A tenant with
+# no agentgateway.dev grant sees empty cards, not an error. httproutes is a SEPARATE grant: a caller
+# who may read policies but not routes still gets every policy, with the route path silently absent
+# from the "Attached to" cell (the `// ""` guard), never a broken row.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-policies
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: policies
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaypolicies
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: policiesError
+  # The route join. v1 is the storage version of httproutes on the cluster (v1beta1 is still served
+  # but is not the storage version); pin v1 so the paths we read are the canonical ones.
+  - name: routes
+    path: /apis/gateway.networking.k8s.io/v1/httproutes
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: httproutes
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: routesError
+  filter: |
+    ( reduce ((.routes.items // [])[]) as $r ({};
+        .[($r.metadata.namespace + "/" + $r.metadata.name)] =
+          ( [ ($r.spec.rules // [])[] | (.matches // [])[] | .path.value // empty ] | unique | join(", ") ) ) ) as $routePath
+    | ( { "Seconds": "s", "Minutes": "min", "Hours": "h", "Days": "d" } ) as $U
+    | ( [ (.policies.items // [])[] | (.spec.targetRefs // [])[] ] ) as $allTargets
+    | ( [ $allTargets[] | select(.kind == "Gateway")   | .name ] | unique | length ) as $gwCount
+    | ( [ $allTargets[] | select(.kind == "HTTPRoute") | .name ] | unique | length ) as $rtCount
+    | ( [ $allTargets[] | select(.kind == "Service")   | .name ] | unique | length ) as $svcCount
+    | { rows: [ (.policies.items // [])[]
+        | . as $p
+        | ($p.metadata.namespace) as $ns
+        | ($p.spec.traffic  // {}) as $t
+        | ($p.spec.backend  // {}) as $b
+        | ($p.spec.frontend // {}) as $f
+        | ($p.spec.targetRefs // []) as $tr
+        | ( [ $tr[] | select(.kind == "Gateway")   | .name ] ) as $gw
+        | ( [ $tr[] | select(.kind == "HTTPRoute") | .name ] ) as $rt
+        | ( [ $tr[] | select(.kind == "Service")   | .name ] ) as $svc
+        | ( if   ($b.ai.promptGuard // null) != null                                              then "guardrail"
+            elif (($t.jwtAuthentication // null) != null or ($t.authorization // null) != null)   then "identity"
+            elif (($t.rateLimit // null) != null or ($t.buffer // null) != null)                  then "limits"
+            elif ($t.retry // null) != null                                                       then "resiliency"
+            elif ($t.cors // null) != null                                                        then "cors"
+            elif (($f.accessLog // null) != null or ($f.metrics // null) != null or ($f.tracing // null) != null) then "observability"
+            elif ($b.auth // null) != null                                                        then "passthrough"
+            else "other" end ) as $role
+        | ( [ ($p.status.ancestors // [])[] | (.conditions // [])[]
+              | select( ((.type == "Accepted" or .type == "Attached" or .type == "Ready") and .status == "True") | not )
+              | { label: ( if   .status == "True"  then .type
+                           elif .status == "False" then ("Not" + .type)
+                           else (.type + "Unknown") end ),
+                  bad: (.status == "False") } ] | unique ) as $exc
+        | ( if $role == "identity" then
+              [ ( if ($t.jwtAuthentication // null) != null then
+                    ( "JWT " + ($t.jwtAuthentication.mode // "?")
+                      + ( ( [ ($t.jwtAuthentication.providers // [])[] | .issuer // empty ] | unique | join(", ") )
+                          | if . == "" then "" else (" · issuer " + .) end )
+                      + ( ( [ ($t.jwtAuthentication.providers // [])[] | .jwks.remote.cacheDuration // empty ] | unique | join(", ") )
+                          | if . == "" then "" else (" · JWKS cache " + .) end ) )
+                  else empty end ),
+                ( if ($t.authorization // null) != null then
+                    ( ( [ ($t.authorization.policy.matchExpressions // [])[] ] | length ) as $n
+                      | ($t.authorization.action // "?") + " on " + ($n | tostring)
+                        + ( if $n == 1 then " rule" else " rules" end ) )
+                  else empty end ) ]
+            elif $role == "guardrail" then
+              ( ($b.ai.promptGuard) as $pg
+                | [ ( if (($pg.request // []) | length) > 0 then
+                        ( "request: " + ( [ ($pg.request // [])[] | .regex.action // "?" ]
+                                          | group_by(.) | map( (length | tostring) + " " + .[0] ) | join(", ") ) )
+                      else empty end ),
+                    ( if (($pg.response // []) | length) > 0 then
+                        ( "response: " + ( [ ($pg.response // [])[] | .regex.action // "?" ]
+                                           | group_by(.) | map( (length | tostring) + " " + .[0] ) | join(", ") ) )
+                      else empty end ),
+                    ( if ($pg.streaming // "") != "" then ("streaming " + ($pg.streaming | ascii_downcase)) else empty end ) ] )
+            elif $role == "limits" then
+              [ ( ($t.rateLimit.local // [])[]
+                  | if (.requests != null) then
+                      ( (.requests | tostring) + " req/" + ($U[.unit // ""] // (.unit // ""))
+                        + ( if (.burst != null) then (" · burst " + (.burst | tostring)) else "" end ) )
+                    elif (.tokens != null) then
+                      ( ( (.tokens | tostring) as $s | ($s | length) as $L
+                          | [ range(0; $L) | . as $i
+                              | $s[$i:$i+1] + ( if ((($L - 1 - $i) > 0) and ((($L - 1 - $i) % 3) == 0)) then "," else "" end ) ]
+                          | join("") )
+                        + " tokens/" + ($U[.unit // ""] // (.unit // "")) )
+                    else empty end ),
+                ( if ($t.buffer.request.maxBytes // null) != null then
+                    ( ($t.buffer.request.maxBytes) as $mb
+                      | ( if   ($mb % 1048576) == 0 then (($mb / 1048576 | floor | tostring) + " MiB")
+                          elif ($mb % 1024)    == 0 then (($mb / 1024    | floor | tostring) + " KiB")
+                          else (($mb | tostring) + " B") end )
+                      + " request buffer"
+                      + ( if ($t.buffer.request.failureMode // "") != "" then (" (" + $t.buffer.request.failureMode + ")") else "" end ) )
+                  else empty end ),
+                ( if ($t.timeouts.request // "") != "" then ($t.timeouts.request + " timeout") else empty end ) ]
+            elif $role == "resiliency" then
+              [ ( ($t.retry.attempts // 0) as $n
+                  | ($n | tostring) + ( if $n == 1 then " retry" else " retries" end ) ),
+                ( if ($t.retry.backoff // "") != "" then (($t.retry.backoff) + " backoff") else empty end ),
+                ( if ((($t.retry.codes // []) | length) > 0) then
+                    ( "on " + ( [ ($t.retry.codes // [])[] | tostring ] | join("/") ) ) else empty end ),
+                ( if ($t.timeouts.request // "") != "" then ($t.timeouts.request + " timeout") else empty end ) ]
+            elif $role == "observability" then
+              [ ( if ($f.accessLog // null) != null then
+                    ( "access log → " + ($f.accessLog.otlp.protocol // "OTLP") + " "
+                      + ($f.accessLog.otlp.backendRef.name // "?") + ":" + (($f.accessLog.otlp.backendRef.port // 0) | tostring)
+                      + " · " + ((($f.accessLog.attributes.add // []) | length) | tostring) + " attributes" )
+                  else empty end ),
+                ( if ($f.metrics // null) != null then
+                    ( (($f.metrics.attributes.add // []) | length) as $n
+                      | "metrics · " + ($n | tostring) + ( if $n == 1 then " attribute" else " attributes" end )
+                        + ( ( [ ($f.metrics.attributes.add // [])[] | .name // empty ] | join(", ") )
+                            | if . == "" then "" else (" (" + . + ")") end ) )
+                  else empty end ),
+                ( if ($f.tracing // null) != null then
+                    ( "traces → " + ($f.tracing.protocol // "OTLP") + " "
+                      + ($f.tracing.backendRef.name // "?") + ":" + (($f.tracing.backendRef.port // 0) | tostring)
+                      + ( if ($f.tracing.randomSampling // "") != "" then (" · " + ($f.tracing.randomSampling | tostring) + "% sampled") else "" end )
+                      + " · " + ((($f.tracing.attributes.add // []) | length) | tostring) + " attributes"
+                      + ( if ($f.tracing.filter // "") != "" then (" · filter: " + $f.tracing.filter) else "" end ) )
+                  else empty end ) ]
+            elif $role == "passthrough" then
+              [ ( "backend auth: " + ( ($b.auth // {}) | keys | join(", ") ) ) ]
+            elif $role == "cors" then
+              [ ( if ((($t.cors.allowMethods // []) | length) > 0) then ("methods " + (($t.cors.allowMethods // []) | join(", "))) else empty end ),
+                ( if ((($t.cors.allowOrigins // []) | length) > 0) then ("origins " + (($t.cors.allowOrigins // []) | join(", "))) else empty end ),
+                ( if ((($t.cors.allowHeaders // []) | length) > 0) then ("headers " + (($t.cors.allowHeaders // []) | join(", "))) else empty end ),
+                ( "credentials " + ( if ($t.cors.allowCredentials // false) then "allowed" else "denied" end ) ),
+                ( if ($t.cors.maxAge // null) != null then ("max-age " + (($t.cors.maxAge) | tostring) + "s") else empty end ) ]
+            else [] end ) as $frag
+        | {
+            name:    ($p.metadata.name | ltrimstr("agentgateway-policies-")),
+            namespace: $ns,
+            role:    $role,
+            attaches: ( if ($gw | length) > 0 then
+                          ( ( if ($gw | length) == 1 then "Gateway " else "Gateways " end ) + ($gw | join(", ")) )
+                        elif ($rt | length) > 0 then
+                          ( ( [ $rt[] | ($routePath[$ns + "/" + .] // "") | select(. != "") ] | unique ) as $paths
+                            | ( if ($rt | length) == 1
+                                then ("Route " + ($rt[0] | ltrimstr("agentgateway-policies-")))
+                                else (($rt | length | tostring) + " routes") end )
+                              + ( if ($paths | length) > 0 then (" · " + ($paths | join(", "))) else "" end ) )
+                        elif ($svc | length) > 0 then
+                          ( ($svc | length | tostring) + ( if ($svc | length) == 1 then " service" else " services" end ) )
+                        else "—" end ),
+            enforces: ( $frag | join(" · ") ),
+            statusLabel: ( [ $exc[].label ] | unique | join(" · ") ),
+            statusColor: ( if   ( [ $exc[] | select(.bad) ] | length ) > 0 then "red"
+                           elif ( $exc | length ) > 0 then "gold"
+                           else "" end )
+          } ]
+        | sort_by(.name) }
+    | . + { total:        (.rows | length),
+            byRole:       ( reduce (.rows[]) as $r ({}; .[$r.role] = ((.[$r.role] // 0) + 1)) ),
+            gatewayCount: $gwCount,
+            routeCount:   $rtCount,
+            serviceCount: $svcCount }
+    | . + { roleCount: (.byRole | keys | length) }

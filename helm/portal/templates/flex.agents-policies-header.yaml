@@ -1,0 +1,28 @@
+# /agents/policies page head — eyebrow + title + subtitle stack. Same three-Paragraph shape as
+# flex.agents-header, so the two /agents surfaces share one pagehead language.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    vertical: true
+    items:
+    - resourceRefId: agents-policies-eyebrow
+    - resourceRefId: agents-policies-title
+    - resourceRefId: agents-policies-subtitle
+  resourcesRefs:
+    items:
+    {{- range (list "agents-policies-eyebrow" "agents-policies-title" "agents-policies-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}
