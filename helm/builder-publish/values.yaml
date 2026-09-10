@@ -36,9 +36,26 @@ repository:
   autoInit: true
   description: "Created by Krateo"
 credentials:
-  authMethod: bearer   # bearer (token) | basic (needs usernameRef) | cookiefile
+  # basic (token as password, username alongside) | bearer | cookiefile.
+  #
+  # DEFAULT IS basic, DELIBERATELY. `bearer` looks like the natural choice for a token and is not:
+  #   - git-provider exercises `toRepo` with `basic` in every one of its own test fixtures and with
+  #     `bearer` in none of them, so bearer is the untested path;
+  #   - git-provider 0.14.1 cannot reconcile a bearer LocalResource at all — Connect() resolves
+  #     usernameRef BEFORE it reads authMethod and a nil ref is fatal, so every publish fails with
+  #     "connect failed: retrieving .toRepo username: no credentials secret referenced". That
+  #     contradicts both its CRD field description and docs/local-resource.md, which promise the
+  #     field is ignored for bearer. Until that is fixed, bearer cannot push at all.
+  #   - `githttp.TokenAuth` sends `Authorization: Bearer`, which is not how a token is presented to
+  #     git-over-HTTPS on GitHub; the token belongs in the password position of basic auth.
+  authMethod: basic
   secretRef:
     name: git-provider-credentials   # the install's git-token secret (namespace = release ns)
     key: token
-  # For authMethod: basic (self-hosted git / gitea), also set:
+  # THE USERNAME IS NOT A SECRET. GitHub authenticates on the token in the password position and
+  # does not use this value — it only has to be present and non-empty. So the chart renders its own
+  # one-key Secret for it (templates/username-secret.yaml) rather than requiring whoever provisions
+  # `git-provider-credentials` to add a key to it. Set `usernameRef` below to override that and
+  # point at an existing secret instead (self-hosted git / gitea, where the username IS meaningful).
+  username: x-access-token
   # usernameRef: { name: git-provider-credentials, key: username }
