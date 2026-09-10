@@ -1,0 +1,50 @@
+{{- $roles := include "portal.agentPolicyRoles" . | fromJsonArray -}}
+# The role sections of /agents/policies, stacked.
+#
+# `items` is templated SERVER-SIDE off byRole: a role Card is included ONLY when that role has at
+# least one policy on this cluster. A cluster with no CORS policy renders six sections, not seven
+# with one empty grid — same rule as flex.page-incident-detail, and the same reason: empty structure
+# reads as a data bug, and an operator scanning for what is enforced must not have to work out that
+# an empty table means "nothing", not "not loaded". resourcesRefs stay static (the full pool of
+# seven); an unreferenced Card is simply never fetched.
+#
+# The static widgetData.items is the FULL list, deliberately. It is what renders if the apiRef never
+# resolves, and seven cards that each say "0 policies" over an empty table is a far more honest
+# failure than a blank page that looks like a page with nothing on it.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-groups
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-policies
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    {{- range $r := $roles }}
+    - resourceRefId: agents-policies-card-{{ $r.key }}
+    {{- end }}
+  widgetDataTemplate:
+  - forPath: items
+    expression: >-
+      ${ (.byRole // {}) as $c
+      | [ {{ range $i, $r := $roles }}{{ if $i }}, {{ end }}"{{ $r.key }}"{{ end }} ]
+      | map(select(($c[.] // 0) > 0))
+      | map({ resourceRefId: ("agents-policies-card-" + .) }) }
+  resourcesRefs:
+    items:
+    {{- range $r := $roles }}
+    - id: agents-policies-card-{{ $r.key }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-card-{{ $r.key }}
+      namespace: {{ $.Release.Namespace }}
+      resource: cards
+      verb: GET
+    {{- end }}
