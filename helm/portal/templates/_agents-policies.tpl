@@ -20,7 +20,8 @@ claim 29 policies and display 28. That is why "other" — the jq's fallback for 
 classifier does not understand — is carded here like any other role. On a cluster this portal fully
 understands it has zero members and the groups Flex omits it entirely; the day a gateway upgrade
 introduces a block we have no branch for, the policy surfaces as Unclassified with its attachment
-intact instead of vanishing. Nothing the gateway enforces is ever invisible on this page.
+intact instead of vanishing, and its "What it enforces" cell names the spec blocks it carries
+rather than an em-dash. Nothing the gateway enforces is ever invisible on this page.
 
 Reading order is identity -> what it may say -> how much -> what happens when it fails -> what we
 record -> whose credential -> who may call from a browser. It walks a single request through the
@@ -29,7 +30,7 @@ gateway rather than sorting by size; Unclassified sits last because it is an exc
 {{- define "portal.agentPolicyRoles" -}}
 [
   {"key":"identity","label":"Identity & authorization",
-   "desc":"Who may call what — JWT verification and the CEL rules the gateway evaluates on every request."},
+   "desc":"Who may call what — JWT verification, API-key and basic credentials, external authorization, and the CEL expressions the gateway evaluates on every request."},
   {"key":"guardrail","label":"Prompt guardrails",
    "desc":"Regex guards over prompts and completions; each guard either masks the match or rejects the call."},
   {"key":"limits","label":"Rate & token limits",
@@ -43,6 +44,6 @@ gateway rather than sorting by size; Unclassified sits last because it is an exc
   {"key":"cors","label":"Browser access (CORS)",
    "desc":"Which origins, methods and headers a browser may use against the gateway."},
   {"key":"other","label":"Unclassified",
-   "desc":"Policies carrying a spec block this portal does not summarise yet — listed so nothing the gateway enforces is missing from this page."}
+   "desc":"Policies carrying a spec block this portal does not summarise yet. The blocks each one carries are named in full, so nothing the gateway enforces is missing from this page."}
 ]
 {{- end -}}
