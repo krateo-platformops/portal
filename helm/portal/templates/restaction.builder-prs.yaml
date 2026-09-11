@@ -46,6 +46,14 @@ spec:
               repo: (((.spec.toRepo.url) // "") | rtrimstr(".git") | split("/")
                      | (if length >= 2 then (.[-2] + "/" + .[-1]) else "" end)),
               synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
+              # The REASON and MESSAGE, not just the status. Dropping them is what let five hard failures
+              # render as a mild gold "Pending" for 30 hours: `synced` alone is a tri-state flattened to a
+              # boolean, so "queued" and "broken for a day" became the same row.
+              syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
+              syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
+              # Identity, so a row can point at the object it is about.
+              ns: ((.metadata.namespace) // ""),
+              lrName: ((.metadata.name) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
   filter: >
     ([ ((.prs.items) // [])[]
@@ -87,6 +95,11 @@ spec:
          | select((.[0].publish // "") != "")
          | .[0] as $p0
          | (all(.[]; .synced == "True")) as $pushed
+         # A publish whose Synced condition carries ReconcileError is NOT in flight — it has stopped.
+         # On krateo-057 five of seven sat here: a missing publish-<name>-git-username Secret, or a
+         # stuck krateo.io/external-create-pending annotation. Neither self-heals.
+         | (any(.[]; .syncReason == "ReconcileError")) as $failed
+         | ([ .[] | select(.syncReason == "ReconcileError") | .syncMsg ] | map(select(. != "")) | first // "") as $failMsg
          # Claim-path row: the branch is pushed; the PR/MR is opened by the human (Option A), so
          # there is no PR number/URL/merge-state — state is "pushed" (gold) until then.
          | { name: $p0.publish,
@@ -94,10 +107,19 @@ spec:
              head: $p0.branch,
              sub: ($p0.repo + (if ($p0.branch // "") != "" then (" · " + $p0.branch) else "" end)),
              title: ($p0.publish | sub("^publish-"; "")),
-             state: (if $pushed then "pushed" else "pending" end),
-             stateLabel: (if $pushed then "Pushed" else "Pending" end),
-             stateColor: "gold",
+             state: (if $failed then "failed" elif $pushed then "pushed" else "pending" end),
+             stateLabel: (if $failed then "Publish failed" elif $pushed then "Pushed" else "Pending" end),
+             # COMPUTED, not the literal "gold" this used to be — the whole reason a pushed row and a
+               # pending row rendered the same chip: the LABEL branched and the COLOUR did not.
+               stateColor: (if $failed then "red" elif $pushed then "green" else "gold" end),
+               # What actually went wrong, for the new Reason column. A healthy row says nothing.
+               reason: (if $failed then ($failMsg | if length > 140 then (.[0:140] + "…") else . end) else "" end),
              pr: "",
              created: ($p0.created // ""),
-             url: "" } ]) as $claimRows
+             # A per-row destination, replacing the hardcoded "" that made every claim row SILENTLY
+               # un-clickable: rowNavigateTo "{url}" plus an empty cell makes Table.tsx drop the
+               # handlers entirely — no cursor, no role, no error. The LocalResource behind a
+               # publish is a real object, and the generic resource-detail route renders its
+               # conditions, which is exactly the "why did this fail" this table cannot fit.
+               url: ("/resources/" + (($p0.ns // "") | if . == "" then "krateo-system" else . end) + "/git.krateo.io/v1alpha1/localresources/" + ($p0.lrName // "")) } ]) as $claimRows
     | { rows: (($prRows + $claimRows) | sort_by(.created // "") | reverse) }
