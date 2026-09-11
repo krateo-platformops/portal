@@ -65,7 +65,12 @@ spec:
           | { name: (.metadata.name // ""),
               genKind: (.status.resource.kind // ""),
               genApiVersion: (.status.resource.apiVersion // ""),
-              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
+              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
+              # The publish's OWN Synced reason/message. Without them a ReconcileError and a genuinely
+              # queued publish are the same row — which is how three dead publishes rendered as a gold
+              # "Pushing" for a day.
+              syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
+              syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")) } ]
     # P1 — the SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER). When on, a publish
     # opens NO PullRequest CR — it commits held files via git-provider LocalResources labelled
     # krateo.io/builder: controller + krateo.io/publish: <name>. One publish = N LocalResources
@@ -115,15 +120,21 @@ spec:
          | ( [ $rds[] | select(.name == $kind) ] | first ) as $rd
          | ($rd.ready // "") as $rs
          | (all(.[]; .synced == "True")) as $pushed
+         | (any(.[]; .syncReason == "ReconcileError")) as $failed
          | { restdef: $kind,
              title: "",
              pr: ($p0.branch // ""),
              url: "",
              gvk: (if ($rd != null and (($rd.genKind // "") != ""))
                    then ($rd.genKind + " · " + ($rd.genApiVersion // "")) else "—" end),
+                     # "Pushing" was a PORTAL-INVENTED present participle for a state that had already stopped:
+                     # no such phase exists on a RestDefinition or a CompositionDefinition, and the branch fired
+                     # whenever the LocalResources were not all Synced. A gold "Pushing" on a publish that died
+                     # 30 hours ago reads "come back later", forever.
              ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed"
-                     elif $rd != null then "Pending" elif $pushed then "In review" else "Pushing" end),
-             readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red"
+                     elif $rd != null then "Pending" elif $pushed then "In review"
+                     elif $failed then "Publish failed" else "Publishing" end),
+             readyColor: (if $rs == "True" then "green" elif ($rs == "False" or $failed) then "red"
                           else "gold" end),
              age: ($p0.created // "") } ]) as $claimRows
     | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows

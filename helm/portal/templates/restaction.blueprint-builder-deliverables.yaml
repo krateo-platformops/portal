@@ -53,7 +53,8 @@ spec:
         [ (.cds.items // [])[]
           | { name: (.metadata.name // ""),
               version: ((.spec.chart.version) // ""),
-              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
+              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
+              syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")) } ]
     # P1 — SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER): no PullRequest CR, the
     # blueprint's held chart files ride git-provider LocalResources labelled krateo.io/builder:
     # blueprint + krateo.io/publish: <name> (one per file). Grouped per publish in the final filter
@@ -114,6 +115,7 @@ spec:
          | ( [ $cds[] | select(.name == $chart) ] | first ) as $cd
          | ($inCatalog[$chart] // false) as $published
          | (all(.[]; .synced == "True")) as $pushed
+         | (any(.[]; .syncReason == "ReconcileError")) as $failed
          | { chart: $chart,
              title: "",
              pr: ($p0.branch // ""),
@@ -121,7 +123,12 @@ spec:
              version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
              status: (if ($cd != null and $cd.ready == "True") then "Registered"
                       elif ($cd != null) then "Reconciling"
-                      elif $pushed then "In review" else "Pushing" end),
+                      # "In review" claimed a review that provably cannot exist here: the prs step reads
+                      # pullrequests.github.krateo.io and NO such CRD is served on this cluster, so it 404s under
+                      # continueOnError and every row is a claim row. A pushed branch is "Pushed"; a publish that
+                      # failed says so instead of wearing a present participle.
+                      elif $pushed then "Pushed"
+                      elif $failed then "Publish failed" else "Publishing" end),
              statusColor: (if ($cd != null and $cd.ready == "True") then "green"
                            else "gold" end),
              marketLabel: (if $published then "Available" else "" end),
