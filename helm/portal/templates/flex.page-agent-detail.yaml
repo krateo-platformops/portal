@@ -17,6 +17,12 @@
 # which carries an explicit namespace; this one deliberately does not, so it stays here.) Same
 # reasoning as flex.page-alert-detail.
 #
+# ORDER: the gateway-registration alert, when it fires, comes FIRST — above identity, before the
+# model and the tool tables. An agent nothing can call is not a detail to be found after scrolling
+# past what it would do if anything could call it. It is exception-only (sections.registration is
+# true only for a PROVEN break, never for an unchecked one), so a healthy page is byte-identical to
+# what it was before.
+#
 # Sections are chosen SERVER-SIDE off agent-detail's `sections` flags, so nothing renders as empty
 # structure: a BYO agent (.spec.byo, no .spec.declarative) has no model, no tools, no delegates and
 # no memory to show and simply degrades to identity + manifest; an agent that binds no MCP server
@@ -51,7 +57,8 @@ spec:
         ${ (.sections // {}) as $s
         | [ { resourceRefId: "agent-detail-header-block" } ]
         + (if ($s.found // false)
-           then ( [ { resourceRefId: "card-agent-detail-identity" } ]
+           then ( (if ($s.registration // false) then [ { resourceRefId: "card-agent-detail-registration" } ] else [] end)
+                  + [ { resourceRefId: "card-agent-detail-identity" } ]
                   + (if ($s.prompt // false)     then [ { resourceRefId: "card-agent-detail-prompt" } ]     else [] end)
                   + (if ($s.model // false)      then [ { resourceRefId: "card-agent-detail-model" } ]      else [] end)
                   + (if ($s.tools // false)      then [ { resourceRefId: "card-agent-detail-tools" } ]      else [] end)
@@ -92,6 +99,12 @@ spec:
       name: agent-detail-empty
       namespace: {{ .Release.Namespace }}
       resource: paragraphs
+      verb: GET
+    - id: card-agent-detail-registration
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-registration
+      namespace: {{ .Release.Namespace }}
+      resource: cards
       verb: GET
     - id: card-agent-detail-identity
       apiVersion: widgets.templates.krateo.io/v1beta1

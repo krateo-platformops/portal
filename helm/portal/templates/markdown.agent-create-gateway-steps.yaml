@@ -20,11 +20,26 @@
 # Both surface as componentValues on the Installer CR, which is where the change has to be made on
 # an installer-managed cluster (and, durably, in the installer chart's own values).
 #
-# extraSubAgents, NOT subAgents. They are different knobs: the agentgateway-policies chart's own
-# `subAgents` default is the PERMANENT fleet (autopilot, k8s-agent, … — a platform release decision),
-# while `extraSubAgents` is the per-install override. An agent spawned from this portal is the second
-# kind, so it belongs in extraSubAgents. Both arrays REPLACE rather than merge, which is why the
-# snippet says to keep the existing entries: dropping them de-registers the running fleet.
+# extraSubAgents, NOT subAgents — and the reason CHANGED under this page, so the old one is no
+# longer the one to quote. `subAgents` used to be the agentgateway-policies chart's hand-kept
+# default; since installer e779002 (in 0.3.172, the deployed tag) the Installer DERIVES it from
+# every feature-enabled `agent: true` component pin, exactly so the krateo-blueprint-agent drift
+# cannot recur. Setting it by hand now REPLACES that derived fleet, which de-registers every agent
+# not repeated in your list. `extraSubAgents` is the additive key the chart concats on top and is
+# untouched by the derivation — verified live: the four -bench agents reach the cluster only through
+# it, and each has its subagent HTTPRoute, its two Allow clauses and its passthrough target.
+#
+# THE extraAgents HALF DOES NOT WORK FOR AN AGENT CREATED HERE, and the snippet used to say it did.
+# chart/templates/compositions.yaml filters an EXPLICIT extraAgents list to entries whose `name` is
+# a feature-enabled COMPONENT (`{{ `{{- if hasKey $enabled $ea.name }}` }}`) before writing it to the
+# krateo-autopilot composition; a name that is not a component pin is dropped without a word. An
+# agent spawned from this form is not a component pin, so the entry silently evaporates on the next
+# reconcile — and patching the krateo-autopilot composition directly does not survive either, since
+# the installer sets spec.extraAgents unconditionally for the orchestrator. So orchestrator
+# delegation to a non-component agent is not expressible on an installer-managed cluster today.
+# Saying that plainly is better than printing YAML that quietly does nothing. Gateway REACHABILITY
+# is unaffected: extraSubAgents is concatenated, not filtered, so the agent is callable by anything
+# that addresses it directly — it is only autopilot's delegate list that cannot name it.
 #
 # NOTE the NetworkPolicy is NOT part of this: agentgateway-policies-kagent-agents selects pods by
 # app.kubernetes.io/part-of=kagent, so a new agent is inside containment automatically. That makes
@@ -40,12 +55,16 @@ spec:
   widgetData:
     allowCopy: true
     markdown: |
-      Append both entries, replacing `<agent-name>` with the Name you enter below, then let the
-      Installer reconcile. Until then, treat the agent as created but out of service.
+      Add one entry, replacing `<agent-name>` with the Name you enter below, then let the Installer
+      reconcile. Until then, treat the agent as created but out of service.
 
-      Both arrays **replace** rather than merge, so keep every entry already there — dropping one
-      de-registers a running agent. Use `extraSubAgents` (the per-install override), not the
-      chart's own `subAgents` default, which is the permanent platform fleet.
+      `extraSubAgents` is a declared Installer property, so you can set it from the portal —
+      **Compositions → installer → Edit** — as well as with `kubectl`. The array **replaces** rather
+      than merges, so keep every entry already there; dropping one de-registers a running agent.
+
+      Use `extraSubAgents`, never `subAgents`. The Installer now *derives* `subAgents` from the
+      deployed component fleet, so setting it by hand replaces that derived list and unregisters
+      every agent you do not repeat. `extraSubAgents` is concatenated on top of it.
 
       ```yaml
       # Installer CR — {{ .Release.Namespace }}/installer (composition.krateo.io)
@@ -58,18 +77,24 @@ spec:
                 port: 8080
                 subjects:
                   anyAuthenticated: true
-          krateo-autopilot:
-            extraAgents:
-              # …keep every existing entry…
-              - apiGroup: kagent.dev
-                kind: Agent
-                name: <agent-name>
       ```
 
-      Registration is observable, so you can check rather than trust: the agent is wired when
+      That entry buys REACHABILITY: the agent gets its subagent HTTPRoute, its two authz Allow
+      clauses and its backend passthrough, so anything holding a token can call it. It does **not**
+      make the orchestrator delegate to it. `componentValues.krateo-autopilot.extraAgents` looks
+      like the knob for that, but the Installer filters an explicit list down to names that are
+      feature-enabled *components* and drops the rest without reporting it — and an agent created
+      here is not a component. There is no supported way to add a non-component agent to autopilot's
+      delegate list on an installer-managed cluster today; call the agent directly instead.
+
+      Registration is observable, so you can check rather than trust — and you no longer have to
+      check by hand: **/agents flags an unregistered agent in its Gateway column**, and the agent's
+      own page leads with what is missing. The underlying facts are that
       `httproutes.gateway.networking.k8s.io/agentgateway-policies-subagent-<agent-name>` exists in
-      `{{ .Release.Namespace }}`, and it is reachable by the orchestrator when `<agent-name>` appears
-      in the `autopilot` Agent's `spec.declarative.tools[]`.
+      `{{ .Release.Namespace }}` and that the gateway's Allow policy names
+      `<agent-name>.{{ .Release.Namespace }}` twice — once for `/.well-known/agent-card.json` and
+      once for the authenticated call. Both must be there: a route with no Allow clause is the state
+      krateo-blueprint-agent sat in for a week, Ready and 403ing.
 
       One caveat worth checking on older policy charts: an `extraSubAgents` entry may get its route,
       authz and passthrough but **no A2A retry budget** — reachable, but with no resilience on the

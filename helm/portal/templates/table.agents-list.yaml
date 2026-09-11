@@ -28,6 +28,20 @@
 # with no composition is not an agent with no owner, it is a Helm-managed one, and the RA says so
 # from app.kubernetes.io/managed-by rather than leaving a dash that reads as unknown.
 #
+# `Gateway` is the second exception-only column, and the one worth the most. A Ready agent that no
+# HTTPRoute matches, or that the gateway's authorization policy never names, is refused on every
+# call while every other cell on its row looks perfect — the failure has no symptom anywhere else in
+# this product. restaction.agents-list computes the verdict (see its header for the two halves and
+# for why a withheld verdict is never rendered as a row); this file only decides that the column
+# exists when some row has something to put in it, exactly like Status. Colours follow what breaks:
+# red when traffic is refused outright, gold for `agent card refused` — calls would pass, but A2A
+# discovery 403s first, so the agent is reachable and never reached.
+#
+# The cell says WHAT IS MISSING ("not routed", "no Allow rule"), never a verdict word like
+# "unreachable". The two are fixed in different places — a route comes from the subagent HTTPRoute,
+# an Allow rule from the gateway authorization policy — and a reader who cannot tell which one is
+# absent has been told nothing actionable.
+#
 # `model` is the RESOLVED model, not the ModelConfig name — gemini-pro and gemini-flash both point
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
@@ -88,18 +102,22 @@ spec:
       title: HITL
     - valueKey: owner
       title: Owner
+    - valueKey: gateway
+      title: Gateway
     - valueKey: status
       title: Status
     dataSource: []
   widgetDataTemplate:
-  # Pattern and Status are appended ONLY when some agent has something to put in them — see the
-  # header. The two conditions are independent: a fleet where nothing delegates loses Pattern and
-  # keeps Status, and vice versa. Owner is unconditional: every agent has an owner, even if that
-  # owner is "Helm".
+  # Pattern, Gateway and Status are each appended ONLY when some agent has something to put in
+  # them — see the header. The three conditions are independent: a fleet where nothing delegates
+  # loses Pattern and keeps the other two, and a fleet that is entirely Ready but partly
+  # unregistered loses Status and keeps Gateway. Every cell is still emitted on EVERY row, because
+  # antd renders only declared columns and a missing cell logs a console error. Owner is
+  # unconditional: every agent has an owner, even if that owner is "Helm".
   - forPath: columns
-    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | ( [ (.rows // [])[] | select(.orchestrator) ] | length ) as $orch | [ {valueKey:"name",title:"Agent"} ] + (if $orch > 0 then [ {valueKey:"pattern",title:"Pattern"} ] else [] end) + [ {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"}, {valueKey:"owner",title:"Owner"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
+    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | ( [ (.rows // [])[] | select(.orchestrator) ] | length ) as $orch | ( [ (.rows // [])[] | select((.gateway // "") != "") ] | length ) as $gw | [ {valueKey:"name",title:"Agent"} ] + (if $orch > 0 then [ {valueKey:"pattern",title:"Pattern"} ] else [] end) + [ {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"}, {valueKey:"owner",title:"Owner"} ] + (if $gw > 0 then [ {valueKey:"gateway",title:"Gateway"} ] else [] end) + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, (if .orchestrator then {valueKey:"pattern",kind:"tag",stringValue:"orchestrator",color:"violet"} else {valueKey:"pattern",kind:"jsonSchemaType",type:"string",stringValue:""} end), {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, {valueKey:"owner",kind:"jsonSchemaType",type:"string",stringValue:(.owner // "—"),color:"#8c8c8c"}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, (if .orchestrator then {valueKey:"pattern",kind:"tag",stringValue:"orchestrator",color:"violet"} else {valueKey:"pattern",kind:"jsonSchemaType",type:"string",stringValue:""} end), {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, {valueKey:"owner",kind:"jsonSchemaType",type:"string",stringValue:(.owner // "—"),color:"#8c8c8c"}, (if (.gateway // "") == "" then {valueKey:"gateway",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"gateway",kind:"tag",stringValue:.gateway,color:(.gatewayColor // "red")} end), (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
   apiRef:
     name: agents-list
     namespace: {{ .Release.Namespace }}

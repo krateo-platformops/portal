@@ -29,6 +29,16 @@
 #             this CR. Everything else on the page is what was DECLARED; this is the only read that
 #             says what is actually running, and it is what makes the declared/running env diff
 #             below possible.
+#   policies: AgentgatewayPolicies — the OTHER half of reachability. A matching HTTPRoute only
+#             tells the gateway which backend to pick; the gateway still refuses the request unless
+#             its authorization policy carries an Allow clause naming the same x-kagent-host. Two
+#             clauses are rendered per registered agent (the anonymous agent-card GET and the
+#             authenticated call), and they fail differently, so they are checked separately.
+#
+# WHY THE SECOND HALF IS NOT OPTIONAL. Before this read, "Reachable at" resolved the route and
+# stopped — and a route without an Allow clause is exactly the state krateo-blueprint-agent was in
+# for a week from 2026-09-03: Ready, delegated to by autopilot, 403 at the agent-card hop. Naming
+# the row "Reachable at" while proving only half of reachability is the overstatement this fixes.
 #
 # THREE-STATE READS, NOT TWO. Every step carries continueOnError + errorKey, and every errorKey is
 # CONSUMED below (agentError, modelsError, serversError, peersError, routesError,
@@ -66,6 +76,12 @@
 # never reaches.
 #
 # Everything the page renders is computed HERE. The widgets only place strings.
+#
+# ONE AUTHORING TRAP, since this filter carries jq comments: `filter:` below is a FOLDED scalar
+# (`>-`), so a comment written at the block's own indentation is joined onto the following line and
+# comments the jq out — a compile error at resolve time, invisible to helm template and to
+# `kubectl apply` (the CRD only checks that the field is a string). Only MORE-indented lines keep
+# their line breaks, which is why every comment in here sits inside an open paren.
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -159,6 +175,17 @@ spec:
   # would splice every `#` comment below into the jq that follows it and comment that jq out. jq
   # itself does not care about newlines, so the literal form parses identically and lets the
   # reasoning live next to the expression it explains — the same choice restaction.agents-list makes.
+  - name: policies
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaypolicies
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: policiesError
+  
   filter: |-
     def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
     def clip($n): if ((. // "") | length) > $n then ((.[0:$n]) + "…") else (. // "") end;
@@ -183,9 +210,14 @@ spec:
     | ( .peersError // null ) as $peersErr
     | ( .routesError // null ) as $routesErr
     | ( .deploymentsError // null ) as $depsErr
+    | ( .policiesError // null ) as $policiesErr
     | ( [ (.routes.items // [])[] ] ) as $routes
     | ( $routesErr == null ) as $routesReadable
     | ( $routesReadable and (($routes | length) == 0) ) as $routesNone
+    | ( $routesReadable and (($routes | length) > 0) ) as $routesKnown
+    | ( [ (.policies.items // [])[] | select( (((.spec.traffic // {}).authorization) // null) != null ) | select( ((.spec.traffic.authorization.action) // "Allow") == "Allow" ) ] ) as $allowPols
+    | ( [ $allowPols[] | ((.spec.traffic.authorization.policy.matchExpressions // [])[]) ] ) as $allowExprs
+    | ( ($policiesErr == null) and (($allowPols | length) > 0) ) as $authzKnown
     | ( $modelsErr == null ) as $modelsReadable
     | ( $serversErr == null ) as $serversReadable
     | ( $peersErr == null ) as $peersReadable
@@ -230,6 +262,20 @@ spec:
     | ( $mSel != null and (($mSel.rank // 0) == 0) and $mPathT != "/" ) as $mCatchAll
     | ( ($an + "." + $ans) ) as $aHost
     | ( selByHost($routes; $aHost) ) as $aSel
+    | ( ("'" + $aHost + "'") as $q
+        | ( [ $allowExprs[] | select(contains($q)) ] ) as $mine
+        | { card: ( ( [ $mine[] | select(contains("agent-card")) ] | length ) > 0 ),
+            call: ( ( [ $mine[] | select(contains("agent-card") | not) ] | length ) > 0 ) } ) as $allow
+    | ( # Phrased to compose with EITHER route outcome. "allowed at the gateway" read as a flat
+        # contradiction once appended to "cannot be reached through the gateway"; naming the
+        # artefact states the half that is fine without denying the half that is not.
+        if ($authzKnown | not) then " · the gateway's Allow rules are not readable"
+        elif ($allow.card and $allow.call) then " · the gateway's Allow rules name it"
+        elif $allow.call then " · but the agent-card GET is not allowed, so A2A discovery is refused before any call"
+        elif $allow.card then " · but calls to it are not allowed, only the agent-card GET"
+        else " · and the gateway's Allow rules do not name it at all" end ) as $authzNote
+    | ( $routesKnown and $authzKnown ) as $regKnown
+    | ( $regKnown and (($aSel == null) or (($allow.card and $allow.call) | not)) ) as $regBroken
     | ( if $d == null then [] else ($d.tools // []) end ) as $tools
     | ( [ $tools[] | select(.type == "McpServer") | .mcpServer ] ) as $mcps
     | ( [ $tools[] | select(.type == "Agent") | { name: (.agent.name // ""), namespace: (.agent.namespace // $ans) } ] | unique ) as $delRefs
@@ -392,11 +438,45 @@ spec:
           created: ( ($md.creationTimestamp // "") | if . == "" then "" else (.[0:10] + " " + .[11:16] + " UTC · " + rel) end ),
           conditions: ( [ $conds[] | condLabel ] | join(" · ") ),
           advisories: ( [ $exc[] | select((.message // "") != "") | (.type + " — " + .message) ] | join("  ") ),
-          inboundRoute: ( if ($routesReadable | not) then ("x-kagent-host: " + $aHost + " — the HTTPRoute read failed (" + errOf($routesErr) + "), so reachability is unknown")
-                          elif $aSel != null then (selArrow($aSel) + "  (x-kagent-host: " + $aHost + ")")
-                          elif $routesNone then ("no HTTPRoute is visible to you — either this cluster routes nothing through a gateway, or your permissions do not cover HTTPRoutes (x-kagent-host: " + $aHost + ")")
-                          else ("no HTTPRoute matches x-kagent-host: " + $aHost + " — this agent cannot be reached through the gateway") end )
+          inboundRoute: ( ( if ($routesReadable | not) then ("x-kagent-host: " + $aHost + " — the HTTPRoute read failed (" + errOf($routesErr) + "), so reachability is unknown")
+                            elif $aSel != null then (selArrow($aSel) + "  (x-kagent-host: " + $aHost + ")")
+                            elif $routesNone then ("no HTTPRoute is visible to you — either this cluster routes nothing through a gateway, or your permissions do not cover HTTPRoutes (x-kagent-host: " + $aHost + ")")
+                            else ("no HTTPRoute matches x-kagent-host: " + $aHost + " — this agent cannot be reached through the gateway") end )
+                          # The route alone never earned the word "Reachable". This appends the
+                          # authorization half in one clause, so the row states both conditions the
+                          # gateway applies rather than the one that was easy to resolve.
+                          + $authzNote )
         },
+        # Consumed by alert.agent-detail-registration, which the page renders ONLY when this is
+        # broken (sections.registration). Deliberately NOT rendered for the unknown case: on a
+        # cluster where the reader holds no gateway grants every agent would carry the same warning,
+        # and an alarm that fires on every page is one nobody reads. The unknown case is already
+        # stated, once, in the identity row above.
+        registration: {
+          broken: $regBroken,
+          title: ( if ($aSel == null) and (($allow.card or $allow.call) | not)
+                     then "This agent is not registered at the gateway"
+                   elif $aSel == null then "This agent has no gateway route"
+                   elif (($allow.card or $allow.call) | not)
+                     then "The gateway's Allow rules do not name this agent"
+                   elif ($allow.call | not) then "The gateway refuses calls to this agent"
+                   else "The gateway refuses A2A discovery of this agent" end ),
+          detail: ( ( if ($aSel == null) and (($allow.card or $allow.call) | not)
+                        then ("Nothing on the gateway names x-kagent-host " + $aHost
+                              + ": no HTTPRoute matches it and the authorization policy carries no Allow clause for it. Every call is refused, whatever this page's other sections say.")
+                      elif $aSel == null
+                        then ("The gateway's Allow rules name x-kagent-host " + $aHost
+                              + ", but no HTTPRoute matches it, so the gateway has no backend to forward to.")
+                      elif (($allow.card or $allow.call) | not)
+                        then ("HTTPRoute " + selName($aSel) + " matches x-kagent-host " + $aHost
+                              + ", but the gateway's authorization policy carries no Allow clause for it at all — both the anonymous agent-card GET and every authenticated call are refused.")
+                      elif ($allow.call | not)
+                        then ("HTTPRoute " + selName($aSel) + " matches x-kagent-host " + $aHost
+                              + ", but the gateway's authorization policy carries no Allow clause for calls to it — only the anonymous agent-card GET is permitted.")
+                      else ("HTTPRoute " + selName($aSel) + " matches x-kagent-host " + $aHost
+                            + " and calls are allowed, but there is no Allow clause for its /.well-known/agent-card.json. A2A discovery 403s before the first call, so an orchestrator that delegates here never gets as far as calling.") end )
+                    + " The Agent's own conditions are unaffected — it stays Ready and Accepted, which is why this is invisible everywhere else."
+                    + " Registration is rendered by the agentgateway-policies chart from its subAgents list, which the Installer derives from the deployed component fleet; an agent that is not a component is registered by adding it to componentValues.agentgateway-policies.extraSubAgents on the Installer." ) },
         model: {
           configName: $mcName,
           configFound: ( $mc != null ),
@@ -490,6 +570,9 @@ spec:
                                 else ". This agent is visible but the Agent list came back empty, so your permissions do not cover the fleet and target state is blank." end ) ),
         sections: {
           found:     $found,
+          # Exception-only, and FIRST on the page when it fires — an agent nothing can call is not a
+          # footnote under its model and tool tables.
+          registration: ( $found and $regBroken ),
           # The prompt card is rendered for every declarative agent INCLUDING one that sets no
           # systemMessage: "this agent has no standing instructions of its own" is a fact worth
           # stating, and its absence from the page would read as an authoring oversight.

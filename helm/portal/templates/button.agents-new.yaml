@@ -2,11 +2,12 @@
 # (2 segments, so it never collides with a future 3-segment /agents/{namespace}/{name} detail
 # route). Mirrors button.alerts-new.
 #
-# NOT WIRED INTO A PAGE YET. `/agents/new` is not a route on this branch — menu.sidebar-nav is the
-# single route source and this wave's lead owns it. This object renders into the chart but nothing
-# references it, so no user can reach it and no user can hit the 404 it would currently produce.
-# flex.page-agents carries the two-step recipe for turning it on; do not add the items entry there
-# without adding the menu route in the same commit.
+# WIRED, and both halves of the wiring are real. menu.sidebar-nav is the single route source (there
+# is no RoutesLoader) and it carries `{ order: 936, path: "/agents/new", page: agent-create }`; the
+# `page:` convention resolves flexes/page-agent-create in the frontend's configured namespace, which
+# is why that Flex was moved out of the admin tier. Navigating to a path with no route entry does
+# not error — it falls through to the shell catch-all and renders <Page404/> — so if this button
+# ever stops working, check the route entry before suspecting the action.
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

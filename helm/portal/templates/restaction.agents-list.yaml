@@ -34,6 +34,36 @@
 # toolservers.kagent.dev and mcpservers.kagent.dev hold ZERO objects on every cluster we run —
 # all 9 real tool servers are RemoteMCPServer/v1alpha2. Listing toolservers renders an
 # honest-but-permanently-empty table that looks like a data bug (verified live on krateo-057).
+#
+# GATEWAY REGISTRATION — the two extra reads (httproutes, agentgatewaypolicies), and why this page
+# is where they belong. An Agent object going Ready says the CONTROLLER accepted it. It says
+# nothing about whether anything can call it: every hop in this platform crosses the agentgateway,
+# and the gateway only forwards to an agent that has BOTH
+#   (a) an HTTPRoute whose rule matches `x-kagent-host: <name>.<namespace>` — how the gateway picks
+#       the backend at all, and
+#   (b) Allow clauses naming that same host in the gateway's authorization policy — TWO of them,
+#       one for the anonymous `/.well-known/agent-card.json` discovery GET and one for the
+#       authenticated call, both rendered from the same agentgateway-policies subAgents entry.
+# Miss either and the agent reports Ready and Accepted while every call to it is refused. That is
+# not hypothetical: krateo-blueprint-agent was promoted 2026-09-03 and sat exactly like that for a
+# week — Ready, delegated to by autopilot, 403 at the agent-card hop — until someone added it to the
+# gateway's subAgents list by hand. The installer now derives that list from the deployed fleet so
+# the same drift cannot recur (e779002, in 0.3.172), but derivation only covers agents that ARE a
+# component pin; an agent created from /agents/new is not one. The create page has warned about this
+# state at length since it existed; nothing ever SHOWED who was in it. This does, exception-only: a
+# fully registered agent renders nothing at all.
+#
+# The (b) half is why a policy read is here and not just a route read. Routing an agent without
+# allowing it is the exact shape of the bug above, and a route-only check would have called
+# krateo-blueprint-agent healthy once someone added the HTTPRoute by hand.
+#
+# BOTH READS ARE THREE-STATE, like every other read on this page. "No route matches this host" is a
+# finding ONLY when routes were readable AND some route came back; an empty list is the silent
+# userAccessFilter refilter (a caller without the gateway.networking.k8s.io grant is served [], not
+# a 403) and must never be rendered as "this agent is unreachable". Same for the policies: the
+# verdict is withheld unless at least one Allow-action authorization policy is visible. When it is
+# withheld the subtitle says so, and NO row is flagged — an unchecked agent must not look healthy
+# by accident, so the page states the gap in prose instead of leaving it silent.
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -73,6 +103,29 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: serversError
+  # v1 is the storage version of httproutes on the cluster (v1beta1 is still served but is not the
+  # storage version); pin v1 so the rules read here are the canonical ones. Same pin as
+  # restaction.agents-policies, which joins the same objects for a different question.
+  - name: routes
+    path: /apis/gateway.networking.k8s.io/v1/httproutes
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: httproutes
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: routesError
+  - name: policies
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaypolicies
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: policiesError
   filter: |
     # snowplow writes a swallowed step error to its errorKey as an ACCUMULATING SLICE
     # (accumulateErrorKey, internal/resolvers/restactions/api/resolve.go:189), each entry being the
@@ -89,9 +142,37 @@ spec:
     ( errText(.agentsError) )  as $agErr
     | ( errText(.modelsError) )  as $mcErr
     | ( errText(.serversError) ) as $srvErr
+    | ( errText(.routesError) )   as $rtErr
+    | ( errText(.policiesError) ) as $polErr
     | ( [ (if $agErr  != "" then ("Agents (" + $agErr + ")") else empty end),
           (if $mcErr  != "" then ("ModelConfigs (" + $mcErr + ")") else empty end),
           (if $srvErr != "" then ("RemoteMCPServers (" + $srvErr + ")") else empty end) ] ) as $failed
+    # ── gateway registration ────────────────────────────────────────────────────────────────────
+    # The set of x-kagent-host values the gateway actually routes. Header matches are EXACT string
+    # equality in Gateway API (type defaults to Exact and these rules set no other type), so the
+    # membership test below is the whole of the routing question — no path semantics are involved.
+    # Header NAMES are case-insensitive per HTTP, hence the ascii_downcase; values are not.
+    | ( [ (.routes.items // [])[] | (.spec.rules // [])[] | (.matches // [])[] | (.headers // [])[]
+          | select( ((.name // "") | ascii_downcase) == "x-kagent-host" ) | (.value // "") ]
+        | unique ) as $routedHosts
+    # Allow-action authorization policies ONLY. A Require or Deny policy carrying the same host is
+    # not an allowance, and reading its expressions as one would report a locked-down agent as open.
+    | ( [ (.policies.items // [])[]
+          | select( (((.spec.traffic // {}).authorization) // null) != null )
+          | select( ((.spec.traffic.authorization.action) // "Allow") == "Allow" ) ] ) as $allowPols
+    | ( [ $allowPols[] | ((.spec.traffic.authorization.policy.matchExpressions // [])[]) ] ) as $allowExprs
+    # READABLE, not merely error-free. An empty list is snowplow's silent userAccessFilter refilter
+    # (a caller without the grant gets [], never a 403), so with nothing visible we can prove
+    # nothing and must flag nobody — see the header.
+    | ( ($rtErr  == "") and (((.routes.items // []) | length) > 0) ) as $routesKnown
+    | ( ($polErr == "") and (($allowPols | length) > 0) ) as $authzKnown
+    | ( $routesKnown and $authzKnown ) as $gatewayKnown
+    | ( [ (if $rtErr != "" then ("the HTTPRoute read failed — " + $rtErr)
+           elif ((.routes.items // []) | length) == 0 then "no HTTPRoute is visible to you"
+           else empty end),
+          (if $polErr != "" then ("the AgentgatewayPolicy read failed — " + $polErr)
+           elif ($allowPols | length) == 0 then "no gateway Allow policy is visible to you"
+           else empty end) ] | join("; ") ) as $gatewayUnknownWhy
     | ( reduce ((.models.items // [])[]) as $m ({}; .[$m.metadata.name] = ($m.spec.model // "")) ) as $modelOf
     | ( if $srvErr != "" then null
         else ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) end ) as $toolsDiscovered
@@ -109,6 +190,32 @@ spec:
                            else (.type + "Unknown") end ),
                   bad:   ( .status == "False" ) } ] ) as $exc
         | ( $d.modelConfig // "default-model-config" ) as $mc
+        # The gateway addresses an agent by `<name>.<namespace>`, carried in x-kagent-host. This is
+        # the join key for both halves of the registration check.
+        | ( ($a.metadata.name // "") + "." + ($a.metadata.namespace // "") ) as $host
+        | ( ($routedHosts | index($host)) != null ) as $routed
+        # The two Allow clauses are told apart by the path they gate, because they fail differently
+        # and a reader has to know WHICH one is missing. The agent-card clause carries
+        # `request.path.endsWith('/.well-known/agent-card.json')`; the call clause is the bare
+        # x-kagent-host match. Missing the call clause leaves only the anonymous card GET, so nothing
+        # can actually USE the agent. Missing only the agent-card clause means calls would pass but
+        # A2A discovery 403s first — the agent is reachable and never reached, which is precisely
+        # how krateo-blueprint-agent failed, so it is reported as its own state rather than folded
+        # into "not allowed".
+        | ( ("'" + $host + "'") as $q
+            | ( [ $allowExprs[] | select(contains($q)) ] ) as $mine
+            | { card: ( ( [ $mine[] | select(contains("agent-card")) ] | length ) > 0 ),
+                call: ( ( [ $mine[] | select(contains("agent-card") | not) ] | length ) > 0 ) } ) as $allow
+        # The cell names the MISSING ARTEFACT, not a verdict, because each one is fixed somewhere
+        # else. "no Allow rule" is reserved for an agent the policy does not mention at all;
+        # "calls not allowed" is the narrower case where only the agent-card clause survives.
+        | ( if ($gatewayKnown | not) then ""
+            elif ($routed | not) and (($allow.card or $allow.call) | not) then "not routed · no Allow rule"
+            elif ($routed | not) then "not routed"
+            elif (($allow.card or $allow.call) | not) then "no Allow rule"
+            elif ($allow.call | not) then "calls not allowed"
+            elif ($allow.card | not) then "agent card refused"
+            else "" end ) as $gw
         | {
             name:        $a.metadata.name,
             namespace:   $a.metadata.namespace,
@@ -145,6 +252,12 @@ spec:
             # thing the portal talks to, everything else is downstream of it".
             orchestrator: ( ( [ $tools[] | select(.type == "Agent") ] | length ) > 0 ),
             bench:       ( ( $lb["krateo.io/composition-id"] ) == null ),
+            # Exception-only, and blank in TWO different situations that must not be confused:
+            # registered (nothing to say) and unchecked (nothing we may say). The difference is
+            # carried by the subtitle, not by this cell — a per-row "unknown" would put the same
+            # sentence on every line of the table.
+            gateway:      $gw,
+            gatewayColor: ( if $gw == "agent card refused" then "gold" elif $gw != "" then "red" else "" end ),
             statusLabel: ( [ $exc[].label ] | join(" · ") ),
             statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red"
                            elif ( $exc | length ) > 0 then "gold"
@@ -152,31 +265,50 @@ spec:
           } ]
         | sort_by( (if .bench then 1 else 0 end), .name ) }
     | ( [ .rows[] | select(.orchestrator) ] | sort_by(-.delegates, .name) ) as $orch
+    | ( [ .rows[] | select((.gateway // "") != "") ] ) as $unreg
     | . + { total: (.rows | length),
             benchCount: ( [ .rows[] | select(.bench) ] | length ),
             orchCount: ( $orch | length ),
+            unregisteredCount: ( $unreg | length ),
+            gatewayKnown: $gatewayKnown,
             toolsDiscovered: $toolsDiscovered,
             # Rendered verbatim by paragraph.agents-subtitle. A failed read is stated FIRST and in
             # full, because the table underneath it is the thing that would otherwise be misread.
             subtitle: (
-              if ($failed | length) > 0 then
-                ( "Some of this page's reads FAILED — " + ($failed | join("; "))
-                  + ". What is missing from the table below is missing because a read failed, not because it is not there." )
-              else
-                ( "Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources. "
-                  + (.rows | length | tostring) + " readable; "
-                  + ($toolsDiscovered | tostring) + " tools discovered across "
-                  + ($serverCount | tostring) + " tool servers."
-                  # The fan-out shape is the first thing worth knowing about a fleet, so it is
-                  # stated here rather than left to be inferred from the Delegates column. Names
-                  # the orchestrators explicitly: "one orchestrator" and "three" are different
-                  # clusters, and so is a cluster where nothing delegates at all.
-                  + ( if ($orch | length) == 0
-                      then " No agent you can read delegates to another — each one works alone."
-                      else ( " " + ($orch | length | tostring)
-                             + ( if ($orch | length) == 1 then " agent hands work to others: " else " agents hand work to others: " end )
-                             + ( [ $orch[] | (.name + " → " + (.delegates | tostring)) ] | join(", ") ) + "." ) end ) )
-              end ),
+              ( if ($failed | length) > 0 then
+                  ( "Some of this page's reads FAILED — " + ($failed | join("; "))
+                    + ". What is missing from the table below is missing because a read failed, not because it is not there." )
+                else
+                  ( "Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources. "
+                    + (.rows | length | tostring) + " readable; "
+                    + ($toolsDiscovered | tostring) + " tools discovered across "
+                    + ($serverCount | tostring) + " tool servers."
+                    # The fan-out shape is the first thing worth knowing about a fleet, so it is
+                    # stated here rather than left to be inferred from the Delegates column. Names
+                    # the orchestrators explicitly: "one orchestrator" and "three" are different
+                    # clusters, and so is a cluster where nothing delegates at all.
+                    + ( if ($orch | length) == 0
+                        then " No agent you can read delegates to another — each one works alone."
+                        else ( " " + ($orch | length | tostring)
+                               + ( if ($orch | length) == 1 then " agent hands work to others: " else " agents hand work to others: " end )
+                               + ( [ $orch[] | (.name + " → " + (.delegates | tostring)) ] | join(", ") ) + "." ) end ) )
+                end )
+              # Appended, never substituted: a gateway finding does not replace a failed read, and a
+              # withheld verdict has to be SAID. Silence here would let an unchecked fleet read as a
+              # clean one — the whole failure mode this check exists for.
+              + ( if ($unreg | length) > 0 then
+                    ( "  " + ($unreg | length | tostring)
+                      + ( if ($unreg | length) == 1 then " of them is Ready but not fully registered at the agent gateway"
+                          else " of them are Ready but not fully registered at the agent gateway" end )
+                      + " — " + ( [ $unreg[] | .name ] | join(", ") )
+                      + ". The Gateway column says what each one is missing; until it is fixed the gateway refuses the traffic." )
+                  elif ($gatewayKnown | not) then
+                    ( "  Gateway registration could not be checked (" + $gatewayUnknownWhy
+                      + "), so no agent here is shown as unreachable — that is a gap in this page, not a clean bill of health." )
+                  else "" end ) ),
             # Paragraph.type is a hard CRD enum (secondary|success|warning|danger) — never "".
             # Exception-only: `secondary` is the healthy default, `danger` only on a real failure.
-            subtitleType: ( if ($failed | length) > 0 then "danger" else "secondary" end ) }
+            # An agent the gateway refuses IS a real failure, so it turns the subtitle red on the
+            # same footing as a failed read. A merely UNCHECKED registration does not: the sentence
+            # it adds is a caveat, and colouring a caveat red would train the reader past the colour.
+            subtitleType: ( if ($failed | length) > 0 or ($unreg | length) > 0 then "danger" else "secondary" end ) }
