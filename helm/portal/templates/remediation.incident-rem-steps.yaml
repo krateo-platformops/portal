@@ -78,9 +78,20 @@ spec:
     namespace: {{ $.Release.Namespace }}
   widgetData:
     markdown: ''
-    # A copy button so the step (including its "Run it in your terminal" command block) can be lifted
-    # into a real shell — most SREs apply from a terminal, not the portal.
-    allowCopy: true
+    # NO allowCopy. It rendered ONE button at the top of the step that copied the whole markdown —
+    # the REMEDIATE/VERIFY eyebrow, the explanation sentence, the JSON payload AND every shell
+    # command, in a single blob. The intent was right (most SREs apply from a terminal, not the
+    # portal) but the result could not be pasted into one, which is the only reason the button gets
+    # pressed: "a copy button that copies literally everything … it must be placed where there is a
+    # command to execute otherwise it is useless" (report-provenance-test).
+    #
+    # frontend 1.5.33 gives every fenced code block its own copy control, so the affordance now sits
+    # ON the command. Keeping this one as well would put two buttons on the same step, one of which
+    # silently does the wrong thing. Verified live on 1.5.33 before removing it — the per-block
+    # button is present and copies only its own block.
+    #
+    # Do not restore it to "make copy discoverable": the widget-level button copies the document, and
+    # a remediation step is not a document anyone wants.
   widgetDataTemplate:
   - forPath: markdown
     expression: '${ ((.remSteps // [])[{{ $i }}] // {}).md // "" }'
