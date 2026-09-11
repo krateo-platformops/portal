@@ -1,0 +1,34 @@
+# The orchestrator chip on the agent title line. Present only for an agent that binds
+# tools[].type=Agent — three of the fifteen on krateo-057 — so it marks a real structural
+# distinction rather than decorating every title.
+#
+# It carries the FAN-OUT COUNT, not just the word: "orchestrator · 10 sub-agents" is the fact that
+# makes the rest of the page make sense (this is the thing the portal talks to; everything else is
+# downstream of it), and the bare word would leave a reader to scroll to the Delegation table to
+# learn how wide it fans. Violet, not the status palette — this is a classification, and colouring
+# it green or gold would put it in conversation with the condition chip beside it, which is health.
+#
+# Companion to tag.agent-detail-status, and referenced the same way: flex.agent-detail-titleline
+# only includes it when the RA computed a non-empty orchestratorLabel, so there is no empty Tag
+# holding space on the twelve agents that delegate to nobody.
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-orchestrator
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: ""
+    color: violet
+  widgetDataTemplate:
+  - forPath: label
+    expression: '${ .orchestratorLabel // "" }'
+  resourcesRefs:
+    items: []

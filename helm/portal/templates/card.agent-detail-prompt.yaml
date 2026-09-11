@@ -1,0 +1,48 @@
+# "Standing instructions" — the agent's systemMessage. This is the single largest thing that
+# decides how an agent behaves, and until this card the page did not show it at all: a reader could
+# see the model, the tools and the delegates and still have no idea what the agent had been TOLD.
+#
+# THE CARD DOES NOT CLAIM TO SHOW THE FINAL PROMPT, and the caption is templated so it cannot drift
+# into claiming it. When promptTemplate is set — it is on all 15 agents on krateo-057 — the CR's
+# systemMessage is a Go text/template whose include() directives the kagent controller resolves
+# against the ConfigMaps in promptTemplate.dataSources, and the controller then appends its own
+# built-in prompts. So what is rendered here is the template, the caption names the sources that
+# fill it in, and the difference is stated rather than glossed. Printing this as "the prompt" would
+# be the same error as printing a ModelConfig name as if it were a model.
+#
+# The Markdown child is dropped entirely when the CR carries no systemMessage (a `systemMessageFrom`
+# agent, or one running on the controller's built-ins alone): an empty code fence is a worse answer
+# than the caption's sentence, which says exactly which of those two it is.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-agent-detail-prompt
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Standing instructions
+    titleVariant: eyebrow
+    variant: outlined
+    headerLeft: The systemMessage this agent runs with.
+    items:
+    - resourceRefId: agent-detail-prompt
+  widgetDataTemplate:
+  - forPath: headerLeft
+    expression: '${ .prompt.caption // "" }'
+  - forPath: items
+    expression: '${ if ((.prompt.systemMessage // "") == "") then [] else [ { resourceRefId: "agent-detail-prompt" } ] end }'
+  resourcesRefs:
+    items:
+    - id: agent-detail-prompt
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-prompt
+      namespace: {{ .Release.Namespace }}
+      resource: markdowns
+      verb: GET

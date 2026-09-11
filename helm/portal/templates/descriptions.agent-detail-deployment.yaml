@@ -1,0 +1,39 @@
+# Workload rows. Every value is a string the RA already resolved — see restaction.agent-detail's
+# `deployment` block for why each has three outcomes rather than two.
+#
+# `Workload` is the ready count, and it is the row that must never lie by omission: "1/1 ready" when
+# the Deployment matched, a sentence naming the label it looked for when nothing matched, and the
+# quoted error when the read failed. Image and Conditions are OMITTED in the latter two cases rather
+# than rendered blank — a blank Image row beside "no Deployment matched" reads as an agent running
+# an empty image, which is a different and much more alarming claim than "we could not find it".
+#
+# The Deployment's own conditions are shown in full Kubernetes vocabulary (Available · Progressing,
+# NotAvailable for a False one) exactly as the Agent's are on the Identity card. The exception-only
+# rule lives on the Workload row's colour instead, in the card above — a healthy 1/1 gets no pill.
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: descriptions-agent-detail-deployment
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    column: 1
+    bordered: true
+    size: small
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: >-
+      ${ (.deployment // {}) as $dp
+      | [ { label: "Workload", value: ($dp.workload // "") } ]
+      + (if (($dp.image // "") != "") then [ { label: "Image", value: $dp.image } ] else [] end)
+      + (if (($dp.conditions // "") != "") then [ { label: "Conditions", value: $dp.conditions } ] else [] end) }
+  resourcesRefs:
+    items: []

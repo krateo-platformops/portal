@@ -15,6 +15,19 @@
 # renders only declared columns and a MISSING cell logs a console error — so once the column is
 # there, a healthy agent correctly shows "-" beside the unhealthy one.
 #
+# `Pattern` marks the agents that hand work to other agents (tools[].type=Agent). It is a SEPARATE
+# column rather than a second marker appended to the name cell, because the name cell already
+# carries the "  (bench)" suffix and "autopilot-bench  (bench)  (orchestrator)" is unreadable; and
+# it is a Tag rather than text because it is a classification, not a value. Like Status it is
+# exception-only at COLUMN level — a fleet in which nothing delegates drops it entirely instead of
+# ruling a column of dashes, and the cell is still emitted on every row so antd does not log a
+# missing-cell error for the healthy ones.
+#
+# `Owner` is what the four bench agents and the eleven composition-rendered ones differ by, and the
+# only column that answers "which upgrade would change this agent". It is unconditional: an agent
+# with no composition is not an agent with no owner, it is a Helm-managed one, and the RA says so
+# from app.kubernetes.io/managed-by rather than leaving a dash that reads as unknown.
+#
 # `model` is the RESOLVED model, not the ModelConfig name — gemini-pro and gemini-flash both point
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
@@ -57,6 +70,8 @@ spec:
     columns:
     - valueKey: name
       title: Agent
+    - valueKey: pattern
+      title: Pattern
     - valueKey: role
       title: What it is for
     - valueKey: model
@@ -71,15 +86,20 @@ spec:
       title: Delegates
     - valueKey: approvals
       title: HITL
+    - valueKey: owner
+      title: Owner
     - valueKey: status
       title: Status
     dataSource: []
   widgetDataTemplate:
-  # Status is appended ONLY when an agent is not healthy — see the header.
+  # Pattern and Status are appended ONLY when some agent has something to put in them — see the
+  # header. The two conditions are independent: a fleet where nothing delegates loses Pattern and
+  # keeps Status, and vice versa. Owner is unconditional: every agent has an owner, even if that
+  # owner is "Helm".
   - forPath: columns
-    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | [ {valueKey:"name",title:"Agent"}, {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
+    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | ( [ (.rows // [])[] | select(.orchestrator) ] | length ) as $orch | [ {valueKey:"name",title:"Agent"} ] + (if $orch > 0 then [ {valueKey:"pattern",title:"Pattern"} ] else [] end) + [ {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"}, {valueKey:"owner",title:"Owner"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, (if .orchestrator then {valueKey:"pattern",kind:"tag",stringValue:"orchestrator",color:"violet"} else {valueKey:"pattern",kind:"jsonSchemaType",type:"string",stringValue:""} end), {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, {valueKey:"owner",kind:"jsonSchemaType",type:"string",stringValue:(.owner // "—"),color:"#8c8c8c"}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
   apiRef:
     name: agents-list
     namespace: {{ .Release.Namespace }}

@@ -101,6 +101,7 @@ spec:
         | select( (($a.metadata.name // "") != "") and (($a.metadata.namespace // "") != "") )
         | (.spec.declarative // {}) as $d
         | (($d.tools // [])) as $tools
+        | ( $a.metadata.labels // {} ) as $lb
         | ( [ ($a.status.conditions // [])[]
               | select( ((.type == "Ready" or .type == "Accepted") and .status == "True") | not )
               | { label: ( if .status == "True" then .type
@@ -125,15 +126,35 @@ spec:
             servers:     ( [ $tools[] | select(.type == "McpServer") | .mcpServer.name ] | unique | length ),
             delegates:   ( [ $tools[] | select(.type == "Agent") ] | length ),
             approvals:   ( [ $tools[] | select(.type == "McpServer") | .mcpServer as $m | (($m.requireApproval // [])[]) | { s: $m.name, t: . } ] | unique | length ),
-            bench:       ( ( ($a.metadata.labels // {})["krateo.io/composition-id"] ) == null ),
+            # WHO SHIPPED THIS AGENT. Read from the same label bag as `bench`, because the two
+            # answer the same question from opposite ends: an agent rendered by a composition
+            # carries krateo.io/composition-name + -installed-version, and an agent that is NOT
+            # (the four bench ones) falls back to app.kubernetes.io/managed-by, which the kagent
+            # chart sets to "Helm". Without this column the page cannot say which upgrade would
+            # change an agent — every row looks hand-made. The version is appended rather than
+            # given its own column: name and version are one fact (what to bump), and a second
+            # column would be a column of repeated composition versions.
+            owner:       ( if ($lb["krateo.io/composition-name"] // "") != ""
+                           then ( $lb["krateo.io/composition-name"]
+                                  + ( if ($lb["krateo.io/composition-installed-version"] // "") != ""
+                                      then (" " + $lb["krateo.io/composition-installed-version"]) else "" end ) )
+                           else ( $lb["app.kubernetes.io/managed-by"] // "—" ) end ),
+            # An agent that binds tools[].type=Agent hands work to other agents rather than doing
+            # it itself. That is the one structural distinction on this page the Delegates COUNT
+            # does not name — a reader scanning a 15-row table sees "10" and not "this is the
+            # thing the portal talks to, everything else is downstream of it".
+            orchestrator: ( ( [ $tools[] | select(.type == "Agent") ] | length ) > 0 ),
+            bench:       ( ( $lb["krateo.io/composition-id"] ) == null ),
             statusLabel: ( [ $exc[].label ] | join(" · ") ),
             statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red"
                            elif ( $exc | length ) > 0 then "gold"
                            else "" end )
           } ]
         | sort_by( (if .bench then 1 else 0 end), .name ) }
+    | ( [ .rows[] | select(.orchestrator) ] | sort_by(-.delegates, .name) ) as $orch
     | . + { total: (.rows | length),
             benchCount: ( [ .rows[] | select(.bench) ] | length ),
+            orchCount: ( $orch | length ),
             toolsDiscovered: $toolsDiscovered,
             # Rendered verbatim by paragraph.agents-subtitle. A failed read is stated FIRST and in
             # full, because the table underneath it is the thing that would otherwise be misread.
@@ -145,7 +166,16 @@ spec:
                 ( "Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources. "
                   + (.rows | length | tostring) + " readable; "
                   + ($toolsDiscovered | tostring) + " tools discovered across "
-                  + ($serverCount | tostring) + " tool servers." )
+                  + ($serverCount | tostring) + " tool servers."
+                  # The fan-out shape is the first thing worth knowing about a fleet, so it is
+                  # stated here rather than left to be inferred from the Delegates column. Names
+                  # the orchestrators explicitly: "one orchestrator" and "three" are different
+                  # clusters, and so is a cluster where nothing delegates at all.
+                  + ( if ($orch | length) == 0
+                      then " No agent you can read delegates to another — each one works alone."
+                      else ( " " + ($orch | length | tostring)
+                             + ( if ($orch | length) == 1 then " agent hands work to others: " else " agents hand work to others: " end )
+                             + ( [ $orch[] | (.name + " → " + (.delegates | tostring)) ] | join(", ") ) + "." ) end ) )
               end ),
             # Paragraph.type is a hard CRD enum (secondary|success|warning|danger) — never "".
             # Exception-only: `secondary` is the healthy default, `danger` only on a real failure.

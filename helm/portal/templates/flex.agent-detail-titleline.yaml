@@ -1,9 +1,17 @@
-# The agent H1 with an EXCEPTION-ONLY condition chip inline after it. A healthy agent (Ready=True,
-# Accepted=True) renders the title alone — the chip widget is not even referenced, so there is no
-# empty Tag holding space and no green "all good" pill. The chip appears for a failed condition
-# (red) or an advisory (gold, e.g. UnsupportedFeatures=True on the Go runtime — which a naive
-# `.status != "True"` predicate would have dropped, since its True means "there ARE unsupported
-# features"). Mirrors flex.alert-detail-titleline.
+# The agent H1 with up to two inline chips after it, each referenced only when it has something to
+# say — a healthy agent that delegates to nobody renders the title alone, with no empty Tag holding
+# space and no green "all good" pill.
+#
+# The ORCHESTRATOR chip comes first because it is a classification (what this agent IS) and the
+# condition chip is a state (how it is doing right now); the other order would put a transient red
+# pill in front of the permanent fact. It is present only for an agent that binds tools[].type=Agent
+# — three of fifteen here — and carries the fan-out count, which is what makes the rest of the page
+# legible: this is the thing the portal talks to, everything else is downstream of it.
+#
+# The CONDITION chip is EXCEPTION-ONLY: it appears for a failed condition (red) or an advisory
+# (gold, e.g. UnsupportedFeatures=True on the Go runtime — which a naive `.status != "True"`
+# predicate would have dropped, since its True means "there ARE unsupported features"). Mirrors
+# flex.alert-detail-titleline.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -30,6 +38,7 @@ spec:
     - forPath: items
       expression: >-
         ${ [ { resourceRefId: "agent-detail-title" } ]
+        + (if ((.orchestratorLabel // "") != "") then [ { resourceRefId: "agent-detail-orchestrator" } ] else [] end)
         + (if ((.statusLabel // "") != "") then [ { resourceRefId: "agent-detail-status" } ] else [] end) }
   resourcesRefs:
     items:
@@ -38,6 +47,12 @@ spec:
       name: agent-detail-title
       namespace: {{ .Release.Namespace }}
       resource: paragraphs
+      verb: GET
+    - id: agent-detail-orchestrator
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-orchestrator
+      namespace: {{ .Release.Namespace }}
+      resource: tags
       verb: GET
     - id: agent-detail-status
       apiVersion: widgets.templates.krateo.io/v1beta1

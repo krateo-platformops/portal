@@ -56,6 +56,15 @@
 # toolNames IS OPTIONAL. A ref that omits it grants an unstated set — kagent, not this page, decides
 # what that means — so the row reads "not specified", never Bound 0 and never a blank cell.
 #
+# THE CONSUMER CELL NAMES ITS AGENTS WHEN THERE ARE ONE OR TWO OF THEM, and falls back to a count
+# beyond that. "1" is the least useful cell on the page: a server with a single consumer is either
+# a dedicated gate for one specialist or an orphan nobody removed, and the count cannot tell those
+# apart while the NAME settles it instantly. Two still fits a cell; three does not, and past that
+# the count is the more readable fact anyway (nobody reads eleven names in a table cell). Namespace
+# qualification follows the same $multiNs rule as every other name on this page, so a single-
+# namespace cluster shows bare names. `not readable` still wins over all of it — an unread Agent
+# list must never render as a consumer count, named or otherwise.
+#
 # THE THREE TAIL COUNTS ARE null, NOT 0, WHEN THEIR READ FAILED. Nothing renders them today; they go
 # null under denial so the first stat header that picks them up cannot restate an unread list as
 # zero — the same rule the cells above follow.
@@ -221,8 +230,10 @@ spec:
               inUse:      ( if $agentsDenied then "not readable"
                             else ( [ $cons[] | (.served // [])[] ] | unique | length | tostring ) end ),
               agents:     ( if $agentsDenied then "not readable"
-                            elif ($cons | length) > 0 then ($cons | length | tostring)
-                            else "—" end ),
+                            else ( ( [ $cons[] | (if $multiNs then (.ans + "/" + .agent) else .agent end) ] | unique ) as $names
+                                   | if ($names | length) == 0 then "—"
+                                     elif ($names | length) <= 2 then ($names | join(" · "))
+                                     else (($names | length | tostring) + " agents") end ) end ),
               statusLabel: ( [ ($exc[].label), ($gw // empty) ] | join(" · ") ),
               statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "gold" end ) } ]
         | sort_by(.name) ) as $serverRows

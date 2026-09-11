@@ -1,6 +1,14 @@
 # Convention page root for /agents/{namespace}/{name} — the per-agent specification page ("what one
-# agent is made of"): identity, the resolved model and the gateway route its baseUrl lands on, the
-# tools it binds grouped by server, who it delegates to, and its memory/context posture.
+# agent is made of"): identity, the standing instructions it runs with, the resolved model and the
+# gateway route its baseUrl lands on, the tools it binds grouped by server, who it delegates to,
+# the skills it publishes back over A2A, its memory/context posture, and the workload it runs as.
+#
+# CARD ORDER IS THE ORDER THE QUESTIONS ARISE, not the order of the CR's fields: what is it
+# (identity) → what was it told (prompt) → what thinks for it (model) → what it can touch (tools)
+# → who it calls (delegation) → who can call it (agent card) → what it remembers (memory) → what is
+# actually running (deployment) → the object itself (manifest). Delegation and Agent card sit
+# adjacent on purpose: they are the two directions of the same edge, and separating them invites
+# reading either one as the whole story.
 #
 # NAMESPACE: the release namespace, NOT the admin tier namespace. The route is declared with the
 # `page: agent-detail` convention, and that convention resolves `flexes/page-<slug>` in the MENU's
@@ -44,10 +52,13 @@ spec:
         | [ { resourceRefId: "agent-detail-header-block" } ]
         + (if ($s.found // false)
            then ( [ { resourceRefId: "card-agent-detail-identity" } ]
-                  + (if ($s.model // false)     then [ { resourceRefId: "card-agent-detail-model" } ]     else [] end)
-                  + (if ($s.tools // false)     then [ { resourceRefId: "card-agent-detail-tools" } ]     else [] end)
-                  + (if ($s.delegates // false) then [ { resourceRefId: "card-agent-detail-delegates" } ] else [] end)
-                  + (if ($s.memory // false)    then [ { resourceRefId: "card-agent-detail-memory" } ]    else [] end)
+                  + (if ($s.prompt // false)     then [ { resourceRefId: "card-agent-detail-prompt" } ]     else [] end)
+                  + (if ($s.model // false)      then [ { resourceRefId: "card-agent-detail-model" } ]      else [] end)
+                  + (if ($s.tools // false)      then [ { resourceRefId: "card-agent-detail-tools" } ]      else [] end)
+                  + (if ($s.delegates // false)  then [ { resourceRefId: "card-agent-detail-delegates" } ]  else [] end)
+                  + (if ($s.skills // false)     then [ { resourceRefId: "card-agent-detail-skills" } ]     else [] end)
+                  + (if ($s.memory // false)     then [ { resourceRefId: "card-agent-detail-memory" } ]     else [] end)
+                  + (if ($s.deployment // false) then [ { resourceRefId: "card-agent-detail-deployment" } ] else [] end)
                   + [ { resourceRefId: "card-agent-detail-manifest" } ] )
            else [ { resourceRefId: "agent-detail-empty" } ] end) }
   resourcesRefs:
@@ -57,6 +68,24 @@ spec:
       name: agent-detail-header-block
       namespace: {{ .Release.Namespace }}
       resource: flexes
+      verb: GET
+    - id: card-agent-detail-prompt
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-prompt
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-skills
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-skills
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: card-agent-detail-deployment
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: card-agent-detail-deployment
+      namespace: {{ .Release.Namespace }}
+      resource: cards
       verb: GET
     - id: agent-detail-empty
       apiVersion: widgets.templates.krateo.io/v1beta1

@@ -1,0 +1,47 @@
+# "Agent card" — what this agent PUBLISHES about itself over A2A (declarative.a2aConfig.skills).
+#
+# This is the inbound half of the delegation story, and the page had only the outbound half: the
+# Delegation card says who this agent calls, and nothing said what this agent advertises to the
+# agents that might call IT. Those are different facts about different directions, so they are
+# different cards rather than two tables under one heading — and a leaf specialist that delegates
+# to nobody still publishes skills, so folding them together would hide the skills of every agent
+# that has no Delegation card at all.
+#
+# Rendered for every declarative agent, INCLUDING one that publishes nothing. "This agent declares
+# no skills, so a peer discovers its name and nothing else" is the finding worth surfacing here —
+# hiding the card for exactly the agents it would indict is the failure mode this card exists to
+# avoid. The table child is dropped when there are no rows (an empty table is not a statement); the
+# caption carries the statement in both directions.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-agent-detail-skills
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Agent card
+    titleVariant: eyebrow
+    variant: outlined
+    headerLeft: The skills this agent publishes over A2A.
+    items:
+    - resourceRefId: agent-detail-skills
+  widgetDataTemplate:
+  - forPath: headerLeft
+    expression: '${ .skillsCaption // "" }'
+  - forPath: items
+    expression: '${ if ((.skillRows // []) | length) == 0 then [] else [ { resourceRefId: "agent-detail-skills" } ] end }'
+  resourcesRefs:
+    items:
+    - id: agent-detail-skills
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-skills
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
