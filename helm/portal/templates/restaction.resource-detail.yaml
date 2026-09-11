@@ -68,6 +68,39 @@ spec:
           end),
         conditions: [ $conds[] | { type: (.type // ""), status: (.status // ""), reason: (.reason // ""),
                                    state: (if (.status // "") == "True" then "healthy" elif (.status // "") == "False" then "failed" else "pending" end) } ],
+        # THE STUCK-CREATE ANNOTATION.
+        #
+        # krateo.io/external-create-pending is written by a provider before it calls the external
+        # API and cleared when the call returns. If the process dies in between, it is never
+        # cleared and the resource is wedged: the controller refuses to retry and reports
+        #   "cannot determine creation result - remove the krateo.io/external-create-pending
+        #    annotation if it is safe to proceed"
+        # — an instruction addressed to a human with kubectl, printed on a page that offered no
+        # way to act on it. Two publishes sat like this for 30 hours on krateo-057.
+        #
+        # EXCEPTION-ONLY: every field below is empty on a healthy object, so the page composes
+        # nothing. The annotation being ABSENT is the normal case and says nothing.
+        # NOT "the annotation is present" — that was the first cut and it was wrong. On krateo-057
+          # ALL 17 LocalResources carry it and 8 are Synced=True/ReconcileSuccess: this provider
+          # simply never clears it on the happy path. Firing on the annotation alone would have put
+          # a scary warning and a DANGEROUS button on every healthy resource, where clearing it can
+          # produce a duplicate external object. The annotation is necessary, not sufficient.
+          #
+          # The real signal is the annotation PLUS a condition that is actually False. A wedged
+          # object reports one; a healthy one that merely still carries the marker does not.
+          createPending: (
+            ((($o.metadata.annotations // {})["krateo.io/external-create-pending"] // "") != "")
+            and (([ $conds[] | select((.status // "") == "False") ] | length) > 0)),
+        createPendingSince: (($o.metadata.annotations // {})["krateo.io/external-create-pending"] // ""),
+        # The controller's own words, when it is saying this. Quoted rather than paraphrased so
+        # the page never invents a diagnosis the cluster did not make.
+        createPendingMessage: ([ $conds[] | select((.message // "") | test("external-create-pending")) | (.message // "") ] | first // ""),
+        # Identity for the PATCH that clears it. A generic page cannot hardcode a GVR, so the
+        # button resolves its target through resourcesRefsTemplate from exactly these four.
+        patchApiVersion: ($o.apiVersion // (if $g == "" then (.version // "") else ($g + "/" + (.version // "")) end)),
+        patchResource: $pl,
+        patchName: ($o.metadata.name // (.name // "")),
+        patchNamespace: (if $nsd then ($o.metadata.namespace // (.namespace // "")) else "" end),
         conditionsCount: ($conds | length),
         manifestJson: (if (($o.metadata.name // "") != "") then (($o | del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) | tojson) else "" end)
       }

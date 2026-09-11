@@ -13,6 +13,9 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   keyExtras: [namespace, group, version, plural, name]
+  apiRef:
+    name: resource-detail
+    namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
     - flexes
@@ -22,8 +25,17 @@ spec:
     gap: middle
     items:
     - resourceRefId: resource-detail-header
-    - resourceRefId: resource-detail-conditions
     - resourceRefId: card-resource-detail-manifest
+  widgetDataTemplate:
+    # The stuck-create block is composed ONLY when the annotation is on the object. It sits
+    # directly under the header and above the conditions, because it is the one thing on this
+    # page a reader can ACT on — and the condition it explains is what they came to read.
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "resource-detail-header" } ]
+        + (if (.createPending // false) then [ { resourceRefId: "resource-detail-create-pending-block" } ] else [] end)
+        + (if ((.conditionsCount // 0) > 0) then [ { resourceRefId: "resource-detail-conditions" } ] else [] end)
+        + [ { resourceRefId: "card-resource-detail-manifest" } ] }
   resourcesRefs:
     items:
     - id: resource-detail-header
@@ -37,6 +49,12 @@ spec:
       name: resource-detail-conditions
       namespace: {{ .Release.Namespace }}
       resource: listies
+      verb: GET
+    - id: resource-detail-create-pending-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: resource-detail-create-pending-block
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
       verb: GET
     - id: card-resource-detail-manifest
       apiVersion: widgets.templates.krateo.io/v1beta1
