@@ -169,7 +169,14 @@ spec:
     # keys that role owns. Smallest so the example is readable; projected so a policy that carries
     # two roles' blocks does not teach the wrong one. tojson is safe here (this is an EXAMPLE string,
     # key order carries no meaning) -- unlike the schema itself, which must stay an ordered array.
-    | ( reduce ($roleKeys | keys_unsorted[]) as $r ({};
+    # $roleOrder, NOT `$roleKeys | keys_unsorted`. snowplow runs a gojq fork that does not implement
+    # keys_unsorted at all — the query fails to COMPILE ("function not defined: keys_unsorted/0"),
+    # which takes the whole form down to a skeleton with no error on screen. Local jq (jqlang)
+    # HAS it, so this passed at a shell and failed on the engine that runs it — the same trap
+    # restaction.agent-formdef's header documents for object key ORDER. An explicit list is better
+    # anyway: it fixes the order rather than depending on one, and matches the Role enum.
+    | ["identity","guardrail","limits","resiliency","observability","passthrough","cors"] as $roleOrder
+    | ( reduce ($roleOrder[]) as $r ({};
           . as $acc
           | ( $roleKeys[$r] ) as $rk
           | ( [ $live[]
@@ -185,10 +192,10 @@ spec:
     # not, which is worse than saying nothing, so an over-long example is WITHHELD and named as
     # withheld. The policies page renders the full live values for the roles skipped here.
     | 200 as $exampleCap
-    | ( [ $roleKeys | keys_unsorted[] as $r
+    | ( [ $roleOrder[] as $r
           | select($examples[$r] != "") | select(($examples[$r] | length) <= $exampleCap)
           | ($r + " " + $examples[$r]) ] | join("  ") ) as $exampleText
-    | ( [ $roleKeys | keys_unsorted[] as $r
+    | ( [ $roleOrder[] as $r
           | select($examples[$r] != "") | select(($examples[$r] | length) > $exampleCap)
           | $r ] ) as $tooLong
     | ( $examples["limits"] // "{}" ) as $blockDefault

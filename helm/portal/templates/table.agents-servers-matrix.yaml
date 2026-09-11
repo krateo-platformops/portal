@@ -48,11 +48,14 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    # fitContent sizes every column to its content. Correct here and wrong on the pair list: the
-    # cells are one or two characters, so max-content is NARROW, and it is what keeps ten columns on
-    # one screen. The header is the widest thing in each column, which is the honest constraint —
-    # the server name has to stay readable or the column means nothing.
-    fitContent: true
+    # fitContent: FALSE — and this is the fix for the first render. `true` does NOT size columns to
+    # content; it shrinks them to the container and sets antd `ellipsis` on every column
+    # (ui/src/widgets/Table/Table.tsx:75 and :96), so all nine server names truncated to
+    # "CLICKHOUS...", "ITBENCH-S...", "KAGENT-TO...". A cell you can read but cannot attribute to a
+    # server is a matrix that does not work. `false` gives scroll.x = max-content: full headers, and
+    # a horizontal scrollbar only if the shortened titles still do not fit. For a matrix that trade
+    # runs the right way — scrolling is a minor cost, an unidentifiable column is a total one.
+    fitContent: false
     pagination:
       defaultPageSize: 50
       hideOnSinglePage: true

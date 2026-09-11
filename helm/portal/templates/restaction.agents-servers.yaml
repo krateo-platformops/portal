@@ -276,7 +276,16 @@ spec:
     | ( if $serversDenied then [] else [ $serverRows[] | .name ] end ) as $listedServers
     | ( [ $bindingRows[] | .server ] | unique ) as $boundServers
     | ( ( $listedServers + $boundServers ) | unique | sort ) as $matrixServers
-    | ( [ $matrixServers | to_entries[] | { key: ("c" + (.key | tostring)), title: .value } ] ) as $matrixCols
+    # SHORT titles, and only where shortening stays unambiguous. Full names run 20-35 chars
+    # ("core-provider-chart-gate-mcp-server") and nine of them beside an Agent column do not fit a
+    # screen: the first render ellipsised every header to "CLICKHOUS...", "ITBENCH-S...", so a cell
+    # could be read but not attributed to a server — which is the entire job of a matrix. A trailing
+    # "-mcp-server" / "-server" is dropped, and ONLY if every shortened name is still distinct;
+    # otherwise the full names are kept and the table scrolls rather than becoming ambiguous. The
+    # tool-server table directly above carries the full names either way.
+    | ( [ $matrixServers[] | sub("-mcp-server$"; "") | sub("-server$"; "") ] ) as $shortNames
+    | ( if ($shortNames | unique | length) == ($matrixServers | length) then $shortNames else $matrixServers end ) as $colTitles
+    | ( [ $matrixServers | to_entries[] | { key: ("c" + (.key | tostring)), title: ($colTitles[.key]) } ] ) as $matrixCols
     | ( [ $matrixServers | to_entries[] | { key: .value, value: ("c" + (.key | tostring)) } ] | from_entries ) as $colOf
     | ( [ $bindingRows[] | { key: (.agent + " @@ " + .server), value: . } ] | from_entries ) as $byPair
     # Every agent gets a row, including one that binds nothing: "this agent calls no tools" is a fact
@@ -286,7 +295,12 @@ spec:
                  | ( if $multiNs then ((.metadata.namespace // "") + "/" + .metadata.name) else .metadata.name end ) ]
                | unique | sort ) end ) as $matrixAgents
     # Cell vocabulary, in the mockup's own terms and no stronger:
-    #   ""      nothing bound -- the cell is empty so the matrix reads sparse, which is the point
+    #   U+00A0  nothing bound. A NON-BREAKING SPACE, not "". The SPA renders a FALSY cell as a dash
+    #           (ui/src/widgets/Table/Table.tsx:180, `if (!stringValue) { return '-' }`) and "" is
+    #           falsy — so the first render produced a GRID OF DASHES, which is precisely what
+    #           burying 37 filled cells among 135 looks like. A space is truthy and renders blank.
+    #           The durable fix is that frontend line (`stringValue === undefined`); until it lands
+    #           this is the only way to get a blank cell out of the widget set.
     #   8       eight tools bound
     #   8 !     some of them gated by requireApproval (a human approves the call)
     #   8 ?     some bound name is not in the server's discovered list. NOT automatically a fault --
@@ -297,7 +311,7 @@ spec:
               cells: ( [ $matrixServers[] as $sv
                          | ( $byPair[$a + " @@ " + $sv] ) as $b
                          | { key: $colOf[$sv],
-                             value: ( if $b == null then ""
+                             value: ( if $b == null then "\u00a0"
                                       else ( ( if $b.bound == "—" then "0" else $b.bound end )
                                              + ( if $b.approvals != "—" then " !" else "" end )
                                              + ( if ( $b.served != "—" and $b.served != "not readable"
