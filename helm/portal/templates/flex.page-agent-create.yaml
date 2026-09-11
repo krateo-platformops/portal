@@ -1,0 +1,46 @@
+# Convention page root for /agents/new (nav item `page: agent-create` → resource `flexes`, name
+# `page-<slug>`). Sibling of page-alert-create; no route params/extras, since the Agent GVR is
+# static and agent-formdef needs no route identity.
+#
+# ORDER IS THE DESIGN. The gateway card sits BETWEEN the pagehead and the configuration card, so the
+# sentence "this form cannot make the agent reachable" is read before a single field is typed — not
+# discovered in a toast after the POST has already landed. That ordering is the whole reason this
+# page has three sections instead of two; do not move the card below the form to "tidy up".
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-agent-create
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+      - flexes
+      - cards
+    vertical: true
+    gap: large
+    items:
+      - resourceRefId: agent-create-header
+      - resourceRefId: agent-create-gateway-card
+      - resourceRefId: agent-create-form-card
+  resourcesRefs:
+    items:
+      - id: agent-create-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: agent-create-header
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
+      - id: agent-create-gateway-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: agent-create-gateway-card
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: agent-create-form-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: agent-create-form-card
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET

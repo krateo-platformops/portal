@@ -1,0 +1,27 @@
+# /agents/new page head — eyebrow + title + subtitle stack (sibling of agents-header).
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    vertical: true
+    items:
+    - resourceRefId: agent-create-eyebrow
+    - resourceRefId: agent-create-title
+    - resourceRefId: agent-create-subtitle
+  resourcesRefs:
+    items:
+    {{- range (list "agent-create-eyebrow" "agent-create-title" "agent-create-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}

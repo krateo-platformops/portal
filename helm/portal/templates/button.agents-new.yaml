@@ -1,0 +1,30 @@
+# "New agent" — the /agents CTA into the create Form. Plain literal navigate; the target is static
+# (2 segments, so it never collides with a future 3-segment /agents/{namespace}/{name} detail
+# route). Mirrors button.alerts-new.
+#
+# NOT WIRED INTO A PAGE YET. `/agents/new` is not a route on this branch — menu.sidebar-nav is the
+# single route source and this wave's lead owns it. This object renders into the chart but nothing
+# references it, so no user can reach it and no user can hit the 404 it would currently produce.
+# flex.page-agents carries the two-step recipe for turning it on; do not add the items entry there
+# without adding the menu route in the same commit.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-new
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    label: New agent
+    icon: fa-plus
+    type: primary
+    size: middle
+    clickActionId: new-agent
+    actions:
+      navigate:
+        - id: new-agent
+          type: navigate
+          path: /agents/new
+  resourcesRefs:
+    items: []

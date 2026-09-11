@@ -1,0 +1,143 @@
+# Agent create Form — the alert-create shape (apiRef → formdef → live-CRD schema → one POST),
+# with two differences that are worth reading before editing.
+#
+# stringSchema, NOT schema. Form.tsx:178 prefers widgetData.stringSchema (a raw JSON string) and
+# only falls back to widgetData.schema, because JSON.parse preserves key insertion order while the
+# `schema` object arrives from a Go map, alphabetised. agent-formdef therefore hands over
+# `.schemaString`.
+#
+# READ restaction.agent-formdef's note before touching it: the string has to be CONCATENATED. gojq
+# — the engine snowplow actually runs, pinned to the braghettos v0.12.21 fork — sorts object keys in
+# `tojson`, so building the schema as a jq object and serialising it produced the same alphabetical
+# scatter the stringSchema was chosen to avoid (the ordering only looked right when the filter was
+# tried under local jqlang jq, which does preserve insertion order). Anything order-bearing on the
+# way to this widget must never exist as a jq object.
+#
+# The submit reassembles spec.declarative.tools[]. The form's three multi-selects
+# (__tools__ / __approvals__ / __delegates__, all "<server>/<tool>" or agent-name strings) are
+# folded by the jq below into the real CRD shape, verified byte-for-byte against the live
+# `autopilot` Agent on krateo-057:
+#   { "type":"McpServer","mcpServer":{ "apiGroup":"kagent.dev","kind":"RemoteMCPServer",
+#                                      "name":…, "toolNames":[…], "requireApproval":[…] } }
+#   { "type":"Agent","agent":{ "apiGroup":"kagent.dev","kind":"Agent","name":… } }
+# The CRD's own rule — "[requireApproval] names must also appear in ToolNames" — is enforced here by
+# intersecting the two selections per server, so an approval left behind after its tool was
+# deselected is dropped instead of being rejected at apply time.
+#
+# `spec.type` is pinned to Declarative and never rendered: BYO needs spec.byo.deployment.image and
+# the two are a union the schema renderer cannot branch on (see restaction.agent-formdef §2).
+#
+# WHAT THIS FORM DOES NOT DO — read card.agent-create-gateway-card. A created Agent is NOT reachable
+# until it is registered at the agentgateway, and that registration lives in a chart this portal
+# cannot write. There is no second op here on purpose: a PATCH of the AgentgatewayPolicies CR would
+# apply and then be reverted by the next Installer reconcile, which is a worse failure than not
+# writing at all — it would LOOK handled.
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agent-formdef
+    namespace: {{ .Release.Namespace }}
+  # agent-formdef reads the authenticated username SERVER-SIDE to scope the per-user draft key
+  # (__owner in initialValues). Under the cache-identity architecture the frontend stops
+  # volunteering identity in extras, so declare it here: snowplow injects the server-trusted
+  # username (JWT principal) into this widget's L1 key + resolve input. Enum-bounded to username.
+  identityContext:
+    - username
+  widgetData:
+    layout: vertical
+    # Configure → Review. A system message is long-form and an Agent create is not undoable from
+    # this page, so the primary button first reveals a read-only summary of everything entered;
+    # only the Review step's button creates.
+    reviewBeforeSubmit: true
+    submitActionId: submit
+    # Save draft: persists the CURRENT field values un-validated to the BROWSER (localStorage), so a
+    # half-written system message survives a reload. No backend persistence. Keyed by __owner
+    # (seeded into initialValues, never rendered/validated); draftActionId only ENABLES the button.
+    draftActionId: save-draft
+    schema: {}
+    buttonConfig:
+      primary:
+        label: Create agent
+      review:
+        label: Review →
+      secondary:
+        label: Cancel
+        # Cancel → back to the inventory (navigate, not a form reset); this form is reached from
+        # /agents, so that is the user's origin.
+        navigateTo: /agents
+      draft:
+        label: Save draft
+        icon: fa-floppy-disk
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-agent
+          headers:
+            - 'Content-Type: application/json'
+          # Back to the inventory: there is no /agents/{namespace}/{name} detail route yet, and a
+          # redirect to a route the Menu does not serve is a dead end. Swap this for the detail
+          # path when that slice lands.
+          onSuccessNavigateTo: /agents
+          successMessage: Agent created — it is NOT reachable yet. Register it at the gateway (Installer componentValues) before anyone tries to use it.
+          errorMessage: Agent not created — an agent with that name may already exist in that namespace (409), or you may not hold create on agents.kagent.dev there.
+          loading:
+            display: true
+          # apiVersion/kind travel in the body (buildPayload merges the action payload first, then
+          # applies the overrides below); the frontend derives the /call target namespace + name
+          # from body metadata, so the resourceRef stays name-free like every other create form.
+          payload:
+            apiVersion: kagent.dev/v1alpha2
+            kind: Agent
+          payloadToOverride:
+            - name: metadata.name
+              value: '${ .json.__agent_name__ }'
+            - name: metadata.namespace
+              value: '${ .json.__agent_namespace__ }'
+            # spec is built WHOLESALE (not merged) so no reserved __key__ can leak into it and no
+            # unexposed CRD branch (byo/sandbox/skills/memory/…) is ever emitted half-filled.
+            - name: spec
+              value: >-
+                ${ ( .json.__tools__ // [] ) as $tsel
+                | ( .json.__approvals__ // [] ) as $asel
+                | ( .json.__delegates__ // [] ) as $dsel
+                | ( [ $tsel[] | select(type == "string") | select(index("/")) | { s: (split("/")[0]), t: (split("/")[1:] | join("/")) } ] ) as $tp
+                | ( [ $asel[] | select(type == "string") | select(index("/")) | { s: (split("/")[0]), t: (split("/")[1:] | join("/")) } ] ) as $ap
+                | ( $tp | group_by(.s) | map({ s: .[0].s, tn: ([ .[].t ] | unique) }) ) as $byS
+                | ( ( $byS | map( . as $g
+                      | { type: "McpServer",
+                          mcpServer: ( { apiGroup: "kagent.dev", kind: "RemoteMCPServer", name: $g.s, toolNames: $g.tn }
+                            + ( ( [ $ap[] | select(.s == $g.s) | .t ] | unique | map(select(. as $x | $g.tn | index($x))) ) as $ra
+                                | if ($ra | length) > 0 then { requireApproval: $ra } else {} end ) ) } ) )
+                    + ( [ $dsel[] | select(type == "string") | { type: "Agent", agent: { apiGroup: "kagent.dev", kind: "Agent", name: . } } ] ) ) as $tools
+                | { type: "Declarative",
+                    description: (.json.description // ""),
+                    declarative: ( { modelConfig: (.json.__model_config__ // ""),
+                                     runtime: (.json.runtime // "python"),
+                                     systemMessage: (.json.systemMessage // "") }
+                                   + ( if ($tools | length) > 0 then { tools: $tools } else {} end ) ) } }
+  widgetDataTemplate:
+    - forPath: stringSchema
+      expression: '${ .schemaString }'
+    - forPath: propertiesToHide
+      expression: '${ .propertiesToHide }'
+    # Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these over schema
+    # defaults; __owner has no schema field so it stays unrendered.
+    - forPath: initialValues
+      expression: '${ .initialValues }'
+  resourcesRefs:
+    # The create POST target is built from the discovered GVR in resourcesRefsTemplate below.
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: create-agent
+        apiVersion: '${ .apiVersion }'
+        resource: '${ .resource }'
+        namespace: '${ .namespace }'
+        verb: POST
