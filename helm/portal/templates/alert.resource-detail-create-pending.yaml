@@ -1,0 +1,42 @@
+# Shown ONLY when krateo.io/external-create-pending is actually on the object.
+#
+# This is the one state where the controller tells a human exactly what to do and the portal
+# historically could not do it: "remove the krateo.io/external-create-pending annotation if it is
+# safe to proceed". The instruction was visible in an incident report, in a builder table's Reason
+# column, and nowhere that could act on it.
+#
+# THE WARNING IS NOT DECORATION. Clearing the annotation tells the provider "no external object was
+# created, start over". If the external call DID succeed before the process died, clearing it makes
+# the provider create a SECOND one. That is why the controller refuses to decide by itself, and why
+# this text says what to check rather than just offering the button.
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: resource-detail-create-pending
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [namespace, group, version, plural, name]
+  apiRef:
+    name: resource-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: This resource is stuck waiting on an external create
+    type: warning
+    showIcon: true
+    description: >-
+      The provider set krateo.io/external-create-pending before calling the external API and never
+      cleared it, so it cannot tell whether the object was created. It will not retry on its own.
+      Clearing the annotation tells it to start over — which is right if nothing was created, and
+      wrong if something was: you would get a second copy. Check the external system first, then
+      clear it.
+  widgetDataTemplate:
+    # The controller's own message when it has one, so the page quotes rather than paraphrases.
+    - forPath: description
+      expression: >-
+        ${ (.createPendingMessage // "") as $m
+        | "The provider set krateo.io/external-create-pending before calling the external API and never cleared it, so it cannot tell whether the object was created. It will not retry on its own. Clearing the annotation tells it to start over — which is right if nothing was created, and wrong if something was: you would get a second copy. Check the external system first, then clear it."
+        + (if $m != "" then ("\n\nThe controller says: " + $m) else "" end) }
+  resourcesRefs:
+    items: []
