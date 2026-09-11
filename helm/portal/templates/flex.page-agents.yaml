@@ -1,0 +1,43 @@
+# Convention page root for /agents — the agent control plane.
+#
+# Reached from the sidebar via `resourceRefId: agents` in menu.sidebar-nav, whose resourcesRefs
+# entry carries this admin-tier namespace explicitly. That indirection is what makes the entry
+# RBAC-aware (snowplow resolves it as the caller, so the nav item disappears for a user who cannot
+# GET this Flex) and it is also why this root can live in the tier namespace at all — the bare
+# `page:` convention would look for it in the MENU's own namespace and 404.
+#
+# First slice: pagehead + the agent inventory table. The topology view, the per-agent detail route
+# and the spawn form follow; the spawn CTA is deliberately absent until the form it opens exists,
+# because a Button with no working action is both dead UI and a CI failure (mockup-diff.mjs flags
+# an inert `actions`).
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-agents
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    - tables
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-header
+    - resourceRefId: agents-list
+  resourcesRefs:
+    items:
+    - id: agents-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-header
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-list
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-list
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
