@@ -33,6 +33,7 @@ metadata:
 spec:
   widgetData:
     allowedResources:
+    - cards
     - flexes
     - tables
     vertical: true
@@ -42,7 +43,13 @@ spec:
     # Right-aligned "New agent" → /agents/new. A Flex, not the Button directly: `buttons` is not in
     # this page's allowedResources and Buttons carry no self-alignment field.
     - resourceRefId: agents-new-cta
-    - resourceRefId: agents-list
+    # The inventory table, inside its frame (card.agents-list) — the page composes the CARD, and
+    # the Card carries its own resourcesRefs entry for the table, so the table is resolved one
+    # level down rather than here. `cards` had to join allowedResources for that: the Flex enum is
+    # a hard CRD enum with no preserve-unknown-fields, so an unlisted plural is rejected at APPLY
+    # time, not at render. `tables` stays listed because this page still composes the Tool servers
+    # section, whose own subtree holds two.
+    - resourceRefId: agents-list-card
     - resourceRefId: agents-servers
   resourcesRefs:
     items:
@@ -58,11 +65,11 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: agents-list
+    - id: agents-list-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-list
+      name: agents-list-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET
     # The Tool servers section (flex.agents-servers) — a SECTION of this page, not a route of its
     # own: it answers the question the table above raises ("5 tools across 2 servers — which ones,

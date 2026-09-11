@@ -22,6 +22,7 @@ metadata:
 spec:
   widgetData:
     allowedResources:
+    - cards
     - flexes
     - paragraphs
     - tables
@@ -29,10 +30,13 @@ spec:
     gap: middle
     items:
     - resourceRefId: agents-servers-head
+    # The notice stays OUTSIDE the frame below it. It is what this section says when a read did not
+    # answer, and a "could not read it" line boxed inside the panel it is qualifying reads as a
+    # property of that panel's contents rather than a warning about them.
     - resourceRefId: agents-servers-notice
-    - resourceRefId: agents-servers-list
+    - resourceRefId: agents-servers-list-card
     - resourceRefId: agents-servers-bindings-head
-    - resourceRefId: agents-servers-bindings
+    - resourceRefId: agents-servers-bindings-card
   resourcesRefs:
     items:
     - id: agents-servers-head
@@ -47,11 +51,16 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: paragraphs
       verb: GET
-    - id: agents-servers-list
+    # Both tables are composed through their frames (card.agents-servers-list,
+    # card.agents-servers-bindings) — the same outlined surface every other panel in this feature
+    # already has. Each Card carries its own resourcesRefs entry for its table, so `tables` stays in
+    # the enum above only for the CRs those Cards resolve; `cards` had to be ADDED, because the Flex
+    # allowedResources enum is a hard CRD enum and an unlisted plural is rejected at apply time.
+    - id: agents-servers-list-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-servers-list
+      name: agents-servers-list-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET
     - id: agents-servers-bindings-head
       apiVersion: widgets.templates.krateo.io/v1beta1
@@ -59,9 +68,9 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: agents-servers-bindings
+    - id: agents-servers-bindings-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-servers-bindings
+      name: agents-servers-bindings-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET
