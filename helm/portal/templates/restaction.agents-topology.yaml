@@ -1,0 +1,501 @@
+# The gateway topology behind /agents — "every hop crosses one gateway", derived, not asserted.
+#
+# WHAT THE PICTURE CLAIMS, AND WHAT PROVES IT. kagent points every agent's PROXY_URL at the internal
+# agentgateway, so A2A delegation, MCP tool calls and the model call all leave the pod towards the
+# same address and are told apart by an `x-kagent-host` header. PROXY_URL itself is a controller env
+# var this page cannot read — so the claim is NOT made from it. It is made from the routes: 23 of the
+# 26 HTTPRoutes attached to krateo-agent-gateway select their backend by an EXACT `x-kagent-host`
+# match, and the values are the in-cluster hosts a caller dials (`k8s-agent.krateo-system`,
+# `kagent-tools.krateo-system`). A gateway that routes on a header only the CLIENT sets is a gateway
+# the client's traffic arrives at. That is the whole derivation, and the subtitle says it in those
+# terms rather than restating the env var as if we had read it.
+#
+# THE HUB IS FOUND, NOT NAMED. Nothing here hard-codes "krateo-agent-gateway". A hub is any Gateway
+# that (a) some readable HTTPRoute names as a parentRef and (b) carries at least one x-kagent-host
+# match. Today that yields exactly one; a second mesh gateway would simply draw a second hub with its
+# own fan (verified by mutating the fixture: 2 hubs, 17 nodes, no orphan edges). A hub whose routes
+# we can see but whose Gateway OBJECT we cannot read is NOT drawn from the route alone — a node needs
+# a real uid and a real creationTimestamp, and the subtitle counts what was skipped.
+#
+# WHAT EARNS A NODE — the judgement, and why it is not the mockup's 27. The section exists to show a
+# SHAPE (many → one → a few); the tables above it already do inventory, so a node has to change the
+# shape to earn its place. That gives 16:
+#   * every platform Agent, individually (11). The fan-in IS the thesis, and this is the only place
+#     the per-agent reachability answer can live honestly — see the three-state rule below. Collapse
+#     them and the picture stops being a funnel and the honesty rule loses its home.
+#   * the 4 bench agents as ONE node. The bench profile is a second copy of the same topology against
+#     the same hub: four more nodes of pure redundancy, and four more rows of height in a widget that
+#     autoFits to its container (a taller graph renders SMALLER). Collapsing them is the single
+#     change that most improves legibility per fact lost.
+#   * the hub Gateway (1).
+#   * the busiest tool server on its own (1) and the remaining routed ones as ONE node. "Busiest" is
+#     a rule, not a favourite: max discoveredTools, ties broken by name. It resolves to
+#     kagent-tool-server with 124 of the cluster's 183 tools — losing it inside a group would hide
+#     most of the tool surface behind a count, while the other seven are interchangeable from the
+#     shape's point of view.
+#   * the model backend (1) — the third egress class named in the thesis.
+# NOT drawn, deliberately: the platform edge gateway and its 7 routes (a second, unrelated funnel —
+# browser to platform, not agent to mesh — and drawing it next to this one dilutes "ONE gateway"),
+# and a node for the a2a catch-all's Service `kagent-controller`. That last one is the honest
+# omission: this action does not list Services, so its uid, resourceVersion and creationTimestamp
+# would all have to be invented, and `date` is RENDERED (the node footer shows "N days" and an
+# absolute-date tooltip) — an invented one would read as fact and an empty one renders "NaN days".
+# The catch-all is named in the hub node's tooltip instead, where it is a route fact we did read.
+#
+# REAL vs SYNTHETIC — a reader will assume every node is a live object, so: 14 of the 16 ARE. Their
+# uid, resourceVersion and date are the object's own metadata, unmodified. The two collapsed group
+# nodes are NOT objects and say so in their `kind` ("Agent · collapsed group"). Their uid is a fixed
+# literal ("group:bench-agents", "group:mcp-tool-servers") — deterministic across renders, and
+# unmistakable for the UUID every real uid is; their `resourceVersion` is "" because they have none
+# and inventing one would be a lie about a field whose whole purpose is identity; their `date` is the
+# OLDEST member's real creationTimestamp (stated in the tooltip), because `date` must parse or the
+# node footer renders "NaN days".
+#
+# THE HONESTY RULE, which is why this action is five steps and not two. krateo-blueprint-agent sat
+# with no gateway route for a week while the mockup said so; the route now exists and this graph
+# renders it green off live data. The failure mode to avoid is the INVERSE: calling an agent
+# unrouted because we could not see its route. `$routesComplete` gates it — reachability is only
+# asserted when the HTTPRoute step SUCCEEDED *and* every hub listener takes routes from its own
+# namespace only (`allowedRoutes.namespaces.from == "Same"`, the Gateway API default). A hub that
+# accepted routes from other namespaces could have routes behind the caller's per-namespace refilter,
+# so every node goes gray "cannot tell" and says which of the two reasons applies. Three states, never
+# two: green = a named HTTPRoute matches this host, orange = the routes are fully readable and none
+# does, gray = we cannot tell and are not claiming otherwise.
+#
+# A HEALTHY NODE STILL CARRIES A STATUS ICON, against the usual exception-only rule, because the
+# widget forces the choice: FlowChartNodeElement renders `statusIcon || fallbackIcon` and the
+# fallback is a GRAY QUESTION MARK. Omitting the icon on a healthy agent would paint it with the
+# exact glyph this action reserves for "cannot tell" — so green-check-on-healthy is the quiet option,
+# not the noisy one.
+#
+# WHY FIVE INDEPENDENT LISTS AND NO dependsOn: the joins are all by value (route parentRef → Gateway,
+# route backendRef → AgentgatewayBackend, x-kagent-host → agent/server host), so the whole graph is
+# one pass over five cluster-scope lists in the global filter. No N+1, no ordering.
+#
+# HOSTS ARE NORMALISED BEFORE COMPARING, the same decomposition restaction.agents-servers uses:
+# <svc>, <svc>.<ns> and <svc>.<ns>.svc[.cluster.local] all reduce to "<svc>.<ns>". Comparing raw
+# strings would call kagent-tool-server unrouted the day someone writes its URL as an FQDN.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-topology
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: agents
+    path: /apis/kagent.dev/v1alpha2/agents
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: agents
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: agentsError
+  # v1 is the storage version of gateways/httproutes on the cluster (v1beta1 is still served but is
+  # not storage) — same pin as restaction.agents-policies, so both read the canonical paths.
+  - name: gateways
+    path: /apis/gateway.networking.k8s.io/v1/gateways
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: gateways
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: gatewaysError
+  - name: routes
+    path: /apis/gateway.networking.k8s.io/v1/httproutes
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: httproutes
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: routesError
+  - name: backends
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaybackends
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaybackends
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: backendsError
+  - name: servers
+    path: /apis/kagent.dev/v1alpha2/remotemcpservers
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: remotemcpservers
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: serversError
+  filter: |
+    # snowplow writes a swallowed step error to its errorKey as an ACCUMULATING SLICE, each entry
+    # being the apiserver Status decoded to a map or a bare message string. Flatten all three shapes;
+    # "" means the step SUCCEEDED. Same helper as restaction.agents-list.
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
+
+    # [scheme://]<svc>[.<ns>[.svc[.cluster.local]]][:port][/path] -> "<svc>.<ns>". A bare single-label
+    # host takes the caller's own namespace, which is what in-cluster DNS would resolve it to.
+    def hostKey($h; $ns):
+      ( ($h // "") | split("://") | (if length > 1 then .[1] else .[0] end)
+        | split("/") | .[0] | split(":") | .[0] | split(".") ) as $p
+      | if (($p | length) == 0) or (($p[0] // "") == "") then ""
+        elif ($p | length) == 1 then ($p[0] + "." + $ns)
+        else ($p[0] + "." + ($p[1] // $ns)) end;
+
+    def clip($s; $n):
+      ( $s // "" ) | if (. | length) > $n then (.[0:$n] + "…") else . end;
+
+    ( errText(.agentsError) )   as $agErr
+    | ( errText(.gatewaysError) ) as $gwErr
+    | ( errText(.routesError) )   as $rtErr
+    | ( errText(.backendsError) ) as $beErr
+    | ( errText(.serversError) )  as $srvErr
+    | ( [ (if $agErr  != "" then ("Agents (" + $agErr + ")") else empty end),
+          (if $gwErr  != "" then ("Gateways (" + $gwErr + ")") else empty end),
+          (if $rtErr  != "" then ("HTTPRoutes (" + $rtErr + ")") else empty end),
+          (if $beErr  != "" then ("AgentgatewayBackends (" + $beErr + ")") else empty end),
+          (if $srvErr != "" then ("RemoteMCPServers (" + $srvErr + ")") else empty end) ] ) as $failed
+
+    # One flat record per route. parentRef.kind and backendRef.kind both DEFAULT in the Gateway API
+    # (Gateway and Service respectively) — reading them as required would drop every route that
+    # omits them, which is most of them.
+    | ( [ (.routes.items // [])[]
+          | . as $r
+          | ($r.metadata.namespace // "") as $rns
+          | { name: ($r.metadata.name // ""),
+              ns:   $rns,
+              hosts: [ ($r.spec.rules // [])[] | (.matches // [])[] | (.headers // [])[]
+                       | select((((.name // "") | ascii_downcase) == "x-kagent-host"))
+                       | (.value // "") | select(. != "") ],
+              gws:  [ ($r.spec.parentRefs // [])[] | select(((.kind // "Gateway") == "Gateway"))
+                      | ((.namespace // $rns) + "/" + (.name // "")) ],
+              beRefs: [ ($r.spec.rules // [])[] | (.backendRefs // [])[]
+                        | select(((.kind // "Service") == "AgentgatewayBackend"))
+                        | ((.namespace // $rns) + "/" + (.name // "")) ],
+              svcRefs: [ ($r.spec.rules // [])[] | (.backendRefs // [])[]
+                         | select(((.kind // "Service") == "Service"))
+                         | ((.name // "") + ":" + ((.port // 0) | tostring)) ],
+              paths: [ ($r.spec.rules // [])[] | (.matches // [])[] | (.path.value // empty) ] } ] ) as $routes
+
+    | ( reduce ((.gateways.items // [])[]) as $g ({};
+          .[(($g.metadata.namespace // "") + "/" + ($g.metadata.name // ""))] = $g) ) as $gwIdx
+    | ( reduce ((.backends.items // [])[]) as $b ({};
+          .[(($b.metadata.namespace // "") + "/" + ($b.metadata.name // ""))] = $b) ) as $beIdx
+
+    # A hub is a Gateway some route attaches to AND routes on x-kagent-host. $hubsUnread are the ones
+    # whose routes we saw but whose object we could not read — counted, never drawn (no real uid).
+    | ( [ $routes[] | select((.hosts | length) > 0) | .gws[] ] | unique ) as $hubKeys
+    | ( [ $hubKeys[] | select($gwIdx[.] != null) ] ) as $hubs
+    | ( [ $hubKeys[] | select($gwIdx[.] == null) ] ) as $hubsUnread
+
+    # Per hub: every x-kagent-host it serves, carrying the route name that serves it so a green node
+    # can name its own evidence instead of just asserting "routed".
+    | ( reduce $hubs[] as $k ({};
+          .[$k] = [ $routes[] | select((.gws | index($k)) != null) | . as $rr
+                    | (.hosts[] | hostKey(.; $rr.ns)) as $hk
+                    | { h: $hk, r: $rr.name } ] ) ) as $meshOf
+
+    # THE HONESTY GATE. Reachability is only asserted when the route list answered in full AND every
+    # hub listener takes routes from its own namespace only — otherwise a route could be sitting
+    # behind the caller's per-namespace refilter and "no route" would be a guess. "Same" is the
+    # Gateway API default, so an absent allowedRoutes block is the strict case, not the loose one.
+    | ( ( $rtErr == "" )
+        and ( [ $hubs[] | $gwIdx[.] | (.spec.listeners // [])[]
+                | (.allowedRoutes.namespaces.from // "Same") ] | all(. == "Same") ) ) as $routesComplete
+    | ( if $rtErr != "" then ("the HTTPRoute list did not answer (" + $rtErr + ")")
+        else "this gateway accepts routes from namespaces beyond its own, which this page did not read" end ) as $whyUnsure
+    | ( [ $hubs[] | ($gwIdx[.].metadata.name // "") ] | join(", ") ) as $hubName
+
+    # Same bench predicate as restaction.agents-list: a composition-less Agent is a bench agent.
+    # Rows without a name or namespace are dropped — they cannot be keyed to a route host.
+    | ( [ (.agents.items // [])[]
+          | select(((.metadata.name // "") != "") and ((.metadata.namespace // "") != "")) ] ) as $allAgents
+    | ( [ $allAgents[] | select((((.metadata.labels // {})["krateo.io/composition-id"]) != null) ) ] ) as $platformAgents
+    | ( [ $allAgents[] | select((((.metadata.labels // {})["krateo.io/composition-id"]) == null) ) ] ) as $benchAgents
+
+    # An agent attaches to the hub that carries its host. When no hub does and there is exactly one
+    # hub, it still attaches there — an unrouted agent belongs IN the picture (that is the finding),
+    # drawn with the orange marker. With several hubs and no match there is no honest edge to draw.
+    | ( [ $platformAgents[]
+          | . as $a
+          | (($a.metadata.name) + "." + ($a.metadata.namespace)) as $h
+          | ( [ $hubs[] | select((([ $meshOf[.][] | select(.h == $h) ]) | length) > 0) ] ) as $onHubs
+          | ( if ($onHubs | length) > 0 then $onHubs
+              elif ($hubs | length) == 1 then $hubs else [] end ) as $attach
+          | ( [ $hubs[] | $meshOf[.][] | select(.h == $h) | .r ] | unique ) as $viaRoutes
+          | ( [ (($a.spec.declarative // {}).tools // [])[] | select(.type == "Agent") ] | length ) as $delegates
+          | { hubs: $attach,
+              n: { date: ($a.metadata.creationTimestamp // ""),
+                   kind: "Agent",
+                   name: ($a.metadata.name),
+                   namespace: ($a.metadata.namespace),
+                   resourceVersion: ($a.metadata.resourceVersion // ""),
+                   uid: ($a.metadata.uid // ""),
+                   version: ($a.apiVersion // "kagent.dev/v1alpha2"),
+                   icon: { name: (if $delegates > 0 then "fa-sitemap" else "fa-robot" end),
+                           color: (if $delegates > 0 then "violet" else "blue" end),
+                           message: ( clip(($a.spec.description // "no description"); 160)
+                                      + (if $delegates > 0 then (" · delegates to " + ($delegates | tostring) + " agents over A2A") else "" end) ) },
+                   statusIcon: ( if ($routesComplete | not) then
+                                   { name: "fa-circle-question", color: "gray",
+                                     message: ("Cannot tell whether anything can reach this agent: " + $whyUnsure + ". It is NOT being reported as unrouted.") }
+                                 elif ($viaRoutes | length) > 0 then
+                                   { name: "fa-check", color: "green",
+                                     message: ("Reachable through " + $hubName + " — HTTPRoute " + ($viaRoutes | join(", ")) + " matches x-kagent-host: " + $h) }
+                                 else
+                                   { name: "fa-triangle-exclamation", color: "orange",
+                                     message: ("No route on " + $hubName + " matches x-kagent-host: " + $h + " — nothing can delegate to this agent.") }
+                                 end ),
+                   parentRefs: [] } } ] | sort_by(.n.name) ) as $agentEntries
+
+    # The collapsed bench node. Its status is the WORST of its members', and names the ones that are
+    # missing a route — collapsing may cost a node, it must not cost the finding.
+    | ( [ $benchAgents[] | (.metadata.name + "." + .metadata.namespace) ] ) as $benchHosts
+    | ( if ($benchAgents | length) == 0 then []
+        else
+          [ ( [ $hubs[] | . as $k | select((([ $meshOf[$k][] | .h as $hh | select(($benchHosts | index($hh)) != null) ]) | length) > 0) ] ) as $onHubs
+            | ( if ($onHubs | length) > 0 then $onHubs
+                elif ($hubs | length) == 1 then $hubs else [] end ) as $attach
+            | ( [ $benchAgents[] | .metadata.namespace ] | unique ) as $nss
+            | { hubs: $attach,
+                n: { date: ( [ $benchAgents[] | .metadata.creationTimestamp // "" ] | map(select(. != "")) | sort | (.[0] // "") ),
+                     kind: "Agent · collapsed group",
+                     name: ("bench profile (" + ($benchAgents | length | tostring) + " agents)"),
+                     namespace: (if ($nss | length) == 1 then $nss[0] else "" end),
+                     resourceVersion: "",
+                     uid: "group:bench-agents",
+                     version: ( [ $benchAgents[] | .apiVersion // "kagent.dev/v1alpha2" ] | unique | join(", ") ),
+                     icon: { name: "fa-flask", color: "gray",
+                             message: ("Collapsed: " + ([ $benchAgents[] | .metadata.name ] | sort | join(", "))
+                                       + ". The bench profile duplicates the platform topology against the same gateway; it is drawn as one node so the platform fan stays legible. Date shown is the oldest member's.") },
+                     statusIcon: ( if ($routesComplete | not) then
+                                     { name: "fa-circle-question", color: "gray",
+                                       message: ("Cannot tell how many are reachable: " + $whyUnsure + ".") }
+                                   else
+                                     ( ( [ $benchAgents[] | (.metadata.name + "." + .metadata.namespace)
+                                           | . as $bh | select((([ $hubs[] | $meshOf[.][] | select(.h == $bh) ]) | length) == 0) ] ) as $miss
+                                       | if ($miss | length) == 0 then
+                                           { name: "fa-check", color: "green",
+                                             message: ("All " + ($benchAgents | length | tostring) + " reachable through " + $hubName + " by x-kagent-host.") }
+                                         else
+                                           { name: "fa-triangle-exclamation", color: "orange",
+                                             message: (($miss | length | tostring) + " with no route on " + $hubName + ": " + ($miss | join(", "))) }
+                                         end )
+                                   end ),
+                     parentRefs: [] } } ]
+        end ) as $benchEntries
+
+    | ( $agentEntries + $benchEntries ) as $sourceEntries
+
+    # Tool servers join to the hub by the host they DIAL, not by name: RemoteMCPServer
+    # `kagent-tool-server` dials kagent-tools.krateo-system, which is exactly the x-kagent-host the
+    # MCP route matches. $srvOffHub is the honest residue — a server this gateway has no route for
+    # (today: flux-schema-mcp-server, whose URL leaves the cluster). It is NOT drawn detached, which
+    # would assert its traffic bypasses the gateway; nothing here can prove that. It is named in the
+    # subtitle as what it actually is: a server with no route on this hub.
+    | ( [ (.servers.items // [])[]
+          | . as $s
+          | hostKey(($s.spec.url // ""); ($s.metadata.namespace // "")) as $h
+          | { s: $s, h: $h,
+              tools: ( ($s.status.discoveredTools // []) | length ),
+              hubs: [ $hubs[] | select((([ $meshOf[.][] | select(.h == $h) ]) | length) > 0) ] } ] ) as $srvAll
+    | ( [ $srvAll[] | select((.hubs | length) > 0) ] ) as $srvRouted
+    | ( [ $srvAll[] | select((.hubs | length) == 0) ] ) as $srvOffHub
+    | ( ( $srvRouted | sort_by([ (- .tools), .s.metadata.name ]) | .[0] ) ) as $srvTop
+
+    | ( if $srvTop == null then []
+        else [ { hubs: ($srvTop.hubs),
+                 n: { date: ($srvTop.s.metadata.creationTimestamp // ""),
+                      kind: "RemoteMCPServer",
+                      name: ($srvTop.s.metadata.name),
+                      namespace: ($srvTop.s.metadata.namespace),
+                      resourceVersion: ($srvTop.s.metadata.resourceVersion // ""),
+                      uid: ($srvTop.s.metadata.uid // ""),
+                      version: ($srvTop.s.apiVersion // "kagent.dev/v1alpha2"),
+                      icon: { name: "fa-screwdriver-wrench", color: "orange",
+                              message: (($srvTop.tools | tostring) + " tools discovered · " + ($srvTop.s.spec.url // "no url")
+                                        + " · reached through " + $hubName + " on x-kagent-host: " + $srvTop.h) },
+                      statusIcon: ( ( [ ($srvTop.s.status.conditions // [])[]
+                                        | select(((.type == "Accepted") and (.status == "True")) | not) ] ) as $exc
+                                    | if ($exc | length) == 0 then
+                                        { name: "fa-check", color: "green", message: "Accepted by kagent." }
+                                      else
+                                        { name: "fa-triangle-exclamation", color: "orange",
+                                          message: ( [ $exc[] | ((.type // "?") + "=" + (.status // "?") + " " + (.message // "")) ] | join(" · ") ) }
+                                      end ),
+                      parentRefs: [] } } ]
+        end ) as $topToolEntries
+
+    | ( [ $srvRouted[] | select(($srvTop == null) or (.s.metadata.uid != $srvTop.s.metadata.uid)) ] ) as $srvRest
+    | ( if ($srvRest | length) == 0 then []
+        else [ { hubs: ( [ $srvRest[] | .hubs[] ] | unique ),
+                 n: { date: ( [ $srvRest[] | .s.metadata.creationTimestamp // "" ] | map(select(. != "")) | sort | (.[0] // "") ),
+                      kind: "RemoteMCPServer · collapsed group",
+                      name: ("MCP tool servers (" + ($srvRest | length | tostring) + ")"),
+                      namespace: ( ( [ $srvRest[] | .s.metadata.namespace ] | unique ) as $nss
+                                   | if ($nss | length) == 1 then $nss[0] else "" end ),
+                      resourceVersion: "",
+                      uid: "group:mcp-tool-servers",
+                      version: ( [ $srvRest[] | .s.apiVersion // "kagent.dev/v1alpha2" ] | unique | join(", ") ),
+                      icon: { name: "fa-screwdriver-wrench", color: "gray",
+                              message: ("Collapsed: " + ( [ $srvRest[] | (.s.metadata.name + " (" + (.tools | tostring) + ")") ] | sort | join(", "))
+                                        + ". Every one is routed by " + $hubName + " on its own x-kagent-host. Date shown is the oldest member's.") },
+                      statusIcon: ( ( [ $srvRest[] | select((([ (.s.status.conditions // [])[] | select(((.type == "Accepted") and (.status == "True")) | not) ]) | length) > 0) | .s.metadata.name ] ) as $bad
+                                    | if ($bad | length) == 0 then
+                                        { name: "fa-check", color: "green",
+                                          message: (( [ $srvRest[] | .tools ] | add | tostring) + " tools discovered across " + ($srvRest | length | tostring) + " servers; all Accepted.") }
+                                      else
+                                        { name: "fa-triangle-exclamation", color: "orange",
+                                          message: ("Not Accepted: " + ($bad | join(", "))) }
+                                      end ),
+                      parentRefs: [] } } ]
+        end ) as $restToolEntries
+
+    # The model upstream. Classified by SHAPE, not by name: an AgentgatewayBackend the hub routes to
+    # that carries a spec.ai block is the LLM hop. Matching on the name "…-llm" would miss a rename
+    # and would file the tts backend (spec.static) under the model.
+    | ( [ $hubs[] | . as $k | $routes[] | select((.gws | index($k)) != null) | .beRefs[] | { k: $k, b: . } ] ) as $hubBackendPairs
+    | ( [ $hubBackendPairs[] | select(((($beIdx[.b] // {}).spec // {}).ai) != null) | .b ] | unique ) as $aiBackendKeys
+    | ( [ $aiBackendKeys[]
+          | . as $bk | $beIdx[$bk] as $b
+          | ( (($b.spec.ai // {}).provider // {}) | to_entries | (.[0] // null) ) as $prov
+          | { hubs: ( [ $hubBackendPairs[] | select(.b == $bk) | .k ] | unique ),
+              n: { date: ($b.metadata.creationTimestamp // ""),
+                   kind: "AgentgatewayBackend",
+                   name: ($b.metadata.name),
+                   namespace: ($b.metadata.namespace),
+                   resourceVersion: ($b.metadata.resourceVersion // ""),
+                   uid: ($b.metadata.uid // ""),
+                   version: ($b.apiVersion // "agentgateway.dev/v1alpha1"),
+                   # The provider key is read generically (vertexai / openai / anthropic / …) and only
+                   # fields that are actually present are appended, so a provider shape we have never
+                   # seen still names itself instead of rendering an empty tooltip.
+                   icon: { name: "fa-brain", color: "violet",
+                           message: ( ( if $prov == null then "model provider not stated in spec.ai.provider"
+                                        else ( $prov.key
+                                               + ( ($prov.value.projectId // "") | if . == "" then "" else (" · project " + .) end )
+                                               + ( ($prov.value.region // "")    | if . == "" then "" else (" · region " + .) end )
+                                               + ( ($prov.value.model // "")     | if . == "" then "" else (" · " + .) end ) )
+                                        end )
+                                      + " · reached over "
+                                      + ( [ $routes[] | select(((.beRefs | index($bk)) != null)) | .paths[] | select(. != "") ] | unique | join(", ") ) ) },
+                   statusIcon: ( ( [ ($b.status.conditions // [])[]
+                                     | select(((.type == "Accepted") and (.status == "True")) | not) ] ) as $exc
+                                 | if ($exc | length) == 0 then
+                                     { name: "fa-check", color: "green", message: "Backend accepted by the gateway." }
+                                   else
+                                     { name: "fa-triangle-exclamation", color: "orange",
+                                       message: ( [ $exc[] | ((.type // "?") + "=" + (.status // "?") + " " + (.message // "")) ] | join(" · ") ) }
+                                   end ),
+                   parentRefs: [] } } ] | sort_by(.n.name) ) as $llmEntries
+
+    # The hub itself. Its tooltip is where the route census lives — including the a2a catch-all's
+    # Service target, which is stated here as the route fact it is rather than drawn as a node this
+    # action never read (see the header).
+    | ( [ $hubs[]
+          | . as $k | $gwIdx[$k] as $g
+          | ( [ $routes[] | select((.gws | index($k)) != null) ] ) as $rs
+          | ( [ $rs[] | select((.hosts | length) > 0) ] | length ) as $hostRoutes
+          | ( [ $rs[] | select((.hosts | length) == 0) | .svcRefs[] ] | unique ) as $catchAll
+          | { hubs: [],
+              n: { date: ($g.metadata.creationTimestamp // ""),
+                   kind: "Gateway",
+                   name: ($g.metadata.name),
+                   namespace: ($g.metadata.namespace),
+                   resourceVersion: ($g.metadata.resourceVersion // ""),
+                   uid: ($g.metadata.uid // ""),
+                   version: ($g.apiVersion // "gateway.networking.k8s.io/v1"),
+                   icon: { name: "fa-shield-halved", color: "darkBlue",
+                           message: ( ($rs | length | tostring) + " routes attached · " + ($hostRoutes | tostring)
+                                      + " selected by an x-kagent-host header · listeners "
+                                      + ( [ ($g.spec.listeners // [])[] | ((.protocol // "?") + ":" + ((.port // 0) | tostring)) ] | join(", ") )
+                                      + ( ( [ ($g.status.addresses // [])[] | .value // empty ] | join(", ") )
+                                          | if . == "" then "" else (" · " + .) end )
+                                      + ( ($catchAll | join(", ")) | if . == "" then "" else (" · catch-all → " + .) end ) ) },
+                   # Gateway carries many condition types; only Accepted/Programmed are read, because
+                   # those are the two this node is claiming. An unknown future condition type is not
+                   # silently folded into a green check, nor alarmed on.
+                   statusIcon: ( ( [ ($g.status.conditions // [])[]
+                                     | select((((.type == "Accepted") or (.type == "Programmed")) and (.status == "True")) | not)
+                                     | select((.type == "Accepted") or (.type == "Programmed")) ] ) as $exc
+                                 | if ($exc | length) == 0 then
+                                     { name: "fa-check", color: "green", message: "Accepted and Programmed." }
+                                   else
+                                     { name: "fa-triangle-exclamation", color: "orange",
+                                       message: ( [ $exc[] | ((.type // "?") + "=" + (.status // "?")) ] | join(" · ") ) }
+                                   end ),
+                   parentRefs: [ ( $sourceEntries[] | select((.hubs | index($k)) != null) | { uid: .n.uid } ) ] } } ] ) as $hubEntries
+
+    # EDGE DIRECTION: the frontend builds one edge per parentRefs entry, source = ref.uid, target =
+    # the node (FlowChart/utils.ts toGraphData). So the fan-in lives on the HUB's parentRefs (every
+    # agent -> hub) and the fan-out on each sink's (hub -> backend). parentRefs entries carry `uid`
+    # AND NOTHING ELSE: uid is the only field toGraphData reads, and repeating kind/name/date there
+    # would create a second, silently divergent copy of a node's identity in the same document.
+    | ( ( $topToolEntries + $restToolEntries + $llmEntries )
+        | map( .n.parentRefs = [ ( .hubs[] | . as $k | ($gwIdx[$k].metadata.uid // "") | select(. != "") | { uid: . } ) ] ) ) as $sinkEntries
+
+    # No hub, no picture. A bare column of agent cards with nothing to converge on asserts nothing and
+    # reads as a broken widget; the empty state plus the subtitle below says why instead.
+    | ( if ($hubs | length) == 0 then []
+        else ( [ $sourceEntries[].n ] + [ $hubEntries[].n ] + [ $sinkEntries[].n ] ) end ) as $nodes
+
+    | { nodes: $nodes,
+        # Nothing renders hubCount today; it is the one number that tells an empty graph apart from
+        # a graph that resolved and found no hub, which is the first question asked when the canvas
+        # comes back blank.
+        hubCount: ($hubs | length),
+        # Rendered verbatim by paragraph.agents-topology-subtitle. Every exception the graph cannot
+        # draw — an unrouted agent, an unreadable route list, a tool server this hub does not front —
+        # is named here in prose, because a node that is absent explains nothing on its own.
+        subtitle: (
+          if ($failed | length) > 0 and ($hubs | length) == 0 then
+            ( "This diagram cannot be drawn — " + ($failed | join("; "))
+              + ". Nothing is shown rather than a partial graph that would read as the whole topology." )
+          elif ($hubs | length) == 0 then
+            ( "No agent gateway is visible from here: no HTTPRoute you can read selects a backend by an x-kagent-host header, "
+              + "so there is no hub to draw. That is not a claim that the cluster has none." )
+          else
+            ( "One gateway carries a route for every agent and every tool server the agents dial. "
+              + $hubName + " has "
+              + ( [ $hubs[] | . as $k | [ $routes[] | select((.gws | index($k)) != null) ] | length ] | add | tostring )
+              + " routes attached, "
+              + ( [ $hubs[] | . as $k | [ $routes[] | select((.gws | index($k)) != null) | select((.hosts | length) > 0) ] | length ] | add | tostring )
+              + " of them selected by an x-kagent-host header naming the in-cluster host the CALLING agent dialled — that header is set by the caller, which is what makes this one gateway the place every hop passes through. "
+              + "Read live from Agent, Gateway, HTTPRoute, AgentgatewayBackend and RemoteMCPServer objects."
+              # WHICH NODES ARE GROUPS HAS TO BE SAID IN WORDS. The graph draws 12 sources for 15
+              # agents; a reader who is not told that counts the picture and gets the topology wrong.
+              # The `kind` on each group node says it too, but only to someone who opens the node.
+              + ( ( [ (if ($benchEntries | length) > 0 then (($benchAgents | length | tostring) + " bench agents") else empty end),
+                      (if ($restToolEntries | length) > 0 then (($srvRest | length | tostring) + " smaller tool servers") else empty end) ] )
+                  | if (. | length) == 0 then "" else (" Collapsed to one node each: " + (. | join(", and ")) + " — drag to pan, scroll to zoom.") end )
+              + ( ( [ $agentEntries[] | select(.n.statusIcon.color == "orange") | .n.name ] )
+                  | if (. | length) == 0 then "" else (" " + (. | length | tostring) + " agent(s) have no route on this gateway: " + (. | join(", ")) + ".") end )
+              + ( if ($routesComplete | not) then (" Reachability is shown as unknown on every node because " + $whyUnsure + ".") else "" end )
+              + ( ( [ $srvOffHub[] | .s.metadata.name ] )
+                  | if (. | length) == 0 then "" else (" Not drawn: " + (. | length | tostring) + " tool server(s) with no route on this gateway (" + (. | join(", ")) + ") — their endpoint is not one this gateway fronts.") end )
+              + ( if ($failed | length) > 0 then (" Some reads FAILED — " + ($failed | join("; ")) + " — so the graph is incomplete.") else "" end )
+              + ( if ($hubsUnread | length) > 0 then (" " + ($hubsUnread | length | tostring) + " further gateway(s) carry agent routes but their Gateway object was not readable, so they are not drawn.") else "" end ) )
+          end ),
+        # Paragraph.type is a hard CRD enum (secondary|success|warning|danger) — never "". Exception-
+        # only: `secondary` is the healthy default, `danger` for a failed read, an unrouted agent, or
+        # a reachability answer this page had to withhold.
+        subtitleType: ( if (($failed | length) > 0) or (($hubs | length) == 0)
+                          or (($agentEntries | map(select(.n.statusIcon.color == "orange")) | length) > 0)
+                          or (($routesComplete | not) and (($hubs | length) > 0))
+                        then "danger" else "secondary" end ) }

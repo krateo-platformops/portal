@@ -50,6 +50,7 @@ spec:
     # time, not at render. `tables` stays listed because this page still composes the Tool servers
     # section, whose own subtree holds two.
     - resourceRefId: agents-list-card
+    - resourceRefId: agents-topology
     - resourceRefId: agents-servers
   resourcesRefs:
     items:
@@ -70,6 +71,17 @@ spec:
       name: agents-list-card
       namespace: {{ .Release.Namespace }}
       resource: cards
+      verb: GET
+    # The gateway-topology section (flex.agents-topology) — the picture the table cannot draw: the
+    # 15 agents, the one gateway every one of their hops crosses, and the backends behind it. Sits
+    # between the inventory and the tool-server tables because it is what makes both legible. Like
+    # agents-servers it is a `flexes` child, so this page's allowedResources needs nothing new — the
+    # FlowChart is nested one level down, inside flex.agents-topology, which declares `flowcharts`.
+    - id: agents-topology
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-topology
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
       verb: GET
     # The Tool servers section (flex.agents-servers) — a SECTION of this page, not a route of its
     # own: it answers the question the table above raises ("5 tools across 2 servers — which ones,
