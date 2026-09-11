@@ -16,15 +16,18 @@ spec:
     - flexes
     - tables
     - listies
+    - rows
     vertical: true
     gap: middle
     items:
     - resourceRefId: alerts-header
     # "New alert" CTA into the create Form (/alerts/new) — right-aligned, above the table.
-    - resourceRefId: alerts-new-cta
+    - resourceRefId: alerts-header-actions
+    # The summary band. "Is anything firing?" was answered by scanning a STATE column for a red
+    # chip — workable at 8 rows, not at 30 — and two of the three counts (a rule evaluated by
+    # NOTHING, an investigation that produced nothing) have no column at all.
+    - resourceRefId: alerts-stats
     - resourceRefId: obs-alerts
-    # Empty-state hint (shown only while zero alerts exist) — also links to the create Form.
-    - resourceRefId: alerts-hint
   resourcesRefs:
     items:
     - id: alerts-header
@@ -33,21 +36,21 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: alerts-new-cta
+    - id: alerts-header-actions
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-new-cta
+      name: alerts-header-actions
       namespace: {{ .Release.Namespace }}
       resource: flexes
+      verb: GET
+    - id: alerts-stats
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-stats
+      namespace: {{ .Release.Namespace }}
+      resource: rows
       verb: GET
     - id: obs-alerts
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-alerts
       namespace: {{ .Release.Namespace }}
       resource: tables
-      verb: GET
-    - id: alerts-hint
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-hint
-      namespace: {{ .Release.Namespace }}
-      resource: listies
       verb: GET
