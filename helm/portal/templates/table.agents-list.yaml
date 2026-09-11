@@ -19,8 +19,17 @@
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
 #
+# That cell carries THREE states and the RA keeps them apart, because a dash here would be read as
+# "this agent has no model": `not readable` = the ModelConfig list read failed (see the red subtitle
+# for why), `unresolved` = the read succeeded but this agent's config was not in it (deleted, or
+# outside the caller's grant), anything else = the real resolved model. An empty table likewise is
+# never a claim that the cluster has no agents — restaction.agents-list branches on all three
+# errorKeys and paragraph.agents-subtitle says which read failed.
+#
 # Rows LINK to the per-agent detail page (flex.page-agent-detail, route /agents/{namespace}/{name}),
-# which is what makes this table an index rather than a dead end.
+# which is what makes this table an index rather than a dead end. The slice that added this table
+# landed before that page existed and said so here; the detail slice is now stacked underneath, so
+# the link is live and that caveat is gone.
 #
 # The placeholders are the RA's dedicated `routeNs`/`routeName` fields, carried as two NON-COLUMN
 # hidden cells — NOT the `name` column. The name cell appends a "  (bench)" marker for

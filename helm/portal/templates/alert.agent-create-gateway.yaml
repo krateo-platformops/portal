@@ -1,0 +1,34 @@
+# The single most important thing on /agents/new: a created Agent goes Ready and is still
+# unreachable by anything. This is a PRE-flight warning, deliberately rendered ABOVE the form, not a
+# post-create toast — by the time a toast fires the agent already exists and the person has moved on.
+# That is exactly how krateo-blueprint-agent sat unreachable for a week (2026-09-04).
+#
+# antd Alert, type=warning. `alerts` is not in the Flex allowedResources enum, so this is hosted
+# inside agent-create-gateway-card — the Card CRD declares no allowedResources at all (see that
+# file for the checked enums). Tabs would also be legal; Card is a layout choice.
+#
+# Static text — there is nothing live to resolve before the agent exists, so no apiRef. Note this is
+# deliberately NOT the place read failures are reported: those are named in the field descriptions
+# agent-formdef builds, right under whichever picker they emptied.
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create-gateway
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: This form creates the Agent. It cannot make the agent reachable.
+    type: warning
+    showIcon: true
+    description: >-
+      Gateway wiring — the subagent HTTPRoute, the two agentgateway authz Allow clauses and the
+      backend passthrough entry — is rendered by the agentgateway-policies chart, and the
+      orchestrator's delegate list is rendered by the krateo-autopilot chart. Neither is writable
+      from the portal: both are Installer componentValues, so anything written here would be
+      reverted on the next reconcile. Until the two values below are added and the Installer
+      reconciles, the new Agent will report Ready and Accepted while every call to it is refused at
+      the gateway.
+  resourcesRefs:
+    items: []
