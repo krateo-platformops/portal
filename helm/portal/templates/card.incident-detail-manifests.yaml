@@ -18,15 +18,22 @@ spec:
     variant: outlined
     title: Involved resources
     items:
+    # The computed line first, then the manifests. It used to be templated into the Card's `legend`
+    # — which is an ARRAY of {color,label} colour swatches, not a subtitle, so snowplow rejected the
+    # whole widget at RESOLVE time ("legend in body must be of type array") and the section rendered
+    # as "Error while rendering widget". Card has no subtitle/description slot; a Paragraph sibling
+    # is the pattern this codebase already uses for a computed caption
+    # (paragraph.agents-servers-matrix-legend).
+    - resourceRefId: incident-detail-manifests-legend
     - resourceRefId: incident-detail-manifests
-  widgetDataTemplate:
-    # The subtitle is COMPUTED and names what is actually in the List — "3 objects — the report, the
-    # alert that triggered it, and 1 audit record" — so the reader knows what to expect before
-    # unfolding it, and knows when something they expected is absent.
-    - forPath: legend
-      expression: '${ .involvedManifestsDesc // "" }'
   resourcesRefs:
     items:
+    - id: incident-detail-manifests-legend
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-manifests-legend
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
     - id: incident-detail-manifests
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-detail-manifests
