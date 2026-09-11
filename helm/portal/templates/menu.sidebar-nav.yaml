@@ -88,6 +88,25 @@ spec:
       - { order: 934, path: "/alerts/new", page: alert-create }
       # per-alert detail page (UX round-2 #25) — rule config, live State, HyperDX links, incident back-link.
       - { order: 935, path: "/alerts/{namespace}/{name}", page: alert-detail }
+      # ── Agent control plane routes ──────────────────────────────────────────────────
+      # ONE sidebar entry (Agents, order 14) for the whole control plane: the tool servers are an
+      # in-page section of /agents, and the routes below are reached FROM that page, never from the
+      # sidebar. Three surfaces for one operational concern would read as three features.
+      #
+      # STATIC PATHS FIRST, exactly as /alerts/new sits above /alerts/{namespace}/{name}. Both of
+      # these are 2-segment and the detail route is 3-segment, so they cannot collide — but the
+      # ordering is what makes that independent of how the matcher is implemented, and it is the
+      # convention the block already follows.
+      - { order: 936, path: "/agents/new", page: agent-create }
+      # The gateway policies that gate each agent hop. A sub-page rather than a section because it
+      # aggregates across the whole fleet, not per-agent — and a route rather than a nav item so
+      # the sidebar keeps saying one thing.
+      - { order: 937, path: "/agents/policies", page: agents-policies }
+      # per-agent detail — identity, resolved model + egress route, bound tool servers, delegates.
+      # The agents table rowNavigateTo targets this; a Table whose rowNavigateTo has any empty
+      # placeholder goes silently inert, which is why the RA carries dedicated routeNs/routeName
+      # cells rather than interpolating the display name.
+      - { order: 938, path: "/agents/{namespace}/{name}", page: agent-detail }
       # per-namespace compositions list — the namespace breadcrumb crumb links here.
       # Reuses page-compositions; its compositions-table self-filters by ?extras.namespace
       # (compositions-list RA) since the route param rides through as extras.
