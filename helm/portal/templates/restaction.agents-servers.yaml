@@ -1,0 +1,263 @@
+# Tool servers — the data behind the "Tool servers" section of /agents (flex.agents-servers).
+#
+# ONE RESTAction feeds BOTH tables of the section: `.servers` (one row per RemoteMCPServer) and
+# `.bindings` (one row per agent x server pair). Two widgets share this apiRef; nothing here is
+# computed in the browser — every cell below is emitted as the STRING the table renders, so the
+# widget templates are 1:1 mappers and the "not readable" states cannot be lost in translation.
+#
+# FIELD PATHS ARE v1alpha2, NOT v1alpha1. The served CRD (verified live on krateo-057:
+# remotemcpservers.kagent.dev has exactly ONE version, v1alpha2, served+storage) puts the endpoint
+# at .spec.url / .spec.protocol / .spec.timeout — there is NO .spec.remote wrapper, and
+# .status.discoveredTools[] holds OBJECTS ({name, description}), not bare strings. Reading
+# .spec.remote.url returns null on every object on every cluster we run.
+#
+# THE GATEWAY JOIN IS BY SERVICE, NOT BY CR NAME. RemoteMCPServer `kagent-tool-server` dials
+# http://kagent-tools.krateo-system:8084/mcp, and the AgentgatewayBackend target is the SERVICE
+# (`kagent-tools`). Matching CR name to backend target name would have reported the single busiest
+# server on the cluster as unrouted. So the service+namespace is parsed out of .spec.url and matched
+# against the backend's targets.
+#
+# ALL THREE LEGAL TARGET SHAPES ARE HANDLED. agentgatewaybackends.agentgateway.dev v1alpha1 enforces
+# `exactly one of the fields in [selector static] must be set`, and `static` carries EITHER a
+# namespace-local `backendRef.name` OR a `host` — with the CRD's own advice being "when connecting to
+# in-cluster Service resources, it is recommended to use selector instead". Reading only
+# static.backendRef.name meant that rewriting the kagent-tools target either recommended way (label
+# selector, or the service FQDN as a host) put a gold "no gateway route" badge on the busiest,
+# fully-routed server on the cluster. So: backendRef AND host (parsed to service+namespace) both
+# feed $exposed, and a `selector` target — which cannot be resolved without listing Services — makes
+# the exposure answer UNKNOWN ($gwOpaque) rather than "absent". Unknown never prints a badge.
+#
+# GATEWAY EXPOSURE FAILS TO SILENT, NOT TO ALARM, AND SAYS WHY. "No MCP backend visible" is never
+# treated as "unrouted": $gwKnown asserts nothing unless at least one routed MCP backend is visible,
+# every target it carries is resolvable, and neither gateway step errored. When a step DID error, the
+# section says so in one sentence (`notice`) instead of leaving a silent blank column.
+#
+# "IS THIS ENDPOINT IN THE CLUSTER" IS THREE-VALUED, AND THE NAMESPACE IS PARSED FROM THE URL, NOT
+# ASSUMED. Testing the URL host against the RemoteMCPServer's OWN namespace only ("does it end in
+# .<my-ns>") calls every shared-service topology external: a tenant-namespaced CR dialling
+# http://kagent-tools.krateo-system:8084/mcp is in-cluster and routed, and was being tagged "external
+# endpoint". So the host is decomposed: <svc> / <svc>.<ns> / <svc>.<ns>.svc[.cluster.local] all
+# resolve to (namespace, service) and the exposure lookup uses THAT namespace. In-cluster is proven
+# by a .svc/.cluster.local suffix or by a second label that is a namespace we can see; a bare
+# two-label host whose second label we cannot see (example.com — or a real namespace hidden from this
+# caller by RBAC) and an IP literal are UNKNOWN, and unknown prints no badge in either direction.
+#
+# THE TOOL REF IS A CROSS-NAMESPACE, CROSS-KIND TYPED REFERENCE. .spec.declarative.tools[].mcpServer
+# on agents.kagent.dev/v1alpha2 carries apiGroup, kind, namespace, name, toolNames, requireApproval —
+# only `name` is required and the only CEL rule is requireApproval ⊆ toolNames. So: the join key is
+# (mcpServer.namespace // agent's namespace) + name, NOT the agent's namespace assumed (which made a
+# tenant-namespaced server show 0 consumers while 11 rows claimed a server that was not in the
+# inventory); and a ref whose kind/apiGroup is not RemoteMCPServer/kagent.dev (mcpservers.kagent.dev
+# is installed alongside) is NOT resolved against the RemoteMCPServer inventory — it keeps its row,
+# labelled with its kind, with "—" (unknown) served, because dropping it would hide a real grant and
+# resolving it would assert a server this section does not list. An unset kind is read as
+# RemoteMCPServer (all 38 live refs set it explicitly).
+#
+# toolNames IS OPTIONAL. A ref that omits it grants an unstated set — kagent, not this page, decides
+# what that means — so the row reads "not specified", never Bound 0 and never a blank cell.
+#
+# THE THREE TAIL COUNTS ARE null, NOT 0, WHEN THEIR READ FAILED. Nothing renders them today; they go
+# null under denial so the first stat header that picks them up cannot restate an unread list as
+# zero — the same rule the cells above follow.
+#
+# THIS IS THE SECOND RESTAction ON /agents (restaction.agents-list is the first, and both list
+# kagent.dev agents). That is deliberate, not an oversight: the two RAs are independent snowplow L1
+# entries, so counts here and in the table above can be a refresh apart. Multi-RA pages are the norm
+# in this chart, not the exception (page-observability composes 7, page-composition-detail 5,
+# page-access-detail 2), and folding four steps and a 60-line join into agents-list would couple two
+# slices and make one failure empty the whole page instead of one section. If the lead wants the read
+# collapsed anyway, note that agents-list's own `servers` step feeds only `toolsDiscovered`, which no
+# widget renders — deleting it removes the heavier of the two duplicated lists on its own.
+#
+# RBAC AND READABILITY. Every step carries a userAccessFilter, so snowplow lists as its SA and then
+# REFILTERS to the namespaces where the CALLER holds the grant — a caller without the grant gets an
+# EMPTY list, which is why the errorKeys below are NOT about the caller's RBAC: they fire when the
+# SA's own read fails (403), when the CRD is absent (404), or on a transport error. Every one of the
+# four is consumed: `.notice` names the kind and the reason, and a failed `servers`/`agents` step
+# renders ONE explicit "not readable" row instead of an empty table that would read as "this cluster
+# has no tool servers". An unreadable list must never render as an empty one.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-servers
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: servers
+    path: /apis/kagent.dev/v1alpha2/remotemcpservers
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: remotemcpservers
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: serversError
+  - name: agents
+    path: /apis/kagent.dev/v1alpha2/agents
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: agents
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: agentsError
+  - name: backends
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaybackends
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaybackends
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: backendsError
+  - name: routes
+    path: /apis/gateway.networking.k8s.io/v1/httproutes
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: httproutes
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: routesError
+  filter: >-
+    ( [ { k: "servers",  what: "Tool servers (remotemcpservers.kagent.dev)",             e: .serversError  },
+        { k: "agents",   what: "Agents (agents.kagent.dev)",                             e: .agentsError   },
+        { k: "backends", what: "Gateway backends (agentgatewaybackends.agentgateway.dev)", e: .backendsError },
+        { k: "routes",   what: "HTTPRoutes (gateway.networking.k8s.io)",                 e: .routesError   } ]
+      | map( ( if (.e | type) == "array" then (.e[0] // null) else .e end ) as $v
+             | . + { failed: (.e != null),
+                     why: ( if ($v | type) != "object" then "could not be read"
+                            elif (($v.reason // "") == "NotFound") or (($v.code // 0) == 404) then "are not installed on this cluster"
+                            elif (($v.reason // "") == "Forbidden") or (($v.code // 0) == 403) then "could not be read (permission denied)"
+                            else ( "could not be read (" + ( ($v.reason // "") | if . == "" then (($v.code // 0) | tostring) else . end ) + ")" ) end ) } )
+      | reduce .[] as $x ({}; .[$x.k] = $x) ) as $err
+    | ( $err.servers.failed ) as $serversDenied
+    | ( $err.agents.failed ) as $agentsDenied
+    | ( ($err.backends.failed) or ($err.routes.failed) ) as $gwDenied
+    | ( [ ((.servers.items // [])[].metadata.namespace),
+          ((.agents.items // [])[].metadata.namespace),
+          ((.backends.items // [])[].metadata.namespace),
+          ((.routes.items // [])[].metadata.namespace) ] | map(select(. != null)) | unique ) as $knownNs
+    | ( [ (.routes.items // [])[] | .metadata.namespace as $rns | (.spec.rules // [])[] | (.backendRefs // [])[]
+          | select((.kind // "") == "AgentgatewayBackend") | ($rns + "/" + .name) ] | unique ) as $routed
+    | ( [ (.backends.items // [])[] | select(.spec.mcp != null)
+          | .metadata.namespace as $bns
+          | select( ($bns + "/" + .metadata.name) as $k | $routed | any(. == $k) )
+          | (.spec.mcp.targets // [])[] | { t: ., bns: $bns } ] ) as $mcpTargets
+    | ( [ $mcpTargets[] | .bns as $bns | .t as $t
+          | ( if (($t.static.backendRef.name) // "") != "" then ($bns + "/" + $t.static.backendRef.name)
+              elif (($t.static.host) // "") != "" then
+                ( ($t.static.host | split(":") | .[0] | split(".")) as $hp
+                  | ( if ($hp | length) > 1 and ($hp[1] != "svc") then $hp[1] else $bns end ) + "/" + $hp[0] )
+              else empty end ) ] | unique ) as $exposed
+    | ( [ $mcpTargets[] | select( ((.t.static.backendRef.name // "") == "") and ((.t.static.host // "") == "") ) ] | length > 0 ) as $gwOpaque
+    | ( ( [ (.backends.items // [])[] | select(.spec.mcp != null) ] | length ) > 0 ) as $gwSeen
+    | ( ($gwDenied | not) and $gwSeen and ($gwOpaque | not) ) as $gwKnown
+    | ( reduce ((.servers.items // [])[]) as $s ({};
+          .[$s.metadata.namespace + "/" + $s.metadata.name] = [ ($s.status.discoveredTools // [])[] | .name ]) ) as $discovered
+    | ( [ (.agents.items // [])[]
+          | .metadata.name as $an | .metadata.namespace as $ans
+          | ( (.spec.declarative.tools // [])
+              | map(select((.type == "McpServer") and ((.mcpServer.name // "") != ""))) ) as $ts
+          | ( [ $ts[] | { ns:   (.mcpServer.namespace // $ans),
+                          n:    .mcpServer.name,
+                          kind: (.mcpServer.kind // "RemoteMCPServer"),
+                          grp:  (.mcpServer.apiGroup // "kagent.dev") } ] | unique )[] as $ref
+          | ( [ $ts[] | select( ((.mcpServer.namespace // $ans) == $ref.ns)
+                                and (.mcpServer.name == $ref.n)
+                                and ((.mcpServer.kind // "RemoteMCPServer") == $ref.kind)
+                                and ((.mcpServer.apiGroup // "kagent.dev") == $ref.grp) ) ] ) as $refs
+          | ( ($ref.kind == "RemoteMCPServer") and ($ref.grp == "kagent.dev") ) as $isRemote
+          | ( [ $refs[] | (.mcpServer.toolNames // [])[] ] | unique ) as $bound
+          | ( [ $refs[] | (.mcpServer.requireApproval // [])[] ] | unique ) as $appr
+          | ( if $isRemote then ($discovered[$ref.ns + "/" + $ref.n]) else null end ) as $disc
+          | { agent: $an, ans: $ans, name: $ref.n, ns: $ref.ns, kind: $ref.kind, isRemote: $isRemote,
+              key: ( if $isRemote then ($ref.ns + "/" + $ref.n) else "" end ),
+              bound: $bound, approvals: $appr,
+              served: ( if ($isRemote | not) or $disc == null or ($disc | length) == 0 then null
+                        else [ $bound[] | select( . as $t | $disc | any(. == $t) ) ] end ) } ] ) as $bindings
+    | ( ( [ ((.agents.items // [])[].metadata.namespace),
+            ((.servers.items // [])[].metadata.namespace),
+            ($bindings[].ns) ] | map(select(. != null)) | unique | length ) > 1 ) as $multiNs
+    | ( [ (.servers.items // [])[]
+          | . as $s
+          | ( .metadata.namespace ) as $ns
+          | ( .spec.url // "" ) as $url
+          | ( $url | split("://") | (if length > 1 then .[1] else .[0] end) | split("/") | .[0] | split(":") | .[0] ) as $host
+          | ( $host | split(".") ) as $hp
+          | ( $hp[0] // "" ) as $svc
+          | ( if ($hp | length) > 1 and ($hp[1] != "svc") then $hp[1] else $ns end ) as $hns
+          | ( ($hp | length) == 1
+              or ($host | endswith(".svc"))
+              or ($host | endswith(".svc.cluster.local"))
+              or ($host | endswith(".cluster.local"))
+              or ( ($hp | length) == 2 and ($knownNs | any(. == $hp[1])) ) ) as $inCluster
+          | ( ($inCluster | not)
+              and ( (($hp | length) == 2) or ( [ ($hp | last) | tonumber? ] | length > 0 ) ) ) as $hostUnsure
+          | ( [ $bindings[] | select(.isRemote and (.key == ($ns + "/" + $s.metadata.name))) ] ) as $cons
+          | ( [ ($s.status.conditions // [])[]
+                | select( ((.type == "Ready" or .type == "Accepted") and .status == "True") | not )
+                | { label: ( if .status == "True" then .type
+                             elif .status == "False" then ("Not" + .type)
+                             else (.type + "Unknown") end ),
+                    bad: (.status == "False") } ] ) as $exc
+          | ( if $url == "" then null
+              elif $hostUnsure then null
+              elif ($inCluster | not) then "external endpoint"
+              elif ($gwKnown | not) then null
+              elif ( ($hns + "/" + $svc) as $x | $exposed | any(. == $x) ) then null
+              else "no gateway route" end ) as $gw
+          | { name:       ( if $multiNs then ($ns + "/" + $s.metadata.name) else $s.metadata.name end ),
+              endpoint:   ( if $url == "" then "—" else $url end ),
+              protocol:   ( ($s.spec.protocol // "") | if . == "" then "—" else . end ),
+              timeout:    ( ($s.spec.timeout // "") | if . == "" then "—" else . end ),
+              discovered: ( ($s.status.discoveredTools // []) | length | tostring ),
+              inUse:      ( if $agentsDenied then "not readable"
+                            else ( [ $cons[] | (.served // [])[] ] | unique | length | tostring ) end ),
+              agents:     ( if $agentsDenied then "not readable"
+                            elif ($cons | length) > 0 then ($cons | length | tostring)
+                            else "—" end ),
+              statusLabel: ( [ ($exc[].label), ($gw // empty) ] | join(" · ") ),
+              statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "gold" end ) } ]
+        | sort_by(.name) ) as $serverRows
+    | ( [ $bindings[]
+          | { server: ( ( if $multiNs then (.ns + "/" + .name) else .name end )
+                        + ( if .isRemote then "" else (" (" + .kind + ")") end ) ),
+              agent:  ( if $multiNs then (.ans + "/" + .agent) else .agent end ),
+              bound:  ( if (.bound | length) == 0 then "—" else (.bound | length | tostring) end ),
+              served: ( if (.bound | length) == 0 then "—"
+                        elif (.isRemote | not) then "—"
+                        elif $serversDenied then "not readable"
+                        elif .served == null then "—"
+                        else (.served | length | tostring) end ),
+              approvals: ( if (.approvals | length) > 0 then (.approvals | length | tostring) else "—" end ),
+              tools: ( if (.bound | length) == 0 then "not specified"
+                       else ( (.bound[0:5] | join(", "))
+                              + ( if (.bound | length) > 5 then (" +" + (((.bound | length) - 5) | tostring) + " more") else "" end ) ) end ) } ]
+        | sort_by(.server, .agent) ) as $bindingRows
+    | { servers: ( if $serversDenied
+                   then [ { name: "Tool servers are not readable — the RemoteMCPServer list did not answer",
+                            endpoint: "—", protocol: "—", timeout: "—", discovered: "—", inUse: "—", agents: "—",
+                            statusLabel: "Not readable", statusColor: "default" } ]
+                   else $serverRows end ),
+        bindings: ( if $agentsDenied
+                    then [ { server: "Agent bindings are not readable — the Agent list did not answer",
+                             agent: "—",
+                             bound: "—", served: "—", approvals: "—", tools: "—" } ]
+                    else $bindingRows end ),
+        notice: ( ( [ $err.servers, $err.agents, $err.backends, $err.routes ]
+                    | map(select(.failed)) | map(.what + " " + .why + ".") )
+                  + ( if ($serversDenied or $agentsDenied) then ["Counts in this section are incomplete, not zero."] else [] end )
+                  + ( if (($gwDenied | not) and $gwSeen and $gwOpaque)
+                      then ["At least one gateway backend selects its targets by label, which this page cannot resolve."] else [] end )
+                  + ( if ($gwDenied or ($gwSeen and $gwOpaque)) then ["Status does not report unrouted endpoints."] else [] end )
+                  | join(" ") ),
+        serverCount:   ( if $serversDenied then null else ($serverRows | length) end ),
+        bindingCount:  ( if $agentsDenied then null else ($bindingRows | length) end ),
+        consumerCount: ( if $agentsDenied then null else ([ $bindings[].agent ] | unique | length) end ) }

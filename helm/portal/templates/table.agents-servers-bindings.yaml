@@ -1,0 +1,71 @@
+# Who may call what — one row per (agent, tool server) binding, from restaction.agents-servers.
+#
+# THIS IS NOT A MATRIX, AND IT CANNOT BE. The widget set has no matrix/heatmap/pivot kind (verified
+# against the live CRDs: the 41 widgets.templates.krateo.io kinds include tables, descriptions,
+# cards, listies, charts — nothing two-dimensional). A Table could fake a matrix only by declaring
+# one column per server, and `columns` is static widgetData — so that would bake THIS cluster's nine
+# server names into the chart and render blank or wrong columns anywhere else. One row per binding
+# is the truthful shape: it is exactly the join that exists in the data (agents[].spec.declarative
+# .tools[] of type McpServer, each naming one RemoteMCPServer), it needs no schema change per
+# cluster, and it has room for the per-binding facts a matrix cell could never hold — the tool
+# names and the HITL count.
+#
+# `Bound` vs `Currently served` IS NOT AN ERROR REPORT. kagent keeps only the tool names the server
+# actually discovers, so an agent may legitimately bind a superset. Three live examples, all
+# deliberate: clickstack-agent and incident-agent bind BOTH run_select_query and run_query on
+# clickhouse-mcp-server because mcp-clickhouse renamed the tool between <=0.4 and 0.5.0 and the
+# binding must work across both; and the bench snapshot servers (itbench-snapshot) deliberately
+# serve a read-only subset, so k8s-agent-bench binds 20 and 8 are served. Rendering the difference
+# as red would flag the correct configuration as broken. Both numbers are plain text, uncoloured,
+# and the note under the table says why they differ.
+#
+# `Currently served` renders "—", not 0, when the server has published no discoveredTools at all —
+# a server that has not finished discovery must not make every one of its consumers look empty. It
+# also reads "—" for a ref whose kind is not RemoteMCPServer (the row is labelled with that kind:
+# this section inventories RemoteMCPServers, so it will not pretend to know what another kind
+# serves) and for a ref that omits toolNames, where Bound reads "—" and Tools "not specified"
+# rather than an unearned 0 and a blank cell. When the Agent list itself did not answer, the table
+# is ONE row saying so — never an empty table, which would read as "no agent binds anything".
+#
+# Sorted by server then agent so the section reads as "for each server, its consumers", which is
+# the question the Tool servers section is asked. defaultPageSize 50 + hideOnSinglePage keeps the
+# whole join on one page on a normal cluster (37 bindings on krateo-057) — this table is standing
+# in for a matrix, and a matrix split across pages answers nothing.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-bindings
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 50
+      hideOnSinglePage: true
+    columns:
+    - valueKey: server
+      title: Tool server
+    - valueKey: agent
+      title: Agent
+    - valueKey: bound
+      title: Bound
+    - valueKey: served
+      title: Currently served
+    - valueKey: approvals
+      title: HITL
+    - valueKey: tools
+      title: Tools
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.bindings // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.server // "—")}, {valueKey:"agent",kind:"jsonSchemaType",type:"string",stringValue:(.agent // "—")}, {valueKey:"bound",kind:"jsonSchemaType",type:"string",stringValue:(.bound // "—")}, {valueKey:"served",kind:"jsonSchemaType",type:"string",stringValue:(.served // "—")}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(.approvals // "—")}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:(.tools // "—"),color:"#8c8c8c"} ] ] }'
+  apiRef:
+    name: agents-servers
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
