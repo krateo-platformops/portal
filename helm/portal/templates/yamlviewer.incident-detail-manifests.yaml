@@ -1,0 +1,36 @@
+# Every custom resource this incident is made of, as manifests.
+#
+# WHY THE PAGE NEEDS THIS AT ALL. Everything above it is INTERPRETATION — a verdict, an evidence
+# list, a remediation plan — derived from these objects by restaction.incident-detail. When the
+# interpretation is missing or wrong (a run that failed, a field the page does not surface, a status
+# the reconciler wrote that nothing reads) the only recourse was kubectl. The objects belong on the
+# page that claims to explain them.
+#
+# ONE viewer, not one per resource: the set varies (always the report, usually the alert, zero-to-N
+# audit records) and a tab strip whose tab COUNT changes per incident is harder to read than a
+# single v1 List — which is also exactly what `kubectl get -o json` returns, so it can be pasted
+# straight back into kubectl.
+kind: YamlViewer
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-manifests
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell. Same pair the rest of
+  # this page's widgets carry — without them every incident would share one cached manifest set.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    json: "{}"
+  widgetDataTemplate:
+    # Fall back to "" (not "{}"): an empty set renders the YamlViewer's honest "No data to display"
+    # empty state rather than an empty List envelope, which would read as "this incident involves
+    # no resources" — a claim that is never true.
+    - forPath: json
+      expression: '${ .involvedManifestsJson // "" }'
+  resourcesRefs:
+    items: []
