@@ -1,0 +1,31 @@
+# The matrix legend — COMPUTED, so it only ever explains a marker that is actually on screen.
+#
+# A fixed legend is a small lie on a healthy cluster: it teaches the reader to look for a "?" that
+# is not there, and after a few visits it trains them past the markers entirely. restaction
+# .agents-servers builds this string from the cells it just emitted — the "!" sentence appears only
+# if some binding is gated by requireApproval, the "?" sentence only if some bound name is missing
+# from a discovered list. When the Agent list is not readable the same field says THAT instead, so
+# an empty matrix is never presented as an empty fleet.
+#
+# `type: secondary` and never danger: the "?" marker is explicitly not a fault (see the header of
+# table.agents-servers-matrix), and colouring the sentence that says so would contradict it.
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-matrix-legend
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # Static fallback: true of every install, and claims nothing about which markers are present.
+  widgetData:
+    text: Each cell is the number of tools that agent binds on that server.
+    type: secondary
+  apiRef:
+    name: agents-servers
+    namespace: {{ .Release.Namespace }}
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .matrixLegend }'
+  resourcesRefs:
+    items: []

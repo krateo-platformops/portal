@@ -1,14 +1,19 @@
-# Who may call what — one row per (agent, tool server) binding, from restaction.agents-servers.
+# Every binding, with the tool names — one row per (agent, tool server) pair, from
+# restaction.agents-servers. This is the DETAIL view that sits under table.agents-servers-matrix.
 #
-# THIS IS NOT A MATRIX, AND IT CANNOT BE. The widget set has no matrix/heatmap/pivot kind (verified
-# against the live CRDs: the 41 widgets.templates.krateo.io kinds include tables, descriptions,
-# cards, listies, charts — nothing two-dimensional). A Table could fake a matrix only by declaring
-# one column per server, and `columns` is static widgetData — so that would bake THIS cluster's nine
-# server names into the chart and render blank or wrong columns anywhere else. One row per binding
-# is the truthful shape: it is exactly the join that exists in the data (agents[].spec.declarative
-# .tools[] of type McpServer, each naming one RemoteMCPServer), it needs no schema change per
-# cluster, and it has room for the per-binding facts a matrix cell could never hold — the tool
-# names and the HITL count.
+# CORRECTION TO WHAT THIS HEADER USED TO SAY. It claimed a matrix "CANNOT BE", on the grounds that
+# `columns` is static widgetData and a pivot would therefore bake one cluster's server names into
+# the chart. The premise is false: `columns` is reachable from widgetDataTemplate exactly like
+# `dataSource` is — table.agents-list templates it to add Pattern/Gateway/Status only when a row has
+# something to put in them, and cards.agents-policies-by-role does the same per role. So the column
+# set can be DERIVED server-side from whatever RemoteMCPServers the caller can read, which is what
+# table.agents-servers-matrix now does, and nothing about any one cluster is baked in. The widget
+# set still has no matrix/heatmap kind; it did not need one.
+#
+# THIS TABLE IS STILL HERE, AND NOT AS A FALLBACK. A matrix cell holds a count. This holds the
+# bound TOOL NAMES and the per-binding HITL count, which is what you need once the matrix has told
+# you which cell to look at. Matrix to scan, list to look up — dropping it would trade a real answer
+# for a shorter page.
 #
 # `Bound` vs `Currently served` IS NOT AN ERROR REPORT. kagent keeps only the tool names the server
 # actually discovers, so an agent may legitimately bind a superset. Three live examples, all

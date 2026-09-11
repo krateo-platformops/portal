@@ -1,10 +1,10 @@
 # Convention page root for /agents/policies — the policy surface of the agent gateway.
 #
-# Reached from the sidebar via `resourceRefId: agents-policies` in menu.sidebar-nav, whose
-# resourcesRefs entry carries this admin-tier namespace explicitly — the same indirection
-# flex.page-agents uses, and for the same two reasons: it makes the nav entry RBAC-aware (snowplow
-# resolves it as the caller, so the item disappears for a user who cannot GET this Flex) and it lets
-# the page root live in the tier namespace at all, which the bare `page:` convention could not.
+# Reached by the `page:` convention — menu.sidebar-nav order 937, `page: agents-policies`. This
+# header used to say it was reached via `resourceRefId: agents-policies` "whose resourcesRefs entry
+# carries this admin-tier namespace explicitly"; there is no such resourcesRefs row in
+# menu.sidebar-nav (only `id: agents`, for /agents itself), so that was never true of this page and
+# the tier namespace it justified was a latent 404. See the NAMESPACE note below.
 #
 # WHY THIS IS ITS OWN ROUTE AND NOT A SECTION OF /agents (recommendation for the lead):
 #   * Different question, different reader. /agents answers "what agents exist and what may they
@@ -28,11 +28,20 @@
 # No page-level CTA: every action here (edit a policy, disable a guard) is a write to a
 # chart-managed object, and there is no form behind it yet. A Button whose target does not exist is
 # dead UI and a CI failure, so the button lands with the form, not before it.
+# NAMESPACE: the release namespace, NOT the admin tier namespace. This root is reached by the
+# `page:` convention (menu.sidebar-nav order 937, `page: agents-policies`), which resolves
+# flexes/page-<slug> in the namespace the FRONTEND is configured with — Menu.tsx reads
+# config.params.FRONTEND_NAMESPACE and hands it to buildNavModel; the tier namespace never
+# reaches that lookup. Parked in the admin tier it resolved only while .Values.tiers.admin was
+# "" (its default) and would 404 the moment an install tiers its pages — the exact layout the
+# tier helper exists for. Same note, same reason, as page-agent-create and page-agent-detail.
+# (page-agents CAN stay tiered: its nav entry uses resourceRefId, and that resourcesRefs row
+# carries an explicit namespace. A `page:` entry cannot.)
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: page-agents-policies
-  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  namespace: {{ .Release.Namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -43,10 +52,14 @@ spec:
     gap: middle
     items:
     - resourceRefId: agents-policies-header
+    # The mockup puts "+ Add policy" in this section's header. Right-aligned in its own Flex
+    # because `buttons` is not in this page's allowedResources and a Button carries no
+    # self-alignment field — the same holder shape /agents uses for "New agent".
+    - resourceRefId: agents-policy-new-cta
     - resourceRefId: agents-policies-groups
   resourcesRefs:
     items:
-    {{- range (list "agents-policies-header" "agents-policies-groups") }}
+    {{- range (list "agents-policies-header" "agents-policy-new-cta" "agents-policies-groups") }}
     - id: {{ . }}
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: {{ . }}
