@@ -15,6 +15,33 @@
 # renders only declared columns and a MISSING cell logs a console error — so once the column is
 # there, a healthy agent correctly shows "-" beside the unhealthy one.
 #
+# `Pattern` marks the agents that hand work to other agents (tools[].type=Agent). It is a SEPARATE
+# column rather than a second marker appended to the name cell, because the name cell already
+# carries the "  (bench)" suffix and "autopilot-bench  (bench)  (orchestrator)" is unreadable; and
+# it is a Tag rather than text because it is a classification, not a value. Like Status it is
+# exception-only at COLUMN level — a fleet in which nothing delegates drops it entirely instead of
+# ruling a column of dashes, and the cell is still emitted on every row so antd does not log a
+# missing-cell error for the healthy ones.
+#
+# `Owner` is what the four bench agents and the eleven composition-rendered ones differ by, and the
+# only column that answers "which upgrade would change this agent". It is unconditional: an agent
+# with no composition is not an agent with no owner, it is a Helm-managed one, and the RA says so
+# from app.kubernetes.io/managed-by rather than leaving a dash that reads as unknown.
+#
+# `Gateway` is the second exception-only column, and the one worth the most. A Ready agent that no
+# HTTPRoute matches, or that the gateway's authorization policy never names, is refused on every
+# call while every other cell on its row looks perfect — the failure has no symptom anywhere else in
+# this product. restaction.agents-list computes the verdict (see its header for the two halves and
+# for why a withheld verdict is never rendered as a row); this file only decides that the column
+# exists when some row has something to put in it, exactly like Status. Colours follow what breaks:
+# red when traffic is refused outright, gold for `agent card refused` — calls would pass, but A2A
+# discovery 403s first, so the agent is reachable and never reached.
+#
+# The cell says WHAT IS MISSING ("not routed", "no Allow rule"), never a verdict word like
+# "unreachable". The two are fixed in different places — a route comes from the subagent HTTPRoute,
+# an Allow rule from the gateway authorization policy — and a reader who cannot tell which one is
+# absent has been told nothing actionable.
+#
 # `model` is the RESOLVED model, not the ModelConfig name — gemini-pro and gemini-flash both point
 # at gemini-3.8-flash today, so showing the config name alone would imply two models where there is
 # one. Both are shown: the config on top, what it resolves to underneath.
@@ -38,6 +65,34 @@
 # The RA pre-filters rows to objects carrying both a name and a namespace, so both placeholders are
 # non-empty on every emitted row — a rowNavigateTo with ANY empty placeholder is dropped whole by
 # the frontend (Table.tsx buildRowPath) and the row silently stops responding to clicks.
+#
+# THE MUTED CELLS ARE A TOKEN, NOT A HEX. `role` and `runtime` are de-emphasised relative to the
+# agent name, and that de-emphasis used to be a literal `#8c8c8c`. A cell colour is written straight
+# into the span's inline style — Table.tsx renders a jsonSchemaType cell as a span whose inline
+# `color` IS this string, verbatim — so a hex here
+# is frozen against ONE background while the portal has two: #8c8c8c measures 5.48:1 on the dark
+# surface (#141414) but only 3.25:1 on the light one (#FBFBFB) — under WCAG AA 4.5:1, i.e. the two
+# most explanatory columns on this page were unreadable for every light-mode reader. No single grey
+# can fix that: AA on near-white needs relative luminance <= 0.183 and AA on near-black needs
+# >= 0.206, so the two constraints have no overlap and any hex here is unreadable in one theme.
+# `var(--gray-color)` is the theme-aware way out — cssVariables() re-emits it on <html> per mode
+# (#5C5C5C light / #A0A0A0 dark), measuring 6.46:1 and 7.04:1 on their own surfaces. It degrades
+# safely too: an SPA that never emitted the variable drops the declaration and the cell inherits
+# antd's own theme-aware body colour, which is legible by construction. Same token the eyebrow
+# variant already uses (Paragraph.module.css), and the same var(--*-color) form the Statistic and
+# Tag CRs in this chart already pass through. Do not reintroduce a hex.
+#
+# COUNTS ARE NUMERALS, INCLUDING ZERO, and that is an alignment fix rather than a wording
+# preference. The SPA sniffs each column's type from its RAW values and right-aligns the ones that
+# are entirely numeric (tableSorting.ts getColumnSortProps → `align: 'right'`); there is no `align`
+# on the Table CRD, so the DATA is the only lever. Delegates and HITL used to print "—" for zero,
+# which is not numeric, so those two columns silently fell back to left-aligned and string-sorted
+# ("10" before "2") while Tools and Servers beside them — which have always printed 0 — right-
+# aligned and sorted numerically. Four count columns, two alignments, one table. Printing the real
+# 0 makes all four agree, right-aligned as the mockup marks them (`th.num`/`td.num`) and numerically
+# sortable. Nothing honest is lost: unlike the tool-server tables, where "—" separates "not
+# specified" and "no discovery yet" from a true zero, an agent that delegates to nobody delegates to
+# exactly 0 agents and the RA emits that count unconditionally.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -57,6 +112,8 @@ spec:
     columns:
     - valueKey: name
       title: Agent
+    - valueKey: pattern
+      title: Pattern
     - valueKey: role
       title: What it is for
     - valueKey: model
@@ -71,15 +128,24 @@ spec:
       title: Delegates
     - valueKey: approvals
       title: HITL
+    - valueKey: owner
+      title: Owner
+    - valueKey: gateway
+      title: Gateway
     - valueKey: status
       title: Status
     dataSource: []
   widgetDataTemplate:
-  # Status is appended ONLY when an agent is not healthy — see the header.
+  # Pattern, Gateway and Status are each appended ONLY when some agent has something to put in
+  # them — see the header. The three conditions are independent: a fleet where nothing delegates
+  # loses Pattern and keeps the other two, and a fleet that is entirely Ready but partly
+  # unregistered loses Status and keeps Gateway. Every cell is still emitted on EVERY row, because
+  # antd renders only declared columns and a missing cell logs a console error. Owner is
+  # unconditional: every agent has an owner, even if that owner is "Helm".
   - forPath: columns
-    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | [ {valueKey:"name",title:"Agent"}, {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
+    expression: '${ ( [ (.rows // [])[] | select((.statusLabel // "") != "") ] | length ) as $exc | ( [ (.rows // [])[] | select(.orchestrator) ] | length ) as $orch | ( [ (.rows // [])[] | select((.gateway // "") != "") ] | length ) as $gw | [ {valueKey:"name",title:"Agent"} ] + (if $orch > 0 then [ {valueKey:"pattern",title:"Pattern"} ] else [] end) + [ {valueKey:"role",title:"What it is for"}, {valueKey:"model",title:"Model"}, {valueKey:"runtime",title:"Runtime"}, {valueKey:"tools",title:"Tools"}, {valueKey:"servers",title:"Servers"}, {valueKey:"delegates",title:"Delegates"}, {valueKey:"approvals",title:"HITL"}, {valueKey:"owner",title:"Owner"} ] + (if $gw > 0 then [ {valueKey:"gateway",title:"Gateway"} ] else [] end) + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"#8c8c8c"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"#8c8c8c"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:(if (.delegates // 0) > 0 then ((.delegates)|tostring) else "—" end)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(if (.approvals // 0) > 0 then ((.approvals)|tostring) else "—" end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, (if .orchestrator then {valueKey:"pattern",kind:"tag",stringValue:"orchestrator",color:"violet"} else {valueKey:"pattern",kind:"jsonSchemaType",type:"string",stringValue:""} end), {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"var(--gray-color)"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"var(--gray-color)"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:((.delegates // 0)|tostring)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:((.approvals // 0)|tostring)}, {valueKey:"owner",kind:"jsonSchemaType",type:"string",stringValue:(.owner // "—"),color:"var(--gray-color)"}, (if (.gateway // "") == "" then {valueKey:"gateway",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"gateway",kind:"tag",stringValue:.gateway,color:(.gatewayColor // "red")} end), (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
   apiRef:
     name: agents-list
     namespace: {{ .Release.Namespace }}

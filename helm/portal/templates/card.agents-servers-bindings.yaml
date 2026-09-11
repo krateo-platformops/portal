@@ -1,0 +1,30 @@
+# The surface the agent-to-server binding table sits on — the third of the three inventory frames
+# (card.agents-list, card.agents-servers-list, this one), so the page presents one consistent
+# surface treatment instead of framed panels beside unframed tables.
+#
+# NO `title`: flex.agents-servers-bindings-head carries "Who may call what" and the paragraph that
+# keeps Bound > Currently served from being read as a fault, immediately above the frame.
+#
+# This is the table standing in for the mockup's agent x server matrix, and the mockup frames that
+# matrix too (`<div class="card matrix">`) — so the frame is not decoration here, it is what marks
+# the join off as one object to read rather than rows continuing from the server list above it.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-bindings-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    variant: outlined
+    items:
+    - resourceRefId: agents-servers-bindings
+  resourcesRefs:
+    items:
+    - id: agents-servers-bindings
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-bindings
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

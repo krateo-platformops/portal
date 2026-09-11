@@ -56,6 +56,15 @@
 # toolNames IS OPTIONAL. A ref that omits it grants an unstated set — kagent, not this page, decides
 # what that means — so the row reads "not specified", never Bound 0 and never a blank cell.
 #
+# THE CONSUMER CELL NAMES ITS AGENTS WHEN THERE ARE ONE OR TWO OF THEM, and falls back to a count
+# beyond that. "1" is the least useful cell on the page: a server with a single consumer is either
+# a dedicated gate for one specialist or an orphan nobody removed, and the count cannot tell those
+# apart while the NAME settles it instantly. Two still fits a cell; three does not, and past that
+# the count is the more readable fact anyway (nobody reads eleven names in a table cell). Namespace
+# qualification follows the same $multiNs rule as every other name on this page, so a single-
+# namespace cluster shows bare names. `not readable` still wins over all of it — an unread Agent
+# list must never render as a consumer count, named or otherwise.
+#
 # THE THREE TAIL COUNTS ARE null, NOT 0, WHEN THEIR READ FAILED. Nothing renders them today; they go
 # null under denial so the first stat header that picks them up cannot restate an unread list as
 # zero — the same rule the cells above follow.
@@ -125,7 +134,12 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: routesError
-  filter: >-
+  # LITERAL block (|-), not folded (>-). A folded scalar joins consecutive lines with a space,
+  # which splices every `#` comment below into the jq that follows it and comments that jq out.
+  # jq itself does not care about newlines, so the literal form parses identically and lets the
+  # reasoning live next to the expression it explains -- the same choice restaction.agents-list
+  # and restaction.agent-detail make.
+  filter: |-
     ( [ { k: "servers",  what: "Tool servers (remotemcpservers.kagent.dev)",             e: .serversError  },
         { k: "agents",   what: "Agents (agents.kagent.dev)",                             e: .agentsError   },
         { k: "backends", what: "Gateway backends (agentgatewaybackends.agentgateway.dev)", e: .backendsError },
@@ -221,8 +235,10 @@ spec:
               inUse:      ( if $agentsDenied then "not readable"
                             else ( [ $cons[] | (.served // [])[] ] | unique | length | tostring ) end ),
               agents:     ( if $agentsDenied then "not readable"
-                            elif ($cons | length) > 0 then ($cons | length | tostring)
-                            else "—" end ),
+                            else ( ( [ $cons[] | (if $multiNs then (.ans + "/" + .agent) else .agent end) ] | unique ) as $names
+                                   | if ($names | length) == 0 then "—"
+                                     elif ($names | length) <= 2 then ($names | join(" · "))
+                                     else (($names | length | tostring) + " agents") end ) end ),
               statusLabel: ( [ ($exc[].label), ($gw // empty) ] | join(" · ") ),
               statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "gold" end ) } ]
         | sort_by(.name) ) as $serverRows
@@ -241,6 +257,55 @@ spec:
                        else ( (.bound[0:5] | join(", "))
                               + ( if (.bound | length) > 5 then (" +" + (((.bound | length) - 5) | tostring) + " more") else "" end ) ) end ) } ]
         | sort_by(.server, .agent) ) as $bindingRows
+    # ------------------------------------------------------------------ THE MATRIX
+    # "Who may call what" is a two-dimensional question and $bindingRows answers it one dimension at
+    # a time: it is one row per agent x server pair, so seeing which of the nine servers an agent may
+    # call means reading nine rows scattered through a sorted list of ~40. The matrix below is the
+    # same data pivoted -- one row per agent, one COLUMN per tool server -- which is the shape the
+    # question actually has. The pair list stays underneath it: it carries the bound TOOL NAMES,
+    # which a matrix cell cannot hold.
+    #
+    # Computed here, server-side, because the Table widget cannot pivot: `columns` is a plain list
+    # and the SPA renders exactly what it is given. Both the column list and the cells are emitted
+    # from this jq, which is also why the column set is DERIVED (the union of the readable servers
+    # and the servers something actually binds) rather than written down -- a tenth server appearing
+    # on the cluster grows a tenth column with no edit here.
+    #
+    # valueKeys are positional (c0..cN), never the server name: a name carries "/" and "." on a
+    # multi-namespace install, and the SPA keys cells by exact string match.
+    | ( if $serversDenied then [] else [ $serverRows[] | .name ] end ) as $listedServers
+    | ( [ $bindingRows[] | .server ] | unique ) as $boundServers
+    | ( ( $listedServers + $boundServers ) | unique | sort ) as $matrixServers
+    | ( [ $matrixServers | to_entries[] | { key: ("c" + (.key | tostring)), title: .value } ] ) as $matrixCols
+    | ( [ $matrixServers | to_entries[] | { key: .value, value: ("c" + (.key | tostring)) } ] | from_entries ) as $colOf
+    | ( [ $bindingRows[] | { key: (.agent + " @@ " + .server), value: . } ] | from_entries ) as $byPair
+    # Every agent gets a row, including one that binds nothing: "this agent calls no tools" is a fact
+    # about the fleet, and dropping the row would make it look like the agent was not readable.
+    | ( if $agentsDenied then []
+        else ( [ (.agents.items // [])[]
+                 | ( if $multiNs then ((.metadata.namespace // "") + "/" + .metadata.name) else .metadata.name end ) ]
+               | unique | sort ) end ) as $matrixAgents
+    # Cell vocabulary, in the mockup's own terms and no stronger:
+    #   ""      nothing bound -- the cell is empty so the matrix reads sparse, which is the point
+    #   8       eight tools bound
+    #   8 !     some of them gated by requireApproval (a human approves the call)
+    #   8 ?     some bound name is not in the server's discovered list. NOT automatically a fault --
+    #           it is also what a deliberate forward/backward-compatible binding looks like -- so it
+    #           is marked, never coloured red and never called broken.
+    | ( [ $matrixAgents[] as $a
+          | { agent: $a,
+              cells: ( [ $matrixServers[] as $sv
+                         | ( $byPair[$a + " @@ " + $sv] ) as $b
+                         | { key: $colOf[$sv],
+                             value: ( if $b == null then ""
+                                      else ( ( if $b.bound == "—" then "0" else $b.bound end )
+                                             + ( if $b.approvals != "—" then " !" else "" end )
+                                             + ( if ( $b.served != "—" and $b.served != "not readable"
+                                                      and $b.bound != "—"
+                                                      and (($b.served | tonumber) < ($b.bound | tonumber)) )
+                                                 then " ?" else "" end ) ) end ) } ] ) } ] ) as $matrixRows
+    | ( ( [ $matrixRows[] | .cells[] | select(.value | endswith("!")) ] | length ) > 0 ) as $anyHitl
+    | ( ( [ $matrixRows[] | .cells[] | select(.value | endswith("?")) ] | length ) > 0 ) as $anyUndisc
     | { servers: ( if $serversDenied
                    then [ { name: "Tool servers are not readable — the RemoteMCPServer list did not answer",
                             endpoint: "—", protocol: "—", timeout: "—", discovered: "—", inUse: "—", agents: "—",
@@ -260,4 +325,15 @@ spec:
                   | join(" ") ),
         serverCount:   ( if $serversDenied then null else ($serverRows | length) end ),
         bindingCount:  ( if $agentsDenied then null else ($bindingRows | length) end ),
+        # Consumed by table.agents-servers-matrix: `matrixCols` becomes its `columns`, `matrixRows`
+        # its `dataSource`. Both are null-safe -- a denied read yields an EMPTY matrix and the widget
+        # renders its own not-readable notice, rather than an empty grid that would read as "nobody
+        # calls anything".
+        matrixCols:    ( if ($agentsDenied or (($matrixCols | length) == 0)) then [] else $matrixCols end ),
+        matrixRows:    ( if $agentsDenied then [] else $matrixRows end ),
+        matrixLegend:  ( if $agentsDenied
+                         then "Agent bindings are not readable - the Agent list did not answer, so this matrix is empty rather than sparse."
+                         else ( "Each cell is the number of tools that agent binds on that server."
+                                + ( if $anyHitl then "  ! some of them are gated by requireApproval and pause for a human." else "" end )
+                                + ( if $anyUndisc then "  ? at least one bound name is not in the server's discovered list, which is not automatically a fault - a deliberate compatibility binding looks the same." else "" end ) ) end ),
         consumerCount: ( if $agentsDenied then null else ([ $bindings[].agent ] | unique | length) end ) }

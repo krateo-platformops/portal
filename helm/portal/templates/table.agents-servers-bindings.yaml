@@ -1,14 +1,19 @@
-# Who may call what — one row per (agent, tool server) binding, from restaction.agents-servers.
+# Every binding, with the tool names — one row per (agent, tool server) pair, from
+# restaction.agents-servers. This is the DETAIL view that sits under table.agents-servers-matrix.
 #
-# THIS IS NOT A MATRIX, AND IT CANNOT BE. The widget set has no matrix/heatmap/pivot kind (verified
-# against the live CRDs: the 41 widgets.templates.krateo.io kinds include tables, descriptions,
-# cards, listies, charts — nothing two-dimensional). A Table could fake a matrix only by declaring
-# one column per server, and `columns` is static widgetData — so that would bake THIS cluster's nine
-# server names into the chart and render blank or wrong columns anywhere else. One row per binding
-# is the truthful shape: it is exactly the join that exists in the data (agents[].spec.declarative
-# .tools[] of type McpServer, each naming one RemoteMCPServer), it needs no schema change per
-# cluster, and it has room for the per-binding facts a matrix cell could never hold — the tool
-# names and the HITL count.
+# CORRECTION TO WHAT THIS HEADER USED TO SAY. It claimed a matrix "CANNOT BE", on the grounds that
+# `columns` is static widgetData and a pivot would therefore bake one cluster's server names into
+# the chart. The premise is false: `columns` is reachable from widgetDataTemplate exactly like
+# `dataSource` is — table.agents-list templates it to add Pattern/Gateway/Status only when a row has
+# something to put in them, and cards.agents-policies-by-role does the same per role. So the column
+# set can be DERIVED server-side from whatever RemoteMCPServers the caller can read, which is what
+# table.agents-servers-matrix now does, and nothing about any one cluster is baked in. The widget
+# set still has no matrix/heatmap kind; it did not need one.
+#
+# THIS TABLE IS STILL HERE, AND NOT AS A FALLBACK. A matrix cell holds a count. This holds the
+# bound TOOL NAMES and the per-binding HITL count, which is what you need once the matrix has told
+# you which cell to look at. Matrix to scan, list to look up — dropping it would trade a real answer
+# for a shorter page.
 #
 # `Bound` vs `Currently served` IS NOT AN ERROR REPORT. kagent keeps only the tool names the server
 # actually discovers, so an agent may legitimately bind a superset. Three live examples, all
@@ -31,6 +36,21 @@
 # the question the Tool servers section is asked. defaultPageSize 50 + hideOnSinglePage keeps the
 # whole join on one page on a normal cluster (37 bindings on krateo-057) — this table is standing
 # in for a matrix, and a matrix split across pages answers nothing.
+#
+# The `tools` cell — the list of tool names, the one thing a matrix cell could never hold — is muted
+# with `var(--gray-color)`, NOT a hex. A cell colour lands in the span's inline style, so a hex is
+# frozen against ONE background while the portal has two: the #8c8c8c that used to sit here measured
+# 3.25:1 on the light surface (#FBFBFB) against WCAG AA's 4.5:1, so the widest and most specific
+# column in the section was unreadable in light mode. No hex satisfies both themes at once
+# (table.agents-list carries the luminance arithmetic); the token is re-emitted per mode by
+# cssVariables() and measures 6.46:1 light / 7.04:1 dark.
+#
+# Bound / Currently served / HITL stay LEFT-aligned. The SPA right-aligns a column only when every
+# value in it is numeric (tableSorting.ts; there is no `align` on the Table CRD), and all three
+# carry "—" for states that are NOT zero — a binding that names no tools, a server that has
+# published no discoveredTools, a ref of another kind — plus "not readable" when a list did not
+# answer. Those dashes are the distinctions the header above spends four paragraphs protecting;
+# collapsing them into 0 to buy a right edge would print numbers the cluster never said.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -63,7 +83,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.bindings // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.server // "—")}, {valueKey:"agent",kind:"jsonSchemaType",type:"string",stringValue:(.agent // "—")}, {valueKey:"bound",kind:"jsonSchemaType",type:"string",stringValue:(.bound // "—")}, {valueKey:"served",kind:"jsonSchemaType",type:"string",stringValue:(.served // "—")}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(.approvals // "—")}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:(.tools // "—"),color:"#8c8c8c"} ] ] }'
+    expression: '${ [ (.bindings // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.server // "—")}, {valueKey:"agent",kind:"jsonSchemaType",type:"string",stringValue:(.agent // "—")}, {valueKey:"bound",kind:"jsonSchemaType",type:"string",stringValue:(.bound // "—")}, {valueKey:"served",kind:"jsonSchemaType",type:"string",stringValue:(.served // "—")}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:(.approvals // "—")}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:(.tools // "—"),color:"var(--gray-color)"} ] ] }'
   apiRef:
     name: agents-servers
     namespace: {{ .Release.Namespace }}

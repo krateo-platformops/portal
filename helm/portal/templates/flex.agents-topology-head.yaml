@@ -1,0 +1,28 @@
+# Title + subtitle stack for the gateway-topology graph (sibling of agents-servers-head).
+# Nested rather than flattened into flex.agents-topology so the caption sits tight under its title
+# instead of inheriting the section's `gap: middle`.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-topology-head
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    vertical: true
+    items:
+    - resourceRefId: agents-topology-title
+    - resourceRefId: agents-topology-subtitle
+  resourcesRefs:
+    items:
+    {{- range (list "agents-topology-title" "agents-topology-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}

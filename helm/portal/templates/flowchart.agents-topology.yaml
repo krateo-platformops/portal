@@ -1,0 +1,38 @@
+# The gateway topology graph — agents → one gateway → the backends it fronts.
+#
+# A 1:1 MAPPER AND NOTHING MORE. Every node this renders, including its icons, its tooltips and the
+# edges between them, is built server-side in restaction.agents-topology; `${ .nodes }` is the whole
+# transform. That is not style: the three-state reachability answer (routed / no route / cannot tell)
+# is the point of the section, and it cannot survive being recomputed in a widget that can only see
+# what was already sent.
+#
+# `data` IS RESOURCE-SHAPED AND STRICTLY TYPED. flowcharts.widgets.templates.krateo.io requires
+# date, kind, name, namespace, resourceVersion, uid AND version on every entry — an item missing any
+# one of them is rejected at apply time, and the CRD carries no preserve-unknown-fields, so an extra
+# key is rejected too. The action emits exactly those seven plus icon/statusIcon/parentRefs; two of
+# the sixteen nodes are collapsed groups rather than live objects and say so in their own `kind`.
+#
+# THE STATIC `data: []` IS THE PRE-RESOLUTION STATE, and it renders antd's Empty rather than a
+# skeleton graph — deliberately, because a half-drawn topology is a claim about the cluster. The
+# subtitle above (paragraph.agents-topology-subtitle) is what explains an empty graph when the reads
+# behind it failed; the graph itself never editorialises.
+#
+# NO keyExtras: /agents is an unparameterized route, so nothing partitions this widget's cache cell.
+kind: FlowChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-topology
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    data: []
+  apiRef:
+    name: agents-topology
+    namespace: {{ .Release.Namespace }}
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .nodes // [] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,31 @@
+# The Ownership half of the mockup's Add-policy drawer, rendered as a warning instead of a radio —
+# see the header of restaction.agents-policy-formdef for why the second option is not built.
+#
+# This is not a generic caution. Every one of the 31 AgentgatewayPolicies live on this cluster
+# carries app.kubernetes.io/managed-by=Helm, i.e. all of them are rendered by the
+# agentgateway-policies composition from its values. A policy authored here is the only kind that is
+# NOT, which cuts both ways and the text says both: nothing reverts it, and nothing restores it.
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policy-ownership
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: This creates a standalone policy. It is not part of the composition that renders the others.
+    type: warning
+    showIcon: true
+    description: >-
+      Every policy already on this cluster is rendered by the agentgateway-policies composition from
+      its values, so editing one of them by hand is reverted on the next reconcile — if you want to
+      change an existing policy, change the composition, not the object. A policy created here is
+      the opposite: it is yours, the composition never touches it, and nothing will re-create it if
+      it is deleted. Both halves matter. It also takes effect as soon as it is accepted and attached
+      — a policy is enforcement, not configuration waiting to be switched on, so an authorization or
+      JWT block that is wrong refuses real traffic at the gateway from that moment. Check what the
+      object you are attaching to already carries before adding a second policy to it: the policies
+      page groups the live ones by role.
+  resourcesRefs:
+    items: []

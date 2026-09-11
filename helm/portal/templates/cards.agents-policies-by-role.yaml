@@ -109,7 +109,7 @@ spec:
   - forPath: columns
     expression: '${ ( [ (.rows // [])[] | select(.role == "{{ $r.key }}") | select((.statusLabel // "") != "") ] | length ) as $exc | [ {valueKey:"name",title:"Policy"}, {valueKey:"attaches",title:"Attached to"}, {valueKey:"enforces",title:"What it enforces"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | select(.role == "{{ $r.key }}") | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "-")}, {valueKey:"attaches",kind:"jsonSchemaType",type:"string",stringValue:(.attaches // "not attached"),color:"#8c8c8c"}, {valueKey:"enforces",kind:"jsonSchemaType",type:"string",stringValue:(if (.enforces // "") == "" then "—" else .enforces end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
+    expression: '${ [ (.rows // [])[] | select(.role == "{{ $r.key }}") | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "-")}, {valueKey:"attaches",kind:"jsonSchemaType",type:"string",stringValue:(.attaches // "not attached"),color:"var(--gray-color)"}, {valueKey:"enforces",kind:"jsonSchemaType",type:"string",stringValue:(if (.enforces // "") == "" then "—" else .enforces end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
   resourcesRefs:
     items: []
 {{- end }}

@@ -1,0 +1,249 @@
+# Policy create-form schema source — the agent-formdef pattern (live cluster -> form schema), for
+# AgentgatewayPolicy (agentgateway.dev/v1alpha1, Namespaced).
+#
+# WHAT THIS FORM DELIBERATELY DOES NOT DO. The mockup's Add-policy drawer opens with an Ownership
+# choice: "Add to composition values" or "Standalone policy". Only the second is built. All 31
+# policies live on krateo-057 carry app.kubernetes.io/managed-by=Helm — every one is rendered by the
+# agentgateway-policies composition from its values, so "add to composition values" is not a create
+# at all, it is a PATCH of a different CR (the AgentgatewayPolicies composition) whose values schema
+# this page does not own. Offering it as a half-working second radio would produce policies that
+# survive until the next reconcile and then vanish, which is worse than not offering it. The Alert
+# above the form says so in those words, and points at the composition instead.
+#
+# THE SCHEMA IS ASSEMBLED AS TEXT, NEVER AS A jq OBJECT — same hard constraint as agent-formdef, for
+# the same reason: snowplow runs a gojq fork whose encodeObject sorts keys, so `$obj | tojson` comes
+# back alphabetised and SchemaFields renders the form in that order. $props below is an ARRAY (gojq
+# preserves array order) and the properties block is concatenated. Only each property NODE goes
+# through tojson, where key order carries no meaning. To add a field: insert it into $props at the
+# position you want it to render.
+#
+# THE TARGET IS ONE FIELD, NOT TWO. targetRefs[] needs a kind AND a name that agree, and a form with
+# separate "kind" and "name" selects lets a user pick HTTPRoute + the name of a Service and submit
+# something that matches nothing. The single `__target__` enum carries "<Kind>/<namespace>/<name>"
+# and the Form's payloadToOverride splits it, so the pair cannot be mismatched. Its `group` is
+# derived the same way: "" for Service (core), gateway.networking.k8s.io for the other two — that is
+# what the 66 live targetRefs use (10 Gateway, 40 HTTPRoute, 16 Service).
+#
+# THREE-STATE READS. Every list step carries continueOnError + errorKey and every errorKey is read
+# below. snowplow's userAccessFilter EMPTIES a list the caller may not see rather than erroring, so
+# "the cluster has none" and "your grant covers none" arrive identically — every field description
+# that could present a failed or filtered read as an empty cluster says which one it is.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-policy-formdef
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    # The CRD itself. NOT continueOnError: no CRD means no policy kind on this cluster, and a form
+    # that cannot say which apiVersion it posts to must fail loudly rather than render.
+    - name: crd
+      path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/agentgatewaypolicies.agentgateway.dev
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+    # Namespaces the caller may CREATE an AgentgatewayPolicy in — filtered by snowplow against the
+    # real verb, so the Namespace select never offers somewhere the POST would 403.
+    - name: namespaces
+      path: /api/v1/namespaces
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: create
+        group: agentgateway.dev
+        resource: agentgatewaypolicies
+        namespaceFrom: .metadata.name
+      continueOnError: true
+      errorKey: namespacesError
+    - name: gateways
+      path: /apis/gateway.networking.k8s.io/v1/gateways
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: gateway.networking.k8s.io
+        resource: gateways
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: gatewaysError
+    - name: routes
+      path: /apis/gateway.networking.k8s.io/v1/httproutes
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: gateway.networking.k8s.io
+        resource: httproutes
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: routesError
+    # Services are scoped to the release namespace, unlike the two Gateway-API kinds. A cluster-wide
+    # Service list is hundreds of entries of which the gateway can target a handful, and all 16 live
+    # Service targetRefs are in this namespace. The field description says the list is scoped.
+    - name: services
+      path: /api/v1/namespaces/{{ .Release.Namespace }}/services
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: ""
+        resource: services
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: servicesError
+    # The policies already on the cluster, read ONLY to seed worked examples into the body field.
+    # The apiserver strict-decodes this CRD (an unknown field is a BadRequest, not a warning), so a
+    # user authoring the block from memory gets a 422 and no clue which key was wrong. A real block
+    # of the same role, copied from an object that is currently Accepted, is the difference between
+    # a field someone can fill in and one they cannot.
+    - name: policies
+      path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: agentgateway.dev
+        resource: agentgatewaypolicies
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: policiesError
+  # Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }.
+  filter: |
+    # A step that fails under continueOnError writes its reason to the errorKey as an ACCUMULATING
+    # SLICE (snowplow accumulateErrorKey always stores []any), each entry either the apiserver Status
+    # envelope decoded to a map or a bare string. errText flattens all three shapes and returns ""
+    # when the step SUCCEEDED. Never infer this from `length > 0` on the payload: an empty list and
+    # a swallowed 403 are the same length.
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
+    (errText(.namespacesError)) as $nsErr
+    | (errText(.gatewaysError))  as $gwErr
+    | (errText(.routesError))    as $rtErr
+    | (errText(.servicesError))  as $svcErr
+    | ( [ .crd.spec.versions[]? | select(.served) | .name ] ) as $served
+    | ( if ($served | index("v1alpha1")) then "v1alpha1" else ($served[0] // "v1alpha1") end ) as $ver
+    | ( [ (.namespaces // [])[] ] | unique | sort ) as $nsOpts
+    | ( if ($nsOpts | index("{{ .Release.Namespace }}")) then "{{ .Release.Namespace }}" else ($nsOpts[0] // "") end ) as $nsDefault
+    # ── the target enum ─────────────────────────────────────────────────────────────────────────
+    # "<Kind>/<namespace>/<name>" so the Form can rebuild a targetRef that cannot be mismatched.
+    | ( [ (.gateways.items // [])[] | "Gateway/" + .metadata.namespace + "/" + .metadata.name ] | sort ) as $gwOpts
+    | ( [ (.routes.items // [])[]   | "HTTPRoute/" + .metadata.namespace + "/" + .metadata.name ] | sort ) as $rtOpts
+    | ( [ (.services.items // [])[] | "Service/" + .metadata.namespace + "/" + .metadata.name ] | sort ) as $svcOpts
+    | ( $gwOpts + $rtOpts + $svcOpts ) as $targetOpts
+    | ( [ (if $gwErr != "" then "Gateways could not be read (" + $gwErr + ")" else empty end),
+          (if $rtErr != "" then "HTTPRoutes could not be read (" + $rtErr + ")" else empty end),
+          (if $svcErr != "" then "Services could not be read (" + $svcErr + ")" else empty end) ]
+        | join("; ") ) as $targetErr
+    # ── the role -> spec-block map, stated once and rendered into the two descriptions ───────────
+    # Every one of the seven is grounded in a block some live policy actually uses on this cluster:
+    # traffic.authorization x10, traffic.jwtAuthentication x7, traffic.retry x5, backend.auth x4,
+    # traffic.timeouts x4, traffic.rateLimit x3, traffic.buffer x3, backend.ai x1, traffic.cors x1,
+    # frontend.accessLog/metrics/tracing x1 each.
+    | (errText(.policiesError)) as $polErr
+    # Which sub-keys each role owns, and therefore which live block is an example OF that role.
+    # The lists are the blocks actually in use here (traffic.authorization x10, jwtAuthentication x7,
+    # retry x5, backend.auth x4, timeouts x4, rateLimit x3, buffer x3, backend.ai x1, cors x1,
+    # frontend accessLog/metrics/tracing x1 each), so every role can be exemplified.
+    | { identity:      { top: "traffic",  keys: ["jwtAuthentication","authorization"] },
+        guardrail:     { top: "backend",  keys: ["ai"] },
+        limits:        { top: "traffic",  keys: ["rateLimit","buffer"] },
+        resiliency:    { top: "traffic",  keys: ["retry"] },
+        observability: { top: "frontend", keys: ["accessLog","metrics","tracing"] },
+        passthrough:   { top: "backend",  keys: ["auth"] },
+        cors:          { top: "traffic",  keys: ["cors"] } } as $roleKeys
+    | ( [ (.policies.items // [])[] ] ) as $live
+    # For a role: the smallest live block that contains one of its keys, projected down to just the
+    # keys that role owns. Smallest so the example is readable; projected so a policy that carries
+    # two roles' blocks does not teach the wrong one. tojson is safe here (this is an EXAMPLE string,
+    # key order carries no meaning) -- unlike the schema itself, which must stay an ordered array.
+    | ( reduce ($roleKeys | keys_unsorted[]) as $r ({};
+          . as $acc
+          | ( $roleKeys[$r] ) as $rk
+          | ( [ $live[]
+                | ( .spec[$rk.top] // {} ) as $blk
+                | ( $blk | with_entries(select(.key as $k | $rk.keys | index($k))) ) as $proj
+                | select(($proj | length) > 0)
+                | ($proj | tojson) ]
+              | sort_by(length) ) as $cands
+          | $acc + { ($r): ($cands[0] // "") } ) ) as $examples
+    # A LENGTH CAP, and an offered-or-not decision rather than a truncation. The live guardrail block
+    # is one policy carrying every secret-masking regex on the cluster — well over a thousand
+    # characters. Cutting a JSON object mid-string yields something that looks copy-pasteable and is
+    # not, which is worse than saying nothing, so an over-long example is WITHHELD and named as
+    # withheld. The policies page renders the full live values for the roles skipped here.
+    | 200 as $exampleCap
+    | ( [ $roleKeys | keys_unsorted[] as $r
+          | select($examples[$r] != "") | select(($examples[$r] | length) <= $exampleCap)
+          | ($r + " " + $examples[$r]) ] | join("  ") ) as $exampleText
+    | ( [ $roleKeys | keys_unsorted[] as $r
+          | select($examples[$r] != "") | select(($examples[$r] | length) > $exampleCap)
+          | $r ] ) as $tooLong
+    | ( $examples["limits"] // "{}" ) as $blockDefault
+    | [ "identity  -> spec.traffic (jwtAuthentication, authorization)",
+        "guardrail -> spec.backend.ai (promptGuard, Model Armor, moderation)",
+        "limits    -> spec.traffic (rateLimit, buffer, timeouts)",
+        "resiliency-> spec.traffic (retry, timeouts)",
+        "observability -> spec.frontend (accessLog, metrics, tracing)",
+        "passthrough   -> spec.backend (auth)",
+        "cors      -> spec.traffic (cors)" ] as $roleMap
+    | [
+        { k: "__policy_name__",
+          v: { type: "string", title: "Name",
+               description: "metadata.name. Must not collide with a policy the agentgateway-policies composition already renders — those are reconciled and a name clash is a permanent conflict, not a one-off 409.",
+               minLength: 1 } },
+        { k: "__policy_namespace__",
+          v: { type: "string", title: "Namespace",
+               description: ("Where the policy object is created. Only namespaces you may CREATE an AgentgatewayPolicy in are offered."
+                 + (if $nsErr != "" then (" The namespace list could not be read (" + $nsErr + ") — this select is empty because that READ FAILED, not because you have no namespaces.")
+                    elif ($nsOpts | length) == 0 then " No namespace grants you create on agentgatewaypolicies.agentgateway.dev, so this policy cannot be created anywhere from here."
+                    else "" end)),
+               enum: $nsOpts, default: $nsDefault } },
+        { k: "__role__",
+          v: { type: "string", title: "Role",
+               description: ("Picks WHICH spec block the JSON below is written into — the policy kind is one CRD with many optional blocks, and the role is how the fleet names them. " + ($roleMap | join(" · ")) + "."),
+               enum: ["identity","guardrail","limits","resiliency","observability","passthrough","cors"],
+               default: "limits" } },
+        { k: "__target__",
+          v: { type: "string", title: "Attached to",
+               description: ("The object this policy binds to, as Kind/namespace/name — one field so the kind and the name cannot disagree. Gateways and HTTPRoutes are listed cluster-wide; Services are listed for {{ .Release.Namespace }} only, which is where every live Service target sits."
+                 + (if $targetErr != "" then (" " + $targetErr + " — this list is short because a READ FAILED, not because those objects do not exist.")
+                    elif ($targetOpts | length) == 0 then " Nothing readable to attach to. That is a permissions answer, not a cluster with no gateways."
+                    else "" end)),
+               enum: $targetOpts } },
+        { k: "__block__",
+          v: { type: "string", title: "Policy body (JSON)",
+               description: ("The block's contents as a JSON object, written under the key your Role selects. Authored as JSON because the CRD's spec schema is ~298 KB across 37 optional blocks and the form renderer has no conditional branches: a control per field would render all 37 blocks at once, 36 of them irrelevant to the role you picked. The apiserver STRICT-decodes this kind — an unknown or misspelled field is a BadRequest on submit, never a silently ignored one — so start from a block that is already accepted here rather than from memory."
+                 + (if $polErr != "" then (" The live policies could not be read (" + $polErr + "), so no worked example could be offered — that is a failed read, not a cluster with no policies to copy from.")
+                    elif $exampleText != "" then ("  Currently accepted on this cluster, one per role: " + $exampleText
+                      + (if ($tooLong | length) > 0 then ("  No example is shown for " + ($tooLong | join(", ")) + ": the live block is longer than " + ($exampleCap | tostring) + " characters and a clipped JSON object is not copy-pasteable. The policies page shows it in full.") else "" end))
+                    elif ($live | length) == 0 then "  No policy is readable here, so there is no worked example to copy."
+                    else "" end)),
+               minLength: 2, default: $blockDefault } }
+      ] as $props
+    | ["__policy_name__", "__policy_namespace__", "__role__", "__target__", "__block__"] as $required
+    # Assembled as TEXT so the properties block never becomes a jq object — see the header.
+    | ( "{\"type\":\"object\",\"properties\":{"
+        + ( [ $props[] | ((.k | tojson) + ":" + (.v | tojson)) ] | join(",") )
+        + "},\"required\":" + ($required | tojson) + "}" ) as $schemaString
+    | {
+        schemaString: $schemaString,
+        propertiesToHide: [],
+        initialValues: {},
+        apiVersion: ("agentgateway.dev/" + $ver),
+        kind: "AgentgatewayPolicy",
+        resource: "agentgatewaypolicies",
+        namespace: $nsDefault
+      }

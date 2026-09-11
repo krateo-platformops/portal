@@ -10,6 +10,31 @@
 # Static text — there is nothing live to resolve before the agent exists, so no apiRef. Note this is
 # deliberately NOT the place read failures are reported: those are named in the field descriptions
 # agent-formdef builds, right under whichever picker they emptied.
+#
+# THE WARNING USED TO OVERSTATE ITS CASE and has been corrected against the deployed charts. It read
+# "Neither is writable from the portal: both are Installer componentValues, so anything written here
+# would be reverted on the next reconcile." Three things were wrong with that:
+#
+#   1. "Not writable from the portal" is false. The Installer is itself a Composition
+#      (installers.composition.krateo.io — verified on krateo-057), and every composition detail
+#      page in this chart carries an Edit drawer over the schema-driven composition-edit Form
+#      (button.composition-detail-edit). The values below are edited there like any other
+#      composition value. The portal cannot do it from THIS form, which is a different claim.
+#   2. Both keys are DECLARED, not improvised. componentValues.agentgateway-policies.extraSubAgents
+#      and componentValues.krateo-autopilot.extraAgents are typed properties of the Installer CRD
+#      (read off installers.composition.krateo.io v0-3-172 on krateo-057), and extraSubAgents is
+#      already carrying the four -bench agents live. A declared one-entry value is not the same
+#      difficulty as "rendered by another chart", which is how the old wording read.
+#   3. It missed that registration is now DERIVED for platform agents. installer e779002 (shipped in
+#      0.3.172, the deployed tag) makes chart/templates/compositions.yaml build
+#      agentgateway-policies `subAgents` from every feature-enabled `agent: true` component pin —
+#      precisely so that the krateo-blueprint-agent drift cannot recur. That does not help an agent
+#      created HERE, which is not a component pin, and saying so is the accurate scope of the
+#      warning: hand registration is what a NON-component agent needs, not what everything needs.
+#
+# An overstated warning is worse than a plain one, because it is the reason people learn to skip
+# warnings. What stays true, and is the whole point, is the first sentence: this form creates the
+# Agent, it does not make it reachable, and the agent will report Ready in the meantime.
 kind: Alert
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -25,10 +50,14 @@ spec:
     description: >-
       Gateway wiring — the subagent HTTPRoute, the two agentgateway authz Allow clauses and the
       backend passthrough entry — is rendered by the agentgateway-policies chart, and the
-      orchestrator's delegate list is rendered by the krateo-autopilot chart. Neither is writable
-      from the portal: both are Installer componentValues, so anything written here would be
-      reverted on the next reconcile. Until the two values below are added and the Installer
-      reconciles, the new Agent will report Ready and Accepted while every call to it is refused at
-      the gateway.
+      orchestrator's delegate list by the krateo-autopilot chart. Do not write those objects
+      directly: both charts re-render them, so a hand-made HTTPRoute or Allow clause is reverted on
+      the next reconcile. Register the agent instead, by adding it to the Installer value below —
+      it is a declared Installer property, and the Installer is a Composition, so you can edit it
+      from Compositions → installer → Edit as well as with kubectl. For agents that ship as platform
+      components the Installer already derives this from the deployed fleet; an agent created here
+      is not a component, so it needs the entry. Until it is added and the Installer reconciles, the
+      new Agent will report Ready and Accepted while every call to it is refused at the gateway.
+      Once it exists, /agents flags this state in its Gateway column.
   resourcesRefs:
     items: []

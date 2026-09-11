@@ -4,35 +4,25 @@
 # entry carries this admin-tier namespace explicitly. That indirection is what makes the entry
 # RBAC-aware (snowplow resolves it as the caller, so the nav item disappears for a user who cannot
 # GET this Flex) and it is also why this root can live in the tier namespace at all — the bare
-# `page:` convention would look for it in the MENU's own namespace and 404.
+# `page:` convention would look for it in the frontend's configured namespace and 404.
 #
 # Pagehead + the agent inventory table.
 #
-# THE "New agent" CTA IS STILL WITHHELD, and the reason has changed. The form it opens now exists
-# (flex.page-agent-create, button.agents-new, flex.agents-new-cta are all in this chart), but a page
-# root is NOT a route: menu.sidebar-nav is the single route source (there is no RoutesLoader) and it
-# carries no `/agents/new` entry — this wave's lead integrates all routes, so this branch may not
-# add one. A Button navigating to an unrouted path falls through to the shell catch-all
-# (RoutesContext.tsx `{ element: <WidgetPage />, path: '*' }`) and WidgetPage renders <Page404/>, so
-# wiring the CTA now would ship a primary call-to-action that dead-ends. Neither guard would catch
-# it: mockup-diff.mjs only flags an empty `actions`, and lint-keyextras only covers parameterized
-# routes. Fail closed — the form is reachable by URL and orphaned, rather than advertised and broken.
+# THE "New agent" CTA IS NOW ON. It was withheld while the route did not exist: a Button navigating
+# to an unrouted path falls through to the shell catch-all (RoutesContext.tsx `{ element:
+# <WidgetPage />, path: '*' }`) and WidgetPage renders <Page404/>, so advertising it then would have
+# shipped a primary call-to-action that dead-ends — and neither guard catches that (mockup-diff.mjs
+# only flags an empty `actions`, lint-keyextras only covers parameterized routes). Both halves are
+# in place now: menu.sidebar-nav carries `{ order: 936, path: "/agents/new", page: agent-create }`,
+# and page-agent-create was moved to {{ `{{ .Release.Namespace }}` }} so that `page:` convention
+# actually resolves it (Menu.tsx passes config.params.FRONTEND_NAMESPACE into buildNavModel, so
+# `page: <slug>` looks for flexes/page-<slug> THERE, never in this admin-tier namespace — see the
+# header of flex.page-agent-create). Without that move the CTA would 404 on any install that sets
+# .Values.tiers.admin, which is the tiered-RBAC layout the tier helper exists for.
 #
-# TO ENABLE, both halves together, in one commit:
-#   1. menu.sidebar-nav.yaml `items:` (orders 936-939 are free; 934/935 are the alert-create
-#      siblings). resourceRefId, NOT `page:` — `page:` resolves page-<slug> in the MENU's namespace
-#      while this root lives in the admin tier namespace; those coincide only while
-#      .Values.tiers.admin is "" (values.yaml:71). page-alert-create already carries that latent
-#      bug; this avoids adding a second instance.
-#        - { order: 936, path: "/agents/new", resourceRefId: agent-create }
-#      and in the Menu's own resourcesRefs pool:
-#        - id: agent-create
-#          apiVersion: widgets.templates.krateo.io/v1beta1
-#          name: page-agent-create
-#          namespace: {{ `{{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}` }}
-#          resource: flexes
-#          verb: GET
-#   2. here: uncomment the `agents-new-cta` items entry and its resourcesRefs entry below.
+# WHY THE CTA MATTERS MORE THAN IT LOOKS: until now /agents/new was reachable by URL only. A create
+# surface with no entry point anywhere in the product is, in practice, a surface that does not
+# exist — the audit found it by reading the chart, not by using the portal.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -43,16 +33,32 @@ metadata:
 spec:
   widgetData:
     allowedResources:
+    - cards
     - flexes
     - tables
     vertical: true
     gap: middle
     items:
     - resourceRefId: agents-header
-    # Step 2 of TO ENABLE above — uncomment ONLY once /agents/new is a route in menu.sidebar-nav.
-    # - resourceRefId: agents-new-cta
-    - resourceRefId: agents-list
+    # Right-aligned "New agent" → /agents/new. A Flex, not the Button directly: `buttons` is not in
+    # this page's allowedResources and Buttons carry no self-alignment field.
+    - resourceRefId: agents-new-cta
+    # The exception roll-up (flex.agents-attention). ABOVE the inventory on purpose: it is the only
+    # block on this page that is not an inventory, and the question "is anything wrong?" must not
+    # require scrolling 15 agent rows and 9 server rows to answer. On a healthy cluster BOTH its
+    # children render an empty string and the block disappears — so this is not a permanent banner
+    # that has to earn its place every day, it is a slot that is empty until it is not.
+    - resourceRefId: agents-attention-block
+    # The inventory table, inside its frame (card.agents-list) — the page composes the CARD, and
+    # the Card carries its own resourcesRefs entry for the table, so the table is resolved one
+    # level down rather than here. `cards` had to join allowedResources for that: the Flex enum is
+    # a hard CRD enum with no preserve-unknown-fields, so an unlisted plural is rejected at APPLY
+    # time, not at render. `tables` stays listed because this page still composes the Tool servers
+    # section, whose own subtree holds two.
+    - resourceRefId: agents-list-card
+    - resourceRefId: agents-topology
     - resourceRefId: agents-servers
+    - resourceRefId: agents-flow-block
   resourcesRefs:
     items:
     - id: agents-header
@@ -61,17 +67,34 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    # - id: agents-new-cta
-    #   apiVersion: widgets.templates.krateo.io/v1beta1
-    #   name: agents-new-cta
-    #   namespace: {{ .Release.Namespace }}
-    #   resource: flexes
-    #   verb: GET
-    - id: agents-list
+    - id: agents-new-cta
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-list
+      name: agents-new-cta
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: flexes
+      verb: GET
+    - id: agents-attention-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-attention-block
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-list-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-list-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    # The gateway-topology section (flex.agents-topology) — the picture the table cannot draw: the
+    # 15 agents, the one gateway every one of their hops crosses, and the backends behind it. Sits
+    # between the inventory and the tool-server tables because it is what makes both legible. Like
+    # agents-servers it is a `flexes` child, so this page's allowedResources needs nothing new — the
+    # FlowChart is nested one level down, inside flex.agents-topology, which declares `flowcharts`.
+    - id: agents-topology
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-topology
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
       verb: GET
     # The Tool servers section (flex.agents-servers) — a SECTION of this page, not a route of its
     # own: it answers the question the table above raises ("5 tools across 2 servers — which ones,
@@ -80,6 +103,15 @@ spec:
     - id: agents-servers
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-servers
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    # The request-flow section (flex.agents-flow) — likewise a SECTION, and deliberately LAST: the
+    # two tables above say what exists, this says how one request uses it, and that is only a
+    # question once the inventory has been read.
+    - id: agents-flow-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-flow-block
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
