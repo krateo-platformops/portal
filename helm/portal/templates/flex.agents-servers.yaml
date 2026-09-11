@@ -1,0 +1,67 @@
+# The Tool servers section of /agents — a SECTION, not a page root.
+#
+# It has no route of its own on purpose. The section answers a question the agent table above it
+# raises ("this agent has 5 tools across 2 servers — which ones, and what else can reach them?"),
+# it is computed from the same three kagent.dev kinds, and it is nine rows plus a join: too little
+# to justify a sidebar entry, and cut off from its context if given one. The lead composes it by
+# appending ONE item to flex.page-agents (see the report) — nothing here needs menu.sidebar-nav.
+#
+# Lives in .Release.Namespace like the other /agents children; only the page ROOT sits in the admin
+# tier namespace, because only the root is addressed by the nav.
+#
+# `flexes`, `paragraphs` and `tables` are all inside the Flex allowedResources enum on the live CRD.
+# (Flex's enum is not Tabs' enum — Tabs cannot hold `flexes`, which is why this section is a Flex of
+# two labelled tables rather than a two-tab control.)
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    - paragraphs
+    - tables
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-servers-head
+    - resourceRefId: agents-servers-notice
+    - resourceRefId: agents-servers-list
+    - resourceRefId: agents-servers-bindings-head
+    - resourceRefId: agents-servers-bindings
+  resourcesRefs:
+    items:
+    - id: agents-servers-head
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-head
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-servers-notice
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-notice
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agents-servers-list
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-list
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
+    - id: agents-servers-bindings-head
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-bindings-head
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-servers-bindings
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-bindings
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
