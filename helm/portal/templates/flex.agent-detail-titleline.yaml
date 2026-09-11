@@ -1,0 +1,47 @@
+# The agent H1 with an EXCEPTION-ONLY condition chip inline after it. A healthy agent (Ready=True,
+# Accepted=True) renders the title alone — the chip widget is not even referenced, so there is no
+# empty Tag holding space and no green "all good" pill. The chip appears for a failed condition
+# (red) or an advisory (gold, e.g. UnsupportedFeatures=True on the Go runtime — which a naive
+# `.status != "True"` predicate would have dropped, since its True means "there ARE unsupported
+# features"). Mirrors flex.alert-detail-titleline.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-titleline
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - tags
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: agent-detail-title
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "agent-detail-title" } ]
+        + (if ((.statusLabel // "") != "") then [ { resourceRefId: "agent-detail-status" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: agent-detail-title
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-title
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agent-detail-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-status
+      namespace: {{ .Release.Namespace }}
+      resource: tags
+      verb: GET

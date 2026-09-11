@@ -4,9 +4,31 @@
 # by the widgets. The three steps are independent cluster-scope lists; the join happens in the
 # global filter, so there is no dependsOn and no N+1.
 #
-# RBAC: each step carries a userAccessFilter, so snowplow lists as its SA and then REFILTERS to the
-# namespaces where the CALLER holds the grant. A tenant with no kagent grant sees an empty table,
-# not an error — same shape as restaction.compositions-list.
+# AN EMPTY TABLE MUST NEVER BE A CLAIM THAT THE CLUSTER IS EMPTY. Each step carries a
+# userAccessFilter, so snowplow lists as its own SA and then REFILTERS to the namespaces where the
+# CALLER holds the grant (internal/dynamic/sa_client.go). That means "no rows" has three causes:
+#
+#   a. the step FAILED (CRD absent, apiserver 5xx, timeout). continueOnError swallows it and the
+#      reason lands on the declared errorKey. The filter BRANCHES on all three keys and says so —
+#      `(.rows | length) > 0` cannot tell this apart from an empty cluster, the errorKey can.
+#   b. the caller may not list the kind — the refilter returns an empty set and NO errorKey, so
+#      this case is invisible on the wire and must not be reported as an absence either.
+#   c. there really are no Agents.
+#
+# So the page never says "every agent on this cluster". It says what it can prove: (a) is named
+# with its error text and turns the subtitle red; (b) and (c) share the wording "every agent you can
+# read". Same rule inside the table — an unresolvable model renders "not readable" when the
+# ModelConfig read failed, never the "—" that would read as "this agent has no model".
+#
+# The subtitle is computed HERE, server-side, and templated into paragraph.agents-subtitle.
+#
+# ROW LINKING: `routeName`/`routeNs` are emitted as SEPARATE fields from `name`/`namespace` and are
+# what table.agents-list's rowNavigateTo interpolates. They exist because the DISPLAY name is not a
+# safe route input — the table's `name` cell appends a "  (bench)" marker, and a rowNavigateTo built
+# from it would produce /agents/<ns>/autopilot-bench%20%20(bench), a 404 dressed up as a link.
+# The rows are also pre-filtered to objects that actually carry a name AND a namespace, so every
+# emitted row has a non-empty value for both placeholders — a rowNavigateTo with ANY empty
+# placeholder is silently dropped by the frontend and the row just stops responding to clicks.
 #
 # NOTE the resource: `remotemcpservers`, NOT `toolservers`. Both CRDs are installed, but
 # toolservers.kagent.dev and mcpservers.kagent.dev hold ZERO objects on every cluster we run —
@@ -51,11 +73,32 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: serversError
-  filter: >-
-    ( reduce ((.models.items // [])[]) as $m ({}; .[$m.metadata.name] = ($m.spec.model // "")) ) as $modelOf
-    | ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) as $toolsDiscovered
+  filter: |
+    # snowplow writes a swallowed step error to its errorKey as an ACCUMULATING SLICE
+    # (accumulateErrorKey, internal/resolvers/restactions/api/resolve.go:189), each entry being the
+    # apiserver Status decoded to a map or a bare message string. Flatten all three shapes; "" means
+    # the step SUCCEEDED.
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
+    ( errText(.agentsError) )  as $agErr
+    | ( errText(.modelsError) )  as $mcErr
+    | ( errText(.serversError) ) as $srvErr
+    | ( [ (if $agErr  != "" then ("Agents (" + $agErr + ")") else empty end),
+          (if $mcErr  != "" then ("ModelConfigs (" + $mcErr + ")") else empty end),
+          (if $srvErr != "" then ("RemoteMCPServers (" + $srvErr + ")") else empty end) ] ) as $failed
+    | ( reduce ((.models.items // [])[]) as $m ({}; .[$m.metadata.name] = ($m.spec.model // "")) ) as $modelOf
+    | ( if $srvErr != "" then null
+        else ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) end ) as $toolsDiscovered
+    | ( (.servers.items // []) | length ) as $serverCount
     | { rows: [ (.agents.items // [])[]
         | . as $a
+        | select( (($a.metadata.name // "") != "") and (($a.metadata.namespace // "") != "") )
         | (.spec.declarative // {}) as $d
         | (($d.tools // [])) as $tools
         | ( [ ($a.status.conditions // [])[]
@@ -68,9 +111,15 @@ spec:
         | {
             name:        $a.metadata.name,
             namespace:   $a.metadata.namespace,
+            routeName:   ( $a.metadata.name // "" ),
+            routeNs:     ( $a.metadata.namespace // "{{ .Release.Namespace }}" ),
             role:        ( ($a.spec.description // "") | if (. | length) > 120 then (.[0:120] + "…") else . end ),
             modelConfig: $mc,
-            model:       ( $modelOf[$mc] // "—" ),
+            # Three distinct states, never collapsed into one dash: the ModelConfig read FAILED;
+            # it succeeded but this agent's config was not among the ones we can read (deleted, or
+            # outside the caller's grant); it resolved.
+            model:       ( if $mcErr != "" then "not readable"
+                           else ( $modelOf[$mc] // "unresolved" ) end ),
             runtime:     ( $d.runtime // "python" ),
             tools:       ( [ $tools[] | select(.type == "McpServer") | .mcpServer as $m | (($m.toolNames // [])[]) | { s: $m.name, t: . } ] | unique | length ),
             servers:     ( [ $tools[] | select(.type == "McpServer") | .mcpServer.name ] | unique | length ),
@@ -85,4 +134,19 @@ spec:
         | sort_by( (if .bench then 1 else 0 end), .name ) }
     | . + { total: (.rows | length),
             benchCount: ( [ .rows[] | select(.bench) ] | length ),
-            toolsDiscovered: $toolsDiscovered }
+            toolsDiscovered: $toolsDiscovered,
+            # Rendered verbatim by paragraph.agents-subtitle. A failed read is stated FIRST and in
+            # full, because the table underneath it is the thing that would otherwise be misread.
+            subtitle: (
+              if ($failed | length) > 0 then
+                ( "Some of this page's reads FAILED — " + ($failed | join("; "))
+                  + ". What is missing from the table below is missing because a read failed, not because it is not there." )
+              else
+                ( "Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources. "
+                  + (.rows | length | tostring) + " readable; "
+                  + ($toolsDiscovered | tostring) + " tools discovered across "
+                  + ($serverCount | tostring) + " tool servers." )
+              end ),
+            # Paragraph.type is a hard CRD enum (secondary|success|warning|danger) — never "".
+            # Exception-only: `secondary` is the healthy default, `danger` only on a real failure.
+            subtitleType: ( if ($failed | length) > 0 then "danger" else "secondary" end ) }

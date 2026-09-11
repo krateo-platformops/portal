@@ -6,10 +6,33 @@
 # GET this Flex) and it is also why this root can live in the tier namespace at all — the bare
 # `page:` convention would look for it in the MENU's own namespace and 404.
 #
-# First slice: pagehead + the agent inventory table. The topology view, the per-agent detail route
-# and the spawn form follow; the spawn CTA is deliberately absent until the form it opens exists,
-# because a Button with no working action is both dead UI and a CI failure (mockup-diff.mjs flags
-# an inert `actions`).
+# Pagehead + the agent inventory table.
+#
+# THE "New agent" CTA IS STILL WITHHELD, and the reason has changed. The form it opens now exists
+# (flex.page-agent-create, button.agents-new, flex.agents-new-cta are all in this chart), but a page
+# root is NOT a route: menu.sidebar-nav is the single route source (there is no RoutesLoader) and it
+# carries no `/agents/new` entry — this wave's lead integrates all routes, so this branch may not
+# add one. A Button navigating to an unrouted path falls through to the shell catch-all
+# (RoutesContext.tsx `{ element: <WidgetPage />, path: '*' }`) and WidgetPage renders <Page404/>, so
+# wiring the CTA now would ship a primary call-to-action that dead-ends. Neither guard would catch
+# it: mockup-diff.mjs only flags an empty `actions`, and lint-keyextras only covers parameterized
+# routes. Fail closed — the form is reachable by URL and orphaned, rather than advertised and broken.
+#
+# TO ENABLE, both halves together, in one commit:
+#   1. menu.sidebar-nav.yaml `items:` (orders 936-939 are free; 934/935 are the alert-create
+#      siblings). resourceRefId, NOT `page:` — `page:` resolves page-<slug> in the MENU's namespace
+#      while this root lives in the admin tier namespace; those coincide only while
+#      .Values.tiers.admin is "" (values.yaml:71). page-alert-create already carries that latent
+#      bug; this avoids adding a second instance.
+#        - { order: 936, path: "/agents/new", resourceRefId: agent-create }
+#      and in the Menu's own resourcesRefs pool:
+#        - id: agent-create
+#          apiVersion: widgets.templates.krateo.io/v1beta1
+#          name: page-agent-create
+#          namespace: {{ `{{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}` }}
+#          resource: flexes
+#          verb: GET
+#   2. here: uncomment the `agents-new-cta` items entry and its resourcesRefs entry below.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,7 +49,10 @@ spec:
     gap: middle
     items:
     - resourceRefId: agents-header
+    # Step 2 of TO ENABLE above — uncomment ONLY once /agents/new is a route in menu.sidebar-nav.
+    # - resourceRefId: agents-new-cta
     - resourceRefId: agents-list
+    - resourceRefId: agents-servers
   resourcesRefs:
     items:
     - id: agents-header
@@ -35,9 +61,25 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
+    # - id: agents-new-cta
+    #   apiVersion: widgets.templates.krateo.io/v1beta1
+    #   name: agents-new-cta
+    #   namespace: {{ .Release.Namespace }}
+    #   resource: flexes
+    #   verb: GET
     - id: agents-list
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-list
       namespace: {{ .Release.Namespace }}
       resource: tables
+      verb: GET
+    # The Tool servers section (flex.agents-servers) — a SECTION of this page, not a route of its
+    # own: it answers the question the table above raises ("5 tools across 2 servers — which ones,
+    # and who else can reach them?") off the same kagent.dev kinds. `flexes` is already in this
+    # page's allowedResources, so composing it needs nothing else.
+    - id: agents-servers
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
       verb: GET

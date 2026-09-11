@@ -1,0 +1,31 @@
+# Bounded "Configuration" panel wrapping the agent-create Form so /agents/new reads as a card
+# instead of an edge-to-edge band (mirrors alert-create-form-card). Card imposes no
+# allowedResources enum, so a `forms` child is accepted with no image release.
+#
+# The `extra` names where the fields come from AND where the tool pickers went: the Form's schema
+# renderer partitions properties by `required`, so the three optional multi-selects (Tools, Require
+# human approval, Delegate to) live inside its "Advanced · 3 settings" collapse. They are
+# force-mounted there and submit identically — but nobody finds them without being told.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create-form-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Configuration
+    titleVariant: eyebrow
+    variant: outlined
+    extra: 'Fields come from the live Agent CRD · tools and delegation are under Advanced'
+    items:
+      - resourceRefId: agent-create-form
+  resourcesRefs:
+    items:
+      - id: agent-create-form
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: agent-create
+        namespace: {{ .Release.Namespace }}
+        resource: forms
+        verb: GET

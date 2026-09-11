@@ -1,5 +1,16 @@
-# Subtitle for the /agents pagehead. Deliberately says WHERE the data comes from — every number in
-# the table below is read from the kagent.dev CRs, not from a catalogue.
+# Subtitle for the /agents pagehead — LIVE, because it is the page's only place to say that a read
+# failed before the reader draws a conclusion from the table underneath it.
+#
+# It used to be static and claimed "Every agent on this cluster". That is a statement the page
+# cannot support: the three list steps behind it are userAccessFilter'd (snowplow lists as its SA
+# and refilters to the caller's grants) and each carries continueOnError, so an empty table can mean
+# a failed read, a caller who may not list Agents, or a cluster with none. restaction.agents-list
+# now branches on all three errorKeys and computes both the text and the antd type server-side
+# (server-side-computation rule); this widget renders them verbatim.
+#
+# `type` is exception-only: `secondary` in the healthy case — identical to the old static styling —
+# and `danger` only when a read actually failed. The RA never emits "" for it, because
+# Paragraph.type is a hard CRD enum (secondary|success|warning|danger).
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -8,10 +19,21 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  # Static fallback: what renders if the action has not resolved yet. Deliberately makes no claim
+  # about how many agents exist.
   widgetData:
     text: >-
-      Every agent on this cluster, the model it resolves to, the tools and tool servers it may call,
-      and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources.
+      Every agent you can read on this cluster, the model it resolves to, the tools and tool servers
+      it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer
+      resources.
     type: secondary
+  apiRef:
+    name: agents-list
+    namespace: {{ .Release.Namespace }}
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .subtitle }'
+  - forPath: type
+    expression: '${ .subtitleType }'
   resourcesRefs:
     items: []

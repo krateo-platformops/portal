@@ -1,0 +1,404 @@
+# Agent create-form schema source — the alert-formdef pattern (live CRD → form schema), with the
+# three departures the kagent Agent CRD forces. Consumed by form.agent-create.
+#
+# 1. SUBSET, NOT PASSTHROUGH — and the load-bearing reason is NOT size.
+#
+#    THE REQUIRED ARRAYS ARE EMPTY. On v1alpha2 the CRD declares `required` at exactly two places:
+#      top-level / spec / spec.declarative / spec.byo / tools[]  ->  NONE
+#      tools[].mcpServer -> ["name"]      tools[].agent -> ["name"]
+#    Verified by dry-run: `spec: {declarative: {}}` is ACCEPTED and defaults to
+#    `{type: Declarative, declarative: {runtime: python}}` — an agent with no model, no prompt and
+#    no tools. Valid to the apiserver, inert in practice.
+#
+#    SchemaFields partitions the form into "required" and the Advanced collapse BY `schema.required`.
+#    So handing over the raw CRD node yields a form in which NOTHING is required and every control
+#    is optional — the user can submit the empty agent above. The required-ness does not exist in
+#    the CRD to be forwarded; it has to be AUTHORED here. That is the argument for projecting.
+#    => Do not "simplify" the hand-written `required:` below by sourcing it from the CRD. It is
+#       empty there, and doing so would silently make every field on this form optional.
+#
+#    Size is a real but secondary reason (the whole CRD object is 1.32 MB across both versions;
+#    the v1alpha2 spec schema alone is ~395 KB compact — 56 groups, ~114 renderable controls, and
+#    ~55 fields that fall back to a JSON textarea, max depth 6). Nesting is NOT a reason: the Form
+#    recurses to arbitrary depth (SchemaFields `isGroup` = object-with-properties), so depth was
+#    never the constraint. `spec.byo.deployment` alone carries a full PodSpec
+#    (affinity/tolerations/volumes/…); `declarative` carries a2aConfig, context, deployment, memory,
+#    promptTemplate, sandbox, skills.
+#
+#    This filter therefore SELECTS the properties by key — but takes each one's `type`, `enum`,
+#    `default` and (mostly) `description` from the LIVE CRD node, so the convention still holds:
+#    change the CRD's runtime enum and this form's Runtime picker changes with it. Only the SET of
+#    exposed keys, and the `required` list, are authored here.
+#
+# 2. NO `spec.type` PICKER — Declarative is pinned. `type: BYO` needs `spec.byo.deployment.image`
+#    (minLength 1); the two branches are a union the schema renderer cannot express (SchemaFields
+#    has no oneOf/if-then, so both branches render at once and both sets of fields are "required"),
+#    and a BYO Agent created without an image is admitted by the apiserver and then never Accepted.
+#    Offering a picker the form cannot back is the dead-UI failure, so it is not offered.
+#
+# 3. `tools[]` IS SYNTHESIZED, not rendered. The CRD node is an array of objects with a `type`
+#    discriminator and two sibling branches (mcpServer | agent) — SchemaFields renders any
+#    object/array without an items.enum as a raw JSON textarea. Instead this filter emits three
+#    CLOSED multi-selects (array + items.enum → antd multi-select) built from live cluster state:
+#      __tools__      "<server>/<tool>" over every RemoteMCPServer's status.discoveredTools
+#      __approvals__  the same list — the subset that must pause for human approval (HITL)
+#      __delegates__  Agent names this agent may hand work to
+#    form.agent-create's payloadToOverride jq folds them back into the real
+#    spec.declarative.tools[] shape (verified byte-for-byte against the live autopilot Agent).
+#
+#    PLATFORM FOLLOW-UP (not this slice): `controlFor` in ui/src/widgets/Form/SchemaFields.tsx sends
+#    ANY array that is neither items.enum nor items.type=string to JsonValueInput. An array-of-object
+#    REPEATER there would fix this for every Krateo form that has to describe a list of structured
+#    things — this one, and the ~55 textarea fallbacks in this CRD alone. Until then, flat closed
+#    selections folded in payloadToOverride is the only route that yields a usable control.
+#
+# NAMESPACE/REFERENCE SAFETY. kagent resolves `declarative.modelConfig` in the AGENT's OWN
+# namespace ("Must be in the same namespace as the Agent" — CRD), and the shipped Agent CRs
+# reference MCP servers and delegate agents by bare name with no namespace. A namespace picker and
+# a name picker that are chosen independently can therefore produce a dangling reference. So every
+# offered option is the INTERSECTION across the offered namespaces: the namespace enum keeps only
+# create-permitted namespaces that hold at least one ModelConfig, and the ModelConfig / server /
+# delegate enums keep only names present in ALL of those namespaces. Whatever pair the user picks
+# resolves. On a single-namespace install (every cluster we run) this is a no-op.
+#
+# ENFORCEMENT LIVES IN CEL, WHICH THE FORM CANNOT SEE. The apiserver applies 8 x-kubernetes-
+# validations rules the JSON Schema does not express, so a form that satisfies the schema can still
+# be rejected on apply. All 8, and how this slice stays on the right side of each:
+#
+#   spec: has(type) && type in (Declarative|BYO)          -> ENFORCED: `type: "Declarative"` is
+#   spec: Declarative => declarative; BYO => byo             emitted literally, `declarative` always.
+#   tools[]: type=McpServer <=> mcpServer  (both ways)    -> ENFORCED by construction: the submit jq
+#   tools[]: type=Agent     <=> agent      (both ways)       only ever emits matched type+branch pairs.
+#   tools[].mcpServer: requireApproval SUBSET-OF toolNames -> ENFORCED by intersection (see
+#                                                            form.agent-create). This is the one that
+#                                                            would actually bite: unticking a tool
+#                                                            while its approval entry stays set is a
+#                                                            server-side reject with no visible cause,
+#                                                            so the orphan is dropped at submit.
+#   declarative: systemMessage XOR systemMessageFrom      -> AVOIDED: systemMessageFrom not exposed.
+#   deployment: serviceAccountName XOR serviceAccountConfig -> AVOIDED: deployment not exposed.
+#   headersFrom[]: exactly one of value / valueFrom       -> AVOIDED: headersFrom not exposed.
+#   allowedNamespaces: from=Selector => selector          -> AVOIDED: relies on the CRD default Same.
+#
+# Anything added to this form later must be checked against that list first — the Form has no way to
+# express these, so the only options are enforce-in-jq or do-not-expose.
+#
+# CRD defaults relied on rather than re-specified: allowedNamespaces.from=Same,
+# compaction.compactionInterval=5, overlapSize=2. (`type` and `runtime` ARE specified: `type`
+# because a literal is clearer than a default at the one place the union is pinned, `runtime`
+# because it is a user-facing choice.)
+#
+# RBAC AND READ FAILURE ARE DIFFERENT THINGS, AND THE FORM SAYS WHICH. `crd` is a hard dependency —
+# no schema, no form, so it fails loudly. The four list steps carry continueOnError + an errorKey,
+# and the filter BRANCHES ON EVERY ONE of them (errText below). That matters because an empty enum
+# has three causes that look identical on the wire:
+#
+#   a. the step FAILED — CRD absent, apiserver 5xx, timeout. snowplow swallows it under
+#      continueOnError and writes the reason to the errorKey. `(<list> | length) > 0` cannot see
+#      this; `.modelsError != null` can. Every affected field description now names the failure and
+#      says the picker is empty because a READ FAILED — not because the cluster is empty.
+#   b. the caller cannot list the kind. A step WITH userAccessFilter lists as snowplow's own SA and
+#      then refilters to what the CALLER may read (snowplow internal/dynamic/sa_client.go), so a
+#      denied caller gets an EMPTY list and NO errorKey — the errorKey cannot distinguish this one.
+#      Every description is therefore worded "readable", never "exists": an empty picker is
+#      reported as nothing this caller can read, which is true under (b) and under (c).
+#   c. nothing of that kind exists.
+#
+# So: (a) is named explicitly with its error text, and (b)/(c) share one honest wording that claims
+# only what the read actually proves. Nothing here ever reports an absence it did not observe.
+#
+# The notice lives in the FIELD DESCRIPTIONS, not in a page-level banner, for two reasons: it lands
+# directly under the empty picker it explains, and a second widget with an apiRef to this action
+# would re-resolve the whole 1.32 MB Agent CRD read on a different L1 key.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agent-formdef
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    - name: crd
+      path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/agents.kagent.dev
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+    # Model catalogue. `.spec.model` is carried into the field description so the picker shows what
+    # a config actually resolves to — gemini-pro and gemini-flash both point at gemini-3.8-flash
+    # today, and a bare config name would imply two models where there is one.
+    - name: models
+      path: /apis/kagent.dev/v1alpha2/modelconfigs
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: modelconfigs
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: modelsError
+    # Tool catalogue. remotemcpservers, NOT toolservers/mcpservers — those two CRDs hold zero
+    # objects on every cluster we run (see restaction.agents-list for the same note).
+    - name: servers
+      path: /apis/kagent.dev/v1alpha2/remotemcpservers
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: remotemcpservers
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: serversError
+    # Delegation targets.
+    - name: agents
+      path: /apis/kagent.dev/v1alpha2/agents
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: agents
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: agentsError
+    # Namespaces the user can `create` an Agent in — RBAC-filtered by snowplow's userAccessFilter
+    # (SSAR against the caller's bearer token), same create-permitted-picker pattern as
+    # alert-formdef. Never offers a namespace the create POST would 403 on.
+    - name: namespaces
+      path: /api/v1/namespaces
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      dependsOn:
+        name: crd
+      userAccessFilter:
+        verb: create
+        group: kagent.dev
+        resourcesFrom: '["agents"]'
+        namespaceFrom: .metadata.name
+      continueOnError: true
+      errorKey: namespacesError
+      filter: '[ (.namespaces.items // [])[] | .metadata.name ]'
+  # Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }.
+  #
+  # WHY THE SCHEMA IS CONCATENATED AS TEXT AND NEVER BUILT AS A jq OBJECT. Form.tsx prefers
+  # widgetData.stringSchema over widgetData.schema because JSON.parse preserves key insertion order
+  # while the `schema` object arrives from a Go map, alphabetised. That is true — but `tojson` DOES
+  # NOT BUY IT. snowplow pins `replace github.com/itchyny/gojq => github.com/braghettos/gojq
+  # v0.12.21`, whose encodeObject (encoder.go:180) sorts kvs by key, and tojson → funcToJSON →
+  # jsonMarshal reaches exactly that encoder (func.go:89/:834, encoder.go:31). Upstream itchyny
+  # v0.12.17 sorts identically; gojq's README says outright that it does not keep object key order
+  # and has no keys_unsorted. LOCAL jq (jqlang) DOES preserve insertion order, which is why
+  # `$schema | tojson` looked correct when tested at a shell and was wrong on the engine that runs
+  # it: executed under the pinned fork against live cluster data it emitted
+  #   __agent_name__, __agent_namespace__, __approvals__, __delegates__, __model_config__,
+  #   __tools__, description, runtime, systemMessage
+  # — alphabetical. SchemaFields.tsx:163-166 partitions by `required` and keeps schema order within
+  # each partition, so that put Model above "What it is for", and put the HITL picker and Delegate-to
+  # ABOVE the Tools list whose description says "the subset of the tools above" — asking for
+  # approvals before anything had been offered to approve.
+  #
+  # The fix is the same one restaction.blueprint-formdef uses when it string-splices a ConfigMap
+  # rather than parsing it: the ORDERED thing must never become a jq object. $props below is an
+  # ARRAY (gojq preserves array order), and the properties block is assembled by concatenating
+  # "key":<value> pairs. Only each property NODE goes through tojson, where key order is
+  # semantically irrelevant (type/title/description/enum/default/items are read by name).
+  #
+  # If you ever need to add a field: add it to $props at the position you want it rendered, and add
+  # its key to $required only if it must render above the "Advanced" collapse.
+  filter: |
+    def commonNames($byNs; $nsList):
+      if ($nsList | length) == 0 then []
+      else ( [ $nsList[] | (($byNs[.] // []) | unique) ]
+             | reduce .[] as $x (null; if . == null then $x else (. - (. - $x)) end) ) // []
+      end;
+    # A step that fails under continueOnError writes its reason to the declared errorKey as an
+    # ACCUMULATING SLICE — snowplow accumulateErrorKey (internal/resolvers/restactions/api/
+    # resolve.go:189) always stores []any, one entry per failed item — and each entry is either the
+    # apiserver Status envelope decoded to a map (response.AsMap, resolve.go:1149) or a bare message
+    # string. errText flattens all three shapes (slice / map / scalar) into one line, and returns ""
+    # when the key is absent, i.e. when the step SUCCEEDED. Never use `length > 0` on the payload to
+    # infer this: an empty list and a swallowed 404 are the same length.
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
+    "v1alpha2" as $ver
+    # Read state of each list step, bound once and consulted by every description that could
+    # otherwise present a failed read as an empty cluster.
+    | (errText(.modelsError))     as $mcErr
+    | (errText(.serversError))    as $srvErr
+    | (errText(.agentsError))     as $agErr
+    | (errText(.namespacesError)) as $nsErr
+    | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
+    | ($spec.properties.description // { type: "string" }) as $pDesc
+    | ($spec.properties.declarative.properties.runtime // { type: "string" }) as $pRuntime
+    | ($spec.properties.declarative.properties.systemMessage // { type: "string" }) as $pSysMsg
+    # ── namespaces × model configs ──────────────────────────────────────────────────────────────
+    | ( [ (.namespaces // [])[] ] | unique ) as $nsCreate
+    | ( reduce ((.models.items // [])[]) as $m ({};
+          .[$m.metadata.namespace] = ((.[$m.metadata.namespace] // []) + [$m.metadata.name])) ) as $mcByNs
+    | ( [ $nsCreate[] | select($mcByNs[.] != null) ] ) as $nsWithMc
+    | ( commonNames($mcByNs; $nsWithMc) ) as $mcCommon
+    | ( if ($nsWithMc | length) == 0 then []
+        elif ($mcCommon | length) > 0 then $nsWithMc
+        else $nsWithMc[0:1] end ) as $nsOpts
+    | ( if ($nsOpts | length) == 0 then []
+        elif ($mcCommon | length) > 0 then ($mcCommon | sort)
+        else (($mcByNs[$nsOpts[0]] // []) | unique) end ) as $mcOpts
+    | ( if ($nsOpts | index("{{ .Release.Namespace }}")) then "{{ .Release.Namespace }}" else ($nsOpts[0] // "") end ) as $nsDefault
+    | ( if ($mcOpts | index("default-model-config")) then "default-model-config" else ($mcOpts[0] // "") end ) as $mcDefault
+    # What each offered ModelConfig actually resolves to, folded into the field description.
+    # NOTE the `. as $m` bindings here and below: `$list | index(.foo)` evaluates its ARGUMENT with
+    # `.` already re-bound to $list by the pipe, so `.metadata.namespace` would index the array and
+    # abort the whole filter ("Cannot index array with string"). Bind the item first, always.
+    | ( [ (.models.items // [])[]
+          | . as $m
+          | select(($nsOpts | index($m.metadata.namespace)) and ($mcOpts | index($m.metadata.name)))
+          | ($m.metadata.name + " → " + ($m.spec.model // "?")) ] | unique | join(" · ") ) as $mcHint
+    # ── tool catalogue (servers present in EVERY offered namespace) ──────────────────────────────
+    | ( reduce ((.servers.items // [])[]) as $s ({};
+          .[$s.metadata.namespace] = ((.[$s.metadata.namespace] // []) + [$s.metadata.name])) ) as $srvByNs
+    | ( commonNames($srvByNs; $nsOpts) ) as $srvOpts
+    | ( [ (.servers.items // [])[]
+          | . as $sv
+          | select(($nsOpts | index($sv.metadata.namespace)) and ($srvOpts | index($sv.metadata.name)))
+          | (($sv.status.discoveredTools // [])[] | .name)
+          | ($sv.metadata.name + "/" + .) ] | unique ) as $toolOpts
+    # ── delegation targets ──────────────────────────────────────────────────────────────────────
+    # Fan-out ORCHESTRATORS are excluded: the orchestrator is what routes work INTO this new agent
+    # (that is what krateo-autopilot's extraAgents does), so offering it back as a delegate target
+    # builds a cycle — autopilot → new agent → autopilot.
+    #
+    # The test is "delegates to MORE THAN ONE agent", not "delegates at all". On krateo-057 that
+    # excludes exactly autopilot (10 delegates) and autopilot-bench (3) while keeping
+    # frontend-agent, which sub-delegates to snowplow-agent alone — a specialist that calls one
+    # peer is a legitimate delegate target and an "any delegation at all" test wrongly hid it.
+    # This is a calibrated guard against the obvious cycle, not a hard invariant: a genuine
+    # specialist that fans out to two peers would also be withheld. If that ever bites, drop the
+    # filter rather than raising the threshold — the cycle is a judgement call for the author.
+    | ( [ (.agents.items // [])[]
+          | select( ([ (.spec.declarative.tools // [])[] | select(.type == "Agent") ] | length) <= 1 ) ] ) as $delegatable
+    | ( reduce ($delegatable[]) as $a ({};
+          .[$a.metadata.namespace] = ((.[$a.metadata.namespace] // []) + [$a.metadata.name])) ) as $agByNs
+    | ( commonNames($agByNs; $nsOpts) | sort ) as $agentOpts
+    # CASCADE. Every enum below is intersected across $nsOpts, so when $nsOpts is empty the tools
+    # and delegate pickers come back empty for a reason that has nothing to do with the servers or
+    # agents read. Without this, a failed modelconfigs read would make the Tools field claim "no
+    # RemoteMCPServer is readable" — an absence nobody observed. $nsBlocked names the real cause and
+    # every dependent description defers to it before reporting an emptiness of its own.
+    | ( if ($nsOpts | length) > 0 then ""
+        elif $nsErr != "" then ("the namespace list could not be read (" + $nsErr + ")")
+        elif $mcErr != "" then ("ModelConfigs could not be read (" + $mcErr + ")")
+        else "no namespace you can create Agents in holds a ModelConfig you can read" end ) as $nsBlocked
+    # Per-user client draft key (localStorage), seeded as __owner but never rendered/validated —
+    # same mechanism as alert-create. .username is the snowplow-injected JWT principal
+    # (identityContext: [username] on the Form); absent → "anon".
+    | (((.username // "anon") | gsub("[^a-zA-Z0-9_.-]"; "-")) + "__agent-create") as $draftKey
+    # $props is an ARRAY, not an object, and that is the whole point — see the header note. gojq
+    # preserves array order; it does NOT preserve object key order through tojson. The rendered
+    # order below IS the rendered order on screen (required partition first, then Advanced).
+    | [
+        { k: "__agent_name__",
+          v: {
+            type: "string",
+            title: "Name",
+            description: "Name for the new Agent (metadata.name). This is also the Service name the gateway route has to be registered against, so pick it deliberately — renaming later means re-registering."
+          } },
+        { k: "__agent_namespace__",
+          v: ({
+            type: "string",
+            title: "Namespace",
+            description: ("Namespace to create the Agent in. Limited to namespaces you can create Agents in that also hold a readable ModelConfig — kagent resolves the model in the Agent's own namespace."
+              + (if $nsErr != "" then (" The namespace list could not be read (" + $nsErr + "), so this picker is empty because that READ FAILED — not because you have no namespaces.")
+                 elif ($nsOpts | length) == 0 then
+                   (if $mcErr != "" then (" ModelConfigs could not be read (" + $mcErr + "), so no namespace could be qualified. This picker is empty because a READ FAILED, not because no namespace qualifies.")
+                    else " No namespace you can create Agents in holds a ModelConfig you can read." end)
+                 else "" end)),
+            enum: $nsOpts
+          } + (if $nsDefault == "" then {} else { default: $nsDefault } end)) },
+        { k: "description",
+          v: ($pDesc + {
+            title: "What it is for",
+            description: "One line the orchestrator reads when deciding whether to hand work to this agent. Write it as a capability (\"reads ClickHouse traces and correlates them with pod restarts\"), not as a name."
+          }) },
+        { k: "__model_config__",
+          v: ({
+            type: "string",
+            title: "Model",
+            description: ("The kagent ModelConfig backing this agent."
+              + (if $mcErr != "" then (" ModelConfigs could not be read (" + $mcErr + ") — this picker is empty because that READ FAILED, not because none exist. Nothing can be created until the read succeeds; do not read the empty list as an absence.")
+                 elif $nsErr != "" then (" No namespace could be offered because the namespace list could not be read (" + $nsErr + "), so nothing could be qualified here. That is a FAILED READ, not an absence of models.")
+                 elif $mcHint == "" then " No ModelConfig is readable in a namespace you can create Agents in — this form cannot create a working agent until one exists and you can read it."
+                 else (" Available: " + $mcHint + ".") end)),
+            enum: $mcOpts
+          } + (if $mcDefault == "" then {} else { default: $mcDefault } end)) },
+        { k: "runtime",
+          v: ($pRuntime + { title: "Runtime" }) },
+        # The CRD description for systemMessage is about promptTemplate/Go-template machinery this
+        # form does not expose, so it would describe behaviour the user cannot reach. Type comes
+        # from the CRD; the prose is written for what this form actually does.
+        { k: "systemMessage",
+          v: ($pSysMsg + {
+            title: "System message",
+            description: "The agent's standing instructions — its whole behaviour. Say what it may do, what it must refuse, and what it should hand back to the orchestrator."
+          }) },
+        # Tools BEFORE approvals: the approvals description refers to "the tools above", and the
+        # Advanced collapse renders these in exactly this order.
+        { k: "__tools__",
+          v: {
+            type: "array",
+            title: "Tools",
+            description: ("Tools this agent may call, as <server>/<tool> over the RemoteMCPServers on this cluster."
+              + (if $srvErr != "" then (" The RemoteMCPServer list could not be read (" + $srvErr + ") — this list is empty because that READ FAILED, not because there are no tools. Add tools once the read works rather than concluding the cluster has none.")
+                 elif $nsBlocked != "" then (" Nothing could be offered here because " + $nsBlocked + " — see the Namespace field. This is not a statement about which tools exist.")
+                 elif ($toolOpts | length) == 0 then " No RemoteMCPServer is readable in the offered namespaces, so this agent would have no tools."
+                 else (" " + ($toolOpts | length | tostring) + " available.") end)),
+            items: { type: "string", enum: $toolOpts }
+          } },
+        { k: "__approvals__",
+          v: {
+            type: "array",
+            title: "Require human approval (HITL)",
+            description: ("The subset of the tools above that must pause for a human to approve or reject before the agent may run them. Anything selected here that is not also selected above is dropped on submit."
+              + (if $srvErr != "" then (" The tool list could not be read (" + $srvErr + "), so there is nothing to select here — that is a failed read, not an agent with no tools.")
+                 elif $nsBlocked != "" then (" Nothing could be offered here because " + $nsBlocked + " — see the Namespace field.")
+                 else "" end)),
+            items: { type: "string", enum: $toolOpts }
+          } },
+        { k: "__delegates__",
+          v: {
+            type: "array",
+            title: "Delegate to",
+            description: ("Existing agents this one may hand work to. Fan-out orchestrators are excluded — delegating back to the agent that routes work here would build a cycle."
+              + (if $agErr != "" then (" The Agent list could not be read (" + $agErr + ") — this list is empty because that READ FAILED, not because there are no agents to delegate to.")
+                 elif $nsBlocked != "" then (" Nothing could be offered here because " + $nsBlocked + " — see the Namespace field. This is not a statement about which agents exist.")
+                 elif ($agentOpts | length) == 0 then " No other agent is readable in the offered namespaces."
+                 else "" end)),
+            items: { type: "string", enum: $agentOpts }
+          } }
+      ] as $props
+    | ["__agent_name__", "__agent_namespace__", "description", "__model_config__", "runtime", "systemMessage"] as $required
+    # Assembled as TEXT so the properties block never becomes a jq object. Each node still goes
+    # through tojson, where key order carries no meaning.
+    | ( "{\"type\":\"object\",\"properties\":{"
+        + ( [ $props[] | ((.k | tojson) + ":" + (.v | tojson)) ] | join(",") )
+        + "},\"required\":" + ($required | tojson) + "}" ) as $schemaString
+    | {
+        schemaString: $schemaString,
+        propertiesToHide: [],
+        initialValues: { __owner: $draftKey },
+        apiVersion: "kagent.dev/v1alpha2",
+        kind: "Agent",
+        resource: "agents",
+        namespace: $nsDefault
+      }

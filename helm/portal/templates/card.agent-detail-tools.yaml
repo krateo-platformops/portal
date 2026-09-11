@@ -1,0 +1,37 @@
+# "Tools" — the agent's tool surface, grouped by the RemoteMCPServer that serves it. Rendered only
+# when the agent binds at least one McpServer tool: an agent with none gets no empty table.
+#
+# The caption is TEMPLATED, not fixed prose: when the caller cannot list HTTPRoutes the Route column
+# is necessarily blank, and the card says so rather than leaving a column of silence that reads as
+# "nothing is routed".
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-agent-detail-tools
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Tools
+    titleVariant: eyebrow
+    variant: outlined
+    headerLeft: Bound tools per RemoteMCPServer.
+    items:
+    - resourceRefId: agent-detail-tools
+  widgetDataTemplate:
+    - forPath: headerLeft
+      expression: '${ .toolsCaption // "" }'
+  resourcesRefs:
+    items:
+    - id: agent-detail-tools
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-tools
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

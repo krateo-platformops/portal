@@ -1,0 +1,26 @@
+# Title + subtitle stack for the agent x server binding table.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-bindings-head
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    vertical: true
+    items:
+    - resourceRefId: agents-servers-bindings-title
+    - resourceRefId: agents-servers-bindings-subtitle
+  resourcesRefs:
+    items:
+    {{- range (list "agents-servers-bindings-title" "agents-servers-bindings-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}

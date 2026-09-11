@@ -1,0 +1,31 @@
+# "A read did not answer" line for the Tool servers section — EMPTY on a healthy cluster.
+#
+# Every api step of restaction.agents-servers is continueOnError with an errorKey, and this is where
+# those errorKeys are CONSUMED. Without it an unreadable list renders exactly like an empty one: a
+# 404 on agentgateway.dev (not installed) or a 403 on the SA's own read would leave a blank Status
+# column and a table of zeroes that reads as "nothing here", which is a confident false statement
+# about the cluster. The RA turns each failed step into one sentence naming the kind and the reason
+# (not installed / permission denied / other), so silence means "read it, nothing to report" and
+# text means "could not read it".
+#
+# Renders `text: ''` when nothing failed — the same shape as paragraph.blueprint-impact-note, which
+# is likewise empty until there is something to say.
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-notice
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-servers
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: ''
+    type: warning
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .notice // "" }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,25 @@
+# Subtitle for the binding table. This paragraph exists to stop a correct configuration being read
+# as a fault: Bound > Currently served is normal and deliberate (tool renames across server
+# versions, and bench servers that serve a read-only subset), so the difference is stated as a fact
+# here rather than coloured as an error in the table.
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-bindings-subtitle
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    text: >-
+      One row per agent-to-server binding, with the tools that binding grants and how many of them
+      need human approval before they run. Bound is what the agent asks for; Currently served is how
+      many of those names the server reports today. Binding more than the server serves is normal:
+      an agent may carry both spellings of a tool that was renamed between server versions, and the
+      bench snapshot servers deliberately serve a read-only subset. kagent keeps only the names the
+      server actually serves, so the extra names cost nothing. A binding that names no tools at all
+      reads "not specified": kagent decides what an unnamed set grants, so this page will not print
+      it as none.
+    type: secondary
+  resourcesRefs:
+    items: []
