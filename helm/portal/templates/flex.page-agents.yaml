@@ -33,26 +33,24 @@ metadata:
 spec:
   widgetData:
     allowedResources:
-    - cards
     - flexes
-    - tables
+    - rows
+    - tabs
     vertical: true
     gap: middle
     items:
     - resourceRefId: agents-header
-    # Right-aligned "New agent" → /agents/new. A Flex, not the Button directly: `buttons` is not in
-    # this page's allowedResources and Buttons carry no self-alignment field.
-    - resourceRefId: agents-new-cta
-    # The inventory table, inside its frame (card.agents-list) — the page composes the CARD, and
-    # the Card carries its own resourcesRefs entry for the table, so the table is resolved one
-    # level down rather than here. `cards` had to join allowedResources for that: the Flex enum is
-    # a hard CRD enum with no preserve-unknown-fields, so an unlisted plural is rejected at APPLY
-    # time, not at render. `tables` stays listed because this page still composes the Tool servers
-    # section, whose own subtree holds two.
-    - resourceRefId: agents-list-card
-    - resourceRefId: agents-topology
-    - resourceRefId: agents-servers
-    - resourceRefId: agents-flow-block
+    # Both actions the page offers, paired in the header as the mockup shows them. Replaces the
+    # single-button agents-new-cta: a reader looking for "how do I add a policy" should not have to
+    # discover it on another page.
+    - resourceRefId: agents-header-actions
+    # The summary band: three stat cards, each fed by the same action as the section it summarises,
+    # so a number on the card can never disagree with the table under the tab.
+    - resourceRefId: agents-stats
+    # THE PAGE IS TABBED. Every section below was already built and verified; they were simply
+    # stacked, which is also why "the sections are not clearly divided" was reported — the mockup
+    # never divided them, it separated them into tabs.
+    - resourceRefId: agents-main
   resourcesRefs:
     items:
     - id: agents-header
@@ -61,45 +59,23 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: agents-new-cta
+    - id: agents-header-actions
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-new-cta
+      name: agents-header-actions
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    - id: agents-list-card
+    - id: agents-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-list-card
+      name: agents-stats
       namespace: {{ .Release.Namespace }}
-      resource: cards
+      resource: rows
       verb: GET
-    # The gateway-topology section (flex.agents-topology) — the picture the table cannot draw: the
-    # 15 agents, the one gateway every one of their hops crosses, and the backends behind it. Sits
-    # between the inventory and the tool-server tables because it is what makes both legible. Like
-    # agents-servers it is a `flexes` child, so this page's allowedResources needs nothing new — the
-    # FlowChart is nested one level down, inside flex.agents-topology, which declares `flowcharts`.
-    - id: agents-topology
+    # The four sections are resolved one level down, inside their tab panes (col.agents-tab-*),
+    # so this page no longer composes them directly.
+    - id: agents-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-topology
+      name: agents-main
       namespace: {{ .Release.Namespace }}
-      resource: flexes
-      verb: GET
-    # The Tool servers section (flex.agents-servers) — a SECTION of this page, not a route of its
-    # own: it answers the question the table above raises ("5 tools across 2 servers — which ones,
-    # and who else can reach them?") off the same kagent.dev kinds. `flexes` is already in this
-    # page's allowedResources, so composing it needs nothing else.
-    - id: agents-servers
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-servers
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
-      verb: GET
-    # The request-flow section (flex.agents-flow) — likewise a SECTION, and deliberately LAST: the
-    # two tables above say what exists, this says how one request uses it, and that is only a
-    # question once the inventory has been read.
-    - id: agents-flow-block
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-flow-block
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: tabs
       verb: GET

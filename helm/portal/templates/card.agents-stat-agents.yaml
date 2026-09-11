@@ -1,0 +1,36 @@
+# Agents — one of the three stat cards above the tabs.
+#
+# Total readable agents, split by whether a composition owns them. `benchCount` is the
+# agents with no krateo.io/composition-id label — the bench arms — so "production" is the
+# remainder rather than a second hardcoded list that could disagree with it.
+#
+# The chips are Card `tags` (rendered in the footer), COMPUTED from the same action as the
+# number. Static default is an empty list: no chips is honest while the action resolves,
+# whereas placeholder chips would be numbers nobody measured.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-stat-card-agents
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    variant: outlined
+    tags: []
+    items:
+    - resourceRefId: agents-stat-agents
+  widgetDataTemplate:
+  - forPath: tags
+    expression: '${ [ (((.total // 0) - (.benchCount // 0)) | tostring) + " production", ((.benchCount // 0) | tostring) + " bench" ] }'
+  resourcesRefs:
+    items:
+    - id: agents-stat-agents
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-stat-agents
+      namespace: {{ .Release.Namespace }}
+      resource: statistics
+      verb: GET
