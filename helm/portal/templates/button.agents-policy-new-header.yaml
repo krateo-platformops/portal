@@ -1,0 +1,26 @@
+# "Add policy" beside "New agent" in the page header, as the mockup pairs them. The policies
+# page keeps its own copy of this button; this one exists so the header carries BOTH actions
+# the page offers, which is what the mockup shows and what a reader looks for before scrolling.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policy-new-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    label: Add policy
+    icon: fa-plus
+    # `default`, not `primary`: two primary buttons side by side give a reader no steer. Spawning
+    # an agent is the page's main action; adding a policy is the secondary one.
+    type: default
+    size: middle
+    clickActionId: new-policy
+    actions:
+      navigate:
+        - id: new-policy
+          type: navigate
+          path: /agents/policies/new
+  resourcesRefs:
+    items: []

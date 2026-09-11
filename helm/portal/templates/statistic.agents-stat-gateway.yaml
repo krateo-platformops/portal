@@ -1,0 +1,23 @@
+# The number on the Agent gateways stat card. Fed by restaction.agents-topology, so it can never
+# disagree with the section below it — both read the same resolved action.
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-stat-gateway
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-topology
+    namespace: {{ .Release.Namespace }}
+  # A count of zero is a real answer, so the static fallback is 0 rather than a dash: an
+  # unresolved action shows the card's own loading state, not a fabricated "none".
+  widgetData:
+    title: Agent gateways
+    value: 0
+  widgetDataTemplate:
+  - forPath: value
+    expression: '${ .hubCount // 0 }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,33 @@
+# The header action pair — "Add policy" then "New agent", right-aligned, as the mockup shows
+# them. Replaces the single-button flex.agents-new-cta in the page composition (that CR stays
+# for anything else referencing it).
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-header-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - buttons
+    justify: flex-end
+    gap: small
+    items:
+    - resourceRefId: agents-policy-new-header
+    - resourceRefId: agents-new
+  resourcesRefs:
+    items:
+    - id: agents-policy-new-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policy-new-header
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: agents-new
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-new
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET

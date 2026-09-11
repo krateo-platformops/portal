@@ -1,0 +1,35 @@
+# Tool servers — one of the three stat cards above the tabs.
+#
+# Readable RemoteMCPServers, with the join that actually matters underneath: how many
+# agent-to-server bindings exist and how many distinct agents hold one.
+#
+# The chips are Card `tags` (rendered in the footer), COMPUTED from the same action as the
+# number. Static default is an empty list: no chips is honest while the action resolves,
+# whereas placeholder chips would be numbers nobody measured.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-stat-card-servers
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-servers
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    variant: outlined
+    tags: []
+    items:
+    - resourceRefId: agents-stat-servers
+  widgetDataTemplate:
+  - forPath: tags
+    expression: '${ [ ((.bindingCount // 0) | tostring) + " bindings", ((.consumerCount // 0) | tostring) + " agents calling" ] }'
+  resourcesRefs:
+    items:
+    - id: agents-stat-servers
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-stat-servers
+      namespace: {{ .Release.Namespace }}
+      resource: statistics
+      verb: GET
