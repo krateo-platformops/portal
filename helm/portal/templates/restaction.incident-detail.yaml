@@ -217,14 +217,34 @@ spec:
                     "\n\nThe following changes will be sent:\n\n```json\n" + (($s.payload // {}) | tojson) + "\n```"
                   ) else "" end)
               ) else (
-                # A read/verify step: state what it checks, not a bare "Review & apply" it can't do.
-                (if ($s.description // "") != "" then $s.description else ("→ evidence #" + ((($s.sourceRef // 0) + 1) | tostring)) end)
+                # A read/verify step. This used to restate $s.description — but the STEP TITLE is
+                # $s.description (see `title:` above), so every verify step printed its own title twice:
+                # once as the heading, once as the first line of the body. Only the evidence pointer is
+                # emitted now; the title already says what the step checks.
+                (if ($s.sourceRef // null) != null then ("→ evidence #" + ((($s.sourceRef // 0) + 1) | tostring)) else "" end)
               ) end)
               # Copyable command for a terminal outside the portal (the primary way to run it).
               + (if $cmd != "" then ("\n\nRun it in your terminal:\n\n```bash\n" + $cmd + "\n```") else "" end)
+              # The success criterion, and its command ONLY when that command is genuinely a different one.
+              #
+              # On a VERIFY step ($isRead != null) the step's own $cmd already IS the check, so a second
+              # fenced command underneath asked the reader to run the same thing twice. On
+              # report-provenance-test step 2 printed `kubectl get alerts provenance-test -n krateo-system`
+              # and then `kubectl get alert provenance-test -n krateo-system` — the same command differing
+              # only in the plural. The CRITERION still renders: it says what the output has to look like
+              # ("kubectl returns NotFound"), which the command alone does not.
+              #
+              # On a REMEDIATE step both survive — there the action and the check really are different
+              # commands (patch, then get).
+              #
+              # The comparison normalises whitespace, case and the resource plural rather than comparing raw
+              # strings: the two forms above are not equal as text, which is exactly why this went unseen.
               + (if ($s.successCriterion // "") != "" then (
-                  "\n\n---\n\n**Verify:** " + $s.successCriterion
-                  + (if ($s.verifyCommand // "") != "" then ("\n\n```bash\n" + $s.verifyCommand + "\n```") else "" end)
+                  (($cmd // "") | ascii_downcase | gsub("\\s+"; " ") | gsub("\\balerts\\b"; "alert") | sub("^ +";"") | sub(" +$";"")) as $cmdNorm
+                  | ((($s.verifyCommand // "") | ascii_downcase | gsub("\\s+"; " ") | gsub("\\balerts\\b"; "alert") | sub("^ +";"") | sub(" +$";""))) as $vcNorm
+                  | ((($s.verifyCommand // "") != "") and ($vcNorm != $cmdNorm) and (($isRead == null) or ($cmd == ""))) as $showVerifyCmd
+                  | "\n\n---\n\n**Verify:** " + $s.successCriterion
+                    + (if $showVerifyCmd then ("\n\n```bash\n" + $s.verifyCommand + "\n```") else "" end)
                 ) else "" end)
               + (if ($s.observedOutcome // "") != "" then ("\n\n**Applied** ✅ " + $s.observedOutcome) else "" end)
             )
