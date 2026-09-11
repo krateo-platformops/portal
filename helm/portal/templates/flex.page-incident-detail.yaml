@@ -64,7 +64,8 @@ spec:
         + (if ($s.audit // false) then [ { resourceRefId: "incident-sec-audit-card" } ] else [] end)
         + (if ($s.similar // false) then [ { resourceRefId: "incident-similar-card" } ] else [] end)
         + (if (.alertName // "") != "" then [ { resourceRefId: "incident-related-alerts-card" } ] else [] end)
-        + (if ($s.prose == true) or ($s == {}) then [ { resourceRefId: "incident-prose" } ] else [] end) }
+        + (if ($s.prose == true) or ($s == {}) then [ { resourceRefId: "incident-prose" } ] else [] end)
+        + (if ($s.manifests // false) then [ { resourceRefId: "incident-detail-manifests-card" } ] else [] end) }
   resourcesRefs:
     items:
     - id: incident-detail-header-block
@@ -129,6 +130,12 @@ spec:
     - id: incident-related-alerts-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-related-alerts-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-detail-manifests-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-manifests-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET

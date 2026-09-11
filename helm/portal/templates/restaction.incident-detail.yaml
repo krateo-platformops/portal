@@ -118,6 +118,32 @@ spec:
            | select($dnorm == $alertNorm or $mnorm == $alertNorm)
            | (.metadata.name // "") ] | first // "")
       end) as $alertRealName
+      # ── INVOLVED MANIFESTS ──────────────────────────────────────────────────────────────
+      # Every custom resource this incident is actually made of, as the objects themselves. What
+      # sits above this on the page is INTERPRETATION — verdict, evidence, remediation — derived
+      # from these objects. When that interpretation is missing or wrong (a run that failed, a
+      # field the page does not surface, a status the reconciler wrote that nothing reads) the only
+      # recourse was kubectl. The objects belong on the page that claims to explain them.
+      #
+      # Assembled from the three reads this action ALREADY does, so it costs no extra API call: the
+      # TroubleshootingReport itself, the Alert that triggered it, and the AuditRecords for its
+      # remediation targets. Emitted as a v1 List — exactly what `kubectl get -o json` returns — so
+      # it reads as manifests rather than a portal-invented envelope, and pastes back into kubectl.
+      #
+      # managedFields is stripped: server bookkeeping, routinely longer than the spec it describes,
+      # and it would push the object itself off the first screen. Nothing else is removed — status
+      # in particular stays, because on a failed run status.report IS the only evidence there is.
+    | ( [ ((.alerts.items) // [])[]
+          | select((.metadata.name // "") == $alertRealName) ] | first // null ) as $alertObj
+    | ( [ (((.audits.items) // [])[])
+          | . as $a
+          | ((.spec.action // {}) as $act | (($act.resource // "") + "/" + ($act.name // ""))) as $k
+          | select(($auditTargetKeys | length) > 0 and ($auditTargetKeys | index($k) != null))
+          | $a ] ) as $auditObjs
+    | ( [ (if ($r | length) > 0 then $r else empty end),
+          (if $alertObj != null then $alertObj else empty end) ]
+        + $auditObjs
+        | map(del(.metadata.managedFields)) ) as $involvedObjs
     | ($trace | to_entries | map({
         eyebrow: ("step " + ((.value.step // (.key + 1)) | tostring)),
         title: (.value.statement // ""),
@@ -380,24 +406,65 @@ spec:
               excerpt: (.excerpt // ""),
               route: ("/incidents/" + $ns + "/" + $n + "?ask=" + ($srcAsk | @uri))
             })),
+        # Consumed by yamlviewer.incident-detail-manifests. A JSON STRING, not an object: the
+        # YamlViewer `json` field takes the serialised form (same contract as
+        # yamlviewer.alert-detail-manifest). "" on an empty set so the widget shows its own honest
+        # "No data to display" rather than an empty List envelope, which would read as "this
+        # incident involves no resources" — never true.
+        involvedManifestsJson: (if ($involvedObjs | length) > 0
+                                then ({ apiVersion: "v1", kind: "List", items: $involvedObjs } | tojson)
+                                else "" end),
+        involvedManifestsDesc: (($involvedObjs | length | tostring)
+          + (if ($involvedObjs | length) == 1 then " object" else " objects" end)
+          + " — the report"
+          + (if $alertObj != null then ", the alert that triggered it" else "" end)
+          + (if ($auditObjs | length) > 0 then (", and " + ($auditObjs | length | tostring) + " audit record" + (if ($auditObjs | length) == 1 then "" else "s" end)) else "" end)
+          + ". Server-side managedFields stripped; status kept."),
         remediationDesc: ((($plan | length) | tostring) + " ordered steps · each is a gated action you review before anything changes" + (if ($plan | length) > 6 then " · showing the first 6" else "" end)),
         similar: $similar,
-        # HONESTY (IA incidents-deepdive): a FAILED run must not be dressed up as analysis.
-        # The old ladder showed $st.report BEFORE $st.error — but a failed run leaves the raw
-        # provider error (e.g. "400 Bad Request … token count exceeds the maximum …") in
-        # status.report AND a truthful status.error. So: if the run recorded an error, OR the
-        # report body IS a provider-error dump, surface the honest failure — never the dump.
+        # HONESTY (IA incidents-deepdive): a FAILED run must not be dressed up as analysis — and it
+        # must not be dressed DOWN into a shrug either, which is what this used to do.
+        #
+        # The rule was "surface the honest failure — never the dump", on the premise that a failed
+        # run leaves the raw provider error in status.report AND a truthful status.error. That
+        # premise does not hold. report-krateo-composition-reconcile-errors (krateo-057,
+        # 2026-09-11) has NO status.error at all, so $err was "" and the page fell through to a
+        # fixed sentence — "returned a provider error … re-run the analysis" — while status.report
+        # held the only diagnostic in existence:
+        #   LLM error: STREAM_ERROR … 400 Bad Request … Unknown name "exclusiveMinimum" at
+        #   'tools[0].function_declarations[12].parameters.properties[4].value'
+        # That names a bound tool whose JSON Schema Gemini cannot accept. Withholding it was costly:
+        # the RCA loop read as merely flaky instead of deterministically broken.
+        #
+        # So the dump IS shown when it is the only evidence — fenced, labelled as what the PROVIDER
+        # said rather than as analysis, and capped. The honesty goal was never "hide the cause", it
+        # was "do not let a dump masquerade as a report"; a fenced block under an explicit heading
+        # masquerades as nothing.
+        #
+        # The re-run advice is gone from that branch too. A tool schema the model cannot accept, or
+        # a context over the limit, fails identically every time — telling someone to re-run is
+        # telling them to waste a turn. It is offered only on the branch where we have nothing.
         proseMd: (
           ($st.report // "") as $rpt
           | ($st.error // "") as $err
           | (($rpt | test("Bad Request|token count|exceeds the maximum|no output|^ *[0-9][0-9][0-9] ")) or ($err != "")) as $failed
           | if $structured then ""
-            elif $failed then ("**Analysis could not complete.** " + (if $err != "" then $err else "The investigation returned a provider error instead of a report; re-run the analysis from the Autopilot rail." end))
+            elif $failed then ("**Analysis could not complete.** "
+                 + (if $err != "" then $err
+                    elif $rpt != "" then ("The run ended in a provider error instead of a report. This is what the provider said:\n\n```\n"
+                      + ($rpt | if (. | length) > 1200 then (.[0:1200] + "\n… truncated") else . end)
+                      + "\n```\n\nRe-running repeats this unless the cause was transient: a tool schema the model cannot accept, or a context over the limit, fails identically every time.")
+                    else "The run produced no report and recorded no error — there is nothing to show, which is itself the finding. Re-run the analysis from the Autopilot rail." end))
             elif ($rpt != "") then $rpt
             else "_Analysis in progress — the investigation will appear here when the Autopilot run completes._" end),
         sections: {
           # #72 §1: the Summary panel shows for any STRUCTURED report (has a verdict/steps/evidence);
           # a v1 prose-only report skips it and shows the prose card instead.
+          # Shows whenever there is an object to show — which is every incident, since the
+          # report itself always qualifies. NOT exception-only: these objects are the ground truth
+          # the rest of the page is derived from, and a reader who doubts the interpretation needs
+          # them most when nothing looks wrong.
+          manifests: (($involvedObjs | length) > 0),
           summary: $structured,
           evidence: ((($analyzed | length) > 0) or (($sources | length) > 0)),
           analyzed: (($analyzed | length) > 0),
