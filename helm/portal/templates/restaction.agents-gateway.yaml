@@ -1,0 +1,423 @@
+# The GATEWAY-SHAPED reads behind /agents: the exception roll-up at the top of the page, and the
+# seven-hop request walk at the bottom. ONE RESTAction for both, because both answer questions about
+# the same four kinds (Agent, RemoteMCPServer, HTTPRoute, AgentgatewayPolicy) and splitting them
+# would double the list calls on one page render for no gain.
+#
+# WHY THE ROLL-UP IS COMPUTED AND NOT WRITTEN DOWN. The obvious way to ship "things that deviate" is
+# a hand-written list — and it is the one way that is guaranteed to lie. Two of the six observations
+# this section was drafted from were ALREADY FALSE by the time it was implemented, verified on
+# krateo-057 on 2026-09-11: `krateo-blueprint-agent` had been given its subagent HTTPRoute, its
+# authz clause, its passthrough entry AND its resiliency-a2a targetRef, and
+# `krateo-chart-gate-mcp-server` had been given both a backend and a route. A frozen panel would
+# still be accusing both. Everything below is therefore a PREDICATE over live objects; when the
+# cluster is put right the line disappears on its own.
+#
+# EXCEPTION-ONLY. `attention` is "" when nothing matches, which renders nothing at all (an empty
+# Markdown is an empty div) — the same treatment paragraph.agents-servers-notice already uses on
+# this page. A healthy cluster gets no panel, no "0 issues" badge, no green tick.
+#
+# AND SILENCE IS NOT A CLEAN BILL OF HEALTH. Exception-only makes a failed read indistinguishable
+# from a healthy cluster, which is the one way this panel could still mislead. So every step is
+# continueOnError with an errorKey, all six errorKeys are CONSUMED, and a step that did not answer
+# adds its own bullet naming the kind it could not read. The panel appears for that alone.
+#
+# NOTHING IS MATCHED BY OBJECT NAME. A route is identified by what it points at (a Service that is
+# an Agent, an AgentgatewayBackend under /llm or /mcp) and a policy by the spec block it carries
+# (traffic.retry = a retry budget, backend.auth = token passthrough), never by the
+# `agentgateway-policies-` prefix its composition happens to render. Renaming the composition must
+# not silently empty this page.
+#
+# TWO OF THE SIX DRAFTED OBSERVATIONS ARE DELIBERATELY NOT BUILT:
+#
+#   * "tool servers that bypass the gateway" — restaction.agents-servers ALREADY computes this, per
+#     server, with a strictly stronger predicate (it resolves all three legal AgentgatewayBackend
+#     target shapes and refuses to assert "unrouted" when a label-selector target makes the routing
+#     unresolvable). A second, weaker copy here would be a second source of truth that can disagree
+#     with the badge 200px below it. The roll-up defers to the table.
+#   * "a bound tool the server does not serve" — computable, but NOT honest as a deviation. The
+#     check cannot tell a break from a design: `clickstack-agent` and `incident-agent` bind BOTH
+#     `run_select_query` and `run_query` on purpose, because mcp-clickhouse renamed the tool at
+#     0.5.0 and kagent keeps only the names the server actually serves — listing both is what makes
+#     the SQL tool survive either version. The four bench agents do the same thing at scale: they
+#     bind write tools the read-only snapshot deliberately does not serve. A predicate over
+#     status.discoveredTools would report all of that as deviation. The agents table carries the
+#     per-agent count, where it reads as a property of the agent rather than as an accusation.
+#
+# COST. The `pods` step lists every pod in the namespace (152 on krateo-057) for one fact:
+# restarts. A `?labelSelector=` cannot narrow it — the agent plane has no single shared label
+# (kagent agents carry part-of=kagent, itbench-snapshot carries part-of=agentiko-sre-eval,
+# clickhouse-mcp-server carries none) and pinning a list of label values would silently stop seeing
+# a tool server added later. So the step filter trims each pod to {name, workload label, restart
+# count} INSIDE snowplow, the same shape restaction.component-detail already uses, and the browser
+# never sees the 2 MB.
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-gateway
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: agents
+    path: /apis/kagent.dev/v1alpha2/agents
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: agents
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: agentsError
+  - name: models
+    path: /apis/kagent.dev/v1alpha2/modelconfigs
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: modelconfigs
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: modelsError
+  # remotemcpservers, NOT toolservers/mcpservers — both those CRDs are installed and hold zero
+  # objects on every cluster we run (see restaction.agents-list). Needed here for two joins, not for
+  # a table: the Service host a server is reached on (which is what makes a restarting pod an
+  # AGENT-PLANE pod rather than any pod in the namespace) and which agents bind it.
+  - name: servers
+    path: /apis/kagent.dev/v1alpha2/remotemcpservers
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: remotemcpservers
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: serversError
+  # v1 is the storage version of httproutes on the cluster (v1beta1 is still served but is not the
+  # storage version); pin v1 so the paths we read are the canonical ones. Same pin as
+  # restaction.agents-policies.
+  - name: routes
+    path: /apis/gateway.networking.k8s.io/v1/httproutes
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: gateway.networking.k8s.io
+      resource: httproutes
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: routesError
+  - name: policies
+    path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
+    verb: GET
+    userAccessFilter:
+      verb: list
+      group: agentgateway.dev
+      resource: agentgatewaypolicies
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: policiesError
+  # Trimmed to three fields IN snowplow (see COST above). The step filter replaces the step's whole
+  # result, so the global filter below sees `.pods` as a flat ARRAY, not `.pods.items`.
+  - name: pods
+    path: /api/v1/namespaces/{{ .Release.Namespace }}/pods
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    userAccessFilter:
+      verb: list
+      group: ""
+      resource: pods
+      namespaceFrom: .metadata.namespace
+    continueOnError: true
+    errorKey: podsError
+    filter: '[ .pods.items[]? | { metadata: { labels: { "app.kubernetes.io/name": (.metadata.labels["app.kubernetes.io/name"] // "") } }, status: { containerStatuses: [ (.status.containerStatuses // [])[] | { restartCount: (.restartCount // 0) } ] } } ]'
+  filter: |
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
+    def urlHost: (. // "") | sub("^[a-zA-Z][a-zA-Z0-9+.-]*://"; "") | split("/")[0] | split(":")[0];
+    def bt: "`" + . + "`";
+    def plural($n; $one; $many): if $n == 1 then $one else $many end;
+
+    ( errText(.agentsError)   ) as $agErr
+    | ( errText(.modelsError)   ) as $mcErr
+    | ( errText(.serversError)  ) as $srvErr
+    | ( errText(.routesError)   ) as $rtErr
+    | ( errText(.policiesError) ) as $polErr
+    | ( errText(.podsError)     ) as $podErr
+
+    | ( [ (.agents.items // [])[] | select((.metadata.name // "") != "") ] ) as $agents
+    | ( [ (.servers.items // [])[] | select((.metadata.name // "") != "") ] ) as $servers
+    | ( [ (.models.items // [])[] | select((.metadata.name // "") != "") ] ) as $models
+    | ( [ (.policies.items // [])[] ] ) as $policies
+
+    | ( [ (.routes.items // [])[] | . as $r
+          | { name:     ($r.metadata.name // ""),
+              gateways: ( [ ($r.spec.parentRefs // [])[] | select((.kind // "Gateway") == "Gateway") | .name ] | unique ),
+              svcs:     ( [ ($r.spec.rules // [])[] | (.backendRefs // [])[] | select((.kind // "Service") == "Service") | .name ] | unique ),
+              backends: ( [ ($r.spec.rules // [])[] | (.backendRefs // [])[] | select(.kind == "AgentgatewayBackend") | .name ] | unique ),
+              hosts:    ( [ ($r.spec.rules // [])[] | (.matches // [])[] | (.headers // [])[]
+                            | select(.name == "x-kagent-host") | .value // empty ] | unique ),
+              paths:    ( [ ($r.spec.rules // [])[] | (.matches // [])[] | .path.value // empty ] | unique ) } ] ) as $rx
+
+    | ( def short: sub("^agentgateway-policies-"; "");
+        [ $policies[] | . as $p | ($p.spec.targetRefs // [])[]
+          | { kind: (.kind // ""), name: (.name // ""), pol: (($p.metadata.name // "") | short),
+              retry:  ((($p.spec.traffic // {}).retry // null) != null),
+              bauth:  (((($p.spec.backend // {}).auth) // null) != null) } ] ) as $ptargets
+    | ( reduce ($ptargets[] | select(.kind == "Gateway"))   as $t ({}; .[$t.name] += [$t.pol]) ) as $polByGw
+    | ( reduce ($ptargets[] | select(.kind == "HTTPRoute")) as $t ({}; .[$t.name] += [$t.pol]) ) as $polByRoute
+    | ( reduce ($ptargets[] | select(.kind == "Service"))   as $t ({}; .[$t.name] += [$t.pol]) ) as $polBySvc
+    | ( [ $ptargets[] | select(.kind == "HTTPRoute" and .retry) | .name ] | unique ) as $retriedRoutes
+    | ( [ $ptargets[] | select(.kind == "Service"   and .bauth) | .name ] | unique ) as $passthroughSvcs
+    | ( [ $policies[] | ((.spec.traffic // {}).authorization.policy.matchExpressions // [])[] ] ) as $authzExprs
+
+    | ( [ $agents[] | .metadata.name as $n
+          | ((.spec.declarative.tools // [])[] | select(.type == "Agent") | (.agent.name // empty))
+          | { target: ., by: $n } ] ) as $delegations
+    | ( reduce $delegations[] as $d ({}; .[$d.target] += [$d.by]) ) as $calledBy
+    | ( ( $delegations | map(.target) | unique ) ) as $delegateTargets
+    | ( [ $agents[] | select( ( [ (.spec.declarative.tools // [])[] | select(.type == "Agent") ] | length ) > 0 )
+          | .metadata.name ] ) as $orchestrators
+    | ( [ $orchestrators[] | select( . as $o | ($delegateTargets | index($o)) == null ) ] ) as $rootOrch
+    | ( ( [ $agents[] | .metadata.name ]
+          + [ $servers[] | (.spec.remote.url // .spec.url // "") | urlHost | split(".")[0] ] ) | unique ) as $planeSvcs
+
+    # ---------------------------------------------------------------------------------------------
+    # CAN WE ASSERT ANYTHING ABOUT THE GATEWAY AT ALL? Three states, and only the third licenses a
+    # claim. The step ERRORED (errorKey set) — we read nothing. The step SUCCEEDED but came back
+    # EMPTY — snowplow's userAccessFilter refilter is silent (refilter.go drops items, it does not
+    # error), so "no routes exist" and "you may not list routes" are byte-identical here. Only a
+    # NON-EMPTY list licenses "this particular thing has no route": every object involved lives in
+    # one namespace, so a caller who can see one route can see them all, which makes a zero-match
+    # inside a non-empty set a real absence rather than a permissions artefact.
+    | ( ($rtErr  == "") and (($rx       | length) > 0) ) as $routesKnown
+    | ( ($polErr == "") and (($policies | length) > 0) ) as $policiesKnown
+    | def routesFor($names): [ $rx[] | select( any(.svcs[]; . as $s | ($names | index($s)) != null) ) ];
+      def polsOf($rs):
+        ( [ $rs[] | ($polByRoute[.name] // []) + ( [ .svcs[] | ($polBySvc[.] // []) ] | flatten ) | unique ] ) as $per
+        | ( [ $rs[] | [ .gateways[] | ($polByGw[.] // []) ] | flatten | unique ] ) as $gwper
+        | ( $rs | length ) as $m
+        | ( [ ( $per | flatten | unique )[] as $p
+              | { p: $p, n: ( [ $per[] | select(index($p)) ] | length ) }
+              | .p + (if .n < $m then (" (" + (.n | tostring) + " of " + ($m | tostring) + ")") else "" end) ] ) as $own
+        | ( [ ( $gwper | flatten | unique )[] as $p
+              | { p: $p, n: ( [ $gwper[] | select(index($p)) ] | length ) }
+              | .p + (if .n < $m then (" (" + (.n | tostring) + " of " + ($m | tostring) + ")") else "" end) ] ) as $gw
+        | ( if $policiesKnown | not then "no policy visible here"
+            else ( [ (if ($own | length) > 0 then ($own | join(", ")) else empty end),
+                     (if ($gw  | length) > 0 then ("gateway-wide: " + ($gw | join(", "))) else empty end) ]
+                   | join(" · ") ) end );
+      # "no route ON THIS GATEWAY" is a CLAIM about the cluster and is only made when the route list
+      # was actually read. Without that guard an unreadable or refiltered-away list renders as seven
+      # confident denials — the one failure mode this whole section exists to avoid. The fallback
+      # "no route visible here" deliberately claims less: it is equally true of a route that does not
+      # exist and of one the caller may not list, which is exactly what cannot be told apart.
+      def routeCell($rs; $unit):
+        ( if $routesKnown | not then "no route visible here"
+          elif ($rs | length) == 0 then "**no route on this gateway**"
+          elif ($rs | length) <= 2 then ( [ $rs[] | .name | bt ] | join(", ") )
+          else (($rs | length | tostring) + " routes · one per " + $unit) end );
+
+    # The A2A front door, derived from the URL SPACE (/api/a2a), never from an object name: the route
+    # that serves it names the controller Service, and that name is then what identifies the in-mesh
+    # A2A route. Hardcoding "kagent-controller" or the chart's route prefix would silently mis-label
+    # every hop the day either is renamed.
+      ( [ $rx[] | select( any(.paths[]; startswith("/api/a2a")) ) ] ) as $a2aEdge
+    | ( ( [ $a2aEdge[] | .svcs[] ] | unique ) ) as $ctrlSvcs
+    | ( [ $rx[] | select( any(.svcs[]; . as $s | ($ctrlSvcs | index($s)) != null) )
+                | select( any(.paths[]; startswith("/api/a2a")) | not ) ] ) as $a2aMesh
+    | ( routesFor($rootOrch) ) as $orchRoutes
+    | ( routesFor($delegateTargets) ) as $delRoutes
+    | ( [ $rx[] | select( (.backends | length) > 0 and any(.paths[]; startswith("/llm")) ) ] ) as $llmRoutes
+    | ( [ $rx[] | select( (.backends | length) > 0 and any(.paths[]; startswith("/mcp")) ) ] ) as $mcpRoutes
+
+    # ---------------------------------------------------------------------------------------------
+    # FINDING 1 — a delegate the gateway cannot carry, or carries without full policy.
+    #
+    # Registration is FOUR artefacts, not one, and the failure that matters most is the partial one:
+    # an agent with a route, an authz clause and passthrough but no retry budget is reachable, works
+    # in a demo and drops the delegation on the first 503. That is the live state of the three bench
+    # delegates on krateo-057 — the policies chart targets its `subAgents` default with
+    # resiliency-a2a and its per-install `extraSubAgents` only with the other three.
+    #
+    # Each of the four is tested by SHAPE, never by policy name: a retry budget is a policy carrying
+    # traffic.retry that targets the route, token passthrough is a policy carrying backend.auth that
+    # targets the Service, and the authorization clause is the agent's own `<name>.<ns>` appearing
+    # quoted inside a CEL matchExpression (quoted, so `k8s-agent` cannot match `k8s-agent-bench`).
+    # Every one of them is skipped when its source could not be read — a gap that is really a 403 is
+    # not a gap, and printing it as one sends someone to fix a policy that is already correct.
+    | ( [ $delegateTargets[] as $t
+          | ( [ $rx[] | select( any(.svcs[]; . == $t) ) ] ) as $rs
+          | ( [ $rs[] | select( .name as $n | ($retriedRoutes | index($n)) != null ) ] | length ) as $retried
+          | ( ($passthroughSvcs | index($t)) != null ) as $pass
+          | ( ( [ $authzExprs[] | select(test("'" + $t + "\\.")) ] | length ) > 0 ) as $authz
+          | { agent: $t, by: ($calledBy[$t] // []), hasRoute: (($rs | length) > 0),
+              gaps: ( [ (if $routesKnown and ($rs | length) == 0 then "no HTTPRoute on the agent gateway" else empty end),
+                        (if $routesKnown and $policiesKnown and ($rs | length) > 0 and $retried == 0 then "no retry budget on the A2A hop" else empty end),
+                        (if $policiesKnown and ($pass  | not) then "the caller's token is not passed through to it" else empty end),
+                        (if $policiesKnown and ($authz | not) then "no authorization clause names it" else empty end) ] ) }
+          | select( (.gaps | length) > 0 ) ] ) as $unreachable
+
+    # FINDING 2 — configured and ignored. Self-retiring: the moment the runtime implements compaction
+    # the condition goes away and this line goes with it.
+    | ( [ $agents[] | select( ((.spec.declarative.context // {}).compaction // null) != null )
+          | select( [ (.status.conditions // [])[] | select(.type == "UnsupportedFeatures" and .status == "True") ] | length > 0 )
+          | .metadata.name ] | unique ) as $ignoredCompaction
+
+    # FINDING 3 — the model a name resolves to. Only names AGENTS ACTUALLY BIND are compared: an
+    # unused ModelConfig colliding with another is nobody's surprise.
+    | ( reduce $agents[] as $a ({}; .[($a.spec.declarative.modelConfig // "default-model-config")] += [$a.metadata.name]) ) as $agentsByMc
+    | ( [ $models[] | select( ($agentsByMc[.metadata.name] // []) | length > 0 ) | .spec.model // "" ]
+        | group_by(.) | map(select(length > 1)) | map(.[0]) ) as $collidedModels
+    | ( [ $collidedModels[] as $mm
+          | { model: $mm,
+              names: ( [ $models[] | select((.spec.model // "") == $mm)
+                         | select( ($agentsByMc[.metadata.name] // []) | length > 0 ) | .metadata.name ] | unique ) } ] ) as $aliases
+    | ( [ $models[] | select( ($agentsByMc[.metadata.name] // []) | length == 0 )
+          | { name: .metadata.name, model: (.spec.model // "") } ] ) as $orphanModels
+
+    # FINDING 4 — an agent-plane workload restarting. Scoped by a JOIN, not a hardcoded list: a pod
+    # counts only when its app.kubernetes.io/name is an Agent or the Service host of a tool server.
+    | ( [ (.pods // [])[] | . as $p
+          | ( ($p.metadata.labels // {})["app.kubernetes.io/name"] // "" ) as $wl
+          | select( $wl != "" and ( ($planeSvcs | index($wl)) != null ) )
+          | { workload: $wl, restarts: ( [ ($p.status.containerStatuses // [])[] | .restartCount // 0 ] | add // 0 ) } ]
+        | group_by(.workload) | map({ workload: .[0].workload, restarts: (map(.restarts) | add) })
+        | map(select(.restarts > 0)) | sort_by(-.restarts) ) as $restarting
+    | ( reduce $agents[] as $a ({};
+          reduce ((($a.spec.declarative.tools // [])[] | select(.type == "McpServer") | .mcpServer.name // empty)) as $s
+            (.; .[$s] += [$a.metadata.name])) ) as $agentsByServer
+    | ( reduce $servers[] as $s ({}; .[((($s.spec.remote.url // $s.spec.url // "") | urlHost | split(".")[0]))] = $s.metadata.name) ) as $serverByHost
+
+    # ---------------------------------------------------------------------------------------------
+    # A step that ERRORED is named, so the empty list underneath is never read as an absence.
+    | ( [ (if $agErr  != "" then "Agents" else empty end),
+          (if $mcErr  != "" then "ModelConfigs" else empty end),
+          (if $srvErr != "" then "RemoteMCPServers" else empty end),
+          (if $rtErr  != "" then "HTTPRoutes" else empty end),
+          (if $polErr != "" then "AgentgatewayPolicies" else empty end),
+          (if $podErr != "" then "Pods" else empty end) ] ) as $unread
+    # The silent case: agents ARE readable, so this is a live agent plane, but its gateway objects
+    # came back empty with no error. That is either a cluster with no agent gateway at all or a
+    # caller who may not list them, and the two are indistinguishable on the wire — so the whole
+    # gateway half of this roll-up is off, and saying nothing would present a partial check as a
+    # complete one. Not raised on an empty cluster (no agents), where there is nothing to say.
+    | ( [ (if ($agents | length) > 0 and $rtErr  == "" and ($rx       | length) == 0 then "HTTPRoutes" else empty end),
+          (if ($agents | length) > 0 and $polErr == "" and ($policies | length) == 0 then "AgentgatewayPolicies" else empty end) ] ) as $gwBlind
+
+    | ( [ (if ($unreachable | length) > 0 then
+            ( "- **" + (($unreachable | length) | tostring) + " "
+              + plural($unreachable | length; "agent is"; "agents are")
+              + " delegated to but not fully carried by the gateway.**\n"
+              + ( [ $unreachable[] | "    - " + (.agent | bt) + " — called by " + ([ .by[] | bt ] | join(", "))
+                    + "; " + (.gaps | join("; ")) + "." ] | join("\n") ) ) else empty end),
+          (if ($ignoredCompaction | length) > 0 then
+            ( "- **Context compaction is configured and silently ignored.** "
+              + ([ $ignoredCompaction[] | bt ] | join(", ")) + " "
+              + plural($ignoredCompaction | length; "sets"; "set") + " " + ("context.compaction" | bt)
+              + " and " + plural($ignoredCompaction | length; "reports"; "report") + " "
+              + ("UnsupportedFeatures" | bt)
+              + ": the runtime does not implement it, so a long session is never summarised." ) else empty end),
+          # The two model observations are ONE bullet when both hold: they are the same fact from two
+          # sides (a ModelConfig name no longer identifies a model) and splitting them would inflate
+          # the count in the heading, which is the number a reader acts on.
+          ( ( if ($orphanModels | length) > 0 then
+                ( " " + ([ $orphanModels[] | (.name | bt) + " (" + (.model | bt) + ")" ] | join(", "))
+                  + " " + plural($orphanModels | length; "is"; "are") + " bound to no agent you can read." )
+              else "" end ) as $orphanTail
+            | if ($aliases | length) > 0 then
+                ( "- **A model name no longer says which model answers.** "
+                  + ([ $aliases[] | ([ .names[] | bt ] | join(" and ")) + " " + plural(.names | length; "resolves"; "both resolve") + " to " + (.model | bt) ] | join("; "))
+                  + "." + $orphanTail )
+              elif ($orphanModels | length) > 0 then
+                ( "- **" + (($orphanModels | length) | tostring) + " ModelConfig "
+                  + plural($orphanModels | length; "is"; "are") + " bound to no agent you can read.**"
+                  + $orphanTail )
+              else empty end ),
+          (if ($restarting | length) > 0 then
+            ( "- **" + (($restarting | length) | tostring) + " agent-plane "
+              + plural($restarting | length; "workload is"; "workloads are") + " restarting.** "
+              + ([ $restarting[] | . as $w
+                   | ($w.workload | bt) + " · " + ($w.restarts | tostring) + " "
+                     + plural($w.restarts; "restart"; "restarts")
+                     + ( ($serverByHost[$w.workload] // "") as $sv
+                         | if $sv == "" then ""
+                           else ( " · serves " + (($agentsByServer[$sv] // []) | unique | length | tostring) + " "
+                                  + plural((($agentsByServer[$sv] // []) | unique | length); "agent"; "agents") ) end ) ]
+                 | join(", ")) + "." ) else empty end) ] ) as $findings
+
+    # ---------------------------------------------------------------------------------------------
+    # THE SEVEN HOPS. The bold lead of each line is NARRATIVE — authored here, in one place, never read
+    # from anything — and the line under it is DERIVED on this request. Keeping the two adjacent is the
+    # whole point: a hop whose route has gone away prints "no route on this gateway" under the same
+    # sentence, instead of the sentence quietly continuing to assert a path that no longer exists.
+    | ( [ { hop: "Portal → the platform gateway",
+            why: "The rail posts the question to the gateway's A2A URL space over TLS. This is the only hop that crosses the cluster edge, and the only one where the caller's identity is established rather than carried.",
+            rs: $a2aEdge, unit: "listener" },
+          { hop: "→ the kagent controller",
+            why: "The controller owns the session: it holds the conversation, and the caller's token is forwarded unchanged so every hop below still knows who asked.",
+            rs: $a2aMesh, unit: "listener" },
+          { hop: "→ an orchestrator agent",
+            why: "The orchestrator answers nothing itself. It decides which specialist to ask, in what order, and when it has enough to reply.",
+            rs: $orchRoutes, unit: "orchestrator" },
+          { hop: "→ the model",
+            why: "Every model turn re-crosses the gateway. This is the hop where prompt guardrails run, where the token budget is spent, and where cost is attributed to a user.",
+            rs: $llmRoutes, unit: "model backend" },
+          { hop: "→ a specialist agent, over A2A",
+            why: "The delegate is selected by an exact `x-kagent-host` header, so each one is a route of its own and can be authorized, retried and revoked on its own.",
+            rs: $delRoutes, unit: "delegate" },
+          { hop: "→ a tool, over MCP",
+            why: "The tool call goes through the gateway too. That is what makes an individual tool call attributable in the access log, and what lets a write tool be held for approval.",
+            rs: $mcpRoutes, unit: "tool server" } ]
+        | to_entries
+        | [ .[] | "" + ((.key + 1) | tostring) + ". **" + .value.hop + ".** " + .value.why + "  \n   "
+                  + routeCell(.value.rs; .value.unit)
+                  + ( (polsOf(.value.rs)) as $p | if $p == "" then "" else (" — " + $p) end ) ] ) as $hopLines
+    | ( "7. **→ the kube-apiserver, as the caller.** The tool reaches the apiserver as the person who asked, not as itself: their token is replayed as a client certificate, so their own RBAC decides what the evidence may contain.  \n   not a gateway hop — no route carries it, and no policy on this page governs it" ) as $hop7
+
+    | ( [ (if ($unread  | length) > 0
+            then ( "- **This check could not read " + ($unread | join(", "))
+                   + ".** Deviations of that kind are not listed here — silence above is not a clean bill of health." )
+            else empty end),
+          (if ($gwBlind | length) > 0
+            then ( "- **No " + ($gwBlind | join(" and no ")) + " are visible, though agents are.**"
+                   + " Either this cluster has no agent gateway, or you may not list them; the two look the same from here."
+                   + " Nothing below is checked against the gateway." )
+            else empty end) ] ) as $caveats
+
+    | { attention: (
+          if ($findings | length) == 0 and ($caveats | length) == 0 then ""
+          else ( ($findings + $caveats) | join("\n") ) end ),
+        # Rendered by paragraph.agents-attention-head. Carries the count so the Markdown below can be
+        # bullets only: one heading, not two. The count is of FINDINGS: a caveat is a statement about
+        # this page's own reach, not a thing wrong with the cluster, and counting it as one would
+        # send a reader looking for a deviation that was never claimed.
+        attentionHead: (
+          if ($findings | length) == 0 and ($caveats | length) == 0 then ""
+          elif ($findings | length) == 0 then "Some of this page's checks could not run"
+          else ( (($findings | length) | tostring) + " "
+                 + plural($findings | length; "thing deviates"; "things deviate") + " from the intended shape" )
+          end ),
+        # danger is reserved for the two states that make the page itself unreliable: an agent the
+        # gateway cannot carry at all, and a check that could not run. Everything else is warning.
+        attentionType: (
+          if ($caveats | length) > 0 or ( [ $unreachable[] | select(.hasRoute | not) ] | length ) > 0
+          then "danger" else "warning" end ),
+        # A failed gateway read must be stated INSIDE the same string as the hops. Split across two
+        # widgets it can be scrolled past, and the derived line under each hop would then read as a
+        # complete answer when it is a truncated one.
+        flow: (
+          ( ( if $rtErr != "" and $polErr != ""
+              then [ "**Neither the gateway's routes nor its policies could be read, so every line below is narrative only.**\n" ]
+              elif $rtErr != ""
+              then [ "**The gateway's HTTPRoutes could not be read, so no hop below can name the route it crosses.**\n" ]
+              elif $polErr != ""
+              then [ "**The gateway's AgentgatewayPolicies could not be read, so no hop below can name what it enforces.**\n" ]
+              else [] end )
+            + $hopLines + [$hop7] ) | join("\n") ) }

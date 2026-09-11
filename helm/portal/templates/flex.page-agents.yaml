@@ -43,6 +43,12 @@ spec:
     # Right-aligned "New agent" → /agents/new. A Flex, not the Button directly: `buttons` is not in
     # this page's allowedResources and Buttons carry no self-alignment field.
     - resourceRefId: agents-new-cta
+    # The exception roll-up (flex.agents-attention). ABOVE the inventory on purpose: it is the only
+    # block on this page that is not an inventory, and the question "is anything wrong?" must not
+    # require scrolling 15 agent rows and 9 server rows to answer. On a healthy cluster BOTH its
+    # children render an empty string and the block disappears — so this is not a permanent banner
+    # that has to earn its place every day, it is a slot that is empty until it is not.
+    - resourceRefId: agents-attention-block
     # The inventory table, inside its frame (card.agents-list) — the page composes the CARD, and
     # the Card carries its own resourcesRefs entry for the table, so the table is resolved one
     # level down rather than here. `cards` had to join allowedResources for that: the Flex enum is
@@ -52,6 +58,7 @@ spec:
     - resourceRefId: agents-list-card
     - resourceRefId: agents-topology
     - resourceRefId: agents-servers
+    - resourceRefId: agents-flow-block
   resourcesRefs:
     items:
     - id: agents-header
@@ -63,6 +70,12 @@ spec:
     - id: agents-new-cta
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-new-cta
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-attention-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-attention-block
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
@@ -90,6 +103,15 @@ spec:
     - id: agents-servers
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-servers
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    # The request-flow section (flex.agents-flow) — likewise a SECTION, and deliberately LAST: the
+    # two tables above say what exists, this says how one request uses it, and that is only a
+    # question once the inventory has been read.
+    - id: agents-flow-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-flow-block
       namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET

@@ -1,0 +1,29 @@
+# The exception roll-up itself — EMPTY on a healthy cluster, which renders nothing.
+#
+# Markdown and not a Table: every line here is a sentence about a specific named object plus the
+# consequence of the deviation, and three of the four wrap a list of agent names. A table of
+# (finding, objects, consequence) would be three columns of prose with one row each, and the
+# nested list under the first finding has no cell to live in.
+#
+# The widget formats NOTHING. Counts, pluralisation, the ordering and every sentence are composed
+# in the RESTAction's jq (see it for which predicate produces which line, and for the two drafted
+# findings that are deliberately not computed here). `allowCopy` is off: this is four lines on a
+# good day and pasting them somewhere loses the cluster they were true of.
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-attention
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-gateway
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    markdown: ''
+  widgetDataTemplate:
+  - forPath: markdown
+    expression: '${ .attention // "" }'
+  resourcesRefs:
+    items: []

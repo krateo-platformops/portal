@@ -1,0 +1,43 @@
+# The request-flow section of /agents — a SECTION, not a route of its own, on the same reasoning as
+# flex.agents-servers: it answers a question the two tables above raise ("all of this is behind one
+# gateway — in what order, and with what on each hop?") off the same kinds, and it is seven lines.
+#
+# Last block on the page by design. The tables answer "what is there"; this answers "how it is used",
+# which is only a question once the reader knows what "there" is.
+#
+# Lives in .Release.Namespace like the other /agents children; only the page ROOT sits in the admin
+# tier namespace, because only the root is addressed by the nav.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-flow-block
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    - paragraphs
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: agents-flow-title
+    - resourceRefId: agents-flow-subtitle
+    - resourceRefId: agents-flow-card
+  resourcesRefs:
+    items:
+    {{- range (list "agents-flow-title" "agents-flow-subtitle") }}
+    - id: {{ . }}
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: {{ . }}
+      namespace: {{ $.Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- end }}
+    - id: agents-flow-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-flow-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
