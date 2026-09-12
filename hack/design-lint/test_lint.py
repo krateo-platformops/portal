@@ -11,7 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINT = os.path.join(HERE, 'lint-portal-consistency.py')
-RULES = ['dangling-ref', 'row-nav-placeholder', 'back-link', 'emoji', 'tag-colour-no-label']
+RULES = ['missing-target', 'dangling-ref', 'row-nav-placeholder', 'back-link', 'emoji', 'tag-colour-no-label']
 
 
 def run(target, rule):
