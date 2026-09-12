@@ -1,0 +1,44 @@
+# The same shapes, authored correctly. Every rule must stay silent on this file — a lint that
+# cannot tell these two fixtures apart is either blind or noisy.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-table}
+spec:
+  widgetData:
+    # {namespace} is NOT a column — it is a navigation-only cell minted by the dataSource jq.
+    # This is the case that made the naive version of P10 report 12 false positives.
+    rowNavigateTo: "/compositions/{namespace}/{name}"
+    columns:
+      - valueKey: title
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ [ {valueKey:"title",stringValue:"x"}, {valueKey:"namespace",stringValue:"y"}, {valueKey:"name",stringValue:"z"} ] }'
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-flex}
+spec:
+  widgetData:
+    items:
+      - resourceRefId: real
+  resourcesRefs:
+    items:
+      - id: real
+---
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-button}
+spec:
+  widgetData:
+    label: "New composition"
+---
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-tag-templated}
+spec:
+  # A templated label is COMPUTED, not missing — flagging it would be the false positive.
+  widgetData:
+    color: green
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ .status }'
