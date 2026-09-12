@@ -1,0 +1,21 @@
+# The number on the Alerts stat card, from restaction.obs-alerts — the same action the table
+# below reads, so the card and the table can never disagree.
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-stat-alerts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: obs-alerts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Alerts
+    value: 0
+  widgetDataTemplate:
+  - forPath: value
+    expression: '${ .total // 0 }'
+  resourcesRefs:
+    items: []

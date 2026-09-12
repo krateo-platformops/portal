@@ -1,0 +1,36 @@
+# Investigations — one of the three cards in the alerts summary band.
+#
+# What the alerts actually caused. The table shows configuration and never outcome, so a
+# run that reached phase=Ready and wrote no analysis — or a provider error in place of one
+# — is invisible from this page. Both happened on krateo-057.
+#
+# Chips are Card `tags`, computed from the same action as the number. Empty list as the static
+# default: no chips is honest while the action resolves; placeholder chips would be numbers nobody
+# measured.
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-stat-card-investigations
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: obs-alerts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    variant: outlined
+    tags: []
+    items:
+    - resourceRefId: alerts-stat-investigations
+  widgetDataTemplate:
+  - forPath: tags
+    expression: '${ (if (.reportsReadable // true) | not then [ "not readable" ] elif ((.reportsBarren // 0) > 0) then [ ((.reportsBarren) | tostring) + " produced nothing" ] else [ "all produced an analysis" ] end) }'
+  resourcesRefs:
+    items:
+    - id: alerts-stat-investigations
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-stat-investigations
+      namespace: {{ .Release.Namespace }}
+      resource: statistics
+      verb: GET

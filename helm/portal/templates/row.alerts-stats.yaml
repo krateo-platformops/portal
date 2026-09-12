@@ -1,0 +1,41 @@
+# The alerts summary band — three cards, above the table, mirroring the treatment the agents page
+# uses. The page went straight from the lede to the table, so "is anything firing?" was answered by
+# scanning a STATE column for a red chip: workable at 8 rows, not at 30.
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-stats
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: alerts-stat-card-alerts
+      size: 8
+    - resourceRefId: alerts-stat-card-coverage
+      size: 8
+    - resourceRefId: alerts-stat-card-investigations
+      size: 8
+  resourcesRefs:
+    items:
+    - id: alerts-stat-card-alerts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-stat-card-alerts
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: alerts-stat-card-coverage
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-stat-card-coverage
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: alerts-stat-card-investigations
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-stat-card-investigations
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET

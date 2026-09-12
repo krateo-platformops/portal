@@ -37,14 +37,34 @@ spec:
     columns:
     - valueKey: name
       title: Alert
+    # WATCHING gets a floor, and it is the only column that truly needs one. It carries the
+    # alert's entire meaning — the telemetry query — and is the one thing distinguishing one row
+    # from another, yet under fitContent it was the FIRST to ellipsise:
+    #   Body:"CrashLoopBackOff" OR Body:"B…
+    # tells a reader nothing at all.
+    #
+    # minWidth, not width. fitContent shrinks every column to the container, so a fixed `width`
+    # would just re-create the overflow it was meant to fix; a floor keeps this column readable
+    # and lets the short ones (Threshold, Every, State) give up their slack instead.
+    #
+    # INERT UNTIL THE CRD ROLLS. Table.columns[] is a strict structural schema with no
+    # x-kubernetes-preserve-unknown-fields, so an apiserver on the older CRD PRUNES minWidth
+    # SILENTLY — the CR applies clean and the column is unchanged, with no error anywhere.
+    # Verified against krateo-057 while writing this: the live CRD still lists only
+    # [color, title, valueKey]. frontend 1.5.35 publishes the regenerated frontend-crds chart;
+    # the frontend-crd composition has to roll it before these lines do anything.
     - valueKey: watching
       title: Watching
+      minWidth: 380
     - valueKey: threshold
       title: Threshold
+      minWidth: 110
     - valueKey: interval
       title: Every
+      minWidth: 80
     - valueKey: state
       title: State
+      minWidth: 90
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

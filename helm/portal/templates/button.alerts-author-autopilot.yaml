@@ -1,0 +1,42 @@
+# "Author with Autopilot" — the second way to create an alert, promoted into the header beside
+# "New alert".
+#
+# It used to live at the BOTTOM of the page as listy.alerts-hint, described in the page as an
+# "empty-state hint (shown only while zero alerts exist)". That description was wrong: the RA emits
+# `hint` as an unconditional one-item list, so `hideWhenEmpty` never fires and the block rendered on
+# every visit — permanent chrome, below the table, as far from the other create route as the layout
+# allows. Two ways to do the same thing, separated by the whole page.
+#
+# `default`, not `primary`: the form is the main route and describing an alert in prose is the
+# alternative, so they should not compete.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-author-autopilot
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: obs-alerts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Author with Autopilot
+    icon: fa-robot
+    type: default
+    size: middle
+    clickActionId: author-alert
+    actions:
+      navigate:
+        - id: author-alert
+          path: /alerts
+          type: navigate
+  widgetDataTemplate:
+    # The seed is built server-side by the action (same shape as the alert-detail askHref) and used
+    # VERBATIM as a navigate path — a Button path is not re-encoded, so it must arrive pre-encoded.
+    - forPath: actions
+      expression: >-
+        ${ (((.hint // [])[0]) // {}) as $h
+        | { navigate: [ { id: "author-alert", type: "navigate", path: ($h.askHref // "/alerts") } ] } }
+  resourcesRefs:
+    items: []
