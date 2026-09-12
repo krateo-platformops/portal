@@ -297,11 +297,108 @@ def rule_legacy_envelope(crs):
 
 # Source: ui/docs/cr-migration-map.json. Embedded so the script runs standalone in a chart's CI
 # without needing this repo checked out beside it.
+# Kind → plural, DISCOVERED from real CRDs rather than hardcoded here.
+#
+# Kubernetes is the authority: a table in this file goes stale the moment a widget is added, and
+# deriving it (`Flex` → `flexs`, `Listy` → `listys`) got 125 references wrong on the first real run.
+# Sources, in order — a CRD checkout reachable from the working tree, then the live cluster.
+#
+# When neither is available the rule still works, because the primary check in `rule_missing_target`
+# is plural-INDEPENDENT. The mapping is only used for the secondary check, which stays silent
+# unless the plural is genuinely known.
+def discover_plurals():
+    """{kind: plural} from real CRDs. An empty result is fine — the caller degrades gracefully."""
+    found = {}
+    for pattern in ('**/frontend-crds/templates/*.crd.yaml', '**/*.crd.yaml'):
+        for path in glob.glob(pattern, recursive=True)[:300]:
+            try:
+                doc = yaml.safe_load(open(path, encoding='utf-8'))
+            except Exception:
+                continue
+            names = (((doc or {}).get('spec') or {}).get('names') or {})
+            if names.get('kind') and names.get('plural'):
+                found[names['kind']] = names['plural']
+        if found:
+            return found
+
+    # The cluster, if one is configured. Best-effort and time-boxed: a lint must never hang on a
+    # missing kubeconfig or an unreachable API server.
+    try:
+        proc = subprocess.run(
+            ['kubectl', 'get', 'crd', '-o',
+             'jsonpath={range .items[?(@.spec.group=="widgets.templates.krateo.io")]}'
+             '{.spec.names.kind}={.spec.names.plural}\n{end}'],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        for line in proc.stdout.splitlines():
+            if '=' in line:
+                kind, plural = line.split('=', 1)
+                found[kind.strip()] = plural.strip()
+    except Exception:
+        pass
+    return found
+
+
 RENAMED_KINDS = {'Panel': 'Card', 'Column': 'Col', 'TabList': 'Tabs', 'NavMenu': 'Menu', 'DataGrid': 'Listy', 'List': 'Listy'}
 REMOVED_KINDS = {'Page', 'Route', 'RoutesLoader', 'NavMenuItem', 'EventList', 'CompositionReference'}
 
+def rule_missing_target(crs):
+    """A resourcesRefs entry naming a CR that does not exist in the chart.
+
+    `dangling-ref` checks the other direction — an items[] id with no resourcesRefs entry — and
+    both are needed, because they fail differently. This one is the DELETION hazard: remove a CR
+    and leave a reference to it somewhere else, and the parent silently renders without that child
+    (Row/Col/Flex/Card drop it with only a console error). Nothing in the chart complains, and the
+    page just says less than it used to.
+
+    That is the top risk of the PageHeader migration, which deletes 3-6 CRs per page across a dozen
+    pages — the exact shape this rule exists to catch.
+
+    Only widget kinds are checked. A ref to a Secret, a ConfigMap or any non-widget resource is
+    legitimately outside this chart's template set."""
+    plurals = discover_plurals()
+    # Every widget CR name in the chart, plus the plural each is ADDRESSED by where that is known.
+    names, by_plural = set(), {}
+    for fname, doc in crs:
+        kind = doc.get('kind') or ''
+        name = ((doc.get('metadata') or {}).get('name') or '')
+        if not (kind and name):
+            continue
+        names.add(name)
+        plural = plurals.get(kind)
+        if plural:
+            by_plural.setdefault(plural, set()).add(name)
+
+    out = []
+    for fname, doc in crs:
+        for ref in (((doc.get('spec') or {}).get('resourcesRefs') or {}).get('items') or []):
+            if not isinstance(ref, dict):
+                continue
+            plural, name = ref.get('resource'), ref.get('name')
+            api = str(ref.get('apiVersion') or '')
+            # Only widget CRs live in this chart's template set; anything else is out of scope.
+            if not plural or not name or 'widgets.templates.krateo.io' not in api:
+                continue
+            # PRIMARY — plural-INDEPENDENT. Does a widget CR with this name exist at all? This is
+            # the deletion hazard, and needing no plural knowledge means a stale or missing mapping
+            # cannot silence it. An earlier version gated this on the plural and inverted the rule:
+            # a reference to the LAST Card in a chart — the exact case where a deletion breaks
+            # something — was the one case it skipped.
+            if name not in names:
+                out.append((fname, f'resourcesRefs -> {plural}/{name} does not exist in this chart — the parent will render without it'))
+                continue
+
+            # SECONDARY — the name exists but is addressed by the wrong plural. Reported ONLY when
+            # the plural is genuinely known from a CRD, never inferred: inferring it (`Flex` →
+            # `flexs`) is what produced 125 false positives.
+            if plural in by_plural and name not in by_plural[plural]:
+                out.append((fname, f'resourcesRefs -> {name} exists but is not a `{plural}` — wrong resource for its kind'))
+    return out
+
+
 RULES = {
     'dead-kind': (rule_dead_kind, 'X11'),
+    'missing-target': (rule_missing_target, 'X13'),
     'legacy-envelope': (rule_legacy_envelope, 'X12'),
     'dangling-ref': (rule_dangling_ref, 'X4'),
     'row-nav-placeholder': (rule_row_nav_placeholder, 'P10'),

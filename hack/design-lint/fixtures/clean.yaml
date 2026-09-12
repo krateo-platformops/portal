@@ -42,3 +42,31 @@ spec:
   widgetDataTemplate:
     - forPath: label
       expression: '${ .status }'
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: real-card}
+spec:
+  widgetData: {items: []}
+  resourcesRefs: {items: []}
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: refs-a-real-card}
+spec:
+  widgetData:
+    items:
+      - resourceRefId: ok
+      - resourceRefId: cfg
+  resourcesRefs:
+    items:
+      - id: ok
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: real-card
+        resource: cards
+      # A NON-WIDGET ref. Secrets and ConfigMaps legitimately live outside this chart's template
+      # set, so X13 must ignore them — flagging these would make the rule unusable.
+      - id: cfg
+        apiVersion: v1
+        name: some-configmap
+        resource: configmaps

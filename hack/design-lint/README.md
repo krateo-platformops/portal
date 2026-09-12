@@ -35,8 +35,19 @@ needs the network is a lint that fails on a bad morning.
 | `back-link` | P1 | a `← Back to X` label; the breadcrumb is the one way back |
 | `emoji` | P15 | emoji in a title, label or status text |
 | `tag-colour-no-label` | C13 | a `Tag` with a colour and no label — meaning carried by colour alone |
+| `missing-target` | X13 | a `resourcesRefs` entry naming a CR that does not exist — the parent renders without it |
 
 Current state: **0 violations**. These are regression guards, not a backlog.
+
+`missing-target` is the **deletion hazard**, and it matters most right now: the PageHeader
+migration removes 3–6 CRs per page across a dozen pages. It found a real defect on its first run —
+#149 had shipped the alert-detail pipeline walk with its RESTAction and page reference but without
+the Card and Markdown that render it, and nothing complained, because a dangling reference is not a
+render error.
+
+It discovers kind→plural from real CRDs rather than a hardcoded table (a table would have gone
+stale the day `PageHeader` was added), and its primary check is plural-independent, so it still
+works here where no CRDs are reachable.
 
 ```bash
 python3 hack/design-lint/lint-portal-consistency.py helm/portal
