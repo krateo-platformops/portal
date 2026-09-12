@@ -1,0 +1,51 @@
+# The /alerts page header — title, subtitle and both create routes, in one CR.
+#
+# Replaces five: flex.alerts-header (a vertical Flex), paragraph.alerts-eyebrow,
+# paragraph.alerts-title, paragraph.alerts-subtitle, and flex.alerts-header-actions (a
+# justify:flex-end Flex wrapping the two buttons). The buttons themselves stay as Button CRs —
+# they carry actions, which is their job; PageHeader only places them.
+#
+# THE EYEBROW IS GONE, and that is a deletion rather than a regression: `Paragraph.tsx` already
+# returns null for `variant: eyebrow`, with a comment saying the canonical source is the chart's
+# `*-eyebrow` CRs and that returning null "avoids touching the cluster". This CR is the cluster
+# being touched, so the frontend hack can eventually go too. P2 — the title names the page; the
+# eyebrow restated the nav.
+#
+# `counter` is deliberately unset here. The alert count belongs to the stats band below, which
+# shows firing-vs-quiet — a bare total beside the title would be a third place the same number
+# lives.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Alerts
+    subtitle: >-
+      Alert rules watching your telemetry — threshold, interval and current state. A firing alert
+      opens on the Incidents page; select a row to investigate it in Autopilot.
+    allowedResources:
+    - buttons
+    # Right-aligned by the widget, so the page composition no longer needs a justify:flex-end
+    # wrapper to place them. Autopilot first, the deterministic create Form second: `alerts-new`
+    # is the page's primary, and P6 allows exactly one.
+    items:
+    - resourceRefId: alerts-author-autopilot
+    - resourceRefId: alerts-new
+  resourcesRefs:
+    items:
+    - id: alerts-author-autopilot
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-author-autopilot
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: alerts-new
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-new
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET

@@ -13,6 +13,7 @@ metadata:
 spec:
   widgetData:
     allowedResources:
+    - pageheaders
     - flexes
     - tables
     - listies
@@ -20,9 +21,8 @@ spec:
     vertical: true
     gap: middle
     items:
-    - resourceRefId: alerts-header
-    # "New alert" CTA into the create Form (/alerts/new) — right-aligned, above the table.
-    - resourceRefId: alerts-header-actions
+    # Title, subtitle and BOTH create routes in one CR — see pageheader.alerts.
+    - resourceRefId: alerts-page-header
     # The summary band. "Is anything firing?" was answered by scanning a STATE column for a red
     # chip — workable at 8 rows, not at 30 — and two of the three counts (a rule evaluated by
     # NOTHING, an investigation that produced nothing) have no column at all.
@@ -30,17 +30,11 @@ spec:
     - resourceRefId: obs-alerts
   resourcesRefs:
     items:
-    - id: alerts-header
+    - id: alerts-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-header
+      name: alerts-page-header
       namespace: {{ .Release.Namespace }}
-      resource: flexes
-      verb: GET
-    - id: alerts-header-actions
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-header-actions
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: pageheaders
       verb: GET
     - id: alerts-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
