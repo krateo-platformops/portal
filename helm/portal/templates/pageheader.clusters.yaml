@@ -1,0 +1,41 @@
+# The /clusters page header — title, subtitle and the register CTA, in one CR.
+#
+# Replaces four: row.clusters-header, flex.clusters-title-stack (a vertical Flex holding the two
+# Paragraphs), paragraph.clusters-title and paragraph.clusters-subtitle. The Button stays — it
+# carries the action, which is its job; PageHeader only places it.
+#
+# THE ROW/COL GRID GOES WITH THEM, and that is the point. The header it replaces explained
+# itself like this:
+#
+#   "Uses the SAME Row/Col grid as the dashboard header-row (title col size 16 + actions col
+#    size 8, button `alignment: right`) so the CTA pins to the far edge reliably — a bare Flex
+#    `justify: space-between` only right-aligns when the header stretches full-width, which was
+#    inconsistent here."
+#
+# That is a workaround for a layout problem, encoded as a 24-column split that every page then
+# had to copy and keep in sync. PageHeader right-aligns its actions by construction, so there is
+# no split to get wrong and no size arithmetic to drift.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: clusters-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Clusters
+    subtitle: Registered hub + spoke clusters compositions can deploy to
+    allowedResources:
+    - buttons
+    # Right-aligned by the widget — no Row/Col split, no `alignment: right` on the Button.
+    items:
+    - resourceRefId: register-cluster
+  resourcesRefs:
+    items:
+    - id: register-cluster
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: register-cluster
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
