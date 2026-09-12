@@ -1,0 +1,28 @@
+# The /incidents page header — title and subtitle in one CR.
+#
+# Replaces four: flex.incidents-header (a vertical Flex whose only job was to stack them),
+# paragraph.incidents-eyebrow, paragraph.incidents-title and paragraph.incidents-subtitle.
+#
+# THE EYEBROW IS GONE, and that is a deletion rather than a regression. `Paragraph.tsx` already
+# returns `null` for `variant: eyebrow` — the eyebrow ("SRE · tenant …") has rendered as nothing
+# for some time, with a comment in the frontend saying the canonical source is the chart's
+# `*-eyebrow` CRs and that returning null "avoids touching the cluster". This CR is the cluster
+# being touched, so the frontend hack can eventually go too.
+#
+# No `counter`: the count lives in incidents-status-chips directly below, which shows it per
+# lifecycle state. A bare total beside the title would be the same number twice, and the two
+# would disagree the moment a chip is selected.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Incidents
+    subtitle: >-
+      One row per investigation — root cause, lifecycle and gated remediation for every analysis
+  resourcesRefs:
+    items: []
