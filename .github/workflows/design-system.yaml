@@ -1,0 +1,55 @@
+# Design-system composition rules, checked against this chart's widget CRs.
+#
+# The rules live in krateo-platformops/frontend `design/` — that repo defines the widget
+# vocabulary, and 28 charts consume it, so a design system living in any one consumer would govern
+# one of twenty-eight. The CHECK runs here, because this is where CRs are written: the rules then
+# arrive as a failing check with a link, at the moment they matter, rather than as a document in
+# another repo that nobody here reads.
+#
+# The script is VENDORED into hack/design-lint/ rather than fetched. This repo already vendors its
+# scripts (hack/preflight-refs.py), CI here should not break because another repo landed a new
+# rule, and a lint that needs the network is a lint that fails on a bad morning. The trade is that
+# it can drift — re-copy the script, fixtures and self-test together when the rules change.
+#
+# The chart is RENDERED with helm rather than text-substituted: replacing {{ … }} inline silently
+# loses every file using a control block — measured at 36 of 618 files, 6% of the tree, including
+# the nav Menu that defines the route table. A lint with a silent 6% blind spot reports "clean" for
+# a defect it never looked at.
+
+name: design-system
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  composition:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet pyyaml
+
+      # Before trusting the result: every rule must still fire on its violations fixture AND stay
+      # silent on its clean one. A check that has stopped firing is worse than no check.
+      - name: Self-test the lint
+        run: python3 hack/design-lint/test_lint.py
+
+      - name: Composition rules
+        run: python3 hack/design-lint/lint-portal-consistency.py helm/portal
