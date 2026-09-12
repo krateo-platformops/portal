@@ -83,14 +83,10 @@ spec:
      | if ($projSel | length) > 0 then $projSel elif $proj != "" then [$proj] else [] end) as $projects
     | (.status // "all") as $status
     | (.scope // "workloads") as $scope
-    | (.range // "") as $range
-    | ((.from // "") | tostring) as $from
-    | ((.to // "") | tostring) as $to
     | ((.q // "") | ascii_downcase) as $q
     | now as $now
     | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False")) as $notready | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: (if $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end), healthPercent: (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end)}))) as $all
-    | (if $range == "24h" then {lo: ($now - 86400), hi: ($now + 86400)} elif $range == "7d" then {lo: ($now - 604800), hi: ($now + 86400)} elif $range == "30d" then {lo: ($now - 2592000), hi: ($now + 86400)} elif $range == "all" then {lo: 0, hi: ($now + 86400)} elif $from != "" and $to != "" then {lo: ($from | tonumber), hi: ($to | tonumber)} else {lo: 0, hi: ($now + 86400)} end) as $win
-    | ($all | map(select(((.ts | fromdateiso8601?) // 0) >= $win.lo and ((.ts | fromdateiso8601?) // 0) <= $win.hi))) as $dated
+    | $all as $dated
     | ($dated | map(select(if $scope == "all" then true elif $scope == "platform" then .platform else (.platform | not) end))) as $scoped
     | {
         list: $all,
@@ -99,9 +95,6 @@ spec:
         scopeCounts: {workloads: ($dated | map(select(.platform | not)) | length), platform: ($dated | map(select(.platform)) | length), all: ($dated | length)},
         scope: $scope,
         status: $status,
-        range: $range,
         q: ((.q // "") | tostring),
-        from: $from,
-        to: $to,
         projects: ((.projects // "") | tostring)
       }
