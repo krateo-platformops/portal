@@ -65,7 +65,14 @@ spec:
          | select($rnorm != "" and $rnorm == $dnorm)
          | { name: (.metadata.name // ""), namespace: (.metadata.namespace // "{{ .Release.Namespace }}"),
              title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement elif (.spec.alertName // "") != "" then ("Investigation — " + .spec.alertName) else (.metadata.name // "") end),
-             lifecycle: (.status.lifecycle // "open") } ] | first) end) as $rep
+             lifecycle: (.status.lifecycle // "open"),
+             phase: (.status.phase // ""),
+             # Did the run produce an ANALYSIS, or a provider error standing in for one?
+             reportText: ((.status.report // "") | if type == "string" then . else "" end),
+             structured: (((.status.rootCause.statement // "") != "")) } ] | first) end) as $rep
+      | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
+      | ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")) as $repFailed
+      | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
     | {
         displayName: $dn,
         where: ($sp.where // "all logs"),
@@ -97,11 +104,47 @@ spec:
         ask: ("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps."),
         askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
         # Back-link to the matched incident (alert→incident, item 22 alert-side). Empty when none.
+        # ── THE PIPELINE WALK ──────────────────────────────────────────────────────────────
+        # An alert is not one object, it is a CHAIN: the CR, the HyperDX rule it syncs to, the
+        # evaluation, the webhook, the investigation that webhook opens, and the incident that
+        # investigation becomes. Every hop can stop without the one before it noticing, and this
+        # page said nothing about any of them — it showed a green "OK" for days while the
+        # alert -> RCA loop was dead on a tool schema the model kept refusing.
+        #
+        # A numbered walk, not a graph: the chain is LINEAR, so nodes and edges buy nothing.
+        # Same treatment as the agents seven-hop, for the same reason.
+        #
+        # Each step says what it READ, and the first hop that cannot proceed says so and stops
+        # claiming anything about the hops after it.
+        pipelineMd: ([
+            ("1. **The alert exists.** Counts " + (if ($sp.where // "") == "" then "**all log rows**" else ("rows matching `" + ($sp.where) + "`") end)
+             + ", firing when the count is " + (($sp.thresholdType // "above") + " " + (($sp.threshold // 0) | tostring))
+             + " over " + (if ($sp.interval // "") == "" then "its evaluation window" else ("`" + $sp.interval + "`") end) + "."
+             + (if ($sp.where // "") == "" then "\n    - An empty filter matches every log line on the cluster, so this fires on volume alone." else "" end)),
+            (if $haid != "" then ("2. **Synced to HyperDX.** Rule `" + $haid + "`" + (if ($st.lastSyncedAt // "") != "" then (", last synced " + (($st.lastSyncedAt) | (rel as $r | if $r == $st.lastSyncedAt then (.[0:19] | sub("T"; " ") + " UTC") else $r end))) else "" end) + ".")
+             else "2. **NOT synced to HyperDX.** `status.hyperdxAlertId` is empty, so no rule evaluates this alert and nothing below can happen. The chain stops here." end),
+            (if $haid == "" then empty
+             elif $state == "ALERT" then "3. **Evaluated, and currently firing.** HyperDX reports state `ALERT`."
+             elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
+             else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end),
+            (if $haid == "" then empty
+             elif $rep != null then ("4. **An investigation was opened.** `" + ($rep.name // "") + "`, phase `" + ($rep.phase // "?") + "`.")
+             elif $state == "ALERT" then "4. **No investigation exists, and this alert is firing.** The webhook should have opened a TroubleshootingReport; nothing here matches this alert. Either the callback never arrived or the troubleshooter could not create one."
+             else "4. No investigation — this alert has not fired, so none is expected." end),
+            (if $rep == null then empty
+             elif $repProduced then "5. **The investigation produced an analysis.** Open the incident below to read it."
+             elif $repFailed then "5. **The investigation returned a PROVIDER ERROR instead of an analysis.** The run reached the model and the model refused it; the incident page shows the provider\u0027s own words. This is the hop that fails silently — the alert above still reads as healthy."
+             else ("5. **The investigation produced nothing.** It reached phase `" + ($rep.phase // "?") + "` and wrote neither a report nor an error, which is itself the finding.") end),
+            (if $rep == null then empty else ("6. **Incident** `" + ($rep.name // "") + "` is **" + ($rep.lifecycle // "open") + "**.") end)
+          ] | join("\n")),
         linkedReport: $rep,
         linkedRoute: (if $rep then ("/incidents/" + ($rep.namespace // "{{ .Release.Namespace }}") + "/" + ($rep.name // "")) else "" end),
         hasIncident: ($rep != null),
         sections: {
           incident: ($rep != null),
+          # Not exception-only: its job is to say which hops SUCCEEDED as well as which stopped,
+          # and "all six fine" is the answer someone checking a silent pipeline came for.
+          pipeline: ((.alert.metadata.name // "") != ""),
           console: (($console != "") and (($haid != "") or ($hdid != "")))
         },
         # Static GVR for the plain Alert CRD — the DELETE target for button.alert-detail-delete
