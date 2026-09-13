@@ -25,28 +25,28 @@ spec:
     namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
-    - flexes
+    - pageheaders
     - cards
     vertical: true
     gap: middle
     items:
-    - resourceRefId: alert-detail-header-block
+    - resourceRefId: alert-detail-page-header
     - resourceRefId: alert-detail-pipeline-card
     - resourceRefId: card-alert-detail-manifest
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
-        | [ { resourceRefId: "alert-detail-header-block" }, { resourceRefId: "card-alert-detail-manifest" } ]
+        | [ { resourceRefId: "alert-detail-page-header" }, { resourceRefId: "card-alert-detail-manifest" } ]
         + (if ($s.console // false) then [ { resourceRefId: "card-alert-detail-console" } ] else [] end)
         + (if ($s.incident // false) then [ { resourceRefId: "card-alert-detail-incident" } ] else [] end) }
   resourcesRefs:
     items:
-    - id: alert-detail-header-block
+    - id: alert-detail-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alert-detail-header-block
+      name: alert-detail-page-header
       namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: pageheaders
       verb: GET
     - id: alert-detail-pipeline-card
       apiVersion: widgets.templates.krateo.io/v1beta1

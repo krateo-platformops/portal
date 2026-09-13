@@ -1,0 +1,51 @@
+# The /alerts/{namespace}/{name} page header — the alert's name, its state pill and the page's
+# three actions, in one CR.
+#
+# Replaces FOUR: flex.alert-detail-header-block, flex.alert-detail-titleline,
+# paragraph.alert-detail-title and tag.alert-detail-state. The actions Flex is kept and referenced
+# — it carries the three Buttons' order.
+#
+# THIS PAGE WAS MISSED BY THE ORIGINAL MIGRATION SWEEP, and the reason is worth recording: the
+# survey enumerated headers by NAME (`-header`, `-title-line`, `-title-stack`) and this page spells
+# its parts `-header-block` and `-titleline` — no hyphen. Neither matched, so neither the parent
+# nor its children were ever listed. Enumerating structure (a container whose children are a
+# Paragraph and a Tag) would have found it; enumerating names did not.
+#
+# `stateColor` emits red/orange/green/gray, all of which are in PageHeader's colour enum — checked
+# against restaction.alert-detail:89, not assumed.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Alert
+    tags:
+    - label: Pending
+      color: orange
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: alert-detail-actions
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .displayName // "alert" }'
+    # Was the Tag's two templates (label + color), now one array — evaluated once, so the word and
+    # the colour cannot drift apart under an edit.
+    - forPath: tags
+      expression: '${ [ { label: (.stateLabel // "Pending"), color: (.stateColor // "orange") } ] }'
+  resourcesRefs:
+    items:
+    - id: alert-detail-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-actions
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

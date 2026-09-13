@@ -1,0 +1,43 @@
+# The /agents/{namespace}/{name} page header — the agent's name, its two conditional pills and
+# the description, in one CR.
+#
+# Replaces SIX: flex.agent-detail-header-block, flex.agent-detail-titleline,
+# paragraph.agent-detail-title, tag.agent-detail-orchestrator, tag.agent-detail-status and
+# paragraph.agent-detail-subtitle.
+#
+# MISSED BY THE ORIGINAL SWEEP for the same reason as alert-detail: the survey enumerated by NAME
+# (`-header`, `-title-line`, `-title-stack`) and this page spells its parts `-header-block` and
+# `-titleline`. Neither matched.
+#
+# THE CONDITIONAL ITEMS BECOME A CONDITIONAL ARRAY, and that is simpler than what it replaces.
+# Both the header-block and the titleline templated their `items` to splice children in only when
+# a label was non-empty — two widgetDataTemplates doing membership arithmetic over resourceRefIds.
+# PageHeader takes pills as one value, so the same logic is one expression emitting zero, one or
+# two objects. The subtitle needs no condition at all: PageHeader renders it only when non-empty,
+# so `.description // ""` is sufficient where the old CR needed an if-then-else around a ref.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Agent
+    subtitle: ""
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .name // "agent" }'
+    - forPath: subtitle
+      expression: '${ .description // "" }'
+    # Zero, one or two pills. Verified against every branch: both, status-only, orchestrator-only,
+    # an empty statusColor falling back to orange, and neither (which emits []).
+    - forPath: tags
+      expression: '${ [ (if ((.orchestratorLabel // "") != "") then {label: .orchestratorLabel, color: "violet"} else empty end), (if ((.statusLabel // "") != "") then {label: .statusLabel, color: (if ((.statusColor // "") == "") then "orange" else .statusColor end)} else empty end) ]  }'
+  resourcesRefs:
+    items: []
