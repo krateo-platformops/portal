@@ -27,11 +27,11 @@ spec:
     vertical: true
     gap: large
     allowedResources:
-      - flexes
+      - pageheaders
       - rows
       - cards
     items:
-      - resourceRefId: blueprint-detail-header-block
+      - resourceRefId: blueprint-detail-page-header
       - resourceRefId: blueprint-detail-grid
   # `.to` is the raw URL query param (extras merge is non-overwriting, and blueprint-detail's
   # filter emits no `to` key, so the extras value survives); `.currentVersion` comes from the
@@ -39,15 +39,15 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "blueprint-detail-header-block" }, { resourceRefId: "blueprint-detail-grid" } ]
+        ${ [ { resourceRefId: "blueprint-detail-page-header" }, { resourceRefId: "blueprint-detail-grid" } ]
         + (if (((.to // "") != "") and ((.to // "") != (.currentVersion // ""))) then [ { resourceRefId: "card-blueprint-detail-impact" } ] else [] end) }
   resourcesRefs:
     items:
-      - id: blueprint-detail-header-block
+      - id: blueprint-detail-page-header
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: blueprint-detail-header-block
+        name: blueprint-detail-page-header
         namespace: {{ .Release.Namespace }}
-        resource: flexes
+        resource: pageheaders
         verb: GET
       - id: blueprint-detail-grid
         apiVersion: widgets.templates.krateo.io/v1beta1
