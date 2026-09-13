@@ -225,3 +225,63 @@ spec:
     items: []
   resourcesRefs:
     items: []
+---
+# X4 + X5, inside a TEMPLATED items list — the shape both rules used to skip whole. `ghost` is
+# named by the template and declared nowhere; `a-table` is declared but is a `tables`, which this
+# container's allowedResources does not admit. Every detail page in the portal chart is authored
+# this way, so the skip removed the rules from the pages that most needed them.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x4-x5-templated
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: a-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "a-card" } ] + (if .flag then [ { resourceRefId: "ghost" }, { resourceRefId: "a-table" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: a-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: x4-card
+      resource: cards
+      verb: GET
+    - id: a-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: x4-table
+      resource: tables
+      verb: GET
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x4-card
+spec:
+  widgetData: {}
+  resourcesRefs:
+    items: []
+---
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x4-table
+spec:
+  widgetData: {}
+  resourcesRefs:
+    items: []
+---
+# C13 on a PageHeader's native tags array — the same StatusPill a Tag draws, on the 30 page
+# headers the rule could not see while it keyed on `kind == 'Tag'`.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: c13-pageheader
+spec:
+  widgetData:
+    title: Something
+    tags:
+    - color: red

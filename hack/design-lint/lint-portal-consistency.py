@@ -12,8 +12,8 @@ rules change there, re-copy the script, its fixtures and its self-test together.
 
 VENDORED AT: krateo-platformops/frontend main (design/lint/). This stamp exists because the copy
 HAD drifted and nothing noticed — it was missing rule_containment (X5) entirely, so that gate never
-ran here after it landed upstream. Nothing enforces the stamp either; a network check was rejected
-deliberately above. It is here so the next person re-vendoring can see what they are replacing.
+ran here after it landed upstream. The self-test now fails when a registered rule is undocumented,
+which catches one shape of that drift; nothing catches the rest.
 
 Ships from the frontend repo (which defines the widget vocabulary) and runs in a consuming
 chart's CI, so the rules arrive where CRs are actually written: as a failing check with a link.
@@ -162,6 +162,34 @@ def walk_strings(node, path=''):
 # Rules. Each returns a list of (file, message).
 # ---------------------------------------------------------------------------------------------
 
+def template_ref_ids(doc):
+    """`resourceRefId` LITERALS appearing inside jq template expressions.
+
+    A CR whose `items` are assembled by jq still names most of its children as literals in the
+    expression — `[ { resourceRefId: "x" } ] + (if .flag then [ { resourceRefId: "y" } ] else [] end)`.
+    X4 and X5 skipped these CRs whole, on the grounds that a resolve-time list "is not knowable
+    here". Only the COMPUTED part is unknowable; the literals are as decidable as a static list,
+    and they are the real render path for every detail page in the chart.
+
+    Measured when this was added: the skip cost X4 64 of 602 CRs and 64 of 462 `resourceRefId`
+    occurrences, and cost X5 20 of the 134 CRs that declare `allowedResources`. P25 had the same
+    hole and shipped claiming a migration complete while two pages had never been migrated."""
+    found = []
+    spec = doc.get('spec') or {}
+    sources = [entry.get('expression') for entry in (spec.get('widgetDataTemplate') or [])
+               if isinstance(entry, dict)]
+    rrt = spec.get('resourcesRefsTemplate')
+    if isinstance(rrt, list):
+        sources += [e.get('expression') for e in rrt if isinstance(e, dict)]
+    elif isinstance(rrt, dict):
+        sources.append(rrt.get('expression'))
+    for expr in sources:
+        if not isinstance(expr, str):
+            continue
+        found += re.findall(r'resourceRefId"?\s*:\s*"([^"]+)"', expr)
+    return found
+
+
 def rule_dangling_ref(crs):
     """X4 — an items[].resourceRefId with no matching resourcesRefs entry.
 
@@ -172,15 +200,21 @@ def rule_dangling_ref(crs):
     for fname, doc in crs:
         spec = doc.get('spec') or {}
         declared, _legacy = declared_refs(doc)
-        # A resourcesRefsTemplate mints refs at resolve time, so its ids are not knowable here.
-        if spec.get('resourcesRefsTemplate'):
-            continue
-        # An `items` list that is itself templated is not knowable either.
-        if 'items' in templated_paths(doc):
-            continue
-        for path, value in walk_strings(widget_data(doc)):
-            if path.endswith('resourceRefId') and value and value not in declared:
-                out.append((fname, f'{path} -> "{value}" has no matching resourcesRefs entry'))
+        # A resourcesRefsTemplate MINTS refs at resolve time, so the ids it computes are not
+        # knowable here — but a CR carrying one still names literals elsewhere, and those are.
+        minting = bool(spec.get('resourcesRefsTemplate'))
+        templated_items = 'items' in templated_paths(doc)
+        if not minting:
+            for path, value in walk_strings(widget_data(doc)):
+                if templated_items and path.endswith('resourceRefId'):
+                    continue      # the static list is a pre-template default; judged below
+                if path.endswith('resourceRefId') and value and value not in declared:
+                    out.append((fname, f'{path} -> "{value}" has no matching resourcesRefs entry'))
+            # The literals INSIDE the template expression — the real render path.
+            for value in template_ref_ids(doc):
+                if value not in declared:
+                    out.append((fname, f'widgetDataTemplate names resourceRefId "{value}", which '
+                                       f'has no matching resourcesRefs entry'))
     return out
 
 
@@ -253,17 +287,37 @@ def rule_emoji(crs):
 
 
 def rule_tag_colour_without_label(crs):
-    """C13 — a Tag must never render a colour swatch with no label.
+    """C13 — a coloured pill must never render without a label.
 
     Meaning carried by colour alone is invisible to a screen reader and to a colourblind reader.
-    A templated `label` is computed, not missing, so those are skipped."""
+    A templated `label` is computed, not missing, so those are skipped.
+
+    THE PILL IS NOT A PROPERTY OF THE `Tag` KIND. This rule checked `kind == 'Tag'` and so
+    examined 10 of 602 CRs. `Tag.tsx` and `PageHeader.tsx` render the SAME `<StatusPill>`
+    component, and PageHeader draws one per entry of its own native `tags` array — 30 PageHeader
+    CRs in the chart, every page header in the portal. The rule was written before PageHeader
+    existed and was never widened when the migration moved the pills into it, so the check
+    followed the kind while the component moved underneath it."""
     out = []
     for fname, doc in crs:
-        if doc.get('kind') != 'Tag':
-            continue
+        kind = doc.get('kind')
         wd = widget_data(doc)
-        if wd.get('color') and not wd.get('label') and 'label' not in templated_paths(doc):
-            out.append((fname, 'Tag sets `color` with no `label` — colour alone carries the meaning'))
+        templated = templated_paths(doc)
+
+        if kind == 'Tag':
+            if wd.get('color') and not wd.get('label') and 'label' not in templated:
+                out.append((fname, 'Tag sets `color` with no `label` — colour alone carries the meaning'))
+            continue
+
+        # PageHeader draws a StatusPill per entry of `tags`. A templated `tags` is computed as a
+        # whole, so it is skipped the same way a templated `label` is.
+        if kind == 'PageHeader' and 'tags' not in templated:
+            for i, tag in enumerate(wd.get('tags') or []):
+                if not isinstance(tag, dict):
+                    continue
+                if tag.get('color') and not tag.get('label'):
+                    out.append((fname, f'PageHeader tags[{i}] sets `color` with no `label` — '
+                                       f'colour alone carries the meaning (same StatusPill a Tag draws)'))
     return out
 
 
@@ -493,8 +547,8 @@ def rule_containment(crs):
         allowed = wd.get('allowedResources')
         if not isinstance(allowed, list) or not allowed:
             continue
-        if spec.get('resourcesRefsTemplate') or 'items' in templated_paths(doc):
-            continue
+        if spec.get('resourcesRefsTemplate'):
+            continue          # refs minted at resolve time carry no knowable plural
         allowed_set = {a for a in allowed if isinstance(a, str)}
         # id -> the plural the CR itself declares for that child
         refs = spec.get('resourcesRefs')
@@ -504,9 +558,9 @@ def rule_containment(crs):
             for r in refs:
                 if isinstance(r, dict) and r.get('id') and r.get('resource'):
                     by_id[r['id']] = r['resource']
-        for path, value in walk_strings(wd):
-            if not path.endswith('resourceRefId'):
-                continue
+        static = [v for p, v in walk_strings(wd) if p.endswith('resourceRefId')]
+        # A templated `items` supersedes the static list; judge the template's literals too.
+        for value in (static + template_ref_ids(doc)):
             plural = by_id.get(value)
             if plural and plural not in allowed_set:
                 out.append((
