@@ -44,18 +44,19 @@ spec:
     namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
+    - pageheaders
     - flexes
     - cards
     - paragraphs
     vertical: true
     gap: middle
     items:
-    - resourceRefId: agent-detail-header-block
+    - resourceRefId: agent-detail-page-header
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
-        | [ { resourceRefId: "agent-detail-header-block" } ]
+        | [ { resourceRefId: "agent-detail-page-header" } ]
         + (if ($s.found // false)
            then ( (if ($s.registration // false) then [ { resourceRefId: "card-agent-detail-registration" } ] else [] end)
                   + [ { resourceRefId: "card-agent-detail-identity" } ]
@@ -70,11 +71,11 @@ spec:
            else [ { resourceRefId: "agent-detail-empty" } ] end) }
   resourcesRefs:
     items:
-    - id: agent-detail-header-block
+    - id: agent-detail-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agent-detail-header-block
+      name: agent-detail-page-header
       namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: pageheaders
       verb: GET
     - id: card-agent-detail-prompt
       apiVersion: widgets.templates.krateo.io/v1beta1
