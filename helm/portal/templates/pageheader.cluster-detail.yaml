@@ -1,0 +1,52 @@
+# The /clusters/{name} page header — the cluster's name and its health pill, in one CR.
+#
+# Replaces three: flex.cluster-detail-title-line (a horizontal Flex holding the two),
+# paragraph.cluster-detail-header and tag.cluster-detail-status.
+#
+# THE TAG BECOMES `tags`, not a referenced child. PageHeader draws status pills natively, through
+# the same StatusPill the Tag widget uses — so the pill keeps its leading status dot rather than
+# becoming a bare coloured lozenge. (It would have lost the dot silently until frontend#218: the
+# widget used to render `tags` with a plain antd Tag, same hex and same word, no dot.)
+#
+# `color: gray` is the static default, NOT the Tag's old `color: default`. PageHeader's tags take a
+# palette colour NAME from a closed enum — blue|darkBlue|orange|gray|red|green|violet — and
+# `default` is not in it; the strict CRD would have rejected the CR. `gray` is also what
+# restaction.cluster-detail itself falls back to when the cluster is not found, so the static and
+# the computed value now agree instead of differing by one word.
+#
+# Both absorbed CRs read the SAME apiRef (cluster-detail) and declare the SAME keyExtras ([name]),
+# which is why this merges at all: a PageHeader has one apiRef, and one was all this page used.
+#
+# The title line tightens from `gap: middle` (16px) to PageHeader's `gap: small` (8px) between the
+# H1 and the pill — the same spacing the twelve already-migrated headers use.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: cluster-detail-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): extras keys that partition this widget's cache cell. Carried verbatim —
+  # both absorbed CRs and the Flex declared exactly [name]. Dropping it serves one cluster's
+  # header from another cluster's cache cell.
+  keyExtras: [name]
+  apiRef:
+    name: cluster-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Cluster
+    tags:
+    - label: Unknown
+      color: gray
+  widgetDataTemplate:
+    # Was paragraph.cluster-detail-header's `forPath: text`.
+    - forPath: title
+      expression: '${ .name // "cluster" }'
+    # Was TWO templates on the Tag (forPath: label, forPath: color). PageHeader takes the pill as
+    # one array, so both collapse into a single expression that must emit the whole shape —
+    # emitting a bare string here would be pruned by the strict CRD without an error.
+    - forPath: tags
+      expression: '${ [ { label: (.healthLabel // "Unknown"), color: (.healthColor // "gray") } ] }'
+  resourcesRefs:
+    items: []
