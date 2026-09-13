@@ -22,7 +22,7 @@
 # namespace-local `backendRef.name` OR a `host` — with the CRD's own advice being "when connecting to
 # in-cluster Service resources, it is recommended to use selector instead". Reading only
 # static.backendRef.name meant that rewriting the kagent-tools target either recommended way (label
-# selector, or the service FQDN as a host) put a gold "no gateway route" badge on the busiest,
+# selector, or the service FQDN as a host) put a orange "no gateway route" badge on the busiest,
 # fully-routed server on the cluster. So: backendRef AND host (parsed to service+namespace) both
 # feed $exposed, and a `selector` target — which cannot be resolved without listing Services — makes
 # the exposure answer UNKNOWN ($gwOpaque) rather than "absent". Unknown never prints a badge.
@@ -240,7 +240,7 @@ spec:
                                      elif ($names | length) <= 2 then ($names | join(" · "))
                                      else (($names | length | tostring) + " agents") end ) end ),
               statusLabel: ( [ ($exc[].label), ($gw // empty) ] | join(" · ") ),
-              statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "gold" end ) } ]
+              statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "orange" end ) } ]
         | sort_by(.name) ) as $serverRows
     | ( [ $bindings[]
           | { server: ( ( if $multiNs then (.ns + "/" + .name) else .name end )

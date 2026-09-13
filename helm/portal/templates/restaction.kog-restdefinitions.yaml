@@ -2,7 +2,7 @@
 # mapping objects oasgen-provider compiles into a generated CRD + controller). All
 # derivation is server-side:
 #   rows   : name/namespace, the Ready condition rolled to a verdict chip (True →
-#            Ready/green, False → Failed/red, absent/Unknown → Pending/gold — a fresh
+#            Ready/green, False → Failed/red, absent/Unknown → Pending/orange — a fresh
 #            publish has NO status until the first reconcile), the GENERATED kind +
 #            apiVersion from status.resource (the post-publish verification signal:
 #            populated ⇒ the CRD + controller exist; "—" until then), the OAS source
@@ -62,7 +62,7 @@ spec:
         | { name: .name,
             namespace: .namespace,
             ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed" else "Pending" end),
-            readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red" else "gold" end),
+            readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red" else "orange" end),
             readyReason: (.readyCond.reason // "—"),
             gvk: (if (.genKind // "") != "" then (.genKind + " · " + (.genApiVersion // "")) else "—" end),
             oasPath: (if (.oasPath // "") != "" then .oasPath else "—" end),

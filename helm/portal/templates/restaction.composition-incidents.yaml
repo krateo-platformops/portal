@@ -10,7 +10,7 @@
 # Emits { rows } where each row is:
 #   title          : the rootCause one-liner (honest fallback → the report CR name),
 #   lifecycle      : raw K8s-native lifecycle token (open / mitigated / resolved),
-#   lifecycleColor : open→red (failure) · mitigated→gold (transitional) · resolved→green
+#   lifecycleColor : open→red (failure) · mitigated→orange (transitional) · resolved→green
 #                    (calm terminal — matches the deployed incident-lifecycle Tag /
 #                    incident-detail RA convention; NOT cyan, which the design rules
 #                    reserve for brand/interactive and never status),
@@ -47,7 +47,7 @@ spec:
         | {
             title: (if ($rc.statement // "") != "" then $rc.statement else (.metadata.name // "") end),
             lifecycle: $lc,
-            lifecycleColor: (if $lc == "open" then "red" elif $lc == "mitigated" then "gold" elif $lc == "resolved" then "green" else "gray" end),
+            lifecycleColor: (if $lc == "open" then "red" elif $lc == "mitigated" then "orange" elif $lc == "resolved" then "green" else "gray" end),
             route: ("/incidents/" + $ns + "/" + (.metadata.name // ""))
           }
       ] as $rows

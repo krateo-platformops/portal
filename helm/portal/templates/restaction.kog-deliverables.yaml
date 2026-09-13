@@ -67,7 +67,7 @@ spec:
               genApiVersion: (.status.resource.apiVersion // ""),
               ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
               # The publish's OWN Synced reason/message. Without them a ReconcileError and a genuinely
-              # queued publish are the same row — which is how three dead publishes rendered as a gold
+              # queued publish are the same row — which is how three dead publishes rendered as a orange
               # "Pushing" for a day.
               syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
               syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")) } ]
@@ -92,7 +92,7 @@ spec:
               synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
               created: ((.metadata.creationTimestamp) // "") } ]
   # Join PRs → RestDefinitions. The generated GVK + Ready verdict chip (Ready=green,
-  # Failed=red, Pending=gold) are computed HERE, server-side. Rows are newest-first. The PR
+  # Failed=red, Pending=orange) are computed HERE, server-side. Rows are newest-first. The PR
   # domain state (open/merged/closed) rides too so the age + PR "#N" columns read honestly.
   # Empty-state hint is emitted ONLY when zero KOG PRs exist (exception-only UX), carrying an
   # /api-builder?ask= Autopilot deep-link seeding the paste-an-OpenAPI flow.
@@ -111,7 +111,7 @@ spec:
              ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed"
                      elif $rd != null then "Pending" else "In review" end),
              readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red"
-                          else "gold" end),
+                          else "orange" end),
              age: $pr.created } ]) as $prRows
     | ([ (.publishes // []) | group_by(.publish)[]
          | select((.[0].publish // "") != "")
@@ -129,13 +129,13 @@ spec:
                    then ($rd.genKind + " · " + ($rd.genApiVersion // "")) else "—" end),
                      # "Pushing" was a PORTAL-INVENTED present participle for a state that had already stopped:
                      # no such phase exists on a RestDefinition or a CompositionDefinition, and the branch fired
-                     # whenever the LocalResources were not all Synced. A gold "Pushing" on a publish that died
+                     # whenever the LocalResources were not all Synced. A orange "Pushing" on a publish that died
                      # 30 hours ago reads "come back later", forever.
              ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed"
                      elif $rd != null then "Pending" elif $pushed then "In review"
                      elif $failed then "Publish failed" else "Publishing" end),
              readyColor: (if $rs == "True" then "green" elif ($rs == "False" or $failed) then "red"
-                          else "gold" end),
+                          else "orange" end),
              age: ($p0.created // "") } ]) as $claimRows
     | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows
     | { rows: $rows,

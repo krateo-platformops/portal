@@ -1,6 +1,6 @@
 # The published-blueprints registry — ONE row per Autopilot-authored blueprint, off
 # blueprint-builder-deliverables. Columns: Blueprint (chart) / Pull request title /
-# Version / Status chip (Registered=green, Reconciling=gold, In review=blue) /
+# Version / Status chip (Registered=green, Reconciling=orange, In review=blue) /
 # Marketplace chip (Available=green, shown only when the chart is in the helm index) /
 # PR # / Published age. Rows are LINKABLE: rowNavigateTo lands on the blueprint detail
 # page (/blueprints/{ns}/{chart}) — the {ns} + {chart} tokens resolve from the row's
@@ -48,7 +48,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "In review"),color:(.statusColor // "gold")}, (if (.marketLabel // "") != "" then {valueKey:"market",kind:"tag",stringValue:.marketLabel,color:(.marketColor // "green")} else {valueKey:"market",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"#8c8c8c"} end), {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "In review"),color:(.statusColor // "orange")}, (if (.marketLabel // "") != "" then {valueKey:"market",kind:"tag",stringValue:.marketLabel,color:(.marketColor // "green")} else {valueKey:"market",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"#8c8c8c"} end), {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")} ] ] }'
   apiRef:
     name: blueprint-builder-deliverables
     namespace: {{ .Release.Namespace }}

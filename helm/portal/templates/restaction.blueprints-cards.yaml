@@ -45,11 +45,11 @@ spec:
              version: (.spec.chart.version // ""),
              chart: (.spec.chart.url // ""),
              provisions: (.status.kind // .status.managed.kind // ""),
-             # green = Ready/Available; red = a genuine reconcile FAILURE (Synced=False); amber = still
+             # green = Ready/Available; red = a genuine reconcile FAILURE (Synced=False); orange = still
              # installing / not yet Ready (a transient Ready=False during reconcile is NOT a failure).
              readyReason: (if $synced == "False" then (([.status.conditions[]? | select(.type == "Synced") | .reason][0]) // "ReconcileError") else (([.status.conditions[]? | select(.type == "Ready") | .reason][0]) // "") end),
              readyIcon: (if $ready == "True" then "fa-circle-check" elif $synced == "False" then "fa-circle-xmark" else "fa-clock" end),
-             readyColor: (if $ready == "True" then "green" elif $synced == "False" then "red" else "gold" end),
+             readyColor: (if $ready == "True" then "green" elif $synced == "False" then "red" else "orange" end),
              category: $cat,
              tags: [ $cat ]
            }]

@@ -47,7 +47,7 @@ spec:
                      | (if length >= 2 then (.[-2] + "/" + .[-1]) else "" end)),
               synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
               # The REASON and MESSAGE, not just the status. Dropping them is what let five hard failures
-              # render as a mild gold "Pending" for 30 hours: `synced` alone is a tri-state flattened to a
+              # render as a mild orange "Pending" for 30 hours: `synced` alone is a tri-state flattened to a
               # boolean, so "queued" and "broken for a day" became the same row.
               syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
               syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
@@ -80,8 +80,8 @@ spec:
             stateLabel: (if $state == "" then "" else ((($state)[0:1] | ascii_upcase) + ($state)[1:]) end),
             # #84 §0.2: the Table's Status cell takes a single colour (the Listy used a colour-map);
             # resolve it server-side — open→blue / merged→green (a landed deliverable) / closed→gray /
-            # pending→gold. Same vocabulary the Listy's map used.
-            stateColor: (if $state == "open" then "blue" elif $state == "merged" then "green" elif $state == "closed" then "gray" else "gold" end),
+            # pending→orange. Same vocabulary the Listy's map used.
+            stateColor: (if $state == "open" then "blue" elif $state == "merged" then "green" elif $state == "closed" then "gray" else "orange" end),
             # #84 §0.2: the PR "#N" cell (same derivation as blueprint-builder-deliverables); "" until
             # the provider writes status.number.
             pr:    (if ((.status.number) // 0) > 0 then ("#" + ((.status.number) | tostring)) else "" end),
@@ -101,7 +101,7 @@ spec:
          | (any(.[]; .syncReason == "ReconcileError")) as $failed
          | ([ .[] | select(.syncReason == "ReconcileError") | .syncMsg ] | map(select(. != "")) | first // "") as $failMsg
          # Claim-path row: the branch is pushed; the PR/MR is opened by the human (Option A), so
-         # there is no PR number/URL/merge-state — state is "pushed" (gold) until then.
+         # there is no PR number/URL/merge-state — state is "pushed" (orange) until then.
          | { name: $p0.publish,
              repo: $p0.repo,
              head: $p0.branch,
@@ -109,9 +109,9 @@ spec:
              title: ($p0.publish | sub("^publish-"; "")),
              state: (if $failed then "failed" elif $pushed then "pushed" else "pending" end),
              stateLabel: (if $failed then "Publish failed" elif $pushed then "Pushed" else "Pending" end),
-             # COMPUTED, not the literal "gold" this used to be — the whole reason a pushed row and a
+             # COMPUTED, not the literal "orange" this used to be — the whole reason a pushed row and a
                # pending row rendered the same chip: the LABEL branched and the COLOUR did not.
-               stateColor: (if $failed then "red" elif $pushed then "green" else "gold" end),
+               stateColor: (if $failed then "red" elif $pushed then "green" else "orange" end),
                # What actually went wrong, for the new Reason column. A healthy row says nothing.
                reason: (if $failed then ($failMsg | if length > 140 then (.[0:140] + "…") else . end) else "" end),
              pr: "",
