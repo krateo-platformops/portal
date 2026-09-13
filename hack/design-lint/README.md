@@ -36,6 +36,8 @@ needs the network is a lint that fails on a bad morning.
 | `emoji` | P15 | emoji in a title, label or status text |
 | `tag-colour-no-label` | C13 | a `Tag` with a colour and no label — meaning carried by colour alone |
 | `missing-target` | X13 | a `resourcesRefs` entry naming a CR that does not exist — the parent renders without it |
+| `containment` | X5 | a child whose kind is not in its container's declared `allowedResources` — the only enforcement there is, since nothing reads the field at runtime |
+| `page-header` | P25 | a page the nav declares that does not open on a `PageHeader`; reads through a templated `items` rather than exempting it, and reports a page it cannot judge instead of passing it |
 
 Current state: **0 violations**. These are regression guards, not a backlog.
 
