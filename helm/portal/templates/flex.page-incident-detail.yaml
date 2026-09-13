@@ -31,6 +31,7 @@ spec:
     namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
+    - pageheaders
     - flexes
     - paragraphs
     - tables
@@ -46,6 +47,7 @@ spec:
     vertical: true
     gap: middle
     items:
+    - resourceRefId: incident-detail-page-header
     - resourceRefId: incident-detail-header-block
   widgetDataTemplate:
     # #72 §1 restructure: header → SUMMARY (TL;DR) → WHAT HAPPENED (evidence) → WHY (merged root
@@ -56,7 +58,7 @@ spec:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
-        | [ { resourceRefId: "incident-detail-header-block" } ]
+        | [ { resourceRefId: "incident-detail-page-header" }, { resourceRefId: "incident-detail-header-block" } ]
         + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
         + (if ($s.evidence // false) then [ { resourceRefId: "incident-sec-evidence-card" } ] else [] end)
         + (if (($s.rootcause // false) or ($s.gaps // false) or ($s.trace // false)) then [ { resourceRefId: "incident-why-card" } ] else [] end)
@@ -68,6 +70,12 @@ spec:
         + (if ($s.manifests // false) then [ { resourceRefId: "incident-detail-manifests-card" } ] else [] end) }
   resourcesRefs:
     items:
+    - id: incident-detail-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-page-header
+      namespace: {{ .Release.Namespace }}
+      resource: pageheaders
+      verb: GET
     - id: incident-detail-header-block
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-detail-header-block

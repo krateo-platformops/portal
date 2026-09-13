@@ -1,0 +1,63 @@
+# The /incidents/{namespace}/{name} page header — the incident title, its lifecycle and trigger
+# pills, and the page's actions, in one CR.
+#
+# Replaces FIVE: flex.incident-detail-titleline, flex.incident-detail-title-stack,
+# paragraph.incident-detail-title, tag.incident-lifecycle and tag.incident-trigger.
+#
+# THIS IS THE ONE PAGE THAT DID NOT COLLAPSE COMPLETELY, and the reason is worth stating.
+# incident-detail-header-block held THREE rows, not two: the title line, a row pairing status chips
+# with the actions, and a meta-card. PageHeader absorbs the title, the two Tags and the actions —
+# but the chips and the meta-card are CONTENT, not header chrome, so they stay.
+#
+# The header-block therefore survives holding what is left (chips + meta-card), and the PageHeader
+# sits ABOVE it at the page root, exactly like the twenty-one other migrated pages. That placement
+# matters: PageHeader carries `margin-bottom: var(--spacing-lg)`, the rhythm between a page header
+# and the content under it. Nested as row one of a `gap: small` block it would instead have become
+# 24px of dead space BETWEEN header rows — title-to-chips going from 8px to 32px, and worse on an
+# alert-only incident where the chips row renders empty. At the page root it is the gap it was
+# designed to be.
+#
+# THE TWO TAGS BECOME `tags`. Both read the same apiRef as everything else here, so nothing is
+# lost. The trigger pill carries no colour and does not get one: it states a fact (what opened this
+# incident), not a status, and a colour would imply a severity it does not have. `lifecycleColor`
+# emits red/orange/green, all of which are in PageHeader's colour enum — checked, not assumed.
+#
+# The actions Flex is kept and referenced rather than flattened: it carries the buttons' order.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Incident
+    tags:
+    - label: 'Lifecycle: Open'
+      color: red
+    - label: 'Trigger: Alert'
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: incident-detail-actions
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .title // "incident" }'
+    # Was THREE templates across two Tag CRs (lifecycle label + colour, trigger label), now one
+    # array. PageHeader takes pills as one value, so the whole shape must be emitted here — a bare
+    # string would be pruned by the strict CRD with no error.
+    - forPath: tags
+      expression: '${ [ { label: ("Lifecycle: " + ((.lifecycle // "open") | (.[0:1] | ascii_upcase) + .[1:])), color: (.lifecycleColor // "red") },   { label: ("Trigger: "   + ((.trigger   // "alert") | (.[0:1] | ascii_upcase) + .[1:])) } ] }'
+  resourcesRefs:
+    items:
+    - id: incident-detail-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-actions
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
