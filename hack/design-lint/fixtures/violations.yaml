@@ -58,3 +58,124 @@ spec:
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: card-that-was-deleted
         resource: cards
+
+---
+# X5 containment: declares `paragraphs`, is handed a Table. It renders fine — nothing enforces
+# allowedResources at runtime — which is exactly why a lint has to.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x5-bad
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    items:
+    - resourceRefId: a-table
+  resourcesRefs:
+    items:
+    - id: a-table
+      name: a-table
+      resource: tables
+      verb: GET
+
+---
+# X11 dead-kind: `Panel` was renamed to `Card` in the antd-fidelity migration, with NO aliases.
+# getWidgetModule('Panel') returns undefined and the CR renders nothing at all.
+kind: Panel
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x11-dead-kind
+spec:
+  widgetData: {}
+  resourcesRefs:
+    items: []
+---
+# X12 legacy-envelope: `resourcesRefs` as a bare list. The current CRD declares it an object
+# ({items, slice}), so this CR fails validation before a single widget renders.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x12-legacy-envelope
+spec:
+  widgetData:
+    items: []
+  resourcesRefs:
+  - id: a
+    name: a
+    resource: tables
+    verb: GET
+---
+# P25 page-header: a nav that declares a route to a page which opens on a Form instead of naming
+# itself. Both nav spellings are exercised — `resourceRefId` (resolved through resourcesRefs) and
+# the `page: x` -> `page-x` convention used by templated detail routes.
+kind: Menu
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-nav
+spec:
+  widgetData:
+    items:
+    - label: Settings
+      path: /settings
+      resourceRefId: p16-page-root
+    - order: 900
+      path: "/things/{name}/edit"
+      page: p16-templated
+  resourcesRefs:
+    items:
+    - id: p16-page-root
+      name: p16-headerless
+      resource: flexes
+      verb: GET
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-headerless
+spec:
+  widgetData:
+    items:
+    - resourceRefId: the-form
+  resourcesRefs:
+    items:
+    - id: the-form
+      name: p16-form
+      resource: forms
+      verb: GET
+---
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-form
+spec:
+  widgetData: {}
+  resourcesRefs:
+    items: []
+---
+# Reached by the `page: p16-templated` nav entry. Opens on a bare Paragraph — the shape that
+# matched no container pattern and so went unnoticed by three hand surveys.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-p16-templated
+spec:
+  widgetData:
+    items:
+    - resourceRefId: bare-title
+  resourcesRefs:
+    items:
+    - id: bare-title
+      name: p16-bare-title
+      resource: paragraphs
+      verb: GET
+---
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-bare-title
+spec:
+  widgetData:
+    text: Things
+  resourcesRefs:
+    items: []

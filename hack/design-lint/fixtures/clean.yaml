@@ -70,3 +70,119 @@ spec:
         apiVersion: v1
         name: some-configmap
         resource: configmaps
+
+---
+# X5: the child's plural is declared. Also covers the two deliberate non-reports — a container
+# with NO allowedResources is unconstrained, not a defect.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x5-good
+spec:
+  widgetData:
+    allowedResources:
+    - tables
+    items:
+    - resourceRefId: a-table
+  resourcesRefs:
+    items:
+    - id: a-table
+      name: a-table
+      resource: tables
+      verb: GET
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x5-unconstrained
+spec:
+  widgetData:
+    items:
+    - resourceRefId: a-table
+  resourcesRefs:
+    items:
+    - id: a-table
+      name: a-table
+      resource: tables
+      verb: GET
+---
+# P25 page-header: a nav whose routes both resolve to pages that name themselves. The second is the
+# documented opt-out — a page with genuinely no single header, where the exception is written down
+# on the CR and therefore reviewable, rather than living in an exclusion list inside the lint.
+kind: Menu
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-nav-good
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    items:
+    - label: Things
+      path: /things
+      resourceRefId: p16-good-root
+    - order: 900
+      path: "/things/{name}"
+      page: p16-exempt
+  resourcesRefs:
+    items:
+    - id: p16-good-root
+      name: p16-good
+      resource: flexes
+      verb: GET
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-good
+spec:
+  widgetData:
+    allowedResources:
+    - pageheaders
+    items:
+    - resourceRefId: the-header
+  resourcesRefs:
+    items:
+    - id: the-header
+      name: p16-header
+      resource: pageheaders
+      verb: GET
+---
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-header
+spec:
+  widgetData:
+    title: Things
+  resourcesRefs:
+    items: []
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-p16-exempt
+  annotations:
+    "krateo.io/no-page-header": "two apiRefs — the title line is assembled from both"
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: title-stack
+  resourcesRefs:
+    items:
+    - id: title-stack
+      name: p16-title-stack
+      resource: flexes
+      verb: GET
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p16-title-stack
+spec:
+  widgetData:
+    items: []
+  resourcesRefs:
+    items: []
