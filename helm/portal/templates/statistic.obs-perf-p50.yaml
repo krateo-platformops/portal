@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Reconcile latency p50 (median) — EXACT, from the reconcile span Duration (otel_traces)
 # via obs-reconcile-perf. Cyan = the healthy/typical case.
 kind: Statistic
@@ -28,3 +32,4 @@ spec:
     namespace: {{ .Release.Namespace }}
   resourcesRefs:
     items: []
+{{- end }}

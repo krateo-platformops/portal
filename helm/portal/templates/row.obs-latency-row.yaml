@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Full-width strip hosting the per-composition reconcile-latency card (ClickHouse
 # otel_traces). Sits below the throughput strip — the "which compositions are slow"
 # detail beneath the "how much reconcile traffic overall" trend.
@@ -23,3 +27,4 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
+{{- end }}

@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Live reconcile throughput — the composition-dynamic-controller's `reconcile` trace spans,
 # bucketed 10-min, straight from ClickHouse (otel_traces) via restaction.obs-reconcile-metrics.
 # Data is ALREADY bucketed server-side (ClickHouse), so this chart just maps series -> {t,v};
@@ -45,3 +49,4 @@ spec:
     namespace: {{ .Release.Namespace }}
   resourcesRefs:
     items: []
+{{- end }}

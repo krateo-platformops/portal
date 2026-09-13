@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Wraps the reconcile-throughput LineChart; header extra shows the current p95 latency + the
 # REAL 6h reconcile-failure count and error rate (from the RA's provider_runtime.reconcile
 # counters — NOT the always-Unset span StatusCode) — the live headline numbers beside the trend.
@@ -36,3 +40,4 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: linecharts
       verb: GET
+{{- end }}

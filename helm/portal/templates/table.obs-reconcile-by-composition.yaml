@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Per-composition reconcile latency — the composition-dynamic-controller's `reconcile`
 # trace spans grouped by the composition they reconciled (kind+name), straight from
 # ClickHouse (otel_traces) via restaction.obs-reconcile-by-composition. Rows come back
@@ -46,3 +50,4 @@ spec:
     namespace: {{ .Release.Namespace }}
   resourcesRefs:
     items: []
+{{- end }}
