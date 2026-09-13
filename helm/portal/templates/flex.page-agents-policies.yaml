@@ -47,23 +47,29 @@ metadata:
 spec:
   widgetData:
     allowedResources:
+    - pageheaders
     - flexes
     vertical: true
     gap: middle
     items:
-    - resourceRefId: agents-policies-header
-    # The mockup puts "+ Add policy" in this section's header. Right-aligned in its own Flex
-    # because `buttons` is not in this page's allowedResources and a Button carries no
-    # self-alignment field — the same holder shape /agents uses for "New agent".
-    - resourceRefId: agents-policy-new-cta
+    - resourceRefId: agents-policies-page-header
     - resourceRefId: agents-policies-groups
   resourcesRefs:
     items:
-    {{- range (list "agents-policies-header" "agents-policy-new-cta" "agents-policies-groups") }}
-    - id: {{ . }}
+    # Written out rather than looped. The `range (list "a" "b" "c")` this replaces existed to
+    # avoid repeating one identical block three times; with the header now a PageHeader and the
+    # CTA absorbed into it, the two survivors have DIFFERENT `resource:` values, so the loop
+    # cannot express them anyway. It also hid all three names from an ordinary grep — which is how
+    # a CR gets deleted while something still references it.
+    - id: agents-policies-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: {{ . }}
-      namespace: {{ $.Release.Namespace }}
+      name: agents-policies-page-header
+      namespace: {{ .Release.Namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: agents-policies-groups
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-groups
+      namespace: {{ .Release.Namespace }}
       resource: flexes
       verb: GET
-    {{- end }}
