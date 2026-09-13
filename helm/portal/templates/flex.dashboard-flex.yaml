@@ -8,6 +8,7 @@ metadata:
 spec:
   widgetData:
     allowedResources:
+    - pageheaders
     - flexes
     - rows
     - cards
@@ -23,7 +24,8 @@ spec:
     # from `middle` to `small` so the dashboard reads closer to the dense one-screen mockup.
     gap: small
     items:
-    - resourceRefId: header-row
+    - resourceRefId: dashboard-page-header
+    - resourceRefId: dashboard-range-chips
     # First-run onboarding — self-hides once the user owns a composition (hideWhenEmpty
     # gate on compositions-list). Sits under the greeting header, above the stats.
     - resourceRefId: onboarding-empty
@@ -37,13 +39,17 @@ spec:
     - resourceRefId: dashboard-inventory
   resourcesRefs:
     items:
-    - id: header-row
+    - id: dashboard-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: header-row
+      name: dashboard-page-header
       namespace: {{ .Release.Namespace }}
-      # #81 §0.1: header-row was a Row, now a vertical Flex (greeting stacked above the
-      # filter row) — so it resolves under the flexes resource, not rows.
-      resource: flexes
+      resource: pageheaders
+      verb: GET
+    - id: dashboard-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-range-chips
+      namespace: {{ .Release.Namespace }}
+      resource: listies
       verb: GET
     - id: onboarding-empty
       apiVersion: widgets.templates.krateo.io/v1beta1
