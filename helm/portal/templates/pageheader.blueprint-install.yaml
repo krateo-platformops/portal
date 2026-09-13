@@ -1,0 +1,32 @@
+# The /marketplace/{name}/install page header.
+#
+# This page had NO header at all — it opened straight onto the install Form, so the route gave no
+# indication of which chart was about to be installed. Every other page in the portal names itself.
+#
+# It reuses the `marketplace-detail` RESTAction rather than adding one: the route carries {name},
+# the RA already resolves a catalog entry from exactly that key, and the page it is reached from
+# (/marketplace/{name}) reads the same cell — so the title costs no extra upstream call.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-install-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: marketplace-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Install blueprint
+    subtitle: ""
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ "Install " + (.name // "blueprint") }'
+    # Version and maturity only — the reader is committing to a specific revision, and the
+    # category they already saw on the page they came from.
+    - forPath: subtitle
+      expression: '${ ([ (.maturity // empty), ("v" + (.version // "?")) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
+  resourcesRefs:
+    items: []

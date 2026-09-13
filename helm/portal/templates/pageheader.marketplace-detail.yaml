@@ -1,0 +1,53 @@
+# The /marketplace/{name} page header — the chart's name, its catalog line and the Install action.
+#
+# Replaces FIVE CRs that lived inside marketplace-detail.yaml: flex.marketplace-detail-header-block,
+# flex.marketplace-detail-title-stack, flex.marketplace-detail-title-line,
+# paragraph.marketplace-detail-title and paragraph.marketplace-detail-subtitle. Three nested Flexes
+# to place a name over a subtitle, with an action to the right.
+#
+# WHY THIS ONE WAS MISSED for the whole PageHeader migration: it is the only page header that did
+# not live in its own `pageheader.*`/`flex.*` file. marketplace-detail.yaml holds FIFTEEN documents
+# and its FIRST one is a RESTAction, so every survey that read one document per file classified the
+# file as a RESTAction and never saw the header. Extracting it here also puts it where the naming
+# convention says it belongs.
+#
+# The actions Flex is kept and referenced rather than inlined — it carries the Install/Configure
+# Button's identity and its gating, which this migration has no business reshuffling.
+#
+# keyExtras is the UNION of the five: the subtitle declared [category, name], the rest [name].
+# Union is the safe direction — an extra key that never arrives partitions consistently, while a
+# missing one serves another chart's header from this one's cache cell.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: marketplace-detail-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [category, name]
+  apiRef:
+    name: marketplace-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Blueprint
+    subtitle: ""
+    allowedResources:
+      - flexes
+    items:
+      - resourceRefId: marketplace-detail-actions
+  widgetDataTemplate:
+    # Was paragraph.marketplace-detail-title's `forPath: text` (level 2 — PageHeader sets the rank).
+    - forPath: title
+      expression: '${ .name }'
+    # Was paragraph.marketplace-detail-subtitle's `forPath: text`, lifted verbatim.
+    - forPath: subtitle
+      expression: '${ ([ (.category // empty), (.maturity // empty), ("v" + (.version // "?")), ((.created // "") as $ts | if ($ts | length) == 0 then empty else ((now - ($ts | sub("\\.[0-9]+"; "") | sub("Z$"; "+00:00") | fromdate)) as $sec | "published " + (if $sec < 3600 then "just now" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end)) end) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
+  resourcesRefs:
+    items:
+      - id: marketplace-detail-actions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-actions
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET

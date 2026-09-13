@@ -87,18 +87,18 @@ spec:
     vertical: true
     gap: large
     allowedResources:
-      - flexes
+      - pageheaders
       - rows
     items:
-      - resourceRefId: marketplace-detail-header-block
+      - resourceRefId: marketplace-detail-page-header
       - resourceRefId: marketplace-detail-grid
   resourcesRefs:
     items:
-      - id: marketplace-detail-header-block
+      - id: marketplace-detail-page-header
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: marketplace-detail-header-block
+        name: marketplace-detail-page-header
         namespace: {{ .Release.Namespace }}
-        resource: flexes
+        resource: pageheaders
         verb: GET
       - id: marketplace-detail-grid
         apiVersion: widgets.templates.krateo.io/v1beta1
@@ -106,155 +106,6 @@ spec:
         namespace: {{ .Release.Namespace }}
         resource: rows
         verb: GET
----
-# Header block — title-stack (left) + Install/Configure action (right).
-kind: Flex
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: marketplace-detail-header-block
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [name]
-  widgetData:
-    vertical: false
-    justify: space-between
-    align: flex-start
-    gap: middle
-    allowedResources:
-      - flexes
-    items:
-      - resourceRefId: marketplace-detail-title-stack
-      - resourceRefId: marketplace-detail-actions
-  resourcesRefs:
-    items:
-      - id: marketplace-detail-title-stack
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: marketplace-detail-title-stack
-        namespace: {{ .Release.Namespace }}
-        resource: flexes
-        verb: GET
-      - id: marketplace-detail-actions
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: marketplace-detail-actions
-        namespace: {{ .Release.Namespace }}
-        resource: flexes
-        verb: GET
----
-# Left pagehead: back-link over title-line over subtitle.
-kind: Flex
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: marketplace-detail-title-stack
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [name]
-  widgetData:
-    vertical: true
-    gap: small
-    allowedResources:
-      - buttons
-      - flexes
-      - paragraphs
-    # #82 §0.4: back-link removed (the breadcrumb "MARKETPLACE / <chart>" already covers back-nav).
-    items:
-      - resourceRefId: marketplace-detail-title-line
-      - resourceRefId: marketplace-detail-subtitle
-  resourcesRefs:
-    items:
-      - id: marketplace-detail-title-line
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: marketplace-detail-title-line
-        namespace: {{ .Release.Namespace }}
-        resource: flexes
-        verb: GET
-      - id: marketplace-detail-subtitle
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: marketplace-detail-subtitle
-        namespace: {{ .Release.Namespace }}
-        resource: paragraphs
-        verb: GET
----
-# Title line: chart name (H2). (#82 §0.7: the maturity/status Tag was removed — it rendered as an
-# empty coloured dot for most catalog entries, and the maturity/version it could show is already in
-# the subtitle line below.)
-kind: Flex
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: marketplace-detail-title-line
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [name]
-  widgetData:
-    vertical: false
-    align: center
-    gap: middle
-    allowedResources:
-      - paragraphs
-    items:
-      - resourceRefId: marketplace-detail-title
-  resourcesRefs:
-    items:
-      - id: marketplace-detail-title
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: marketplace-detail-title
-        namespace: {{ .Release.Namespace }}
-        resource: paragraphs
-        verb: GET
----
-# Chart name as H2.
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: marketplace-detail-title
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [name]
-  apiRef:
-    name: marketplace-detail
-    namespace: {{ .Release.Namespace }}
-  widgetData:
-    text: Blueprint
-    level: 2
-  widgetDataTemplate:
-    - forPath: text
-      expression: '${ .name }'
-  resourcesRefs:
-    items: []
----
-# Subtitle: "network · beta · v0.3.0 · published 3d ago"
-kind: Paragraph
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: marketplace-detail-subtitle
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  keyExtras: [category, name]
-  apiRef:
-    name: marketplace-detail
-    namespace: {{ .Release.Namespace }}
-  widgetData:
-    text: ""
-    type: secondary
-  widgetDataTemplate:
-    - forPath: text
-      expression: '${ ([ (.category // empty), (.maturity // empty), ("v" + (.version // "?")), ((.created // "") as $ts | if ($ts | length) == 0 then empty else ((now - ($ts | sub("\\.[0-9]+"; "") | sub("Z$"; "+00:00") | fromdate)) as $sec | "published " + (if $sec < 3600 then "just now" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end)) end) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
-  resourcesRefs:
-    items: []
 ---
 # Header action — Install (catalog) or Configure (already installed).
 kind: Flex
