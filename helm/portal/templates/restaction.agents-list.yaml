@@ -270,6 +270,11 @@ spec:
             benchCount: ( [ .rows[] | select(.bench) ] | length ),
             orchCount: ( $orch | length ),
             unregisteredCount: ( $unreg | length ),
+            # Counted separately from unregisteredCount because they are INDEPENDENT failures and
+            # the header now shows one pill per cause. `subtitleType` alone cannot tell them apart:
+            # it is danger when EITHER is non-zero, so a page with both would have reported only the
+            # one the expression happened to test first.
+            failedCount: ( $failed | length ),
             gatewayKnown: $gatewayKnown,
             toolsDiscovered: $toolsDiscovered,
             # Rendered verbatim by paragraph.agents-subtitle. A failed read is stated FIRST and in

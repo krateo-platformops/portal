@@ -1,0 +1,74 @@
+# The /agents page header — title, the live subtitle, both create routes, and an exception-only
+# health pill, in one CR.
+#
+# Replaces FIVE: flex.agents-header (a vertical Flex), paragraph.agents-eyebrow,
+# paragraph.agents-title, paragraph.agents-subtitle and flex.agents-header-actions (a
+# justify:flex-end wrapper around the two Buttons). The Buttons stay — PageHeader right-aligns
+# them by construction, so the wrapper has nothing left to do.
+#
+# THE RED SUBTITLE BECOMES PILLS, and that is an upgrade rather than a workaround.
+#
+# paragraph.agents-subtitle carried a second template, `forPath: type` -> `${ .subtitleType }`,
+# turning the whole sentence red when a read failed OR an agent was refused by the gateway.
+# PageHeader renders its subtitle as one Typography.Paragraph with no tone input, so that signal
+# had nowhere to go. It is not lost: the subtitle TEXT already states a failure first and in full
+# ("Some of this page's reads FAILED — ..."), so the colour was an amplifier, not the carrier.
+#
+# Moving it to `tags` is better than restoring it would have been:
+#   - ONE red colour covered TWO different problems. The pills name which.
+#   - a status belongs in a status affordance, not in the colour of prose.
+#   - exception-only: nothing renders when the page is healthy, so the marker means something.
+#
+# `failedCount` was added to restaction.agents-list for this. `subtitleType` alone cannot separate
+# the two causes — it is danger when EITHER is non-zero, so a page with BOTH would have shown only
+# whichever the expression tested first.
+#
+# THE EYEBROW IS GONE: Paragraph.tsx returns null for `variant: eyebrow`, so it renders nothing
+# today.
+#
+# No `counter`. The subtitle already ends with the readable/bench/orchestrator counts, and
+# agents-stats sits directly below.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Agent control plane
+    subtitle: >-
+      Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources.
+    allowedResources:
+    - buttons
+    # Right-aligned by the widget. Autopilot-free deterministic routes, policy first then agent —
+    # `agents-new` is the page's primary, and P6 allows exactly one.
+    items:
+    - resourceRefId: agents-policy-new-header
+    - resourceRefId: agents-new
+  widgetDataTemplate:
+    # Was paragraph.agents-subtitle's `forPath: text`.
+    - forPath: subtitle
+      expression: '${ .subtitle }'
+    # Was `forPath: type` on the same Paragraph — one colour for two causes, now one pill each.
+    # Emits [] when the page is healthy, so the healthy state carries no marker at all.
+    - forPath: tags
+      expression: '${ [ ( if ((.failedCount // 0) > 0) then {label:"ReadFailed", color:"red"} else empty end ),   ( if ((.unregisteredCount // 0) > 0) then {label:"NotRegistered", color:"red"} else empty end ) ] }'
+  resourcesRefs:
+    items:
+    - id: agents-policy-new-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policy-new-header
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: agents-new
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-new
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
