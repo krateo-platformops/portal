@@ -6,7 +6,9 @@ defect it cannot see — and a check that fires on correct authoring gets delete
 with it. The clean fixture encodes the specific cases that made earlier drafts noisy.
 """
 import importlib.util
+import io
 import os
+import re
 import subprocess
 import sys
 
@@ -38,6 +40,28 @@ def run(target, rule):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+
+def readme_drift():
+    """The README's rule table must list exactly the rules the registry registers.
+
+    The table had drifted to seven of ten — missing `missing-target`, `containment` and
+    `page-header`, two of which the design docs describe as "enforced". A reader checking that claim
+    against the lint's own documentation found it absent, which is the worst possible answer: not a
+    wrong rule, an apparently missing one. Documentation that can silently fall behind the code is
+    the thing this whole design system exists to complain about.
+
+    Checked in ONE direction only — registered-but-undocumented. The reverse would false-positive
+    here, because this README documents the CSS lint's rules in a second table and they are not in
+    this registry. An undocumented rule is the failure that actually happened; a documented rule
+    that no longer exists is rarer and louder."""
+    readme = os.path.join(HERE, 'README.md')
+    if not os.path.isfile(readme):
+        return []
+    documented = set(re.findall(r'^\|\s*`([a-z-]+)`\s*\|', io.open(readme, encoding='utf-8').read(), re.M))
+    return [f'{name}: registered in RULES but absent from README.md\'s rule table'
+            for name in sorted(set(RULES) - documented)]
+
+
 def main():
     global RULES
     RULES = _rules()
@@ -64,7 +88,13 @@ def main():
     for line in failures:
         print(f'FAIL {line}')
     print(f'{len(RULES) - len({f.split(":")[0] for f in failures})}/{len(RULES)} rules pass both halves')
-    return 1 if failures else 0
+
+    drift = readme_drift()
+    for line in drift:
+        print(f'FAIL {line}')
+    if not drift:
+        print(f'README documents all {len(RULES)} registered rules')
+    return 1 if (failures or drift) else 0
 
 
 if __name__ == '__main__':
