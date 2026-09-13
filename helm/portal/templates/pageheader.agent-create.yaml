@@ -1,0 +1,29 @@
+# The /agents/new page header — title and subtitle in one CR.
+#
+# Replaces four: flex.agent-create-header plus the eyebrow, title and subtitle Paragraphs.
+#
+# THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx already
+# returns null for `variant: eyebrow`, so "Agent control plane · tenant …" has been rendering as
+# nothing.
+#
+# No actions. Submit belongs to the Form below; the page's other real step — registering the Agent
+# at the gateway, without which it stays unreachable — is called out in the subtitle and handled by
+# agent-create-gateway-card, which is where it can explain itself.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-create-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: New agent
+    subtitle: >-
+      Define a declarative kagent Agent — its purpose, model, runtime, standing instructions, the
+      tools it may call and the agents it may delegate to. Fields come from the live Agent CRD; the
+      tool and delegation pickers are built from the RemoteMCPServers and Agents on this cluster.
+      Creating the Agent is only half the job — it stays unreachable until it is registered at the
+      gateway.
+  resourcesRefs:
+    items: []
