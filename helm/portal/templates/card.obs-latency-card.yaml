@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Titled panel around the per-composition reconcile-latency Table — matches the other
 # observability cards (eyebrow title + outlined). The `extra` labels the window/metric;
 # the table itself carries the live per-composition numbers.
@@ -24,3 +28,4 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: tables
       verb: GET
+{{- end }}

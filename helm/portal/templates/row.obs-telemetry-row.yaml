@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Live telemetry strip — the reconcile-throughput card (ClickHouse otel_traces), full width.
 # First widget on the observability page sourced from OTel telemetry rather than composition
 # snapshots. Room for latency/error breakdown cards beside it in a later pass.
@@ -23,3 +27,4 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
+{{- end }}

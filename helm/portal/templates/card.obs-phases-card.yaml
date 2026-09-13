@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # Titled panel around the reconcile phase-breakdown list. The `extra` shows the overall
 # reconcile mean + sample count (from the RA's pctl step) — e.g. "avg <ms> · <n> reconciles".
 kind: Card
@@ -32,3 +36,4 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: listies
       verb: GET
+{{- end }}

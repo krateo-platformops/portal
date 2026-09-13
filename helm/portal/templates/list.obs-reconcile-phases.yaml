@@ -1,3 +1,7 @@
+# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
+# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
+# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{- if (.Values.observability | default dict).reconcileTracing }}
 # "Where reconcile time goes" — the mean latency of each reconcile SUB-PHASE (queue wait /
 # get object / RBAC generate / RBAC apply), from otel_metrics_histogram Sum/Count deltas via
 # obs-reconcile-perf. One bar each, length = share of the SLOWEST phase (normalised to the
@@ -34,3 +38,4 @@ spec:
       expression: '${ ((.phases // []) | map({ ms: (.mean_ms|tonumber), label: ( .metric | if endswith("queue.wait.duration_seconds") then "Queue wait" elif endswith("get.duration_seconds") then "Get object" elif endswith("rbac_generation_duration_seconds") then "RBAC generate" elif endswith("rbac_apply_duration_seconds") then "RBAC apply" else . end) })) as $ph | ($ph | map(.ms) | max) as $mx | ( $ph | sort_by(-.ms) | map({ label: .label, msLabel: ((.ms|tostring) + " ms"), percent: (if ($mx // 0) > 0 then (.ms * 100 / $mx | floor) else 0 end) }) ) }'
   resourcesRefs:
     items: []
+{{- end }}
