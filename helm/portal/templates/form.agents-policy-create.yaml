@@ -90,6 +90,23 @@ spec:
                       elif $role == "passthrough" then { backend: $blk }
                       elif $role == "observability" then { frontend: $blk }
                       else { traffic: $blk } end ) }
+  # WITHOUT THIS THE FORM RENDERS NOTHING. `schema: {}` above is a placeholder — the real one is
+  # built by restaction.agents-policy-formdef from the live AgentgatewayPolicy CRD, and a Form with
+  # an empty schema has no fields to draw, so the widget falls through to its error state. The
+  # apiRef was declared and the action was written, but nothing ever mapped the result INTO the
+  # widget, so the page shipped showing a red X below a correct header.
+  #
+  # `stringSchema`, not `schema`: the action deliberately assembles the properties block as TEXT
+  # ("Assembled as TEXT so the properties block never becomes a jq object" — see the filter's own
+  # header) because a jq object loses key order through Go's map sort, and this form's fields read
+  # in a deliberate sequence. The widget prefers `stringSchema` over `schema` when both are present.
+  widgetDataTemplate:
+    - forPath: stringSchema
+      expression: '${ .schemaString }'
+    - forPath: propertiesToHide
+      expression: '${ .propertiesToHide }'
+    - forPath: initialValues
+      expression: '${ .initialValues }'
   resourcesRefs:
     items:
       - id: create-policy
