@@ -10,7 +10,7 @@ CI here should not break because another repo landed a new rule, and a lint that
 is a lint that fails on a bad morning. The cost is that this file can drift from upstream — if the
 rules change there, re-copy the script, its fixtures and its self-test together.
 
-VENDORED AT: krateo-platformops/frontend 426c0d7 (design/lint/). This stamp exists because the copy
+VENDORED AT: krateo-platformops/frontend main (design/lint/). This stamp exists because the copy
 HAD drifted and nothing noticed — it was missing rule_containment (X5) entirely, so that gate never
 ran here after it landed upstream. Nothing enforces the stamp either; a network check was rejected
 deliberately above. It is here so the next person re-vendoring can see what they are replacing.
@@ -347,6 +347,61 @@ def discover_plurals():
 RENAMED_KINDS = {'Panel': 'Card', 'Column': 'Col', 'TabList': 'Tabs', 'NavMenu': 'Menu', 'DataGrid': 'Listy', 'List': 'Listy'}
 REMOVED_KINDS = {'Page', 'Route', 'RoutesLoader', 'NavMenuItem', 'EventList', 'CompositionReference'}
 
+def refs_of(doc):
+    """`spec.resourcesRefs` as a list, whichever envelope it uses.
+
+    The current CRD declares an object (`{items, slice}`); the legacy shape was a bare list, which
+    X12 exists to report. A rule that assumes the object shape CRASHES on the legacy one — and a
+    crash exits non-zero, which the self-test read as "the rule fired". X13 had been crashing on
+    its own violations fixture for exactly that reason and scoring as a pass."""
+    refs = (doc.get('spec') or {}).get('resourcesRefs')
+    if isinstance(refs, dict):
+        refs = refs.get('items')
+    return [r for r in (refs or []) if isinstance(r, dict)]
+
+
+WIDGET_API = 'widgets.templates.krateo.io'
+
+
+def widget_crs(crs):
+    """Only the widget CRs. RESTActions are `templates.krateo.io/v1` — a DIFFERENT group — as are
+    Roles, Secrets and the CompositionDefinition, and none of them can be the target of a widget's
+    `resourcesRefs`. Keeping them out of an existence index is what stops the chart's dominant
+    naming convention (a RESTAction named after the widget it feeds — 17 such pairs) from vouching
+    for a widget that has been deleted."""
+    return [(f, d) for f, d in crs if WIDGET_API in str(d.get('apiVersion') or '')]
+
+
+def learn_plurals(crs):
+    """{kind: plural}, learned from the chart's OWN references — no CRD checkout, no inference.
+
+    Every `resourcesRefs` entry carries both the plural (`resource`) and the target `name`. Where
+    that name belongs to exactly one widget kind in the chart, the pair is an observation; where a
+    name is shared across kinds it teaches nothing and is skipped. On the portal chart this learns
+    24 of 27 kinds with ZERO conflicting observations.
+
+    Why learn rather than pluralise: inferring `Flex` -> `flexs` produced 125 false positives once.
+    The chart says `flexes`, and says `Listy` -> `listies`, which no naive rule gets right."""
+    by_name = {}
+    for _, doc in widget_crs(crs):
+        name = ((doc.get('metadata') or {}).get('name') or '')
+        if name:
+            by_name.setdefault(name, set()).add(doc.get('kind'))
+    unique = {n: next(iter(k)) for n, k in by_name.items() if len(k) == 1}
+
+    seen = {}
+    for _, doc in crs:
+        for ref in refs_of(doc):
+            name, plural = ref.get('name'), ref.get('resource')
+            if not name or not plural or WIDGET_API not in str(ref.get('apiVersion') or ''):
+                continue
+            kind = unique.get(name)
+            if kind:
+                seen.setdefault(kind, set()).add(plural)
+    # A kind observed with two different plurals teaches nothing reliable; drop it.
+    return {k: next(iter(p)) for k, p in seen.items() if len(p) == 1}
+
+
 def rule_missing_target(crs):
     """A resourcesRefs entry naming a CR that does not exist in the chart.
 
@@ -361,13 +416,24 @@ def rule_missing_target(crs):
 
     Only widget kinds are checked. A ref to a Secret, a ConfigMap or any non-widget resource is
     legitimately outside this chart's template set."""
-    plurals = discover_plurals()
+    # The CRD-derived map when a checkout is reachable, otherwise the one learned from the chart.
+    # discover_plurals() globs relative to the process CWD, and portal CI runs from a repo that
+    # holds no *.crd.yaml at all — so there it returns nothing and every secondary check was
+    # skipped. The learned map does not depend on where the process was started.
+    plurals = dict(learn_plurals(crs))
+    plurals.update(discover_plurals())
     # Every widget CR name in the chart, plus the plural each is ADDRESSED by where that is known.
     names, by_plural = set(), {}
     for fname, doc in crs:
         kind = doc.get('kind') or ''
         name = ((doc.get('metadata') or {}).get('name') or '')
         if not (kind and name):
+            continue
+        # WIDGETS ONLY. A RESTAction named `access-grants` must not vouch for a deleted Table
+        # named `access-grants`; they are different API groups and a widget ref can only mean the
+        # Table. Indexing every kind is how this rule went blind on 22 references — every one of
+        # them a chart-wide table on Settings, Access, Agents, Observability or Incidents.
+        if WIDGET_API not in str(doc.get('apiVersion') or ''):
             continue
         names.add(name)
         plural = plurals.get(kind)
@@ -376,9 +442,7 @@ def rule_missing_target(crs):
 
     out = []
     for fname, doc in crs:
-        for ref in (((doc.get('spec') or {}).get('resourcesRefs') or {}).get('items') or []):
-            if not isinstance(ref, dict):
-                continue
+        for ref in refs_of(doc):
             plural, name = ref.get('resource'), ref.get('name')
             api = str(ref.get('apiVersion') or '')
             # Only widget CRs live in this chart's template set; anything else is out of scope.
@@ -458,95 +522,136 @@ def rule_page_header(crs):
     """P25 — a page whose first child is not a `PageHeader`.
 
     Every page in the portal names itself, in the same place, in the same type ramp. That is the
-    single most visible consistency rule the design system has, and until now the only thing
-    enforcing it was someone running a survey and counting.
+    single most visible consistency rule the design system has, and until this rule landed the only
+    thing enforcing it was someone running a survey and counting.
 
-    Those surveys were wrong three times, each in a way the next survey inherited, because each
-    looked for the SHAPE a page header was expected to have instead of for the page:
+    Those surveys were wrong FOUR times, each in a way the next inherited, because each looked for
+    the SHAPE a page header was expected to have instead of for the page:
 
       by name       `pageheader.*` / `*-header-block` missed two detail pages that spell their
-                    parts `-titleline`, and missed a page whose header had no container at all.
+                    parts `-titleline`.
       by first doc  `marketplace-detail.yaml` holds fifteen documents and opens with a RESTAction,
                     so a scanner reading one document per file never saw the header inside it.
       by container  a page opening on a bare `Paragraph` matched no container pattern.
+      by templated  THIS RULE'S OWN FIRST DRAFT bailed out on any page whose `items` is assembled
+                    by a jq template and counted the bail as a PASS. Every detail page in this
+                    chart is authored that way, so the exemption landed precisely on the page class
+                    the rule existed for — including the same two `-titleline` pages the first hand
+                    survey missed. A rule that cannot see a case must SAY so, not pass it.
 
     So this rule starts from the NAV, which is what actually makes something a page, and resolves
     every route it declares. A page that exists but is unreachable is not this rule's business
     (P10 covers dangling routes); a page that is reachable and does not name itself is.
 
-    The first child is resolved the same way the renderer resolves it — `widgetData.items[0]`'s
-    `resourceRefId` through the CR's own `resourcesRefs` — so the rule cannot go stale against a
-    naming convention.
+    A TEMPLATED `items` IS STILL JUDGED. The first child is recovered from whichever of these the
+    page provides, and they must agree: the static `widgetData.items[0]`, which these pages carry
+    as the pre-template default, and the first `resourceRefId` literal appearing in the template
+    expression itself. If neither yields a child the page is reported as UNDETERMINED rather than
+    passed — an unjudgeable page is a gap in the rule, and silence about it is how this rule
+    shipped claiming a migration was complete when two pages had never been migrated.
+
+    RESOLUTION IS BY (plural, name), never by name alone. 28 names in this chart are shared across
+    kinds — a RESTAction and the Table it feeds conventionally share one — so a name-keyed index
+    silently resolves to whichever document helm rendered last, which is decided by template
+    filename order. The plural is already in hand: it is the `resource` on the `resourcesRefs`
+    entry being followed.
 
     OPT-OUT, because one page legitimately has no single header: annotate the page root with
     `krateo.io/no-page-header: <reason>`. An exception that has to be written down and reviewed is
-    the point; a silent exclusion list inside the lint is what let the first three surveys drift."""
-    by_name = {}
-    for fname, doc in crs:
-        name = (doc.get('metadata') or {}).get('name')
+    the point; a silent exclusion list inside the lint is what let the hand surveys drift."""
+    index = {}
+    for fname, doc in widget_crs(crs):
+        name = ((doc.get('metadata') or {}).get('name') or '')
         if name:
-            by_name[name] = (fname, doc)
+            index[(doc.get('kind'), name)] = (fname, doc)
+    plurals = dict(learn_plurals(crs))
+    plurals.update(discover_plurals())
+    # plural -> kind, so a `resourcesRefs` entry can be resolved the way the renderer resolves it.
+    kind_of = {p: k for k, p in plurals.items()}
 
-    def first_child_kind(doc):
-        """(kind, child_name) of the page's first rendered child, or (None, reason)."""
+    def resolve(name, plural):
+        """The CR a reference addresses, resolved by (plural, name) when the plural is known."""
+        kind = kind_of.get(plural)
+        if kind and (kind, name) in index:
+            return index[(kind, name)]
+        hits = [v for (k, n), v in index.items() if n == name]
+        return hits[0] if len(hits) == 1 else None
+
+    def first_child(doc):
+        """(kind, detail). kind is None when the page could not be judged — `detail` says why."""
         spec = doc.get('spec') or {}
-        if spec.get('resourcesRefsTemplate') or 'items' in templated_paths(doc):
-            return None, 'templated'
+        by_id = {r['id']: r for r in refs_of(doc) if r.get('id')}
+
+        candidates = []
         items = widget_data(doc).get('items')
-        if not isinstance(items, list) or not items:
-            return None, 'no items'
-        first = items[0]
-        ref = first.get('resourceRefId') if isinstance(first, dict) else None
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            if items[0].get('resourceRefId'):
+                candidates.append(items[0]['resourceRefId'])
+        # The template's own first `resourceRefId` literal — these pages build `items` with jq,
+        # and the head of that list is a literal in the expression.
+        for entry in (spec.get('widgetDataTemplate') or []):
+            if not isinstance(entry, dict) or not str(entry.get('forPath', '')).startswith('items'):
+                continue
+            found = re.search(r'resourceRefId"?\s*:\s*"([^"]+)"', str(entry.get('expression') or ''))
+            if found:
+                candidates.append(found.group(1))
+                break
+
+        if not candidates:
+            if spec.get('resourcesRefsTemplate') or 'items' in templated_paths(doc):
+                return None, 'its `items` are templated and the template names no literal first child'
+            return None, 'it declares no items'
+        if len(set(candidates)) > 1:
+            return None, (f'its static first child ({candidates[0]}) and its templated first child '
+                          f'({candidates[1]}) disagree')
+
+        ref = by_id.get(candidates[0])
         if not ref:
-            return None, 'no resourceRefId'
-        refs = spec.get('resourcesRefs')
-        refs = refs.get('items') if isinstance(refs, dict) else refs
-        for r in (refs or []):
-            if isinstance(r, dict) and r.get('id') == ref:
-                target = by_name.get(r.get('name'))
-                if not target:
-                    return None, f'unresolvable child `{r.get("name")}`'
-                return target[1].get('kind'), r.get('name')
-        return None, f'child `{ref}` has no resourcesRefs entry'
+            return None, f'its first child `{candidates[0]}` has no resourcesRefs entry'
+        target = resolve(ref.get('name'), ref.get('resource'))
+        if not target:
+            return None, f'its first child `{ref.get("name")}` resolves to nothing in this chart'
+        return target[1].get('kind'), ref.get('name')
 
     out = []
     for fname, doc in crs:
         if doc.get('kind') != 'Menu':
             continue
         spec = doc.get('spec') or {}
-        refs = spec.get('resourcesRefs')
-        refs = refs.get('items') if isinstance(refs, dict) else refs
-        by_id = {r['id']: r.get('name') for r in (refs or [])
-                 if isinstance(r, dict) and r.get('id')}
+        nav_refs = {r['id']: r for r in refs_of(doc) if r.get('id')}
         seen = set()
         for path, value in walk_strings(widget_data(doc)):
             leaf = path.rsplit('.', 1)[-1]
-            # `page: x` names `page-x` by convention; `resourceRefId` resolves through resourcesRefs.
+            # `page: x` names `page-x` by convention; `resourceRefId` goes through resourcesRefs.
             if leaf == 'page':
-                root = f'page-{value}'
+                root, plural = f'page-{value}', None
             elif leaf == 'resourceRefId':
-                root = by_id.get(value, value)
+                ref = nav_refs.get(value)
+                if not ref:
+                    continue          # P10's business
+                root, plural = ref.get('name'), ref.get('resource')
             else:
                 continue
             if root in seen:
                 continue
             seen.add(root)
-            target = by_name.get(root)
+            target = resolve(root, plural)
             if not target:
-                continue          # P10's business, not this rule's
+                continue              # P10's business, not this rule's
             page_file, page_doc = target
             if (page_doc.get('metadata') or {}).get('annotations', {}).get('krateo.io/no-page-header'):
                 continue
-            kind, detail = first_child_kind(page_doc)
-            if kind == 'PageHeader' or detail == 'templated':
+            kind, detail = first_child(page_doc)
+            if kind == 'PageHeader':
                 continue
-            shown = f'a `{kind}`' if kind else detail
-            out.append((
-                page_file,
-                f'page `{root}` opens on {shown}, not a PageHeader — every page names itself in '
-                f'the same place and type ramp; annotate the root with `krateo.io/no-page-header` '
-                f'if this page genuinely has none',
-            ))
+            if kind:
+                out.append((page_file, f'page `{root}` opens on a `{kind}`, not a PageHeader — '
+                                       f'every page names itself in the same place and type ramp; '
+                                       f'annotate the root with `krateo.io/no-page-header` if this '
+                                       f'page genuinely has none'))
+            else:
+                out.append((page_file, f'page `{root}` could not be judged: {detail} — a page this '
+                                       f'rule cannot read is a gap in the rule, not a pass'))
     return out
 
 
@@ -593,6 +698,19 @@ def main():
 
     if not args.quiet:
         print(f'\ntotal: {total} violation(s)')
+
+    # A RUN THAT READ NOTHING IS NOT A CLEAN RUN. `unreadable` was printed to stderr and then
+    # dropped on the floor: every rule trivially reported 0, `total` was 0, and the exit code said
+    # success. That is how this lint was once pointed one path segment wrong — at
+    # `helm/portal/templates`, the raw Helm templates, where 532 of 533 files fail to parse — and
+    # reported "0 violations" over 1 CR while looking entirely healthy. Unreadable input is a
+    # coverage failure and now fails the run.
+    if unreadable:
+        print(f'\nFAILED: {len(unreadable)} file(s) could not be parsed — this run inspected '
+              f'{len(crs)} CR(s) and its 0s mean nothing. If you pointed this at a chart\'s '
+              f'templates/ directory, point it at the chart directory instead; the lint renders '
+              f'it with helm itself.', file=sys.stderr)
+        return max(total, 1)
     return total
 
 

@@ -112,27 +112,27 @@ spec:
 kind: Menu
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-nav
+  name: p25-nav
 spec:
   widgetData:
     items:
     - label: Settings
       path: /settings
-      resourceRefId: p16-page-root
+      resourceRefId: p25-page-root
     - order: 900
       path: "/things/{name}/edit"
-      page: p16-templated
+      page: p25-templated
   resourcesRefs:
     items:
-    - id: p16-page-root
-      name: p16-headerless
+    - id: p25-page-root
+      name: p25-headerless
       resource: flexes
       verb: GET
 ---
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-headerless
+  name: p25-headerless
 spec:
   widgetData:
     items:
@@ -140,25 +140,25 @@ spec:
   resourcesRefs:
     items:
     - id: the-form
-      name: p16-form
+      name: p25-form
       resource: forms
       verb: GET
 ---
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-form
+  name: p25-form
 spec:
   widgetData: {}
   resourcesRefs:
     items: []
 ---
-# Reached by the `page: p16-templated` nav entry. Opens on a bare Paragraph — the shape that
+# Reached by the `page: p25-templated` nav entry. Opens on a bare Paragraph — the shape that
 # matched no container pattern and so went unnoticed by three hand surveys.
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: page-p16-templated
+  name: page-p25-templated
 spec:
   widgetData:
     items:
@@ -166,16 +166,62 @@ spec:
   resourcesRefs:
     items:
     - id: bare-title
-      name: p16-bare-title
+      name: p25-bare-title
       resource: paragraphs
       verb: GET
 ---
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-bare-title
+  name: p25-bare-title
 spec:
   widgetData:
     text: Things
+  resourcesRefs:
+    items: []
+---
+# P25, the templated-items branch. This is the shape the rule's FIRST draft bailed on and counted
+# as a pass — and it is how every detail page in the portal chart is authored, so the exemption
+# landed exactly on the pages the rule existed for. The first child is recovered from the first
+# `resourceRefId` literal in the template expression.
+kind: Menu
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p25-nav-templated
+spec:
+  widgetData:
+    items:
+    - order: 901
+      path: "/detail/{name}"
+      page: p25-templated
+  resourcesRefs:
+    items: []
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-p25-templated
+spec:
+  widgetData:
+    items:
+    - resourceRefId: hdr-block
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "hdr-block" } ] + (if (.extra // false) then [ { resourceRefId: "more" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: hdr-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: p25-header-block
+      resource: flexes
+      verb: GET
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p25-header-block
+spec:
+  widgetData:
+    items: []
   resourcesRefs:
     items: []

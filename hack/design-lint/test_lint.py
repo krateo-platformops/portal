@@ -35,7 +35,7 @@ def run(target, rule):
         [sys.executable, LINT, os.path.join(HERE, 'fixtures', target), '--rule', rule, '--quiet'],
         capture_output=True, text=True, check=False,
     )
-    return proc.returncode, proc.stdout
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def main():
@@ -43,11 +43,22 @@ def main():
     RULES = _rules()
     failures = []
     for rule in RULES:
-        code, out = run('violations.yaml', rule)
-        if code < 1:
+        code, out, err = run('violations.yaml', rule)
+        # A CRASH IS NOT A PASS. This used to read `if code < 1`, so a rule that raised — exiting 1
+        # with a traceback — was indistinguishable from one that reported a violation. X13 had been
+        # crashing on this very fixture (a bare-list `resourcesRefs`, which is what X12 exists to
+        # catch) and scoring green for as long as the self-test has existed.
+        if 'Traceback' in err:
+            failures.append(f'{rule}: CRASHED on the violations fixture\n{err.strip().splitlines()[-1]}')
+        elif code < 1:
             failures.append(f'{rule}: did not fire on a real violation')
-        code, out = run('clean.yaml', rule)
-        if code != 0:
+        elif not out.strip():
+            failures.append(f'{rule}: exited non-zero but reported no violation line')
+
+        code, out, err = run('clean.yaml', rule)
+        if 'Traceback' in err:
+            failures.append(f'{rule}: CRASHED on the clean fixture\n{err.strip().splitlines()[-1]}')
+        elif code != 0:
             failures.append(f'{rule}: false positive on correct authoring\n{out}')
 
     for line in failures:

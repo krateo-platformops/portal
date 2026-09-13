@@ -112,7 +112,7 @@ spec:
 kind: Menu
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-nav-good
+  name: p25-nav-good
 spec:
   widgetData:
     allowedResources:
@@ -120,21 +120,21 @@ spec:
     items:
     - label: Things
       path: /things
-      resourceRefId: p16-good-root
+      resourceRefId: p25-good-root
     - order: 900
       path: "/things/{name}"
-      page: p16-exempt
+      page: p25-exempt
   resourcesRefs:
     items:
-    - id: p16-good-root
-      name: p16-good
+    - id: p25-good-root
+      name: p25-good
       resource: flexes
       verb: GET
 ---
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-good
+  name: p25-good
 spec:
   widgetData:
     allowedResources:
@@ -144,14 +144,14 @@ spec:
   resourcesRefs:
     items:
     - id: the-header
-      name: p16-header
+      name: p25-header
       resource: pageheaders
       verb: GET
 ---
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-header
+  name: p25-header
 spec:
   widgetData:
     title: Things
@@ -161,7 +161,7 @@ spec:
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: page-p16-exempt
+  name: page-p25-exempt
   annotations:
     "krateo.io/no-page-header": "two apiRefs — the title line is assembled from both"
 spec:
@@ -173,16 +173,79 @@ spec:
   resourcesRefs:
     items:
     - id: title-stack
-      name: p16-title-stack
+      name: p25-title-stack
       resource: flexes
       verb: GET
 ---
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: p16-title-stack
+  name: p25-title-stack
 spec:
   widgetData:
     items: []
+  resourcesRefs:
+    items: []
+---
+# P25, the templated-items branch done right: `items` is assembled by jq, and the first literal in
+# that template is a PageHeader. The rule must read through the template rather than exempt the page.
+kind: Menu
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p25-nav-templated-good
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    items:
+    - order: 901
+      path: "/detail/{name}"
+      page: p25-templated-good
+  resourcesRefs:
+    items: []
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-p25-templated-good
+spec:
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - cards
+    items:
+    - resourceRefId: the-hdr
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "the-hdr" } ] + (if (.extra // false) then [ { resourceRefId: "a-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: the-hdr
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: p25-good-header
+      resource: pageheaders
+      verb: GET
+    - id: a-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: p25-extra-card
+      resource: cards
+      verb: GET
+---
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p25-good-header
+spec:
+  widgetData:
+    title: Detail
+  resourcesRefs:
+    items: []
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p25-extra-card
+spec:
+  widgetData: {}
   resourcesRefs:
     items: []
