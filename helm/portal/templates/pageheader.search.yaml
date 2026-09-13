@@ -1,0 +1,53 @@
+# The /search page header — what the page is, how many results, and what was searched for.
+#
+# Replaces four: flex.search-header (a vertical Flex), paragraph.search-eyebrow,
+# paragraph.search-title and paragraph.search-subtitle.
+#
+# THE SUBTITLE STOPPED RESTATING THE TITLE. The old pair read:
+#
+#   title     "Search results"
+#   subtitle  "Results for “postgres” · 12 results"
+#
+# — the word "results" three times in two lines, and the count buried at the end of a sentence
+# where it has to be read rather than seen. PageHeader's `subtitle` field says in its own
+# description "Must NOT restate the title — say it once per page", so migrating this as-is would
+# have moved a defect into a widget built to prevent it.
+#
+# Split by what each part answers instead:
+#   title     what this page is            "Search results"
+#   counter   how many                     "(12)" — beside the title, on its type step
+#   subtitle  what was searched for        "Matching “postgres”" / "All resources"
+#
+# "Matching" replaces "Results for" — a copy change, and the only one in this migration. It is
+# what removes the third repetition; the query itself is unchanged and still quoted.
+#
+# No `counterLabel` (frontend#220): the title already says these are search results, so "(12
+# results)" would put the noun back a fourth time.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: search-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): /search carries ?q= as an extra, and EVERY CR on this page declared it —
+  # the Flex and all three Paragraphs. The content is q-invariant for the title but not for the
+  # counter or the subtitle, and the cache key partitioning is not invariant at all: without this,
+  # one query's header is served for another's results.
+  keyExtras: [q]
+  apiRef:
+    name: global-search
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Search results
+    subtitle: All resources
+  widgetDataTemplate:
+    # The count, lifted out of the old subtitle sentence onto the title line.
+    - forPath: counter
+      expression: '${ ((.items // []) | length) }'
+    # Was paragraph.search-subtitle's `forPath: text`, minus the count and the repeated noun.
+    - forPath: subtitle
+      expression: '${ (.q // "") as $q | (if $q == "" then "All resources" else "Matching “" + $q + "”" end) }'
+  resourcesRefs:
+    items: []
