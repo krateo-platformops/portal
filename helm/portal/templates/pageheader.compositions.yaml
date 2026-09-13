@@ -1,0 +1,43 @@
+# The /compositions page header — title, subtitle and the create CTA, in one CR.
+#
+# Replaces FIVE: flex.compositions-header (a horizontal Flex), flex.compositions-title-stack (a
+# vertical Flex inside it), paragraph.compositions-eyebrow, paragraph.compositions-title and
+# paragraph.compositions-subtitle. The Button stays — it carries the action; PageHeader places it.
+#
+# TWO LEVELS OF FLEX FOR ONE ARRANGEMENT: an outer horizontal Flex to put the CTA beside the text,
+# and an inner vertical one to stack the text. That is the shape PageHeader is, so both go.
+#
+# THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx returns null
+# for `variant: eyebrow`, so it has been rendering as nothing.
+#
+# No `counter`. The composition count belongs to the table below, and compositions-toolbar between
+# them already filters by namespace — a total beside the title would disagree with the table the
+# moment a filter is applied.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  # F6 (snowplow#130): every CR absorbed here declared exactly [namespace], and so does the page
+  # root and the Button. Carried verbatim — /compositions/{namespace} is a real route, so dropping
+  # it serves one namespace's header from another's cache cell.
+  keyExtras: [namespace]
+  widgetData:
+    title: Compositions
+    subtitle: Provisioned platform resources across your clusters
+    allowedResources:
+    - buttons
+    # Right-aligned by the widget, which is what the outer Flex existed to do.
+    items:
+    - resourceRefId: new-composition
+  resourcesRefs:
+    items:
+    - id: new-composition
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: new-composition
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
