@@ -18,13 +18,14 @@ spec:
     namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
+    - pageheaders
     - flexes
     - listies
     - cards
     vertical: true
     gap: middle
     items:
-    - resourceRefId: resource-detail-header
+    - resourceRefId: resource-detail-page-header
     - resourceRefId: card-resource-detail-manifest
   widgetDataTemplate:
     # The stuck-create block is composed ONLY when the annotation is on the object. It sits
@@ -32,17 +33,17 @@ spec:
     # page a reader can ACT on — and the condition it explains is what they came to read.
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "resource-detail-header" } ]
+        ${ [ { resourceRefId: "resource-detail-page-header" } ]
         + (if (.createPending // false) then [ { resourceRefId: "resource-detail-create-pending-block" } ] else [] end)
         + (if ((.conditionsCount // 0) > 0) then [ { resourceRefId: "resource-detail-conditions" } ] else [] end)
         + [ { resourceRefId: "card-resource-detail-manifest" } ] }
   resourcesRefs:
     items:
-    - id: resource-detail-header
+    - id: resource-detail-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: resource-detail-header
+      name: resource-detail-page-header
       namespace: {{ .Release.Namespace }}
-      resource: flexes
+      resource: pageheaders
       verb: GET
     - id: resource-detail-conditions
       apiVersion: widgets.templates.krateo.io/v1beta1
