@@ -82,9 +82,50 @@ def render_chart():
         return out.stdout
 
 
+# Learned from the chart's own references at startup (see learn_plurals); the suffix rules below
+# are only the fallback for a kind nothing references.
+_LEARNED_PLURALS = {}
+
+
+def learn_plurals(docs):
+    """{Kind: plural}, learned from the chart's OWN `resourcesRefs` entries.
+
+    Every ref carries both the plural (`resource`) and the target `name`; where that name belongs
+    to exactly one widget kind, the pair is an observation. This replaces guessing as the PRIMARY
+    source, because guessing was wrong for two shipped kinds and wrong SILENTLY:
+
+        Switch   -> guessed `switchs`, real plural `switches`
+        Progress -> guessed `progress`, real plural `progresses`
+
+    The index is keyed on the derived plural while every lookup comes from a CR's declared
+    `resource:`, so a wrong guess does not raise — it just never matches, and the widget drops out
+    of every route walk with no diagnostic at all."""
+    by_name = {}
+    for d in docs:
+        if not str(d.get("apiVersion", "")).startswith(WIDGET_API_GROUP):
+            continue
+        name = (d.get("metadata") or {}).get("name")
+        if name:
+            by_name.setdefault(name, set()).add(d.get("kind"))
+    unique = {n: next(iter(k)) for n, k in by_name.items() if len(k) == 1}
+
+    seen = {}
+    for d in docs:
+        refs = (spec(d).get("resourcesRefs") or {})
+        refs = refs.get("items") if isinstance(refs, dict) else refs
+        for r in (refs or []):
+            if not isinstance(r, dict):
+                continue
+            kind = unique.get(r.get("name"))
+            if kind and r.get("resource"):
+                seen.setdefault(kind, set()).add(r["resource"])
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
 def plural(kind):
-    """Kind -> CRD plural, matching resourcesRefs `resource:` (Flex->flexes,
-    Listy->listies, Steps->steps, Menu->menus, ...)."""
+    """Kind -> CRD plural. The chart's own references first; suffix rules only as a fallback."""
+    if kind in _LEARNED_PLURALS:
+        return _LEARNED_PLURALS[kind]
     k = kind.lower()
     if k.endswith("s"):
         return k
@@ -104,6 +145,8 @@ def key_extras(doc):
 
 
 def build_widget_index(docs):
+    global _LEARNED_PLURALS
+    _LEARNED_PLURALS = learn_plurals(docs)
     """(namespace, name, plural) -> doc — plural-qualified because different
     kinds may share a metadata.name (e.g. Form + Button 'register-cluster')."""
     widgets = {}

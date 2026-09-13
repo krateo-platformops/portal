@@ -249,3 +249,62 @@ spec:
   widgetData: {}
   resourcesRefs:
     items: []
+---
+# The same templated shape done right: every literal the template names is declared, and each
+# child's plural is admitted by allowedResources.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: x4-x5-templated-good
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    - tables
+    items:
+    - resourceRefId: a-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "a-card" } ] + (if .flag then [ { resourceRefId: "a-table" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: a-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: good-card
+      resource: cards
+      verb: GET
+    - id: a-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: good-table
+      resource: tables
+      verb: GET
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: good-card
+spec:
+  widgetData: {}
+  resourcesRefs:
+    items: []
+---
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: good-table
+spec:
+  widgetData: {}
+  resourcesRefs:
+    items: []
+---
+# A PageHeader pill that carries its own word as well as its colour.
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: c13-pageheader-good
+spec:
+  widgetData:
+    title: Something
+    tags:
+    - label: Healthy
+      color: green

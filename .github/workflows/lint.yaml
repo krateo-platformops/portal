@@ -68,3 +68,24 @@ jobs:
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-keyextras.py
+
+  # The chart declares its configuration surface twice — `# @schema` blocks in values.yaml and the
+  # checked-in values.schema.json the installer actually enforces (it applies the SCHEMA's
+  # defaults, not values.yaml's). Nothing compared them, so they could drift silently; a drifted
+  # schema makes `helm template` reject a valid values file, or ships a key unset.
+  values-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: values.yaml and values.schema.json must agree
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-values-schema.py

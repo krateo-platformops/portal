@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """Resolve every chart and image reference in a repository. Fail if any does not exist.
+DUPLICATED, byte-for-byte, with krateo-platformops/frontend `hack/preflight-refs.py` (and the
+workflow that runs it). Neither copy said so until now: the design lint carried exactly
+this kind of note and the CSS lint did not, and the one without it drifted silently —
+a whole rule went missing from the vendored copy and no gate noticed. If you change this
+file, change the other one in the same PR.
+
 
 Four separate outages in this platform were the same defect: a pinned chart or image that
 resolved to nothing. Each surfaced 30-45 minutes into a live cluster rebuild, as an opaque
