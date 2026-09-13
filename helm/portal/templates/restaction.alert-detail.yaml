@@ -11,7 +11,7 @@
 #             awaiting-strip uses: lowercased, alphanumerics only — a report keys its alert by
 #             the DISPLAY name which may carry an emoji, so a literal == never matched).
 # Everything is derived server-side (nothing-hardcoded):
-#   the State tag label+colour (ALERT→red/PENDING→gold/OK→green — palette: green=health, so
+#   the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so
 #   the healthy quiet state OK reads green), the "above N" threshold prose, the compact
 #   relative lastSynced age (Descriptions has no format:relative → derived via `now`), the
 #   Autopilot seed sentence (the "Investigate with Autopilot" button on the detail page), and
@@ -83,10 +83,10 @@ spec:
         state: $state,
         phase: ($st.phase // "Pending"),
         # State tag — same map as the /alerts table, but OK→green (palette: green=health only,
-        # and a quiet-OK alert IS the healthy default), ALERT→red (failure), PENDING→gold
+        # and a quiet-OK alert IS the healthy default), ALERT→red (failure), PENDING→orange
         # (transitional). "OK" kept verbatim — the literal HyperDX state word.
         stateLabel: ($state | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),
-        stateColor: ($state | if . == "ALERT" then "red" elif . == "PENDING" then "gold" elif . == "OK" then "green" else "gray" end),
+        stateColor: ($state | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end),
         lastSyncedRel: (($st.lastSyncedAt // "") | if . == "" then "" else rel end),
         hyperdxAlertId: $haid,
         hyperdxDashboardId: $hdid,

@@ -220,12 +220,12 @@ spec:
           ( if $sort == "recent" then ($shown | sort_by(.created) | reverse)
             else ($shown | sort_by(.name)) end )
           # ?spotlight=<name> (a global-search catalog hit's hand-off): sort the matching
-          # card FIRST and mark it via the EXISTING status-glyph channel (gold star +
+          # card FIRST and mark it via the EXISTING status-glyph channel (orange star +
           # tooltip) — search always lands on installable-only hits, so the installed
           # check (which this channel normally carries) is guarded, never overwritten.
           | (if $spot == "" then .
              else ( map(if (.name == $spot) and (.installed | not)
-                        then . + { installedIcon: "fa-star", installedColor: "gold", installedTooltip: "Matched your search" }
+                        then . + { installedIcon: "fa-star", installedColor: "orange", installedTooltip: "Matched your search" }
                         else . end)
                     | ([ .[] | select(.name == $spot) ] + [ .[] | select(.name != $spot) ]) )
              end)

@@ -10,7 +10,7 @@
 # `get` and may well resolve.
 #
 # Status is EXCEPTION-ONLY and type-aware: a healthy delegate renders an empty cell. Red = a
-# Ready/Accepted condition is False, or the target does not exist at all (NotFound); gold = an
+# Ready/Accepted condition is False, or the target does not exist at all (NotFound); orange = an
 # advisory such as UnsupportedFeatures=True. `Route` is the HTTPRoute matching
 # `x-kagent-host: <delegate>.<namespace>` — an unrouted delegate cannot be reached over A2A no
 # matter how healthy it looks, which is precisely the kind of thing this page exists to show.
@@ -19,7 +19,7 @@
 # HTTPRoute name printed beside its red pill, unmarked — the row asserting in one cell that the
 # target does not exist and in the next that it is routed. A route pointing at a deleted agent is
 # a real finding, so it is now PRESENTED as one: the cell reads
-# "<route> — orphaned, the target does not exist" and carries the gold exception marker. A
+# "<route> — orphaned, the target does not exist" and carries the orange exception marker. A
 # NotFound delegate with no route prints nothing at all; the status pill has already said it.
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -60,11 +60,11 @@ spec:
         | [ { valueKey: "agent", kind: "jsonSchemaType", type: "string", stringValue: (.name // "") },
             { valueKey: "role",  kind: "jsonSchemaType", type: "string", stringValue: (.role // ""), color: "var(--gray-color)" },
             (if (.routeIsException // false)
-             then { valueKey: "route", kind: "tag", stringValue: (.route // ""), color: "gold" }
+             then { valueKey: "route", kind: "tag", stringValue: (.route // ""), color: "orange" }
              else { valueKey: "route", kind: "jsonSchemaType", type: "string", stringValue: (.route // "") } end),
             (if ((.status // "") == "")
              then { valueKey: "status", kind: "jsonSchemaType", type: "string", stringValue: "" }
-             else { valueKey: "status", kind: "tag", stringValue: (.status), color: (if ((.statusColor // "") == "") then "gold" else .statusColor end) } end),
+             else { valueKey: "status", kind: "tag", stringValue: (.status), color: (if ((.statusColor // "") == "") then "orange" else .statusColor end) } end),
             { valueKey: "routeNs",   kind: "jsonSchemaType", type: "string", stringValue: (.routeNs // "") },
             { valueKey: "routeName", kind: "jsonSchemaType", type: "string", stringValue: (.routeName // "") } ] ] }
   resourcesRefs:

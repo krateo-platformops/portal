@@ -17,7 +17,7 @@
 # that are empty on a healthy cluster, which reads as broken rendering rather than as good news.
 # The condition predicate is type-aware (Ready/Accepted True = healthy), so an advisory condition
 # whose True means "there IS a problem" is not silently dropped. Colours: red = a failed
-# Ready/Accepted, gold = an advisory. Today exactly ONE cell fills in: flux-schema-mcp-server is
+# Ready/Accepted, orange = an advisory. Today exactly ONE cell fills in: flux-schema-mcp-server is
 # "external endpoint" (https://schemas.fluxoperator.dev/mcp — it leaves the cluster, so no
 # AgentgatewayBackend can front it and its absence is correct, not a gap).
 #
@@ -81,7 +81,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.name // "—")}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(.endpoint // "—"),color:"var(--gray-color)"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"var(--gray-color)"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"var(--gray-color)"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:(.discovered // "—")}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:(.inUse // "—")}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(.agents // "—")}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "gold")} end) ] ] }'
+    expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.name // "—")}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(.endpoint // "—"),color:"var(--gray-color)"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"var(--gray-color)"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"var(--gray-color)"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:(.discovered // "—")}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:(.inUse // "—")}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(.agents // "—")}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end) ] ] }'
   apiRef:
     name: agents-servers
     namespace: {{ .Release.Namespace }}

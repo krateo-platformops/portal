@@ -1,6 +1,6 @@
 # HyperDX alerts status — lists the Alert CRs (observability.krateo.io) with their live state,
 # from restaction.obs-alerts. state is a filled Tag (status-pill spec): ALERT→red "Alert",
-# PENDING→gold "Pending", OK→green "OK" ("OK" kept verbatim — it is the literal HyperDX state
+# PENDING→orange "Pending", OK→green "OK" ("OK" kept verbatim — it is the literal HyperDX state
 # word, and "Ok"/"Healthy" would be prettier but less truthful). The numbers/threshold are the
 # real alert config; state is mirrored from HyperDX by the reconciler.
 # Lives on the /alerts rule catalog. Row click → the per-alert detail page
@@ -68,7 +68,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")}, {valueKey:"watching",kind:"jsonSchemaType",type:"string",stringValue:(.watching // "-"),color:"#8c8c8c"}, {valueKey:"threshold",kind:"jsonSchemaType",type:"string",stringValue:((.thresholdType // "") + " " + (.threshold // ""))}, {valueKey:"interval",kind:"jsonSchemaType",type:"string",stringValue:(.interval // "-"),color:"#8c8c8c"}, {valueKey:"state",kind:"tag",stringValue:((.state // "PENDING") | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),color:((.state // "PENDING") | if . == "ALERT" then "red" elif . == "PENDING" then "gold" elif . == "OK" then "green" else "gray" end)} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")}, {valueKey:"watching",kind:"jsonSchemaType",type:"string",stringValue:(.watching // "-"),color:"#8c8c8c"}, {valueKey:"threshold",kind:"jsonSchemaType",type:"string",stringValue:((.thresholdType // "") + " " + (.threshold // ""))}, {valueKey:"interval",kind:"jsonSchemaType",type:"string",stringValue:(.interval // "-"),color:"#8c8c8c"}, {valueKey:"state",kind:"tag",stringValue:((.state // "PENDING") | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),color:((.state // "PENDING") | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end)} ] ] }'
   apiRef:
     name: obs-alerts
     namespace: {{ .Release.Namespace }}
