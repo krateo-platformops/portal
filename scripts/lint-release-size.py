@@ -90,7 +90,10 @@ CDC_LABEL_BLOCK = '''
     krateo.io/composition-name: portal
     krateo.io/composition-namespace: krateo-system
     krateo.io/krateo-namespace: krateo-system'''
-CHART = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'helm', 'portal')
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Every chart in this repo that becomes a composition gets its own release record and therefore its
+# own 1 MiB budget — which is the entire point of having split portal-agents out of portal.
+CHARTS = [os.path.join(REPO, 'helm', name) for name in ('portal', 'portal-agents')]
 
 
 def render(chart_dir):
@@ -149,11 +152,17 @@ def modelled_size(chart_dir):
 
 
 def main():
-    size, files = modelled_size(CHART)
-    pct = size / MAX_SECRET
-    print(f'lint-release-size: modelled release record {size:,} B across {files} templates '
-          f'= {pct * 100:.1f}% of the {MAX_SECRET:,} B Secret-data cap '
-          f'(incl. the {LIVE_CALIBRATION}x measured live correction)')
+    worst = 0
+    for chart in CHARTS:
+        if not os.path.isdir(chart):
+            continue
+        size, files = modelled_size(chart)
+        pct = size / MAX_SECRET
+        worst = max(worst, pct)
+        print(f'lint-release-size: {os.path.basename(chart)} — modelled release record {size:,} B '
+              f'across {files} templates = {pct * 100:.1f}% of the {MAX_SECRET:,} B Secret-data cap '
+              f'(incl. the {LIVE_CALIBRATION}x measured live correction)')
+    pct = worst
 
     if pct >= FAIL_AT:
         print(f'  FAILED: at or above {FAIL_AT * 100:.0f}%. The next feature section will push this '
