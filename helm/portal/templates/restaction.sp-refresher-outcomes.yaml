@@ -1,0 +1,24 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* VERIFIED against live ClickHouse on krateo-057 before it was written — see portal#201. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: sp-refresher-outcomes
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: q
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | (if $r=="1h" then "2%20MINUTE" elif $r=="24h" then "1%20HOUR" elif $r=="7d" then "6%20HOUR" else "1%20HOUR" end) as $bk | "/?query=" + "SELECT%20t%2C%20stat%2C%20greatest%28v%20-%20lagInFrame%28v%2C%201%2C%20v%29%20OVER%20%28PARTITION%20BY%20stat%20ORDER%20BY%20t%29%2C%200%29%20AS%20d%20FROM%20%28%20SELECT%20toUnixTimestamp%28toStartOfInterval%28TimeUnix%2C%20INTERVAL%20" + $bk + "%29%29%20AS%20t%2C%20Attributes%5B%27stat%27%5D%20AS%20stat%2C%20max%28Value%29%20AS%20v%20FROM%20otel_metrics_sum%20WHERE%20ServiceName%3D%27snowplow%27%20AND%20MetricName%3D%27snowplow_refresher%27%20AND%20Attributes%5B%27stat%27%5D%20IN%20%28%27completed%27%2C%27failed%27%2C%27dropped%27%2C%27retried%27%2C%27skipped_stage_error%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20t%2C%20stat%20ORDER%20BY%20stat%2C%20t%29%20ORDER%20BY%20t" + "%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: qError
+  filter: >
+    { rows: ((.q.data) // []), failed: ((.qError // null) != null) }
+{{- end }}

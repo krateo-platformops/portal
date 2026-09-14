@@ -1,0 +1,47 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Authorisation memo per bucket. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-authz-memo
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "snowplow_authz_memo_hits": green
+      "snowplow_authz_memo_misses": orange
+      "snowplow_authz_memo_deny_uncached_total": red
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 160
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.series|tostring), v: (.d|tonumber) } ] }'
+  apiRef:
+    name: sp-authz-memo
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

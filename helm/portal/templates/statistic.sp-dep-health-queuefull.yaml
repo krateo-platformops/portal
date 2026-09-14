@@ -1,0 +1,25 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-dep-health-queuefull
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  apiRef:
+    name: sp-dep-health
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Delete queue full
+    value: 0
+  widgetDataTemplate:
+  - forPath: value
+    expression: '${ ([ (.rows // [])[] | select(.stat=="delete_queue_full_total") | (.latest|tonumber) ] | first // 0) }'
+  - forPath: color
+    expression: '${ if ((([ (.rows // [])[] | select(.stat=="delete_queue_full_total") | (.latest|tonumber) ] | first // 0)) > 0) then "red" else "gray" end }'
+  resourcesRefs:
+    items: []
+{{- end }}

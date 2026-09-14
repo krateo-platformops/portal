@@ -1,0 +1,47 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Non-zero is CORRECT in 1.12.x — the user-access-filter declines the Put rather than caching a per-identity body. Returns to 0 in 1.13.0. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-uaf-declines
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "snowplow_restactions_uaf_put_declined_total": orange
+      "snowplow_widgets_uaf_put_declined_total": gold
+      "snowplow_ra_full_list_uaf_bypass_total": cyan
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 160
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.series|tostring), v: (.d|tonumber) } ] }'
+  apiRef:
+    name: sp-uaf-declines
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-refresher-outcomes
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Refresher outcomes
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: sp-refresher-outcomes
+  resourcesRefs:
+    items:
+      - id: sp-refresher-outcomes
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-refresher-outcomes
+        namespace: {{ .Release.Namespace }}
+        resource: linecharts
+        verb: GET
+{{- end }}

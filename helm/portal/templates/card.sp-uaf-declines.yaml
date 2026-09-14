@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-uaf-declines
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: UAF Put declines
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: sp-uaf-declines
+  resourcesRefs:
+    items:
+      - id: sp-uaf-declines
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-uaf-declines
+        namespace: {{ .Release.Namespace }}
+        resource: linecharts
+        verb: GET
+{{- end }}

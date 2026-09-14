@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-authz-memo
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Authorisation memo
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: sp-authz-memo
+  resourcesRefs:
+    items:
+      - id: sp-authz-memo
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-authz-memo
+        namespace: {{ .Release.Namespace }}
+        resource: linecharts
+        verb: GET
+{{- end }}

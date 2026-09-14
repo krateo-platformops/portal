@@ -1,0 +1,52 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Snowplow SLI — "Cache" tab. Panels are Cards, one per query; see portal#201. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-tab-cache
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: sp-card-l1-lookups
+    - resourceRefId: sp-card-cache-size
+    - resourceRefId: sp-card-cache-evictions
+    - resourceRefId: sp-card-fallthrough
+    - resourceRefId: sp-card-fallthrough-reasons
+  resourcesRefs:
+    items:
+      - id: sp-card-l1-lookups
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-l1-lookups
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-cache-size
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-cache-size
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-cache-evictions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-cache-evictions
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-fallthrough
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-fallthrough
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-fallthrough-reasons
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-fallthrough-reasons
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+{{- end }}

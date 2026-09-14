@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-pod-uptime
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Pod uptime
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - statistics
+    items:
+    - resourceRefId: sp-pod-uptime
+  resourcesRefs:
+    items:
+      - id: sp-pod-uptime
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-pod-uptime
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+{{- end }}

@@ -1,0 +1,41 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Stat tiles for Dep-tracker health — laid out side by side. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-dep-health-group
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - statistics
+    vertical: false
+    gap: small
+    justify: space-between
+    items:
+    - resourceRefId: sp-dep-health-panics
+    - resourceRefId: sp-dep-health-queuefull
+    - resourceRefId: sp-dep-health-droppedcap
+  resourcesRefs:
+    items:
+      - id: sp-dep-health-panics
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-dep-health-panics
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+      - id: sp-dep-health-queuefull
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-dep-health-queuefull
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+      - id: sp-dep-health-droppedcap
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-dep-health-droppedcap
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+{{- end }}

@@ -1,0 +1,47 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* The #187 containment signal: evict_delete_total moving means the primary delete path works; the other two are fallbacks and should stay flat at 0. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-dep-evictions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "evict_delete_total": green
+      "evict_self_gone_total": orange
+      "self_notfound_evict_total": red
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 180
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.stat|tostring), v: (.d|tonumber) } ] }'
+  apiRef:
+    name: sp-dep-evictions
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}
