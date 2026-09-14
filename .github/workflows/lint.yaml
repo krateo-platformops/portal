@@ -114,3 +114,21 @@ jobs:
 
       - name: The Helm release record must stay writable
         run: python3 scripts/lint-release-size.py
+
+  # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
+  # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
+  # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A
+  # fixture nobody executes is a comment that costs maintenance; wired in so it is neither.
+  rownavigateto:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Table rowNavigateTo route derivation
+        run: python3 scripts/test-rownavigateto-f8.py

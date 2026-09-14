@@ -35,6 +35,15 @@ def build_row_path(row_navigate_to, row):
         return None
     by_key = {c["valueKey"]: c.get("stringValue") for c in row}
     missing = False
+    # WHEN THE WHOLE TEMPLATE IS ONE `{key}`, the cell already holds a complete pre-built route
+    # (the server precomputed a per-row branch — composition rows -> /compositions/.., everything
+    # else -> /resources/..), so it is used VERBATIM rather than percent-encoded. This port quoted
+    # unconditionally and so modelled such a row as `%2Fcompositions%2Fdemo%2Fapp`, a route that
+    # goes nowhere. The chart's own prose already recorded the upstream change
+    # (table.builder-prs.yaml cites "krateo-frontend@aee40c3, Table whole-placeholder
+    # rowNavigateTo, UX #21"); the model never followed, and nothing noticed because no workflow
+    # ran this file.
+    whole_is_placeholder = re.fullmatch(r"\{[^}]+\}", row_navigate_to) is not None
 
     def sub(m):
         nonlocal missing
@@ -42,7 +51,7 @@ def build_row_path(row_navigate_to, row):
         if val is None or val == "":
             missing = True
             return ""
-        return quote(val, safe="")
+        return val if whole_is_placeholder else quote(val, safe="")
 
     path = re.sub(r"\{([^}]+)\}", sub, row_navigate_to)
     return None if missing else path
@@ -83,6 +92,29 @@ CASES = [
         [{"valueKey": "pod", "stringValue": ""},
          {"valueKey": "ns", "stringValue": "krateo-system"}],
         None,
+    ),
+    # The whole-placeholder shape this port used to get wrong. table.builder-prs carries
+    # `rowNavigateTo: "{href}"`, whose cell is already a complete route — its slashes must
+    # survive. Quoting them yields %2F and a dead row.
+    (
+        "builder-prs: whole placeholder used VERBATIM, slashes intact",
+        "{href}",
+        [{"valueKey": "href", "stringValue": "/compositions/demo/my-app"}],
+        "/compositions/demo/my-app",
+    ),
+    (
+        "builder-prs: whole placeholder, empty cell -> inert",
+        "{href}",
+        [{"valueKey": "href", "stringValue": ""}],
+        None,
+    ),
+    # A multi-segment template still encodes, so a value containing a slash cannot forge a path.
+    (
+        "multi-segment template still percent-encodes an interpolated slash",
+        "/compositions/{ns}/{name}",
+        [{"valueKey": "ns", "stringValue": "demo"},
+         {"valueKey": "name", "stringValue": "a/b"}],
+        "/compositions/demo/a%2Fb",
     ),
 ]
 
