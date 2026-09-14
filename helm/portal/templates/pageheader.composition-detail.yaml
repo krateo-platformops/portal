@@ -49,8 +49,17 @@ spec:
       expression: '${ .detail.metadata.name // "composition" }'
     - forPath: subtitle
       expression: '${ (.detail.kind // "Composition") + " · " + (.detail.metadata.namespace // "?") + " · created " + ((.detail.metadata.creationTimestamp // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end) }'
+    {{/* A17: the health pill, plus an "Agent-created" pill when the object carries the */}}
+    {{/* krateo.io/created-by label the portal stamps on an agent-originated CREATE. */}}
+    {{/* */}}
+    {{/* EXCEPTION-ONLY, per the status-indicator rule: a human-created composition is the */}}
+    {{/* norm and gets no pill. The label is read straight off `.detail` — the RA already */}}
+    {{/* projects the whole object, so this needed no RESTAction change. */}}
+    {{/* */}}
+    {{/* The pill is the visible half of A17; the LABEL is the half that does the work, since */}}
+    {{/* it is selectable (`-l krateo.io/created-by=autopilot`) without opening a page. */}}
     - forPath: tags
-      expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Ready")) | .[0]) as $r | [ ( if .workloadHealthy == false then (if ($r != null and $r.status == "True") then {label:"Degraded", color:"orange"} else {label:"Unhealthy", color:"red"} end) elif $r == null then {label:"Unknown", color:"gray"} elif $r.status == "True" then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] }'
+      expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Ready")) | .[0]) as $r | [ ( if .workloadHealthy == false then (if ($r != null and $r.status == "True") then {label:"Degraded", color:"orange"} else {label:"Unhealthy", color:"red"} end) elif $r == null then {label:"Unknown", color:"gray"} elif $r.status == "True" then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] + (if ((.detail.metadata.labels // {})["krateo.io/created-by"] // "") != "" then [ {label: ("Created by " + ((.detail.metadata.labels // {})["krateo.io/created-by"])), color: "violet"} ] else [] end) }'
   resourcesRefs:
     items:
     - id: composition-detail-actions
