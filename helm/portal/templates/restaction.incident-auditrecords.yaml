@@ -1,24 +1,24 @@
-# REMEDIATION AUDIT LOG (feature #7) — the data-plane audit trail (audit.krateo.io/AuditRecord,
-# written by the gated-mutation producers) filtered to THIS incident's target resource(s), so the
-# incident detail can show "what has actually been applied against the objects this incident is
-# about" (actor · verb · resource · outcome · when). Nothing-hardcoded: the target set is DERIVED
-# server-side from the same report incident-detail resolves.
-#
-# Route params (name/namespace) ride in as ?extras (same mechanism as incident-detail). We list:
-#   · troubleshootingreports — to resolve THIS report and read its target resources
-#       (remediationPlan[].{gvr,target} + the analyzed composition), building a set of match keys
-#       "<resource-plural>/<name>" (namespace-agnostic — an AuditRecord may omit namespace).
-#   · auditrecords — the full audit trail (namespace-scoped list of the release namespace).
-# Then keep only the audit records whose action targets one of this incident's resources, shape the
-# display rows, and emit `count`/`hasRecords` so the page renders the section EXCEPTION-ONLY (hidden
-# when there are no records — matching the status-indicators-exception-only convention).
-#
-# AuditRecord shape verified live (gke_operations-dev … krateo-057, CRD auditrecords.audit.krateo.io
-# v1alpha1): spec.actor (human|agent), spec.agent.{id,sessionId}, spec.prompt,
-# spec.action.{verb,group,version,resource,namespace,name}, spec.blastRadius.{count,irreversible,
-# summary}, spec.outcome.{ok,status,message}, spec.requestedAt, spec.resolvedAt. No records exist on
-# the cluster yet (data-plane producers have not written any), so the row-shaping is authored to the
-# verified CRD schema; it is empty-safe (no report / no records → count 0, hasRecords false).
+{{/* REMEDIATION AUDIT LOG (feature #7) — the data-plane audit trail (audit.krateo.io/AuditRecord, */}}
+{{/* written by the gated-mutation producers) filtered to THIS incident's target resource(s), so the */}}
+{{/* incident detail can show "what has actually been applied against the objects this incident is */}}
+{{/* about" (actor · verb · resource · outcome · when). Nothing-hardcoded: the target set is DERIVED */}}
+{{/* server-side from the same report incident-detail resolves. */}}
+{{/* */}}
+{{/* Route params (name/namespace) ride in as ?extras (same mechanism as incident-detail). We list: */}}
+{{/* · troubleshootingreports — to resolve THIS report and read its target resources */}}
+{{/* (remediationPlan[].{gvr,target} + the analyzed composition), building a set of match keys */}}
+{{/* "<resource-plural>/<name>" (namespace-agnostic — an AuditRecord may omit namespace). */}}
+{{/* · auditrecords — the full audit trail (namespace-scoped list of the release namespace). */}}
+{{/* Then keep only the audit records whose action targets one of this incident's resources, shape the */}}
+{{/* display rows, and emit `count`/`hasRecords` so the page renders the section EXCEPTION-ONLY (hidden */}}
+{{/* when there are no records — matching the status-indicators-exception-only convention). */}}
+{{/* */}}
+{{/* AuditRecord shape verified live (gke_operations-dev … krateo-057, CRD auditrecords.audit.krateo.io */}}
+{{/* v1alpha1): spec.actor (human|agent), spec.agent.{id,sessionId}, spec.prompt, */}}
+{{/* spec.action.{verb,group,version,resource,namespace,name}, spec.blastRadius.{count,irreversible, */}}
+{{/* summary}, spec.outcome.{ok,status,message}, spec.requestedAt, spec.resolvedAt. No records exist on */}}
+{{/* the cluster yet (data-plane producers have not written any), so the row-shaping is authored to the */}}
+{{/* verified CRD schema; it is empty-safe (no report / no records → count 0, hasRecords false). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -33,16 +33,16 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: reportsError
-    # AuditRecords are namespace-scoped (audit.krateo.io/v1alpha1). continueOnError: if the CRD is
-    # not installed on a given cluster the list 404s and the section simply stays empty (never an
-    # error) — the incident detail still resolves fully.
+    {{/* AuditRecords are namespace-scoped (audit.krateo.io/v1alpha1). continueOnError: if the CRD is */}}
+    {{/* not installed on a given cluster the list 404s and the section simply stays empty (never an */}}
+    {{/* error) — the incident detail still resolves fully. */}}
     - name: audits
       path: /apis/audit.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/auditrecords
       verb: GET
       continueOnError: true
       errorKey: auditsError
-  # Literal `|` block (NOT folded `>`) — the filter carries `#` comments; a folded block would
-  # collapse newlines to spaces and comment out the rest of the jq (see incident-detail note).
+  {{/* Literal `|` block (NOT folded `>`) — the filter carries `#` comments; a folded block would */}}
+  {{/* collapse newlines to spaces and comment out the rest of the jq (see incident-detail note). */}}
   filter: |
     # UX-19 rel: normalise Python isoformat (drop `.ffffff`, fold +00:00 → Z) before parsing; render
     # a compact relative age. Unparseable → the raw first-10 (a date). (Same helper as incident-detail.)

@@ -1,38 +1,38 @@
-# Live log tail from ClickHouse (clickstack otel_logs) — the chronological complement to the
-# grouped error digest. Returns the most recent ERROR + WARN lines (time · service · level ·
-# message), newest-first. Snowplow's own per-request WARN ('userAccessFilter … JQ eval failed')
-# is pure request noise (76k/h against the 60k benchapp scale-test set) and is excluded; all
-# ERRORs, including snowplow's, are kept. level+msg are parsed from the Body JSON (SeverityText
-# is empty at ingest). External-fetch endpointRef, ClickHouse FORMAT JSON.
-# Optional ?serviceName= extras (the Settings component drill-down's "View logs" hand-off) scopes the
-# tail to one service SERVER-SIDE. The hand-offs pass three DIFFERENT shapes for this value — an
-# exact OTel ServiceName (obs-error-log-digest's .service), a pod name (obs-resource-table),
-# or a deployment name (component-detail) — and ServiceName (= app.kubernetes.io/instance) is
-# COARSER than either: e.g. deployment installer-core-provider and all three kagent-* deployments
-# collapse to ServiceName 'installer' / 'kagent'. So we RESOLVE the passed value to its canonical
-# ServiceName with a scalar subquery — the ServiceName that either equals the value or whose
-# "<name>-" prefixes it (longest wins) — then filter the outer query by `ServiceName IN (<subquery>)`.
-# `IN` (not `=`): a scalar `= (SELECT ...)` THROWS INCORRECT_RESULT_OF_SCALAR_SUBQUERY when the
-# resolver finds no match (garbage/typo service), 500-ing the whole tail; `IN` on an empty set just
-# matches nothing (0 rows, like the old contains) and STILL prunes via the primary key.
-# WHY not the old bidirectional positionCaseInsensitive contains: (1) CORRECTNESS — a substring
-# match bled unrelated services in (serviceName=installer also returned installers-v0-3-78..84-
-# controller, 8 services); exact resolution returns only 'installer'. (2) SPEED — ServiceName is the
-# LEADING primary-key column (ORDER BY (ServiceName, Timestamp)), so the exact `IN` set prunes via the
-# PK (~0.06s on a small service) where the un-indexable position() full-scanned (~2.7s, ~40x slower) —
-# the observability slowness Vincenzo flagged. The resolver subquery scans only the LowCardinality
-# ServiceName column (~0.1s, no time bound so a service quiet in the window still resolves).
-# The time filter is on TimestampTime (the partition/MinMax key toDate(TimestampTime)), NOT Timestamp:
-# filtering the DateTime64 Timestamp pruned ZERO partitions (all 7 TTL days read); TimestampTime prunes
-# to the window's days (~12832->2010 granules, identical result count) — a free extra cut on every
-# service. Display + ORDER BY still use the precise Timestamp. Empty svc = unscoped (no ServiceName
-# clause); the time filter still switches to TimestampTime.
-# Optional ?limit= extras (the obs-limit-chips selector) sets the row cap SERVER-SIDE so a user
-# can "extend the base set" without loading a huge history by default: LIMIT is dynamic from
-# .limit with a safe default (40) and a hard cap (1000 — protects ClickHouse). Any non-positive,
-# over-cap or non-numeric value falls back to the default 40. Mirrors the ?range= extras pattern
-# (server-side, extras-driven, no frontend change). Absent limit = byte-identical to the pre-limit
-# query (LIMIT 40).
+{{/* Live log tail from ClickHouse (clickstack otel_logs) — the chronological complement to the */}}
+{{/* grouped error digest. Returns the most recent ERROR + WARN lines (time · service · level · */}}
+{{/* message), newest-first. Snowplow's own per-request WARN ('userAccessFilter … JQ eval failed') */}}
+{{/* is pure request noise (76k/h against the 60k benchapp scale-test set) and is excluded; all */}}
+{{/* ERRORs, including snowplow's, are kept. level+msg are parsed from the Body JSON (SeverityText */}}
+{{/* is empty at ingest). External-fetch endpointRef, ClickHouse FORMAT JSON. */}}
+{{/* Optional ?serviceName= extras (the Settings component drill-down's "View logs" hand-off) scopes the */}}
+{{/* tail to one service SERVER-SIDE. The hand-offs pass three DIFFERENT shapes for this value — an */}}
+{{/* exact OTel ServiceName (obs-error-log-digest's .service), a pod name (obs-resource-table), */}}
+{{/* or a deployment name (component-detail) — and ServiceName (= app.kubernetes.io/instance) is */}}
+{{/* COARSER than either: e.g. deployment installer-core-provider and all three kagent-* deployments */}}
+{{/* collapse to ServiceName 'installer' / 'kagent'. So we RESOLVE the passed value to its canonical */}}
+{{/* ServiceName with a scalar subquery — the ServiceName that either equals the value or whose */}}
+{{/* "<name>-" prefixes it (longest wins) — then filter the outer query by `ServiceName IN (<subquery>)`. */}}
+{{/* `IN` (not `=`): a scalar `= (SELECT ...)` THROWS INCORRECT_RESULT_OF_SCALAR_SUBQUERY when the */}}
+{{/* resolver finds no match (garbage/typo service), 500-ing the whole tail; `IN` on an empty set just */}}
+{{/* matches nothing (0 rows, like the old contains) and STILL prunes via the primary key. */}}
+{{/* WHY not the old bidirectional positionCaseInsensitive contains: (1) CORRECTNESS — a substring */}}
+{{/* match bled unrelated services in (serviceName=installer also returned installers-v0-3-78..84- */}}
+{{/* controller, 8 services); exact resolution returns only 'installer'. (2) SPEED — ServiceName is the */}}
+{{/* LEADING primary-key column (ORDER BY (ServiceName, Timestamp)), so the exact `IN` set prunes via the */}}
+{{/* PK (~0.06s on a small service) where the un-indexable position() full-scanned (~2.7s, ~40x slower) — */}}
+{{/* the observability slowness Vincenzo flagged. The resolver subquery scans only the LowCardinality */}}
+{{/* ServiceName column (~0.1s, no time bound so a service quiet in the window still resolves). */}}
+{{/* The time filter is on TimestampTime (the partition/MinMax key toDate(TimestampTime)), NOT Timestamp: */}}
+{{/* filtering the DateTime64 Timestamp pruned ZERO partitions (all 7 TTL days read); TimestampTime prunes */}}
+{{/* to the window's days (~12832->2010 granules, identical result count) — a free extra cut on every */}}
+{{/* service. Display + ORDER BY still use the precise Timestamp. Empty svc = unscoped (no ServiceName */}}
+{{/* clause); the time filter still switches to TimestampTime. */}}
+{{/* Optional ?limit= extras (the obs-limit-chips selector) sets the row cap SERVER-SIDE so a user */}}
+{{/* can "extend the base set" without loading a huge history by default: LIMIT is dynamic from */}}
+{{/* .limit with a safe default (40) and a hard cap (1000 — protects ClickHouse). Any non-positive, */}}
+{{/* over-cap or non-numeric value falls back to the default 40. Mirrors the ?range= extras pattern */}}
+{{/* (server-side, extras-driven, no frontend change). Absent limit = byte-identical to the pre-limit */}}
+{{/* query (LIMIT 40). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -52,6 +52,6 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: streamError
-  # stream => {data:[{ts,svc,lvl,msg}]}, newest-first.
+  {{/* stream => {data:[{ts,svc,lvl,msg}]}, newest-first. */}}
   filter: >
     { rows: ((.stream.data) // []) }

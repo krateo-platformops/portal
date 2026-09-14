@@ -1,20 +1,20 @@
-# The /alerts/{namespace}/{name} page header — the alert's display name, its state pill and the
-# page's three actions, in one CR.
-#
-# Replaces FOUR: flex.alert-detail-header-block, flex.alert-detail-titleline,
-# paragraph.alert-detail-title and tag.alert-detail-state.
-#
-# THIS IS THE PAGE THE MIGRATION MISSED FOUR TIMES. The first hand survey matched header CRs by
-# name and this page spells its title container `-titleline`, not `-title-line` or `-header-block`.
-# The surveys that followed inherited that miss. The P25 lint written to end the guesswork then
-# missed it a fourth time, because its first draft treated a page whose `items` are assembled by a
-# jq template as un-judgeable and counted that as a pass — and every detail page in this chart is
-# authored exactly that way. P25 now recovers the first child from the template's own first
-# literal, and reports a page it cannot read instead of passing it.
-#
-# THE TAG'S TWO TEMPLATES BECOME ONE. label and color ran as separate expressions over the same
-# fields, so an edit to one and not the other produced a pill whose word and colour disagreed.
-# Evaluated once now, and the fallbacks are carried over exactly: Pending/orange.
+{{/* The /alerts/{namespace}/{name} page header — the alert's display name, its state pill and the */}}
+{{/* page's three actions, in one CR. */}}
+{{/* */}}
+{{/* Replaces FOUR: flex.alert-detail-header-block, flex.alert-detail-titleline, */}}
+{{/* paragraph.alert-detail-title and tag.alert-detail-state. */}}
+{{/* */}}
+{{/* THIS IS THE PAGE THE MIGRATION MISSED FOUR TIMES. The first hand survey matched header CRs by */}}
+{{/* name and this page spells its title container `-titleline`, not `-title-line` or `-header-block`. */}}
+{{/* The surveys that followed inherited that miss. The P25 lint written to end the guesswork then */}}
+{{/* missed it a fourth time, because its first draft treated a page whose `items` are assembled by a */}}
+{{/* jq template as un-judgeable and counted that as a pass — and every detail page in this chart is */}}
+{{/* authored exactly that way. P25 now recovers the first child from the template's own first */}}
+{{/* literal, and reports a page it cannot read instead of passing it. */}}
+{{/* */}}
+{{/* THE TAG'S TWO TEMPLATES BECOME ONE. label and color ran as separate expressions over the same */}}
+{{/* fields, so an edit to one and not the other produced a pill whose word and colour disagreed. */}}
+{{/* Evaluated once now, and the fallbacks are carried over exactly: Pending/orange. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -37,10 +37,10 @@ spec:
     items:
     - resourceRefId: alert-detail-actions
   widgetDataTemplate:
-    # Was paragraph.alert-detail-title's `forPath: text` (level 1 — PageHeader sets the rank).
+    {{/* Was paragraph.alert-detail-title's `forPath: text` (level 1 — PageHeader sets the rank). */}}
     - forPath: title
       expression: '${ .displayName // "alert" }'
-    # Was tag.alert-detail-state's TWO templates, fused so label and colour cannot disagree.
+    {{/* Was tag.alert-detail-state's TWO templates, fused so label and colour cannot disagree. */}}
     - forPath: tags
       expression: '${ [ { label: (.stateLabel // "Pending"), color: (.stateColor // "orange") } ] }'
   resourcesRefs:

@@ -1,26 +1,26 @@
-# Model rows. Two facts are deliberately kept apart, because collapsing them has misled people
-# before: the CONFIG NAME (gemini-pro) and what it RESOLVES to. On krateo-057 gemini-pro and
-# gemini-flash both resolve to the same gemini-3.8-flash behind the same gateway, so showing only
-# the config name implies two models where there is one.
-#
-# `Gateway route` is resolved live: the ModelConfig's baseUrl is split into gateway host + path,
-# matched against the HTTPRoute set with Gateway API's own semantics (parentRef name == the host's
-# first label; `.path.type` honoured — Exact, or PathPrefix matched segment-wise so a route
-# declared `/llm` still serves `/llm/v1`; among matching rules the fewest header constraints and
-# the longest prefix win, and a header-scoped winner says so), then the MATCHING RULE's backendRefs
-# are named — not every rule's, which on a multi-rule route would attribute a backend this agent's
-# traffic never reaches. Four honest outcomes instead of a guess: routed (name → backend), the
-# ModelConfig sets no baseUrl at all, no HTTPRoute matches this baseUrl, or the HTTPRoute read
-# failed. `column: 1` because these values are full URLs.
-#
-# WHEN THE ModelConfig ITSELF IS NOT READABLE, THE EGRESS ROWS ARE NOT RENDERED AT ALL. A tenant
-# who holds `get agents` in one namespace but no cluster-wide `list modelconfigs` gets an empty
-# ModelConfig list from snowplow's userAccessFilter — not an error — and the old card read that
-# empty result as ground truth: "baseUrl: none — the provider SDK's own default endpoint is used",
-# "Gateway route: not applicable — no baseUrl to route". Both are affirmative claims that the agent
-# talks straight to the provider, un-gatewayed, when in fact every token it sends may go through
-# the gateway. `configFound` (computed by the RA) now gates those two rows away, and `Resolves to`
-# carries the one honest sentence instead. Not readable is never rendered as not there.
+{{/* Model rows. Two facts are deliberately kept apart, because collapsing them has misled people */}}
+{{/* before: the CONFIG NAME (gemini-pro) and what it RESOLVES to. On krateo-057 gemini-pro and */}}
+{{/* gemini-flash both resolve to the same gemini-3.8-flash behind the same gateway, so showing only */}}
+{{/* the config name implies two models where there is one. */}}
+{{/* */}}
+{{/* `Gateway route` is resolved live: the ModelConfig's baseUrl is split into gateway host + path, */}}
+{{/* matched against the HTTPRoute set with Gateway API's own semantics (parentRef name == the host's */}}
+{{/* first label; `.path.type` honoured — Exact, or PathPrefix matched segment-wise so a route */}}
+{{/* declared `/llm` still serves `/llm/v1`; among matching rules the fewest header constraints and */}}
+{{/* the longest prefix win, and a header-scoped winner says so), then the MATCHING RULE's backendRefs */}}
+{{/* are named — not every rule's, which on a multi-rule route would attribute a backend this agent's */}}
+{{/* traffic never reaches. Four honest outcomes instead of a guess: routed (name → backend), the */}}
+{{/* ModelConfig sets no baseUrl at all, no HTTPRoute matches this baseUrl, or the HTTPRoute read */}}
+{{/* failed. `column: 1` because these values are full URLs. */}}
+{{/* */}}
+{{/* WHEN THE ModelConfig ITSELF IS NOT READABLE, THE EGRESS ROWS ARE NOT RENDERED AT ALL. A tenant */}}
+{{/* who holds `get agents` in one namespace but no cluster-wide `list modelconfigs` gets an empty */}}
+{{/* ModelConfig list from snowplow's userAccessFilter — not an error — and the old card read that */}}
+{{/* empty result as ground truth: "baseUrl: none — the provider SDK's own default endpoint is used", */}}
+{{/* "Gateway route: not applicable — no baseUrl to route". Both are affirmative claims that the agent */}}
+{{/* talks straight to the provider, un-gatewayed, when in fact every token it sends may go through */}}
+{{/* the gateway. `configFound` (computed by the RA) now gates those two rows away, and `Resolves to` */}}
+{{/* carries the one honest sentence instead. Not readable is never rendered as not there. */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,7 +29,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  {{/* F6 (snowplow#130): the route params this widget's resolution varies by. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: agent-detail

@@ -1,16 +1,16 @@
-# Data source for ONE incident — /incidents/{namespace}/{name} (route params ride in as
-# ?extras .name/.namespace, same mechanism as composition-detail). Lists the release-namespace
-# TroubleshootingReports ONCE and shapes EVERYTHING server-side (nothing-hardcoded):
-#   header fields (title / lifecycle+colour / trigger / mono ref / meta line / confidence),
-#   analyzedRows (evidence table), evidenceMd (numbered source cards as markdown — type badge,
-#   ref, verbatim mono excerpt), gapsText (missing context + assumptions, exception-only),
-#   traceItems (antd Steps items, each citing "→ evidence #n", 1-based; final step crimson when
-#   a root cause is declared), rootCause fields, remSteps (per-step REST wiring: restVerb map,
-#   gvr → apiVersion/resource split, op line, payload, headers, markdown row, applied flag),
-#   similar (same rootCause.category, self excluded, ≤4), proseMd (v1 fallback), and
-#   `sections` — the flags the page Flex uses to include ONLY the sections that exist, so a
-#   v1 prose-only report renders as prose and never as fabricated empty structure.
-# The full list (not a per-name GET) also feeds the SIMILAR strip in the same resolution.
+{{/* Data source for ONE incident — /incidents/{namespace}/{name} (route params ride in as */}}
+{{/* ?extras .name/.namespace, same mechanism as composition-detail). Lists the release-namespace */}}
+{{/* TroubleshootingReports ONCE and shapes EVERYTHING server-side (nothing-hardcoded): */}}
+{{/* header fields (title / lifecycle+colour / trigger / mono ref / meta line / confidence), */}}
+{{/* analyzedRows (evidence table), evidenceMd (numbered source cards as markdown — type badge, */}}
+{{/* ref, verbatim mono excerpt), gapsText (missing context + assumptions, exception-only), */}}
+{{/* traceItems (antd Steps items, each citing "→ evidence #n", 1-based; final step crimson when */}}
+{{/* a root cause is declared), rootCause fields, remSteps (per-step REST wiring: restVerb map, */}}
+{{/* gvr → apiVersion/resource split, op line, payload, headers, markdown row, applied flag), */}}
+{{/* similar (same rootCause.category, self excluded, ≤4), proseMd (v1 fallback), and */}}
+{{/* `sections` — the flags the page Flex uses to include ONLY the sections that exist, so a */}}
+{{/* v1 prose-only report renders as prose and never as fabricated empty structure. */}}
+{{/* The full list (not a per-name GET) also feeds the SIMILAR strip in the same resolution. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -25,32 +25,32 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: reportsError
-      # UX-22 (incident↔alert coupling): list the alerts so we can resolve the triggering alert's
-      # real metadata.name. A report keys its alert by DISPLAY name (spec.alertName, may carry an
-      # emoji) while the Alert CR's identity is a slug (metadata.name); the slug can't be derived
-      # from the display name. So we match a NORMALIZED display name (lowercased, alphanumerics
-      # only) against the live alerts and read back metadata.name — only then is the "Alert:" chip
-      # a real link to /alerts/{ns}/{name}. No match → the alert name renders as inert text (never
-      # a broken link). continueOnError: the incident detail still resolves fully if alerts 404.
+      {{/* UX-22 (incident↔alert coupling): list the alerts so we can resolve the triggering alert's */}}
+      {{/* real metadata.name. A report keys its alert by DISPLAY name (spec.alertName, may carry an */}}
+      {{/* emoji) while the Alert CR's identity is a slug (metadata.name); the slug can't be derived */}}
+      {{/* from the display name. So we match a NORMALIZED display name (lowercased, alphanumerics */}}
+      {{/* only) against the live alerts and read back metadata.name — only then is the "Alert:" chip */}}
+      {{/* a real link to /alerts/{ns}/{name}. No match → the alert name renders as inert text (never */}}
+      {{/* a broken link). continueOnError: the incident detail still resolves fully if alerts 404. */}}
     - name: alerts
       path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/alerts
       verb: GET
       continueOnError: true
       errorKey: alertsError
-    # Feature #7 (remediation audit log): list the data-plane audit trail so the page can gate the
-    # "Remediation audit" section on whether THIS incident's resources have any recorded actions
-    # (sections.audit below). The section CONTENT (the row table) is shaped by the sibling
-    # restaction.incident-auditrecords; here we only need the count to decide visibility, keeping the
-    # single sections-flag gating authority the page Flex already uses. continueOnError: if the
-    # audit.krateo.io CRD is absent the list 404s → the section stays hidden (never an error).
+    {{/* Feature #7 (remediation audit log): list the data-plane audit trail so the page can gate the */}}
+    {{/* "Remediation audit" section on whether THIS incident's resources have any recorded actions */}}
+    {{/* (sections.audit below). The section CONTENT (the row table) is shaped by the sibling */}}
+    {{/* restaction.incident-auditrecords; here we only need the count to decide visibility, keeping the */}}
+    {{/* single sections-flag gating authority the page Flex already uses. continueOnError: if the */}}
+    {{/* audit.krateo.io CRD is absent the list 404s → the section stays hidden (never an error). */}}
     - name: audits
       path: /apis/audit.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/auditrecords
       verb: GET
       continueOnError: true
       errorKey: auditsError
-  # NOTE: literal `|` block (NOT folded `>`) — the filter contains `#` comments, and a folded
-  # block collapses newlines to spaces so every `#` would comment out the rest of the (now single-
-  # line) jq, silently breaking the whole RA. `|` preserves the line breaks so comments terminate.
+  {{/* NOTE: literal `|` block (NOT folded `>`) — the filter contains `#` comments, and a folded */}}
+  {{/* block collapses newlines to spaces so every `#` would comment out the rest of the (now single- */}}
+  {{/* line) jq, silently breaking the whole RA. `|` preserves the line breaks so comments terminate. */}}
   filter: |
     # UX-19: fromdateiso8601 only parses `...SSZ` (no fractional seconds, no numeric offset). The
     # troubleshooter writes Python isoformat — `2026-07-22T21:14:00.892447+00:00` — so NORMALISE

@@ -1,15 +1,15 @@
-# "Investigate with Autopilot" — preserves the ask flow the OLD /alerts row-click used
-# (row-click now deep-links to THIS detail page instead of /incidents?ask=, so the seed had
-# to move somewhere; item 25). Navigates to /incidents with an ?ask seed the AutopilotProvider
-# consumes on mount (opens the rail pre-seeded to investigate THIS alert). The concrete href is
-# baked server-side by alert-detail (.askHref, @uri-encoded once), so the click is a plain
-# literal navigate — same pattern as composition-detail-diagnose / incident-ref-link.
-# Graceful: frontend >= 1.3.76 shows an honest "Autopilot is not enabled" notice and strips
-# the ?ask if the rail is disabled.
-# #86 §0.9a: promoted to type:primary — on the alert-detail page this is THE primary next action
-# (start the investigation), so it should read as the page's main CTA, not a secondary button.
-# G (Vincenzo): this now sits in the pagehead action cluster (flex.alert-detail-actions) beside
-# plain Edit + Delete — it stays primary (the main next action) but is no longer the ONLY action.
+{{/* "Investigate with Autopilot" — preserves the ask flow the OLD /alerts row-click used */}}
+{{/* (row-click now deep-links to THIS detail page instead of /incidents?ask=, so the seed had */}}
+{{/* to move somewhere; item 25). Navigates to /incidents with an ?ask seed the AutopilotProvider */}}
+{{/* consumes on mount (opens the rail pre-seeded to investigate THIS alert). The concrete href is */}}
+{{/* baked server-side by alert-detail (.askHref, @uri-encoded once), so the click is a plain */}}
+{{/* literal navigate — same pattern as composition-detail-diagnose / incident-ref-link. */}}
+{{/* Graceful: frontend >= 1.3.76 shows an honest "Autopilot is not enabled" notice and strips */}}
+{{/* the ?ask if the rail is disabled. */}}
+{{/* #86 §0.9a: promoted to type:primary — on the alert-detail page this is THE primary next action */}}
+{{/* (start the investigation), so it should read as the page's main CTA, not a secondary button. */}}
+{{/* G (Vincenzo): this now sits in the pagehead action cluster (flex.alert-detail-actions) beside */}}
+{{/* plain Edit + Delete — it stays primary (the main next action) but is no longer the ONLY action. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,21 +18,21 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: alert-detail
     namespace: {{ .Release.Namespace }}
   widgetData:
-    # A4: ONE canonical label for the Autopilot entry point. Six CTAs carried three strings
-    # ("Ask Autopilot →", "Investigate with Autopilot", "Diagnose with Autopilot") for the
-    # same mechanism — a Button navigating to ?ask=<prompt>. "Ask Autopilot" describes what
-    # the BUTTON does; the other two described what the page was about, which is the page's
-    # job, not the label's. The trailing arrow went with them: it implied navigation away.
+    {{/* A4: ONE canonical label for the Autopilot entry point. Six CTAs carried three strings */}}
+    {{/* ("Ask Autopilot →", "Investigate with Autopilot", "Diagnose with Autopilot") for the */}}
+    {{/* same mechanism — a Button navigating to ?ask=<prompt>. "Ask Autopilot" describes what */}}
+    {{/* the BUTTON does; the other two described what the page was about, which is the page's */}}
+    {{/* job, not the label's. The trailing arrow went with them: it implied navigation away. */}}
     label: Ask Autopilot
-    # #86 §0.9a: primary — this is the alert-detail page's main next action (start the investigation).
+    {{/* #86 §0.9a: primary — this is the alert-detail page's main next action (start the investigation). */}}
     type: primary
-    # middle — matches the Edit/Delete buttons it now sits beside in the pagehead action cluster.
+    {{/* middle — matches the Edit/Delete buttons it now sits beside in the pagehead action cluster. */}}
     size: middle
     icon: fa-wand-magic-sparkles
     clickActionId: investigate
@@ -42,8 +42,8 @@ spec:
           type: navigate
           path: /incidents
   widgetDataTemplate:
-    # Server-built /incidents?ask= href. Defensive fallback to the bare /incidents triage
-    # page (never a 404) if askHref is somehow empty.
+    {{/* Server-built /incidents?ask= href. Defensive fallback to the bare /incidents triage */}}
+    {{/* page (never a 404) if askHref is somehow empty. */}}
     - forPath: actions
       expression: '${ { navigate: [ { id: "investigate", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/incidents" end) } ] } }'
   resourcesRefs:

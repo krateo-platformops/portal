@@ -1,25 +1,25 @@
-# THE SILENT FAILURE, MADE LOUD. An Agent whose gateway registration is incomplete reports Ready and
-# Accepted, resolves its model, lists its tools and renders a perfectly healthy detail page — while
-# the gateway refuses every request to it. Nothing in this product said so before this widget: the
-# create page warns that the state EXISTS, the inventory and this page never showed WHO was in it.
-# krateo-blueprint-agent sat there for a week from 2026-09-04, delegated to by autopilot and 403ing
-# at the agent-card hop.
-#
-# Every word is computed server-side by restaction.agent-detail (.registration), because the title
-# and the body both depend on WHICH half is missing — no route, no Allow clause for calls, or no
-# Allow clause for the agent-card GET — and those are fixed in different places. The widget places
-# strings and nothing else.
-#
-# `type: error`, not `warning`: the alerts CRD enum is success|info|warning|error (checked on
-# krateo-057 — there is no `danger` here, unlike Paragraph's secondary|success|warning|danger), and
-# this is a service that is down, not an advisory. The create page's sibling Alert stays `warning`
-# because there it is a heads-up about a state that has not happened yet.
-#
-# NOT rendered when registration merely could not be CHECKED — flex.page-agent-detail gates on
-# .sections.registration, which the RA sets only for a proven break. A reader with no
-# gateway.networking.k8s.io or agentgateway.dev grant would otherwise meet this alarm on every agent
-# in the fleet, and an alarm that always fires is one nobody reads. That case is stated once, in the
-# identity card's "Reachable at" row, which is where the rest of the reachability facts already are.
+{{/* THE SILENT FAILURE, MADE LOUD. An Agent whose gateway registration is incomplete reports Ready and */}}
+{{/* Accepted, resolves its model, lists its tools and renders a perfectly healthy detail page — while */}}
+{{/* the gateway refuses every request to it. Nothing in this product said so before this widget: the */}}
+{{/* create page warns that the state EXISTS, the inventory and this page never showed WHO was in it. */}}
+{{/* krateo-blueprint-agent sat there for a week from 2026-09-04, delegated to by autopilot and 403ing */}}
+{{/* at the agent-card hop. */}}
+{{/* */}}
+{{/* Every word is computed server-side by restaction.agent-detail (.registration), because the title */}}
+{{/* and the body both depend on WHICH half is missing — no route, no Allow clause for calls, or no */}}
+{{/* Allow clause for the agent-card GET — and those are fixed in different places. The widget places */}}
+{{/* strings and nothing else. */}}
+{{/* */}}
+{{/* `type: error`, not `warning`: the alerts CRD enum is success|info|warning|error (checked on */}}
+{{/* krateo-057 — there is no `danger` here, unlike Paragraph's secondary|success|warning|danger), and */}}
+{{/* this is a service that is down, not an advisory. The create page's sibling Alert stays `warning` */}}
+{{/* because there it is a heads-up about a state that has not happened yet. */}}
+{{/* */}}
+{{/* NOT rendered when registration merely could not be CHECKED — flex.page-agent-detail gates on */}}
+{{/* .sections.registration, which the RA sets only for a proven break. A reader with no */}}
+{{/* gateway.networking.k8s.io or agentgateway.dev grant would otherwise meet this alarm on every agent */}}
+{{/* in the fleet, and an alarm that always fires is one nobody reads. That case is stated once, in the */}}
+{{/* identity card's "Reachable at" row, which is where the rest of the reachability facts already are. */}}
 kind: Alert
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -28,14 +28,14 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  {{/* F6 (snowplow#130): the route params this widget's resolution varies by. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: agent-detail
     namespace: {{ .Release.Namespace }}
-  # Static fallback for the frame before the action resolves. It can safely state the break in
-  # general terms — this widget is only ever fetched because flex.page-agent-detail already resolved
-  # .sections.registration true off the same apiRef — while the templated title names which half.
+  {{/* Static fallback for the frame before the action resolves. It can safely state the break in */}}
+  {{/* general terms — this widget is only ever fetched because flex.page-agent-detail already resolved */}}
+  {{/* .sections.registration true off the same apiRef — while the templated title names which half. */}}
   widgetData:
     title: This agent is not fully registered at the agent gateway
     type: error

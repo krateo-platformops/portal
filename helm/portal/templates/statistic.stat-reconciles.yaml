@@ -6,23 +6,23 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, q, scope, status]
   widgetData:
     title: Pending
     value: 0
-    # The number takes the pending status colour (orange/warning) so it matches its own
-    # "%" delta tag — same pattern as Failed (var(--error-color)) and Healthy (var(--green-color)).
+    {{/* The number takes the pending status colour (orange/warning) so it matches its own */}}
+    {{/* "%" delta tag — same pattern as Failed (var(--error-color)) and Healthy (var(--green-color)). */}}
     valueStyle:
       color: var(--warning-color)
-    # live-refresh: watch the composition kinds in the data (computed, not hardcoded)
+    {{/* live-refresh: watch the composition kinds in the data (computed, not hardcoded) */}}
     watch: []
   widgetDataTemplate:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
   - forPath: value
-    # Use the RA's projection-aware `.state == "pending"` so the four cards partition consistently
-    # via one classifier (healthy + pending + failed = total) and agree with the reconciliation rail.
+    {{/* Use the RA's projection-aware `.state == "pending"` so the four cards partition consistently */}}
+    {{/* via one classifier (healthy + pending + failed = total) and agree with the reconciliation rail. */}}
     expression: '${ [.list[] | select(.state == "pending")] | length }'
   apiRef:
     name: compositions-list

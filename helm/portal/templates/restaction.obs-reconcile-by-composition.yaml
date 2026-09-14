@@ -1,8 +1,8 @@
-# Per-composition reconcile breakdown from ClickHouse (clickstack otel_traces). Each
-# `reconcile` span carries the composition it reconciled in SpanAttributes[k8s.object.*];
-# this GROUPs the last 6h by kind+name → count + p95 + avg latency (ms), slowest-first,
-# so the observability table shows WHICH compositions are hot/slow. Same external-fetch
-# endpointRef pattern as obs-reconcile-metrics (ClickHouse HTTP, FORMAT JSON via query).
+{{/* Per-composition reconcile breakdown from ClickHouse (clickstack otel_traces). Each */}}
+{{/* `reconcile` span carries the composition it reconciled in SpanAttributes[k8s.object.*]; */}}
+{{/* this GROUPs the last 6h by kind+name → count + p95 + avg latency (ms), slowest-first, */}}
+{{/* so the observability table shows WHICH compositions are hot/slow. Same external-fetch */}}
+{{/* endpointRef pattern as obs-reconcile-metrics (ClickHouse HTTP, FORMAT JSON via query). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -22,6 +22,6 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: bycError
-  # ClickHouse FORMAT JSON => {meta, data:[{kind,name,reconciles,p95_ms,avg_ms}], rows}.
+  {{/* ClickHouse FORMAT JSON => {meta, data:[{kind,name,reconciles,p95_ms,avg_ms}], rows}. */}}
   filter: >
     { rows: ((.byc.data) // []) }

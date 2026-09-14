@@ -1,42 +1,42 @@
-# Convention page root for /agents/policies — the policy surface of the agent gateway.
-#
-# Reached by the `page:` convention — menu.sidebar-nav order 937, `page: agents-policies`. This
-# header used to say it was reached via `resourceRefId: agents-policies` "whose resourcesRefs entry
-# carries this admin-tier namespace explicitly"; there is no such resourcesRefs row in
-# menu.sidebar-nav (only `id: agents`, for /agents itself), so that was never true of this page and
-# the tier namespace it justified was a latent 404. See the NAMESPACE note below.
-#
-# WHY THIS IS ITS OWN ROUTE AND NOT A SECTION OF /agents (recommendation for the lead):
-#   * Different question, different reader. /agents answers "what agents exist and what may they
-#     call" — an operator's inventory. This answers "what does the gateway enforce on every hop" —
-#     a platform/security question. The two are read at different times, by different people.
-#   * Different cadence. The agent inventory changes whenever someone spawns an agent; the policy
-#     set changes only when the gateway chart is upgraded. Bolting a rarely-changing 29-object
-#     appendix onto a live inventory buries the inventory.
-#   * Size. Seven populated sections over 29 policies is a full page. Appended to /agents it would sit below
-#     the agent table and, on every visit, cost a second RESTAction (two more cluster-scope lists)
-#     for content almost nobody scrolled to.
-# The PATH nests under /agents because this is the enforcement detail behind Agents, not a peer of
-# it. The SIDEBAR cannot express that nesting: the Menu widget is flat — its items[] offers only
-# label/icon/order/path/page/resourceRefId and a `divider` type, with no children (verified against
-# the live menus CRD). So the relationship is carried by ADJACENCY instead: a Policies entry at
-# order 15, immediately under Agents at 14. The better end state is no sidebar entry at all,
-# reached by a navigate action from /agents — but that needs an affordance on /agents which does
-# not exist yet, and a Button whose target does not exist is dead UI. The adjacent entry ships now
-# and can be dropped the day /agents grows the link.
-#
-# No page-level CTA: every action here (edit a policy, disable a guard) is a write to a
-# chart-managed object, and there is no form behind it yet. A Button whose target does not exist is
-# dead UI and a CI failure, so the button lands with the form, not before it.
-# NAMESPACE: the release namespace, NOT the admin tier namespace. This root is reached by the
-# `page:` convention (menu.sidebar-nav order 937, `page: agents-policies`), which resolves
-# flexes/page-<slug> in the namespace the FRONTEND is configured with — Menu.tsx reads
-# config.params.FRONTEND_NAMESPACE and hands it to buildNavModel; the tier namespace never
-# reaches that lookup. Parked in the admin tier it resolved only while .Values.tiers.admin was
-# "" (its default) and would 404 the moment an install tiers its pages — the exact layout the
-# tier helper exists for. Same note, same reason, as page-agent-create and page-agent-detail.
-# (page-agents CAN stay tiered: its nav entry uses resourceRefId, and that resourcesRefs row
-# carries an explicit namespace. A `page:` entry cannot.)
+{{/* Convention page root for /agents/policies — the policy surface of the agent gateway. */}}
+{{/* */}}
+{{/* Reached by the `page:` convention — menu.sidebar-nav order 937, `page: agents-policies`. This */}}
+{{/* header used to say it was reached via `resourceRefId: agents-policies` "whose resourcesRefs entry */}}
+{{/* carries this admin-tier namespace explicitly"; there is no such resourcesRefs row in */}}
+{{/* menu.sidebar-nav (only `id: agents`, for /agents itself), so that was never true of this page and */}}
+{{/* the tier namespace it justified was a latent 404. See the NAMESPACE note below. */}}
+{{/* */}}
+{{/* WHY THIS IS ITS OWN ROUTE AND NOT A SECTION OF /agents (recommendation for the lead): */}}
+{{/* * Different question, different reader. /agents answers "what agents exist and what may they */}}
+{{/* call" — an operator's inventory. This answers "what does the gateway enforce on every hop" — */}}
+{{/* a platform/security question. The two are read at different times, by different people. */}}
+{{/* * Different cadence. The agent inventory changes whenever someone spawns an agent; the policy */}}
+{{/* set changes only when the gateway chart is upgraded. Bolting a rarely-changing 29-object */}}
+{{/* appendix onto a live inventory buries the inventory. */}}
+{{/* * Size. Seven populated sections over 29 policies is a full page. Appended to /agents it would sit below */}}
+{{/* the agent table and, on every visit, cost a second RESTAction (two more cluster-scope lists) */}}
+{{/* for content almost nobody scrolled to. */}}
+{{/* The PATH nests under /agents because this is the enforcement detail behind Agents, not a peer of */}}
+{{/* it. The SIDEBAR cannot express that nesting: the Menu widget is flat — its items[] offers only */}}
+{{/* label/icon/order/path/page/resourceRefId and a `divider` type, with no children (verified against */}}
+{{/* the live menus CRD). So the relationship is carried by ADJACENCY instead: a Policies entry at */}}
+{{/* order 15, immediately under Agents at 14. The better end state is no sidebar entry at all, */}}
+{{/* reached by a navigate action from /agents — but that needs an affordance on /agents which does */}}
+{{/* not exist yet, and a Button whose target does not exist is dead UI. The adjacent entry ships now */}}
+{{/* and can be dropped the day /agents grows the link. */}}
+{{/* */}}
+{{/* No page-level CTA: every action here (edit a policy, disable a guard) is a write to a */}}
+{{/* chart-managed object, and there is no form behind it yet. A Button whose target does not exist is */}}
+{{/* dead UI and a CI failure, so the button lands with the form, not before it. */}}
+{{/* NAMESPACE: the release namespace, NOT the admin tier namespace. This root is reached by the */}}
+{{/* `page:` convention (menu.sidebar-nav order 937, `page: agents-policies`), which resolves */}}
+{{/* flexes/page-<slug> in the namespace the FRONTEND is configured with — Menu.tsx reads */}}
+{{/* config.params.FRONTEND_NAMESPACE and hands it to buildNavModel; the tier namespace never */}}
+{{/* reaches that lookup. Parked in the admin tier it resolved only while .Values.tiers.admin was */}}
+{{/* "" (its default) and would 404 the moment an install tiers its pages — the exact layout the */}}
+{{/* tier helper exists for. Same note, same reason, as page-agent-create and page-agent-detail. */}}
+{{/* (page-agents CAN stay tiered: its nav entry uses resourceRefId, and that resourcesRefs row */}}
+{{/* carries an explicit namespace. A `page:` entry cannot.) */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -56,11 +56,11 @@ spec:
     - resourceRefId: agents-policies-groups
   resourcesRefs:
     items:
-    # Written out rather than looped. The `range (list "a" "b" "c")` this replaces existed to
-    # avoid repeating one identical block three times; with the header now a PageHeader and the
-    # CTA absorbed into it, the two survivors have DIFFERENT `resource:` values, so the loop
-    # cannot express them anyway. It also hid all three names from an ordinary grep — which is how
-    # a CR gets deleted while something still references it.
+    {{/* Written out rather than looped. The `range (list "a" "b" "c")` this replaces existed to */}}
+    {{/* avoid repeating one identical block three times; with the header now a PageHeader and the */}}
+    {{/* CTA absorbed into it, the two survivors have DIFFERENT `resource:` values, so the loop */}}
+    {{/* cannot express them anyway. It also hid all three names from an ordinary grep — which is how */}}
+    {{/* a CR gets deleted while something still references it. */}}
     - id: agents-policies-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-policies-page-header

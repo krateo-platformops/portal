@@ -1,24 +1,24 @@
-# One row per environment variable the CR declares at declarative.deployment.env, each checked
-# against the container that is actually running.
-#
-# WHY IT IS DECLARED-vs-RUNNING AND NOT JUST THE POD'S ENV. The running container on krateo-057
-# carries 43 variables where the CR declares 5: the kubelet injects a service link for every Service
-# in the namespace (38 OTEL_COLLECTOR_… entries today), and dumping all of them would bury the five
-# that a human chose — KAGENT_PROPAGATE_TOKEN, which decides whether the caller's JWT rides along on
-# every hop, among them. So the rows are the DECLARED set, which is the auditable one, and the count
-# of everything else is stated in the card caption rather than listed.
-#
-# `In the pod` is exception-only in colour, not in content: it is filled on every row so antd does
-# not log a missing cell, and it goes orange only for a genuine contradiction — a declared variable
-# absent from the running container, or one whose literal value differs. An unreadable Deployment
-# and an unmatched one are NOT drift and are never coloured as such; they say what happened instead.
-# That distinction is the whole value of the column, because "declared but not running" is a real
-# and silent failure mode (a controller that ignored the field, a pod that never rolled) and "we
-# could not read the pod" is not a failure of the agent at all.
-#
-# A valueFrom variable renders as its SOURCE kind ("from secretKeyRef"), never as a value — this
-# page does not read Secrets and must not look as though it did — and is never marked as drift,
-# since the pod's literal value and the CR's reference are not comparable.
+{{/* One row per environment variable the CR declares at declarative.deployment.env, each checked */}}
+{{/* against the container that is actually running. */}}
+{{/* */}}
+{{/* WHY IT IS DECLARED-vs-RUNNING AND NOT JUST THE POD'S ENV. The running container on krateo-057 */}}
+{{/* carries 43 variables where the CR declares 5: the kubelet injects a service link for every Service */}}
+{{/* in the namespace (38 OTEL_COLLECTOR_… entries today), and dumping all of them would bury the five */}}
+{{/* that a human chose — KAGENT_PROPAGATE_TOKEN, which decides whether the caller's JWT rides along on */}}
+{{/* every hop, among them. So the rows are the DECLARED set, which is the auditable one, and the count */}}
+{{/* of everything else is stated in the card caption rather than listed. */}}
+{{/* */}}
+{{/* `In the pod` is exception-only in colour, not in content: it is filled on every row so antd does */}}
+{{/* not log a missing cell, and it goes orange only for a genuine contradiction — a declared variable */}}
+{{/* absent from the running container, or one whose literal value differs. An unreadable Deployment */}}
+{{/* and an unmatched one are NOT drift and are never coloured as such; they say what happened instead. */}}
+{{/* That distinction is the whole value of the column, because "declared but not running" is a real */}}
+{{/* and silent failure mode (a controller that ignored the field, a pod that never rolled) and "we */}}
+{{/* could not read the pod" is not a failure of the agent at all. */}}
+{{/* */}}
+{{/* A valueFrom variable renders as its SOURCE kind ("from secretKeyRef"), never as a value — this */}}
+{{/* page does not read Secrets and must not look as though it did — and is never marked as drift, */}}
+{{/* since the pod's literal value and the CR's reference are not comparable. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -27,7 +27,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  {{/* F6 (snowplow#130): the route params this widget's resolution varies by. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: agent-detail

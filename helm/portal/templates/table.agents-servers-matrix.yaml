@@ -1,41 +1,41 @@
-# Who may call what, as the two-dimensional thing it is — one row per agent, one COLUMN per tool
-# server, from restaction.agents-servers.
-#
-# THE COLUMNS ARE DERIVED, NOT DECLARED. `columns` is reachable from widgetDataTemplate exactly like
-# `dataSource` is (table.agents-list templates it to add Pattern/Gateway/Status only when some row
-# has something to put in them; cards.agents-policies-by-role does the same per role). So the column
-# set is computed server-side in the RESTAction from the union of the readable RemoteMCPServers and
-# the servers something actually binds — a tenth server appearing on the cluster grows a tenth
-# column with no edit to this file, and an install with three servers renders three. Nothing about
-# THIS cluster is baked in here; the static `columns` below is the pre-template placeholder the CRD
-# requires, and carries only the Agent column, which every install has.
-#
-# valueKeys are positional (c0..cN) and the server name lives in `title`. A server name carries "/"
-# on a multi-namespace install and "." in a hostname-shaped name, and the SPA matches cells to
-# columns by exact string equality on valueKey — a positional key cannot collide or be reshaped.
-#
-# WHAT A CELL SAYS, AND WHAT IT REFUSES TO SAY.
-#   (empty)  this agent binds nothing on this server. Deliberately blank rather than "—" or "0":
-#            the fleet is sparse (37 bindings across 15x9 = 135 cells) and the whole value of the
-#            pivot is that the filled cells stand out. A grid of dashes would bury them.
-#   8        eight tools bound.
-#   8 !      some of them are gated by requireApproval — the call pauses for a human.
-#   8 ?      at least one bound name is not in the server's discovered list. This is MARKED, never
-#            coloured red and never called broken, because it is not automatically a fault: the
-#            bench snapshot servers deliberately serve a read-only subset (k8s-agent-bench binds 20,
-#            8 are served), and clickstack-agent binds both run_select_query and run_query on
-#            clickhouse-mcp-server on purpose, because mcp-clickhouse renamed the tool between <=0.4
-#            and 0.5.0 and the binding has to work across both. The legend under the table says so
-#            in the same words, and it is computed — it only mentions a marker that actually appears.
-#
-# This does NOT replace table.agents-servers-bindings underneath it. A cell holds a count; the pair
-# list holds the bound TOOL NAMES and the per-binding HITL count, which no cell can carry. Matrix to
-# scan, list to look up.
-#
-# An unreadable Agent list yields an EMPTY matrix plus a legend that says the read failed — never an
-# empty grid, which would read as "nobody calls anything" (snowplow's userAccessFilter empties a
-# list the caller may not see rather than erroring, so "none" and "not allowed to know" arrive
-# identically and must never be rendered as the same fact).
+{{/* Who may call what, as the two-dimensional thing it is — one row per agent, one COLUMN per tool */}}
+{{/* server, from restaction.agents-servers. */}}
+{{/* */}}
+{{/* THE COLUMNS ARE DERIVED, NOT DECLARED. `columns` is reachable from widgetDataTemplate exactly like */}}
+{{/* `dataSource` is (table.agents-list templates it to add Pattern/Gateway/Status only when some row */}}
+{{/* has something to put in them; cards.agents-policies-by-role does the same per role). So the column */}}
+{{/* set is computed server-side in the RESTAction from the union of the readable RemoteMCPServers and */}}
+{{/* the servers something actually binds — a tenth server appearing on the cluster grows a tenth */}}
+{{/* column with no edit to this file, and an install with three servers renders three. Nothing about */}}
+{{/* THIS cluster is baked in here; the static `columns` below is the pre-template placeholder the CRD */}}
+{{/* requires, and carries only the Agent column, which every install has. */}}
+{{/* */}}
+{{/* valueKeys are positional (c0..cN) and the server name lives in `title`. A server name carries "/" */}}
+{{/* on a multi-namespace install and "." in a hostname-shaped name, and the SPA matches cells to */}}
+{{/* columns by exact string equality on valueKey — a positional key cannot collide or be reshaped. */}}
+{{/* */}}
+{{/* WHAT A CELL SAYS, AND WHAT IT REFUSES TO SAY. */}}
+{{/* (empty)  this agent binds nothing on this server. Deliberately blank rather than "—" or "0": */}}
+{{/* the fleet is sparse (37 bindings across 15x9 = 135 cells) and the whole value of the */}}
+{{/* pivot is that the filled cells stand out. A grid of dashes would bury them. */}}
+{{/* 8        eight tools bound. */}}
+{{/* 8 !      some of them are gated by requireApproval — the call pauses for a human. */}}
+{{/* 8 ?      at least one bound name is not in the server's discovered list. This is MARKED, never */}}
+{{/* coloured red and never called broken, because it is not automatically a fault: the */}}
+{{/* bench snapshot servers deliberately serve a read-only subset (k8s-agent-bench binds 20, */}}
+{{/* 8 are served), and clickstack-agent binds both run_select_query and run_query on */}}
+{{/* clickhouse-mcp-server on purpose, because mcp-clickhouse renamed the tool between <=0.4 */}}
+{{/* and 0.5.0 and the binding has to work across both. The legend under the table says so */}}
+{{/* in the same words, and it is computed — it only mentions a marker that actually appears. */}}
+{{/* */}}
+{{/* This does NOT replace table.agents-servers-bindings underneath it. A cell holds a count; the pair */}}
+{{/* list holds the bound TOOL NAMES and the per-binding HITL count, which no cell can carry. Matrix to */}}
+{{/* scan, list to look up. */}}
+{{/* */}}
+{{/* An unreadable Agent list yields an EMPTY matrix plus a legend that says the read failed — never an */}}
+{{/* empty grid, which would read as "nobody calls anything" (snowplow's userAccessFilter empties a */}}
+{{/* list the caller may not see rather than erroring, so "none" and "not allowed to know" arrive */}}
+{{/* identically and must never be rendered as the same fact). */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Table
 metadata:
@@ -48,13 +48,13 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    # fitContent: FALSE — and this is the fix for the first render. `true` does NOT size columns to
-    # content; it shrinks them to the container and sets antd `ellipsis` on every column
-    # (ui/src/widgets/Table/Table.tsx:75 and :96), so all nine server names truncated to
-    # "CLICKHOUS...", "ITBENCH-S...", "KAGENT-TO...". A cell you can read but cannot attribute to a
-    # server is a matrix that does not work. `false` gives scroll.x = max-content: full headers, and
-    # a horizontal scrollbar only if the shortened titles still do not fit. For a matrix that trade
-    # runs the right way — scrolling is a minor cost, an unidentifiable column is a total one.
+    {{/* fitContent: FALSE — and this is the fix for the first render. `true` does NOT size columns to */}}
+    {{/* content; it shrinks them to the container and sets antd `ellipsis` on every column */}}
+    {{/* (ui/src/widgets/Table/Table.tsx:75 and :96), so all nine server names truncated to */}}
+    {{/* "CLICKHOUS...", "ITBENCH-S...", "KAGENT-TO...". A cell you can read but cannot attribute to a */}}
+    {{/* server is a matrix that does not work. `false` gives scroll.x = max-content: full headers, and */}}
+    {{/* a horizontal scrollbar only if the shortened titles still do not fit. For a matrix that trade */}}
+    {{/* runs the right way — scrolling is a minor cost, an unidentifiable column is a total one. */}}
     fitContent: false
     pagination:
       defaultPageSize: 50

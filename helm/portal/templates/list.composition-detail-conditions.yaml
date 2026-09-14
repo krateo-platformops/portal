@@ -1,11 +1,11 @@
-# The composition's REAL status.conditions — NOT a derived "Healthy/Drift/Pending/converged" label.
-# Every condition is shown (Ready, Synced, …) with its type + status (True/False) + reason·message;
-# a leading dot and a right-aligned status Tag are BOTH coloured green (status True) / red (False)
-# — green = health per the status-pill spec (this conditions card is the one sanctioned dot+label spot).
-# Honest: the raw k8s conditions, all of them, coloured by their own truth value — PLUS the
-# Workload condition the detail RA synthesizes from .status.workloadHealthy == false (same idiom
-# as compositions-list), so a CrashLoopBackOff comp shows Workload=False here instead of an
-# all-green Ready/Synced pair that hides the failing pods.
+{{/* The composition's REAL status.conditions — NOT a derived "Healthy/Drift/Pending/converged" label. */}}
+{{/* Every condition is shown (Ready, Synced, …) with its type + status (True/False) + reason·message; */}}
+{{/* a leading dot and a right-aligned status Tag are BOTH coloured green (status True) / red (False) */}}
+{{/* — green = health per the status-pill spec (this conditions card is the one sanctioned dot+label spot). */}}
+{{/* Honest: the raw k8s conditions, all of them, coloured by their own truth value — PLUS the */}}
+{{/* Workload condition the detail RA synthesizes from .status.workloadHealthy == false (same idiom */}}
+{{/* as compositions-list), so a CrashLoopBackOff comp shows Workload=False here instead of an */}}
+{{/* all-green Ready/Synced pair that hides the failing pods. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace, status]
   apiRef:
     name: composition-detail
@@ -25,22 +25,22 @@ spec:
       primaryText: '{type}'
       secondaryText: '{status}'
       secondaryTextAsTag: true
-      # reason·message rides on subPrimaryText (the Item.Meta description line the DEFAULT
-      # row variant actually renders) — `description` is only painted by the `card` variant
-      # (ListView.tsx), so it would silently drop here.
+      {{/* reason·message rides on subPrimaryText (the Item.Meta description line the DEFAULT */}}
+      {{/* row variant actually renders) — `description` is only painted by the `card` variant */}}
+      {{/* (ListView.tsx), so it would silently drop here. */}}
       subPrimaryText: '{desc}'
       color:
         value: '{status}'
         map:
-          # YAML 1.1 Norway problem: bare True/False parse as booleans → quote the map keys.
-          # 'red' is the palette's crimson failed-hex; 'crimson' is NOT a key (would fall back to ink).
+          {{/* YAML 1.1 Norway problem: bare True/False parse as booleans → quote the map keys. */}}
+          {{/* 'red' is the palette's crimson failed-hex; 'crimson' is NOT a key (would fall back to ink). */}}
           "True": green
           "False": red
         default: gray
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      # .conditions = raw status.conditions + the synthesized Workload condition (RA-side).
+      {{/* .conditions = raw status.conditions + the synthesized Workload condition (RA-side). */}}
       expression: '${ [ (.conditions // [])[] | { type: .type, status: (.status | tostring), desc: ((.reason // "") + (if ((.message // "") | length) > 0 then (" · " + .message) else "" end)) } ] }'
   resourcesRefs:
     items: []

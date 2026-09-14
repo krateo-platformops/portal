@@ -1,20 +1,20 @@
-# /api-builder (KOG) deliverables — one row per Autopilot-authored API mapping that was
-# published VIA A PULL REQUEST, mirroring the blueprint-builder deliverables surface. Sourced
-# from the git PullRequest CRs whose head branch is the KOG namespace `kog/<name>` (the
-# convention the frontend KOG-publish agent uses — see NOTE below), JOINED to the generated
-# RestDefinition (ogen.krateo.io) so each row shows the generated GVK + its Ready verdict.
-# Cluster-native for the CR joins (no GitHub token/endpoint); continueOnError everywhere so a
-# narrow-RBAC user (or a not-yet-installed KOG git path) degrades to an empty table, never a
-# failed widget. The RestDefinition NAME is derived server-side from the PR's `kog/<name>`
-# branch; the PR number + html_url ride along so the table can surface the opened PR ("#N").
-#
-# NOTE — PR TARGET CONVENTION (issue #30): the frontend KOG builder's PR-based publish
-# (kogPublish.ts, frontend >= 1.3.77) opens PRs against repo `krateo-oas` on a `builder/<kind>`
-# head branch (same branch convention the blueprint builder uses; the REPO is the discriminator).
-# So this RA filters on `spec.repo == "krateo-oas"` (NOT a branch prefix — both builders use
-# `builder/`), and derives the RestDefinition name from the `builder/<kind>` branch. A blueprint
-# PR (repo krateo-blueprints) can never leak in. Until a KOG PR is opened this RA returns zero
-# rows and the page still shows the live restdef table.
+{{/* /api-builder (KOG) deliverables — one row per Autopilot-authored API mapping that was */}}
+{{/* published VIA A PULL REQUEST, mirroring the blueprint-builder deliverables surface. Sourced */}}
+{{/* from the git PullRequest CRs whose head branch is the KOG namespace `kog/<name>` (the */}}
+{{/* convention the frontend KOG-publish agent uses — see NOTE below), JOINED to the generated */}}
+{{/* RestDefinition (ogen.krateo.io) so each row shows the generated GVK + its Ready verdict. */}}
+{{/* Cluster-native for the CR joins (no GitHub token/endpoint); continueOnError everywhere so a */}}
+{{/* narrow-RBAC user (or a not-yet-installed KOG git path) degrades to an empty table, never a */}}
+{{/* failed widget. The RestDefinition NAME is derived server-side from the PR's `kog/<name>` */}}
+{{/* branch; the PR number + html_url ride along so the table can surface the opened PR ("#N"). */}}
+{{/* */}}
+{{/* NOTE — PR TARGET CONVENTION (issue #30): the frontend KOG builder's PR-based publish */}}
+{{/* (kogPublish.ts, frontend >= 1.3.77) opens PRs against repo `krateo-oas` on a `builder/<kind>` */}}
+{{/* head branch (same branch convention the blueprint builder uses; the REPO is the discriminator). */}}
+{{/* So this RA filters on `spec.repo == "krateo-oas"` (NOT a branch prefix — both builders use */}}
+{{/* `builder/`), and derives the RestDefinition name from the `builder/<kind>` branch. A blueprint */}}
+{{/* PR (repo krateo-blueprints) can never leak in. Until a KOG PR is opened this RA returns zero */}}
+{{/* rows and the page still shows the live restdef table. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -24,10 +24,10 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # KOG builder pull requests: repo `krateo-oas` (the discriminator — the frontend targets it),
-    # head branch `builder/<kind>`. status.state (open/closed) + merged + number + html_url are
-    # written by the KOG github-provider after the PR lands; a just-created PR has none, so read
-    # defensively.
+    {{/* KOG builder pull requests: repo `krateo-oas` (the discriminator — the frontend targets it), */}}
+    {{/* head branch `builder/<kind>`. status.state (open/closed) + merged + number + html_url are */}}
+    {{/* written by the KOG github-provider after the PR lands; a just-created PR has none, so read */}}
+    {{/* defensively. */}}
     - name: prs
       path: /apis/github.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/pullrequests
       verb: GET
@@ -45,9 +45,9 @@ spec:
               merged: ((.status.merged) // false),
               url: ((.status.html_url) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
-    # The generated RestDefinitions (ogen.krateo.io, cluster-wide list). The join key is
-    # metadata.name == the PR's restdef name (`kog/<name>` branch names the RestDefinition CR).
-    # Its generated kind + apiVersion + Ready condition are the post-merge verification signal.
+    {{/* The generated RestDefinitions (ogen.krateo.io, cluster-wide list). The join key is */}}
+    {{/* metadata.name == the PR's restdef name (`kog/<name>` branch names the RestDefinition CR). */}}
+    {{/* Its generated kind + apiVersion + Ready condition are the post-merge verification signal. */}}
     - name: restdefs
       path: /apis/ogen.krateo.io/v1alpha1/restdefinitions
       verb: GET
@@ -71,12 +71,12 @@ spec:
               # "Pushing" for a day.
               syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
               syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")) } ]
-    # P1 — the SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER). When on, a publish
-    # opens NO PullRequest CR — it commits held files via git-provider LocalResources labelled
-    # krateo.io/builder: controller + krateo.io/publish: <name>. One publish = N LocalResources
-    # (one per file) sharing the publish label; each carries the target branch + a Synced condition.
-    # Read them here (continueOnError → empty if git-provider/RBAC absent) so the final filter can
-    # emit a deliverable row per publish alongside the PR rows — the table works on both paths.
+    {{/* P1 — the SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER). When on, a publish */}}
+    {{/* opens NO PullRequest CR — it commits held files via git-provider LocalResources labelled */}}
+    {{/* krateo.io/builder: controller + krateo.io/publish: <name>. One publish = N LocalResources */}}
+    {{/* (one per file) sharing the publish label; each carries the target branch + a Synced condition. */}}
+    {{/* Read them here (continueOnError → empty if git-provider/RBAC absent) so the final filter can */}}
+    {{/* emit a deliverable row per publish alongside the PR rows — the table works on both paths. */}}
     - name: publishes
       path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
       verb: GET
@@ -91,11 +91,11 @@ spec:
               branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
               synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
               created: ((.metadata.creationTimestamp) // "") } ]
-  # Join PRs → RestDefinitions. The generated GVK + Ready verdict chip (Ready=green,
-  # Failed=red, Pending=orange) are computed HERE, server-side. Rows are newest-first. The PR
-  # domain state (open/merged/closed) rides too so the age + PR "#N" columns read honestly.
-  # Empty-state hint is emitted ONLY when zero KOG PRs exist (exception-only UX), carrying an
-  # /api-builder?ask= Autopilot deep-link seeding the paste-an-OpenAPI flow.
+  {{/* Join PRs → RestDefinitions. The generated GVK + Ready verdict chip (Ready=green, */}}
+  {{/* Failed=red, Pending=orange) are computed HERE, server-side. Rows are newest-first. The PR */}}
+  {{/* domain state (open/merged/closed) rides too so the age + PR "#N" columns read honestly. */}}
+  {{/* Empty-state hint is emitted ONLY when zero KOG PRs exist (exception-only UX), carrying an */}}
+  {{/* /api-builder?ask= Autopilot deep-link seeding the paste-an-OpenAPI flow. */}}
   filter: >
     (.restdefs // []) as $rds
     | ([ (.prs // [])[]

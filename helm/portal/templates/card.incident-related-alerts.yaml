@@ -1,11 +1,11 @@
-# #86 §0.7: RELATED ALERTS as a section CARD (was a bare "strong Paragraph label +
-# loose Button/Tag" footer pair — incident-related-alerts-label + incident-alert-link/text).
-# Promoting it to the same Card family as Evidence/Why/Remediation/Similar so the incident page
-# reads as ONE section language with no loose-label exceptions. Mirrors card.component-detail-events.
-# The triggering alert renders as a link Button when the RA resolved its route, else an inert Tag —
-# the SAME server-side choice the page Flex used to make, now templated on THIS card's `items` so
-# the whole "Related alerts" section stays inside one card. The page Flex still gates the card on
-# `.alertName` (no card when there is no linked alert).
+{{/* #86 §0.7: RELATED ALERTS as a section CARD (was a bare "strong Paragraph label + */}}
+{{/* loose Button/Tag" footer pair — incident-related-alerts-label + incident-alert-link/text). */}}
+{{/* Promoting it to the same Card family as Evidence/Why/Remediation/Similar so the incident page */}}
+{{/* reads as ONE section language with no loose-label exceptions. Mirrors card.component-detail-events. */}}
+{{/* The triggering alert renders as a link Button when the RA resolved its route, else an inert Tag — */}}
+{{/* the SAME server-side choice the page Flex used to make, now templated on THIS card's `items` so */}}
+{{/* the whole "Related alerts" section stays inside one card. The page Flex still gates the card on */}}
+{{/* `.alertName` (no card when there is no linked alert). */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
@@ -24,12 +24,12 @@ spec:
     titleVariant: eyebrow
     variant: outlined
     extra: 'the alert that triggered this incident'
-    # Static fallback (inert Tag) until the apiRef resolves the route choice.
+    {{/* Static fallback (inert Tag) until the apiRef resolves the route choice. */}}
     items:
       - resourceRefId: incident-alert-text
   widgetDataTemplate:
-    # Link Button when alertRoute resolved server-side, else the inert Tag — same choice the page
-    # Flex made before #86 §0.7, moved here so the section is one self-contained card.
+    {{/* Link Button when alertRoute resolved server-side, else the inert Tag — same choice the page */}}
+    {{/* Flex made before #86 §0.7, moved here so the section is one self-contained card. */}}
     - forPath: items
       expression: '${ if (.alertRoute // "") != "" then [ { resourceRefId: "incident-alert-link" } ] else [ { resourceRefId: "incident-alert-text" } ] end }'
   resourcesRefs:

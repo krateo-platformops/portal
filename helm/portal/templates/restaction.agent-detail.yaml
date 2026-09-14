@@ -1,87 +1,87 @@
-# Data source for ONE Agent — /agents/{namespace}/{name}. Route params ride in as ?extras
-# .name/.namespace (same mechanism as alert-detail / composition-detail), so the per-name path
-# below is a `${ jq }` expression: snowplow does NOT substitute {name}-style braces, and a literal
-# brace reaches the apiserver verbatim (that is exactly how the alert-detail page silently rendered
-# empty for every alert before #135).
-#
-# SIX reads, every one continueOnError so a missing or RBAC-blocked read degrades honestly rather
-# than blanking the page:
-#   agent   : the Agent itself, GET by name in the route namespace. userAccessFilter `verb: get`
-#             — snowplow reads as its SA and then re-checks the CALLER's `get agents` grant in that
-#             namespace, dropping the object to {} when the caller may not see it (refilter.go
-#             handles the single-object, no-`items` shape explicitly). A tenant without the grant
-#             therefore gets the honest "not visible" page, not a raw 403.
-#   models  : ModelConfigs — resolves .spec.declarative.modelConfig to the real provider/model and
-#             to the baseUrl the agent's traffic actually leaves through.
-#   servers : RemoteMCPServers — the tool CATALOGUE (.status.discoveredTools) each bound tool name
-#             is checked against, plus each server's endpoint/protocol/timeout. `remotemcpservers`,
-#             NOT `toolservers`: toolservers.kagent.dev and mcpservers.kagent.dev hold zero objects
-#             on every cluster we run (same finding as restaction.agents-list).
-#   peers   : Agents cluster-wide — ONLY to resolve the delegation targets in tools[].type=Agent
-#             (does the delegate exist, is it healthy). Kept separate from the `agent` read on
-#             purpose: this one needs `list`, and a caller who holds only `get` in one namespace
-#             still gets a full detail page, with the delegate column honestly blank rather than a
-#             fabricated "NotFound".
-#   routes  : HTTPRoutes — the gateway's real routing table. An agent's inbound A2A route, the LLM
-#             route its ModelConfig baseUrl lands on, and each tool server's /mcp route are all
-#             derived from these live objects, never from a hardcoded map.
-#   deploys : Deployments in the route namespace — the workload the kagent controller renders from
-#             this CR. Everything else on the page is what was DECLARED; this is the only read that
-#             says what is actually running, and it is what makes the declared/running env diff
-#             below possible.
-#   policies: AgentgatewayPolicies — the OTHER half of reachability. A matching HTTPRoute only
-#             tells the gateway which backend to pick; the gateway still refuses the request unless
-#             its authorization policy carries an Allow clause naming the same x-kagent-host. Two
-#             clauses are rendered per registered agent (the anonymous agent-card GET and the
-#             authenticated call), and they fail differently, so they are checked separately.
-#
-# WHY THE SECOND HALF IS NOT OPTIONAL. Before this read, "Reachable at" resolved the route and
-# stopped — and a route without an Allow clause is exactly the state krateo-blueprint-agent was in
-# for a week from 2026-09-03: Ready, delegated to by autopilot, 403 at the agent-card hop. Naming
-# the row "Reachable at" while proving only half of reachability is the overstatement this fixes.
-#
-# THREE-STATE READS, NOT TWO. Every step carries continueOnError + errorKey, and every errorKey is
-# CONSUMED below (agentError, modelsError, serversError, peersError, routesError,
-# deploymentsError). `(list | length)
-# > 0` cannot tell a failed read from an empty cluster, so it is never used as a visibility test:
-#   · <step>Error != null   — the read FAILED. Nothing derived from it is asserted; the page says
-#                             the read failed and quotes the reason.
-#   · read OK, list empty   — genuinely nothing visible. This is a FINDING, not an RBAC excuse:
-#                             "no HTTPRoute is visible to you" (with the honest disjunction, since
-#                             snowplow's userAccessFilter empties a list it may not show rather than
-#                             erroring), never "your permissions are insufficient".
-#   · read OK, list present — resolve for real.
-# The same rule governs the ModelConfig: when `$mc` is null NOTHING about the agent's egress is
-# claimed — not the baseUrl, not the gateway route. An unreadable ModelConfig must never render as
-# "no baseUrl · not applicable — no baseUrl to route", which is an affirmative claim that the agent
-# talks straight to the provider, un-gatewayed.
-#
-# GATEWAY MATCHING IS GATEWAY-API MATCHING. Path matches honour `.path.type` — Exact, or PathPrefix
-# compared SEGMENT-WISE so a route declared `/llm` really does serve `/llm/v1` and `/llmx` really
-# does not, with RegularExpression attempted and failing closed — instead of exact string equality
-# on `.path.value`, which only worked because every live prefix happens to be spelled out to the
-# full baseUrl path. Among the rules that match, the LONGEST prefix wins (Exact beats every
-# prefix), which is Gateway API's own precedence.
-#
-# A HEADER CONDITION IS UNEVALUABLE FROM MANIFESTS, so it is never asserted either way. Only
-# header-FREE rules can win a path lookup; rules that match the path but carry header constraints
-# are reported separately ("header-scoped: X matches this path only for requests carrying specific
-# headers"), so a gateway that scopes its LLM route by header no longer reads as flatly unrouted —
-# and equally, such a route is never claimed as the one this agent's tokens take. A winner that
-# matched only through a bare `/` catch-all says so too, because "routed" via the A2A catch-all is
-# a very different fact from a route declared for this path.
-#
-# Backends are named from THE MATCHING RULE only, never unioned across every rule of the route: a
-# multi-rule HTTPRoute would otherwise attribute a backend to this agent that its traffic provably
-# never reaches.
-#
-# Everything the page renders is computed HERE. The widgets only place strings.
-#
-# ONE AUTHORING TRAP, since this filter carries jq comments: `filter:` below is a FOLDED scalar
-# (`>-`), so a comment written at the block's own indentation is joined onto the following line and
-# comments the jq out — a compile error at resolve time, invisible to helm template and to
-# `kubectl apply` (the CRD only checks that the field is a string). Only MORE-indented lines keep
-# their line breaks, which is why every comment in here sits inside an open paren.
+{{/* Data source for ONE Agent — /agents/{namespace}/{name}. Route params ride in as ?extras */}}
+{{/* .name/.namespace (same mechanism as alert-detail / composition-detail), so the per-name path */}}
+{{/* below is a `${ jq }` expression: snowplow does NOT substitute {name}-style braces, and a literal */}}
+{{/* brace reaches the apiserver verbatim (that is exactly how the alert-detail page silently rendered */}}
+{{/* empty for every alert before #135). */}}
+{{/* */}}
+{{/* SIX reads, every one continueOnError so a missing or RBAC-blocked read degrades honestly rather */}}
+{{/* than blanking the page: */}}
+{{/* agent   : the Agent itself, GET by name in the route namespace. userAccessFilter `verb: get` */}}
+{{/* — snowplow reads as its SA and then re-checks the CALLER's `get agents` grant in that */}}
+{{/* namespace, dropping the object to {} when the caller may not see it (refilter.go */}}
+{{/* handles the single-object, no-`items` shape explicitly). A tenant without the grant */}}
+{{/* therefore gets the honest "not visible" page, not a raw 403. */}}
+{{/* models  : ModelConfigs — resolves .spec.declarative.modelConfig to the real provider/model and */}}
+{{/* to the baseUrl the agent's traffic actually leaves through. */}}
+{{/* servers : RemoteMCPServers — the tool CATALOGUE (.status.discoveredTools) each bound tool name */}}
+{{/* is checked against, plus each server's endpoint/protocol/timeout. `remotemcpservers`, */}}
+{{/* NOT `toolservers`: toolservers.kagent.dev and mcpservers.kagent.dev hold zero objects */}}
+{{/* on every cluster we run (same finding as restaction.agents-list). */}}
+{{/* peers   : Agents cluster-wide — ONLY to resolve the delegation targets in tools[].type=Agent */}}
+{{/* (does the delegate exist, is it healthy). Kept separate from the `agent` read on */}}
+{{/* purpose: this one needs `list`, and a caller who holds only `get` in one namespace */}}
+{{/* still gets a full detail page, with the delegate column honestly blank rather than a */}}
+{{/* fabricated "NotFound". */}}
+{{/* routes  : HTTPRoutes — the gateway's real routing table. An agent's inbound A2A route, the LLM */}}
+{{/* route its ModelConfig baseUrl lands on, and each tool server's /mcp route are all */}}
+{{/* derived from these live objects, never from a hardcoded map. */}}
+{{/* deploys : Deployments in the route namespace — the workload the kagent controller renders from */}}
+{{/* this CR. Everything else on the page is what was DECLARED; this is the only read that */}}
+{{/* says what is actually running, and it is what makes the declared/running env diff */}}
+{{/* below possible. */}}
+{{/* policies: AgentgatewayPolicies — the OTHER half of reachability. A matching HTTPRoute only */}}
+{{/* tells the gateway which backend to pick; the gateway still refuses the request unless */}}
+{{/* its authorization policy carries an Allow clause naming the same x-kagent-host. Two */}}
+{{/* clauses are rendered per registered agent (the anonymous agent-card GET and the */}}
+{{/* authenticated call), and they fail differently, so they are checked separately. */}}
+{{/* */}}
+{{/* WHY THE SECOND HALF IS NOT OPTIONAL. Before this read, "Reachable at" resolved the route and */}}
+{{/* stopped — and a route without an Allow clause is exactly the state krateo-blueprint-agent was in */}}
+{{/* for a week from 2026-09-03: Ready, delegated to by autopilot, 403 at the agent-card hop. Naming */}}
+{{/* the row "Reachable at" while proving only half of reachability is the overstatement this fixes. */}}
+{{/* */}}
+{{/* THREE-STATE READS, NOT TWO. Every step carries continueOnError + errorKey, and every errorKey is */}}
+{{/* CONSUMED below (agentError, modelsError, serversError, peersError, routesError, */}}
+{{/* deploymentsError). `(list | length) */}}
+{{/* > 0` cannot tell a failed read from an empty cluster, so it is never used as a visibility test: */}}
+{{/* · <step>Error != null   — the read FAILED. Nothing derived from it is asserted; the page says */}}
+{{/* the read failed and quotes the reason. */}}
+{{/* · read OK, list empty   — genuinely nothing visible. This is a FINDING, not an RBAC excuse: */}}
+{{/* "no HTTPRoute is visible to you" (with the honest disjunction, since */}}
+{{/* snowplow's userAccessFilter empties a list it may not show rather than */}}
+{{/* erroring), never "your permissions are insufficient". */}}
+{{/* · read OK, list present — resolve for real. */}}
+{{/* The same rule governs the ModelConfig: when `$mc` is null NOTHING about the agent's egress is */}}
+{{/* claimed — not the baseUrl, not the gateway route. An unreadable ModelConfig must never render as */}}
+{{/* "no baseUrl · not applicable — no baseUrl to route", which is an affirmative claim that the agent */}}
+{{/* talks straight to the provider, un-gatewayed. */}}
+{{/* */}}
+{{/* GATEWAY MATCHING IS GATEWAY-API MATCHING. Path matches honour `.path.type` — Exact, or PathPrefix */}}
+{{/* compared SEGMENT-WISE so a route declared `/llm` really does serve `/llm/v1` and `/llmx` really */}}
+{{/* does not, with RegularExpression attempted and failing closed — instead of exact string equality */}}
+{{/* on `.path.value`, which only worked because every live prefix happens to be spelled out to the */}}
+{{/* full baseUrl path. Among the rules that match, the LONGEST prefix wins (Exact beats every */}}
+{{/* prefix), which is Gateway API's own precedence. */}}
+{{/* */}}
+{{/* A HEADER CONDITION IS UNEVALUABLE FROM MANIFESTS, so it is never asserted either way. Only */}}
+{{/* header-FREE rules can win a path lookup; rules that match the path but carry header constraints */}}
+{{/* are reported separately ("header-scoped: X matches this path only for requests carrying specific */}}
+{{/* headers"), so a gateway that scopes its LLM route by header no longer reads as flatly unrouted — */}}
+{{/* and equally, such a route is never claimed as the one this agent's tokens take. A winner that */}}
+{{/* matched only through a bare `/` catch-all says so too, because "routed" via the A2A catch-all is */}}
+{{/* a very different fact from a route declared for this path. */}}
+{{/* */}}
+{{/* Backends are named from THE MATCHING RULE only, never unioned across every rule of the route: a */}}
+{{/* multi-rule HTTPRoute would otherwise attribute a backend to this agent that its traffic provably */}}
+{{/* never reaches. */}}
+{{/* */}}
+{{/* Everything the page renders is computed HERE. The widgets only place strings. */}}
+{{/* */}}
+{{/* ONE AUTHORING TRAP, since this filter carries jq comments: `filter:` below is a FOLDED scalar */}}
+{{/* (`>-`), so a comment written at the block's own indentation is joined onto the following line and */}}
+{{/* comments the jq out — a compile error at resolve time, invisible to helm template and to */}}
+{{/* `kubectl apply` (the CRD only checks that the field is a string). Only MORE-indented lines keep */}}
+{{/* their line breaks, which is why every comment in here sits inside an open paren. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -142,17 +142,17 @@ spec:
     continueOnError: true
     errorKey: routesError
   - name: deployments
-    # The workload the kagent controller renders FROM the Agent. The CR says what was asked for;
-    # this says what is running. `.namespace` is sanitised to DNS-1123-ish characters exactly as
-    # restaction.component-detail does, so an odd extras value can neither traverse the path nor
-    # collapse the segment into a cluster-wide list, and an EMPTY one falls back to the release
-    # namespace rather than producing `/namespaces//deployments`.
-    #
-    # LIST, not GET-by-name: the Deployment happens to be named after the Agent today, but the
-    # controller's own label (kagent: <agent>) is the documented link, and a GET on a guessed name
-    # would report "no Deployment" for any agent whose workload is named differently — a fabricated
-    # absence. The step filter trims each object to the handful of fields the page renders, because
-    # a namespace list of full pod specs is two orders of magnitude bigger than this page needs.
+    {{/* The workload the kagent controller renders FROM the Agent. The CR says what was asked for; */}}
+    {{/* this says what is running. `.namespace` is sanitised to DNS-1123-ish characters exactly as */}}
+    {{/* restaction.component-detail does, so an odd extras value can neither traverse the path nor */}}
+    {{/* collapse the segment into a cluster-wide list, and an EMPTY one falls back to the release */}}
+    {{/* namespace rather than producing `/namespaces//deployments`. */}}
+    {{/* */}}
+    {{/* LIST, not GET-by-name: the Deployment happens to be named after the Agent today, but the */}}
+    {{/* controller's own label (kagent: <agent>) is the documented link, and a GET on a guessed name */}}
+    {{/* would report "no Deployment" for any agent whose workload is named differently — a fabricated */}}
+    {{/* absence. The step filter trims each object to the handful of fields the page renders, because */}}
+    {{/* a namespace list of full pod specs is two orders of magnitude bigger than this page needs. */}}
     path: ${ "/apis/apps/v1/namespaces/" + ((.namespace // "") | gsub("[^a-zA-Z0-9.-]"; "") | if . == "" then "{{ .Release.Namespace }}" else . end) + "/deployments" }
     verb: GET
     headers:
@@ -171,10 +171,10 @@ spec:
             wanted: (.spec.replicas // 1),
             status: (.status // {}),
             containers: [ (.spec.template.spec.containers // [])[] | { name: .name, image: .image, env: (.env // []) } ] } ]
-  # LITERAL block (|-), not folded (>-). A folded scalar joins consecutive lines with a space, which
-  # would splice every `#` comment below into the jq that follows it and comment that jq out. jq
-  # itself does not care about newlines, so the literal form parses identically and lets the
-  # reasoning live next to the expression it explains — the same choice restaction.agents-list makes.
+  {{/* LITERAL block (|-), not folded (>-). A folded scalar joins consecutive lines with a space, which */}}
+  {{/* would splice every `#` comment below into the jq that follows it and comment that jq out. jq */}}
+  {{/* itself does not care about newlines, so the literal form parses identically and lets the */}}
+  {{/* reasoning live next to the expression it explains — the same choice restaction.agents-list makes. */}}
   - name: policies
     path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
     verb: GET

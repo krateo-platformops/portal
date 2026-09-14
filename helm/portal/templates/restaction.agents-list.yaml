@@ -1,69 +1,69 @@
-# Agent control plane — the inventory behind /agents (flex.page-agents).
-#
-# ONE RESTAction per page: every derived value below is computed HERE in jq and rendered verbatim
-# by the widgets. The three steps are independent cluster-scope lists; the join happens in the
-# global filter, so there is no dependsOn and no N+1.
-#
-# AN EMPTY TABLE MUST NEVER BE A CLAIM THAT THE CLUSTER IS EMPTY. Each step carries a
-# userAccessFilter, so snowplow lists as its own SA and then REFILTERS to the namespaces where the
-# CALLER holds the grant (internal/dynamic/sa_client.go). That means "no rows" has three causes:
-#
-#   a. the step FAILED (CRD absent, apiserver 5xx, timeout). continueOnError swallows it and the
-#      reason lands on the declared errorKey. The filter BRANCHES on all three keys and says so —
-#      `(.rows | length) > 0` cannot tell this apart from an empty cluster, the errorKey can.
-#   b. the caller may not list the kind — the refilter returns an empty set and NO errorKey, so
-#      this case is invisible on the wire and must not be reported as an absence either.
-#   c. there really are no Agents.
-#
-# So the page never says "every agent on this cluster". It says what it can prove: (a) is named
-# with its error text and turns the subtitle red; (b) and (c) share the wording "every agent you can
-# read". Same rule inside the table — an unresolvable model renders "not readable" when the
-# ModelConfig read failed, never the "—" that would read as "this agent has no model".
-#
-# The subtitle is computed HERE, server-side, and templated into paragraph.agents-subtitle.
-#
-# ROW LINKING: `routeName`/`routeNs` are emitted as SEPARATE fields from `name`/`namespace` and are
-# what table.agents-list's rowNavigateTo interpolates. They exist because the DISPLAY name is not a
-# safe route input — the table's `name` cell appends a "  (bench)" marker, and a rowNavigateTo built
-# from it would produce /agents/<ns>/autopilot-bench%20%20(bench), a 404 dressed up as a link.
-# The rows are also pre-filtered to objects that actually carry a name AND a namespace, so every
-# emitted row has a non-empty value for both placeholders — a rowNavigateTo with ANY empty
-# placeholder is silently dropped by the frontend and the row just stops responding to clicks.
-#
-# NOTE the resource: `remotemcpservers`, NOT `toolservers`. Both CRDs are installed, but
-# toolservers.kagent.dev and mcpservers.kagent.dev hold ZERO objects on every cluster we run —
-# all 9 real tool servers are RemoteMCPServer/v1alpha2. Listing toolservers renders an
-# honest-but-permanently-empty table that looks like a data bug (verified live on krateo-057).
-#
-# GATEWAY REGISTRATION — the two extra reads (httproutes, agentgatewaypolicies), and why this page
-# is where they belong. An Agent object going Ready says the CONTROLLER accepted it. It says
-# nothing about whether anything can call it: every hop in this platform crosses the agentgateway,
-# and the gateway only forwards to an agent that has BOTH
-#   (a) an HTTPRoute whose rule matches `x-kagent-host: <name>.<namespace>` — how the gateway picks
-#       the backend at all, and
-#   (b) Allow clauses naming that same host in the gateway's authorization policy — TWO of them,
-#       one for the anonymous `/.well-known/agent-card.json` discovery GET and one for the
-#       authenticated call, both rendered from the same agentgateway-policies subAgents entry.
-# Miss either and the agent reports Ready and Accepted while every call to it is refused. That is
-# not hypothetical: krateo-blueprint-agent was promoted 2026-09-03 and sat exactly like that for a
-# week — Ready, delegated to by autopilot, 403 at the agent-card hop — until someone added it to the
-# gateway's subAgents list by hand. The installer now derives that list from the deployed fleet so
-# the same drift cannot recur (e779002, in 0.3.172), but derivation only covers agents that ARE a
-# component pin; an agent created from /agents/new is not one. The create page has warned about this
-# state at length since it existed; nothing ever SHOWED who was in it. This does, exception-only: a
-# fully registered agent renders nothing at all.
-#
-# The (b) half is why a policy read is here and not just a route read. Routing an agent without
-# allowing it is the exact shape of the bug above, and a route-only check would have called
-# krateo-blueprint-agent healthy once someone added the HTTPRoute by hand.
-#
-# BOTH READS ARE THREE-STATE, like every other read on this page. "No route matches this host" is a
-# finding ONLY when routes were readable AND some route came back; an empty list is the silent
-# userAccessFilter refilter (a caller without the gateway.networking.k8s.io grant is served [], not
-# a 403) and must never be rendered as "this agent is unreachable". Same for the policies: the
-# verdict is withheld unless at least one Allow-action authorization policy is visible. When it is
-# withheld the subtitle says so, and NO row is flagged — an unchecked agent must not look healthy
-# by accident, so the page states the gap in prose instead of leaving it silent.
+{{/* Agent control plane — the inventory behind /agents (flex.page-agents). */}}
+{{/* */}}
+{{/* ONE RESTAction per page: every derived value below is computed HERE in jq and rendered verbatim */}}
+{{/* by the widgets. The three steps are independent cluster-scope lists; the join happens in the */}}
+{{/* global filter, so there is no dependsOn and no N+1. */}}
+{{/* */}}
+{{/* AN EMPTY TABLE MUST NEVER BE A CLAIM THAT THE CLUSTER IS EMPTY. Each step carries a */}}
+{{/* userAccessFilter, so snowplow lists as its own SA and then REFILTERS to the namespaces where the */}}
+{{/* CALLER holds the grant (internal/dynamic/sa_client.go). That means "no rows" has three causes: */}}
+{{/* */}}
+{{/* a. the step FAILED (CRD absent, apiserver 5xx, timeout). continueOnError swallows it and the */}}
+{{/* reason lands on the declared errorKey. The filter BRANCHES on all three keys and says so — */}}
+{{/* `(.rows | length) > 0` cannot tell this apart from an empty cluster, the errorKey can. */}}
+{{/* b. the caller may not list the kind — the refilter returns an empty set and NO errorKey, so */}}
+{{/* this case is invisible on the wire and must not be reported as an absence either. */}}
+{{/* c. there really are no Agents. */}}
+{{/* */}}
+{{/* So the page never says "every agent on this cluster". It says what it can prove: (a) is named */}}
+{{/* with its error text and turns the subtitle red; (b) and (c) share the wording "every agent you can */}}
+{{/* read". Same rule inside the table — an unresolvable model renders "not readable" when the */}}
+{{/* ModelConfig read failed, never the "—" that would read as "this agent has no model". */}}
+{{/* */}}
+{{/* The subtitle is computed HERE, server-side, and templated into paragraph.agents-subtitle. */}}
+{{/* */}}
+{{/* ROW LINKING: `routeName`/`routeNs` are emitted as SEPARATE fields from `name`/`namespace` and are */}}
+{{/* what table.agents-list's rowNavigateTo interpolates. They exist because the DISPLAY name is not a */}}
+{{/* safe route input — the table's `name` cell appends a "  (bench)" marker, and a rowNavigateTo built */}}
+{{/* from it would produce /agents/<ns>/autopilot-bench%20%20(bench), a 404 dressed up as a link. */}}
+{{/* The rows are also pre-filtered to objects that actually carry a name AND a namespace, so every */}}
+{{/* emitted row has a non-empty value for both placeholders — a rowNavigateTo with ANY empty */}}
+{{/* placeholder is silently dropped by the frontend and the row just stops responding to clicks. */}}
+{{/* */}}
+{{/* NOTE the resource: `remotemcpservers`, NOT `toolservers`. Both CRDs are installed, but */}}
+{{/* toolservers.kagent.dev and mcpservers.kagent.dev hold ZERO objects on every cluster we run — */}}
+{{/* all 9 real tool servers are RemoteMCPServer/v1alpha2. Listing toolservers renders an */}}
+{{/* honest-but-permanently-empty table that looks like a data bug (verified live on krateo-057). */}}
+{{/* */}}
+{{/* GATEWAY REGISTRATION — the two extra reads (httproutes, agentgatewaypolicies), and why this page */}}
+{{/* is where they belong. An Agent object going Ready says the CONTROLLER accepted it. It says */}}
+{{/* nothing about whether anything can call it: every hop in this platform crosses the agentgateway, */}}
+{{/* and the gateway only forwards to an agent that has BOTH */}}
+{{/* (a) an HTTPRoute whose rule matches `x-kagent-host: <name>.<namespace>` — how the gateway picks */}}
+{{/* the backend at all, and */}}
+{{/* (b) Allow clauses naming that same host in the gateway's authorization policy — TWO of them, */}}
+{{/* one for the anonymous `/.well-known/agent-card.json` discovery GET and one for the */}}
+{{/* authenticated call, both rendered from the same agentgateway-policies subAgents entry. */}}
+{{/* Miss either and the agent reports Ready and Accepted while every call to it is refused. That is */}}
+{{/* not hypothetical: krateo-blueprint-agent was promoted 2026-09-03 and sat exactly like that for a */}}
+{{/* week — Ready, delegated to by autopilot, 403 at the agent-card hop — until someone added it to the */}}
+{{/* gateway's subAgents list by hand. The installer now derives that list from the deployed fleet so */}}
+{{/* the same drift cannot recur (e779002, in 0.3.172), but derivation only covers agents that ARE a */}}
+{{/* component pin; an agent created from /agents/new is not one. The create page has warned about this */}}
+{{/* state at length since it existed; nothing ever SHOWED who was in it. This does, exception-only: a */}}
+{{/* fully registered agent renders nothing at all. */}}
+{{/* */}}
+{{/* The (b) half is why a policy read is here and not just a route read. Routing an agent without */}}
+{{/* allowing it is the exact shape of the bug above, and a route-only check would have called */}}
+{{/* krateo-blueprint-agent healthy once someone added the HTTPRoute by hand. */}}
+{{/* */}}
+{{/* BOTH READS ARE THREE-STATE, like every other read on this page. "No route matches this host" is a */}}
+{{/* finding ONLY when routes were readable AND some route came back; an empty list is the silent */}}
+{{/* userAccessFilter refilter (a caller without the gateway.networking.k8s.io grant is served [], not */}}
+{{/* a 403) and must never be rendered as "this agent is unreachable". Same for the policies: the */}}
+{{/* verdict is withheld unless at least one Allow-action authorization policy is visible. When it is */}}
+{{/* withheld the subtitle says so, and NO row is flagged — an unchecked agent must not look healthy */}}
+{{/* by accident, so the page states the gap in prose instead of leaving it silent. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -103,9 +103,9 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: serversError
-  # v1 is the storage version of httproutes on the cluster (v1beta1 is still served but is not the
-  # storage version); pin v1 so the rules read here are the canonical ones. Same pin as
-  # restaction.agents-policies, which joins the same objects for a different question.
+  {{/* v1 is the storage version of httproutes on the cluster (v1beta1 is still served but is not the */}}
+  {{/* storage version); pin v1 so the rules read here are the canonical ones. Same pin as */}}
+  {{/* restaction.agents-policies, which joins the same objects for a different question. */}}
   - name: routes
     path: /apis/gateway.networking.k8s.io/v1/httproutes
     verb: GET

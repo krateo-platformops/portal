@@ -1,23 +1,23 @@
-# Cluster registry data source (hub-and-spoke Phase 1, design §2.1 + §1.3 Option 2).
-#
-# Lists the registered KubernetesTargets (the spokes a CompositionDefinition can deploy
-# to) and derives each target's HEALTH by AGGREGATING CompositionDefinition.status.target
-# across the blueprints that reference it — NO engine change (design §1.3 option 2):
-#   - stage `targets`  : collection LIST of KubernetesTargets (they live on the hub).
-#     KubernetesTarget is NAMESPACED (core-provider 2.8.0), but the collection endpoint
-#     (/apis/.../kubernetestargets, no namespace segment) returns every namespace the caller
-#     may see — same all-namespaces LIST shape the compdefs stage below relies on — so the
-#     list works unchanged after the scope migration.
-#   - stage `compdefs` : LIST of CompositionDefinitions (the same hub read the compositions
-#     page uses) — each carries spec.deploy.targetRef.name (the spoke it targets) and
-#     status.target.{connectionStatus,version} (per-blueprint reachability, probed each
-#     reconcile by core-provider).
-# The `filter` JOINs them: for each target, collect the compdefs whose targetRef.name == it,
-# roll their connectionStatus up to a single per-cluster health cell (railState-style —
-# any Down ⇒ failed/red, all Healthy ⇒ healthy/green, otherwise unknown/gray) and count them.
-# Robust to absent status (a freshly-registered target with no referencing blueprint, or a
-# blueprint whose status.target hasn't been populated yet, reads "unknown"). Both list steps
-# continueOnError so the page degrades (empty rows) rather than failing the whole widget.
+{{/* Cluster registry data source (hub-and-spoke Phase 1, design §2.1 + §1.3 Option 2). */}}
+{{/* */}}
+{{/* Lists the registered KubernetesTargets (the spokes a CompositionDefinition can deploy */}}
+{{/* to) and derives each target's HEALTH by AGGREGATING CompositionDefinition.status.target */}}
+{{/* across the blueprints that reference it — NO engine change (design §1.3 option 2): */}}
+{{/* - stage `targets`  : collection LIST of KubernetesTargets (they live on the hub). */}}
+{{/* KubernetesTarget is NAMESPACED (core-provider 2.8.0), but the collection endpoint */}}
+{{/* (/apis/.../kubernetestargets, no namespace segment) returns every namespace the caller */}}
+{{/* may see — same all-namespaces LIST shape the compdefs stage below relies on — so the */}}
+{{/* list works unchanged after the scope migration. */}}
+{{/* - stage `compdefs` : LIST of CompositionDefinitions (the same hub read the compositions */}}
+{{/* page uses) — each carries spec.deploy.targetRef.name (the spoke it targets) and */}}
+{{/* status.target.{connectionStatus,version} (per-blueprint reachability, probed each */}}
+{{/* reconcile by core-provider). */}}
+{{/* The `filter` JOINs them: for each target, collect the compdefs whose targetRef.name == it, */}}
+{{/* roll their connectionStatus up to a single per-cluster health cell (railState-style — */}}
+{{/* any Down ⇒ failed/red, all Healthy ⇒ healthy/green, otherwise unknown/gray) and count them. */}}
+{{/* Robust to absent status (a freshly-registered target with no referencing blueprint, or a */}}
+{{/* blueprint whose status.target hasn't been populated yet, reads "unknown"). Both list steps */}}
+{{/* continueOnError so the page degrades (empty rows) rather than failing the whole widget. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -27,10 +27,10 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # KubernetesTarget is namespaced (core.krateo.io/v1alpha1) as of core-provider 2.8.0, but
-    # this is the collection LIST endpoint (no namespace segment → all visible namespaces).
-    # UAF gates the LIST by the user's list grant on kubernetestargets; a narrow-RBAC user
-    # simply sees fewer/no rows.
+    {{/* KubernetesTarget is namespaced (core.krateo.io/v1alpha1) as of core-provider 2.8.0, but */}}
+    {{/* this is the collection LIST endpoint (no namespace segment → all visible namespaces). */}}
+    {{/* UAF gates the LIST by the user's list grant on kubernetestargets; a narrow-RBAC user */}}
+    {{/* simply sees fewer/no rows. */}}
     - name: targets
       path: /apis/core.krateo.io/v1alpha1/kubernetestargets
       verb: GET
@@ -42,13 +42,13 @@ spec:
         verb: list
         group: core.krateo.io
         resource: kubernetestargets
-      # Project the LIST body's .items to the fields the final JOIN needs (status.target may be
-      # absent on a freshly-registered target — read defensively). The step key then holds THIS
-      # array (a step WITH a filter yields the filter output, not the raw body).
-      # A KubernetesTarget's OWN status is FLAT (core-provider probes it directly):
-      # .status.connectionStatus / .status.version / .status.lastProbeTime — NOT nested under
-      # .status.target (that nesting is the CompositionDefinition's shape). Read the target's own
-      # probe as the primary health signal; the compdef roll-up (below) is a fallback.
+      {{/* Project the LIST body's .items to the fields the final JOIN needs (status.target may be */}}
+      {{/* absent on a freshly-registered target — read defensively). The step key then holds THIS */}}
+      {{/* array (a step WITH a filter yields the filter output, not the raw body). */}}
+      {{/* A KubernetesTarget's OWN status is FLAT (core-provider probes it directly): */}}
+      {{/* .status.connectionStatus / .status.version / .status.lastProbeTime — NOT nested under */}}
+      {{/* .status.target (that nesting is the CompositionDefinition's shape). Read the target's own */}}
+      {{/* probe as the primary health signal; the compdef roll-up (below) is a fallback. */}}
       filter: >
         [ .targets.items[]?
           | { name: .metadata.name,
@@ -56,10 +56,10 @@ spec:
               conn: (.status.connectionStatus // ""),
               version: (.status.version // ""),
               lastProbe: (.status.lastProbeTime // .metadata.creationTimestamp // "") } ]
-    # CompositionDefinitions carry the per-blueprint target reachability we roll up. This is a
-    # cluster-scope LIST (compositiondefinitions is namespaced, but the cluster-scope LIST
-    # endpoint returns all namespaces the caller may see — same shape compositions-list relies
-    # on for its per-item UAF); we only read spec.deploy.targetRef + status.target here.
+    {{/* CompositionDefinitions carry the per-blueprint target reachability we roll up. This is a */}}
+    {{/* cluster-scope LIST (compositiondefinitions is namespaced, but the cluster-scope LIST */}}
+    {{/* endpoint returns all namespaces the caller may see — same shape compositions-list relies */}}
+    {{/* on for its per-item UAF); we only read spec.deploy.targetRef + status.target here. */}}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -72,18 +72,18 @@ spec:
         group: core.krateo.io
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
-      # Project the LIST body's .items to (targetRef.name, per-blueprint reachability). Only the
-      # blueprints that actually target a spoke matter for the roll-up (drop the target-less/local
-      # ones). The step key then holds THIS array.
+      {{/* Project the LIST body's .items to (targetRef.name, per-blueprint reachability). Only the */}}
+      {{/* blueprints that actually target a spoke matter for the roll-up (drop the target-less/local */}}
+      {{/* ones). The step key then holds THIS array. */}}
       filter: >
         [ .compdefs.items[]?
           | { target: (.spec.deploy.targetRef.name // ""),
               conn: (.status.target.connectionStatus // ""),
               ver: (.status.target.version // "") }
           | select(.target != "") ]
-  # Build the registry rows. For each KubernetesTarget, JOIN the CompositionDefinitions whose
-  # spec.deploy.targetRef.name == target.metadata.name, roll their status.target.connectionStatus
-  # up to a health verdict, and count them. `counts` summarises the fleet for an optional header.
+  {{/* Build the registry rows. For each KubernetesTarget, JOIN the CompositionDefinitions whose */}}
+  {{/* spec.deploy.targetRef.name == target.metadata.name, roll their status.target.connectionStatus */}}
+  {{/* up to a health verdict, and count them. `counts` summarises the fleet for an optional header. */}}
   filter: >
     (.compdefs // []) as $cd
     | ([ (.targets // [])[]

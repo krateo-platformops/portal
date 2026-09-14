@@ -1,10 +1,10 @@
-# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
-# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
-# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{/* GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps */}}
+{{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
+{{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-# Wraps the reconcile-throughput LineChart; header extra shows the current p95 latency + the
-# REAL 6h reconcile-failure count and error rate (from the RA's provider_runtime.reconcile
-# counters — NOT the always-Unset span StatusCode) — the live headline numbers beside the trend.
+{{/* Wraps the reconcile-throughput LineChart; header extra shows the current p95 latency + the */}}
+{{/* REAL 6h reconcile-failure count and error rate (from the RA's provider_runtime.reconcile */}}
+{{/* counters — NOT the always-Unset span StatusCode) — the live headline numbers beside the trend. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     title: Reconcile throughput
@@ -23,9 +23,9 @@ spec:
     extra: 'live · per 10 min'
     items:
     - resourceRefId: obs-reconcile-throughput
-  # HONESTY (IA obs-deepdive): when there are zero reconciles in range ($tot==0) show an
-  # explicit "no reconcile-trace data" instead of "p95 0ms · 0 fail" (which reads as a real
-  # healthy measurement). Otherwise the live p95 + failure count + rate.
+  {{/* HONESTY (IA obs-deepdive): when there are zero reconciles in range ($tot==0) show an */}}
+  {{/* explicit "no reconcile-trace data" instead of "p95 0ms · 0 fail" (which reads as a real */}}
+  {{/* healthy measurement). Otherwise the live p95 + failure count + rate. */}}
   widgetDataTemplate:
   - forPath: extra
     expression: '${ (.current // {}) as $c | (.failures // 0) as $f | (.successes // 0) as $ok | ($f + $ok) as $tot | (if $tot == 0 then "no reconcile-trace data" else ("p95 " + (($c.p95_ms // 0)|tostring) + "ms · " + ($f|tostring) + " fail (" + (($f * 100 / $tot)|floor|tostring) + "%)") end) }'

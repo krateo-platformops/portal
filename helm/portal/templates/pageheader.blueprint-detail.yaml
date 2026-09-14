@@ -1,34 +1,34 @@
-# The /blueprints/{namespace}/{name} page header — the blueprint's name, its health pill, the
-# CompositionDefinition line and the page's four actions, in one CR.
-#
-# Replaces SIX: flex.blueprint-detail-header-block, flex.blueprint-detail-title-line,
-# flex.blueprint-detail-title-stack, paragraph.blueprint-detail-title, tag.blueprint-detail-status
-# and paragraph.blueprint-detail-subtitle. Three levels of Flex to arrange four things.
-#
-# ACTIONS MOVE UP A ROW, and that is the intended shape rather than a side effect. They used to sit
-# BESIDE the subtitle on row two (title-stack was `vertical: false`, subtitle and actions in one
-# line); PageHeader right-aligns them on the title line, where a page's actions belong. The actions
-# Flex itself is kept and referenced — it carries the four Buttons' order and grouping, and this
-# migration has no business reshuffling them.
-#
-# TWO COLOURS HAD TO CHANGE, because PageHeader's tags take a palette colour NAME from a closed
-# enum (blue|darkBlue|orange|gray|red|green|violet) and the Tag emitted two that are not in it:
-#
-#   orange    -> orange   BYTE-IDENTICAL. tokens.ts gives orange and orange the same hex in both
-#                       themes (#8A5C00 light, #FFAA00 dark), so the Pending pill is unchanged.
-#   default -> gray     A REAL CHANGE, and an improvement. `default` is not a palette key at all,
-#                       so getColorCode fell through to `palette.dark` — near-black ink (#141414)
-#                       on a 15% tint. That was the fallback, not a decision. `gray` (#5C5C5C) is
-#                       the deliberate neutral. Only the Unknown pill (no conditions) is affected.
-#
-# THE TWO TAG TEMPLATES BECOME ONE. Both ran the same five-way branch over the same `$c`/`$ready`/
-# `$unsynced` prelude — once for `label`, once for `color` — so an edit to one and not the other
-# produced a pill whose word and colour disagreed. Evaluated once now. Verified branch-by-branch:
-# Unknown/gray, Drift/violet, Healthy/green, Degraded/red, Pending/orange.
-#
-# keyExtras is the UNION: the Tag declared [name, namespace, status] where the others declared
-# [name, namespace]. Union is the safe direction — an extra key that never arrives partitions
-# consistently, while a missing one serves another blueprint's header from this one's cache cell.
+{{/* The /blueprints/{namespace}/{name} page header — the blueprint's name, its health pill, the */}}
+{{/* CompositionDefinition line and the page's four actions, in one CR. */}}
+{{/* */}}
+{{/* Replaces SIX: flex.blueprint-detail-header-block, flex.blueprint-detail-title-line, */}}
+{{/* flex.blueprint-detail-title-stack, paragraph.blueprint-detail-title, tag.blueprint-detail-status */}}
+{{/* and paragraph.blueprint-detail-subtitle. Three levels of Flex to arrange four things. */}}
+{{/* */}}
+{{/* ACTIONS MOVE UP A ROW, and that is the intended shape rather than a side effect. They used to sit */}}
+{{/* BESIDE the subtitle on row two (title-stack was `vertical: false`, subtitle and actions in one */}}
+{{/* line); PageHeader right-aligns them on the title line, where a page's actions belong. The actions */}}
+{{/* Flex itself is kept and referenced — it carries the four Buttons' order and grouping, and this */}}
+{{/* migration has no business reshuffling them. */}}
+{{/* */}}
+{{/* TWO COLOURS HAD TO CHANGE, because PageHeader's tags take a palette colour NAME from a closed */}}
+{{/* enum (blue|darkBlue|orange|gray|red|green|violet) and the Tag emitted two that are not in it: */}}
+{{/* */}}
+{{/* orange    -> orange   BYTE-IDENTICAL. tokens.ts gives orange and orange the same hex in both */}}
+{{/* themes (#8A5C00 light, #FFAA00 dark), so the Pending pill is unchanged. */}}
+{{/* default -> gray     A REAL CHANGE, and an improvement. `default` is not a palette key at all, */}}
+{{/* so getColorCode fell through to `palette.dark` — near-black ink (#141414) */}}
+{{/* on a 15% tint. That was the fallback, not a decision. `gray` (#5C5C5C) is */}}
+{{/* the deliberate neutral. Only the Unknown pill (no conditions) is affected. */}}
+{{/* */}}
+{{/* THE TWO TAG TEMPLATES BECOME ONE. Both ran the same five-way branch over the same `$c`/`$ready`/ */}}
+{{/* `$unsynced` prelude — once for `label`, once for `color` — so an edit to one and not the other */}}
+{{/* produced a pill whose word and colour disagreed. Evaluated once now. Verified branch-by-branch: */}}
+{{/* Unknown/gray, Drift/violet, Healthy/green, Degraded/red, Pending/orange. */}}
+{{/* */}}
+{{/* keyExtras is the UNION: the Tag declared [name, namespace, status] where the others declared */}}
+{{/* [name, namespace]. Union is the safe direction — an extra key that never arrives partitions */}}
+{{/* consistently, while a missing one serves another blueprint's header from this one's cache cell. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -52,13 +52,13 @@ spec:
     items:
     - resourceRefId: blueprint-detail-actions
   widgetDataTemplate:
-    # Was paragraph.blueprint-detail-title's `forPath: text`.
+    {{/* Was paragraph.blueprint-detail-title's `forPath: text`. */}}
     - forPath: title
       expression: '${ .name }'
-    # Was paragraph.blueprint-detail-subtitle's `forPath: text`, lifted verbatim.
+    {{/* Was paragraph.blueprint-detail-subtitle's `forPath: text`, lifted verbatim. */}}
     - forPath: subtitle
       expression: '${ "CompositionDefinition · " + (.namespace // "?") + " · created " + ((.created // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end) }'
-    # Was the Tag's TWO templates, fused into one branch so label and colour cannot disagree.
+    {{/* Was the Tag's TWO templates, fused into one branch so label and colour cannot disagree. */}}
     - forPath: tags
       expression: '${ (.detail.status.conditions // []) as $c | (($c | map(select(.type == "Ready" and .status == "True")) | length) > 0) as $ready | (($c | map(select(.type == "Synced" and .status == "False")) | length) > 0) as $unsynced | [ ( if ($c | length) == 0 then {label:"Unknown", color:"gray"} elif $ready and $unsynced then {label:"Drift", color:"violet"} elif $ready then {label:"Healthy", color:"green"} elif ($c | map(select(.status == "False")) | length) > 0 then {label:"Degraded", color:"red"} else {label:"Pending", color:"orange"} end ) ] }'
   resourcesRefs:

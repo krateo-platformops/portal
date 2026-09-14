@@ -1,13 +1,13 @@
-# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
-# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
-# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{/* GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps */}}
+{{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
+{{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-# Per-composition reconcile latency — the composition-dynamic-controller's `reconcile`
-# trace spans grouped by the composition they reconciled (kind+name), straight from
-# ClickHouse (otel_traces) via restaction.obs-reconcile-by-composition. Rows come back
-# slowest-first (server-side ORDER BY p95 DESC), so the top rows are the hot compositions.
-# p95 cell is tinted by severity (>3s crimson, >1.5s orange) to draw the eye — the threshold
-# colour is applied per-cell; the numbers themselves are the real measured ms.
+{{/* Per-composition reconcile latency — the composition-dynamic-controller's `reconcile` */}}
+{{/* trace spans grouped by the composition they reconciled (kind+name), straight from */}}
+{{/* ClickHouse (otel_traces) via restaction.obs-reconcile-by-composition. Rows come back */}}
+{{/* slowest-first (server-side ORDER BY p95 DESC), so the top rows are the hot compositions. */}}
+{{/* p95 cell is tinted by severity (>3s crimson, >1.5s orange) to draw the eye — the threshold */}}
+{{/* colour is applied per-cell; the numbers themselves are the real measured ms. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,14 +17,14 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     allowedResources: []
     bordered: false
     size: small
-    # Row click → the composition's detail page ({ns}/{name} from a hidden ns cell + the
-    # name cell). Rows whose ns/name don't resolve simply don't navigate (buildRowPath guard).
+    {{/* Row click → the composition's detail page ({ns}/{name} from a hidden ns cell + the */}}
+    {{/* name cell). Rows whose ns/name don't resolve simply don't navigate (buildRowPath guard). */}}
     rowNavigateTo: /compositions/{ns}/{name}
     pagination:
       defaultPageSize: 10
@@ -41,8 +41,8 @@ spec:
       title: avg
     dataSource: []
   widgetDataTemplate:
-  # Rows already sorted slowest-first server-side. p95 tinted by threshold; avg stays
-  # neutral. All numbers are the real measured latency (ms) — nothing derived client-side.
+  {{/* Rows already sorted slowest-first server-side. p95 tinted by threshold; avg stays */}}
+  {{/* neutral. All numbers are the real measured latency (ms) — nothing derived client-side. */}}
   - forPath: dataSource
     expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind}, {valueKey:"reconciles",kind:"jsonSchemaType",type:"string",stringValue:(.reconciles|tostring)}, {valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:((.p95_ms|tostring)+" ms"),color:((.p95_ms|tonumber) | if . > 3000 then "#cf1322" elif . > 1500 then "#d48806" else "#8c8c8c" end)}, {valueKey:"avg",kind:"jsonSchemaType",type:"string",stringValue:((.avg_ms|tostring)+" ms"),color:"#8c8c8c"} ] ] }'
   apiRef:

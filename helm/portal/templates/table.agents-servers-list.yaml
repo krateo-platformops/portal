@@ -1,50 +1,50 @@
-# The tool-server inventory, from restaction.agents-servers (`.servers`).
-#
-# WHY A TABLE AND NOT CARDS: a Card's content is fixed in its own CR — there is no way to fan one
-# Card out per row of an apiRef result, so "a card per server" would mean nine hand-written CRs
-# carrying this cluster's server list inside the chart. The chart must render whatever servers a
-# cluster actually has, so the list has to be data-driven, and Table is the only data-driven
-# container in the widget set.
-#
-# `Discovered` is what the server reports it serves (.status.discoveredTools). `In use` is how many
-# of those at least one agent actually binds. The gap is the point of the column: kagent-tool-server
-# discovers 124 tools and agents bind 26 of them (verified live), so the surface an agent can reach
-# is a small, auditable subset of what the server offers — that is the security story this section
-# exists to tell.
-#
-# STATUS IS EXCEPTION-ONLY and carries BOTH the reconcile exceptions and the gateway advisory.
-# They share one column deliberately: split into "Status" and "Gateway" they would be two columns
-# that are empty on a healthy cluster, which reads as broken rendering rather than as good news.
-# The condition predicate is type-aware (Ready/Accepted True = healthy), so an advisory condition
-# whose True means "there IS a problem" is not silently dropped. Colours: red = a failed
-# Ready/Accepted, orange = an advisory. Today exactly ONE cell fills in: flux-schema-mcp-server is
-# "external endpoint" (https://schemas.fluxoperator.dev/mcp — it leaves the cluster, so no
-# AgentgatewayBackend can front it and its absence is correct, not a gap).
-#
-# EVERY CELL IS RENDERED VERBATIM. The RA emits each cell as the string to print — including
-# "not readable", which is what In use / Agents say when the Agent list did not answer, and the
-# single explanatory row that replaces the table when the RemoteMCPServer list did not answer. An
-# unreadable list must never render as an empty one, and a count that could not be computed must
-# never render as 0, so no `// 0` fallback survives in this template.
-#
-# No rowNavigateTo: there is no /agents/servers/{namespace}/{name} detail page, and a Table whose
-# rowNavigateTo substitutes an empty cell goes silently inert. The link lands with the page.
-#
-# The muted `endpoint`/`protocol`/`timeout` cells carry `var(--gray-color)`, NOT a hex. A cell
-# colour is written straight into the span's inline style, so it is frozen against ONE background
-# while the portal has two, and the literal #8c8c8c that used to sit here measured 3.25:1 on the
-# light surface (#FBFBFB) against WCAG AA's 4.5:1 — the endpoint column, which is the whole point of
-# "where does this server actually live", was unreadable for every light-mode reader. No hex can
-# satisfy both themes at once (table.agents-list carries the luminance arithmetic); the token is
-# re-emitted per mode by cssVariables() and measures 6.46:1 light / 7.04:1 dark.
-#
-# Discovered / In use / Agents are LEFT-aligned here while the same kind of count right-aligns on
-# the agent table, and that is the data being honest rather than an inconsistency to paper over.
-# The SPA right-aligns a column only when every value in it is numeric (tableSorting.ts sniffs the
-# raw dataSource; there is no `align` on the Table CRD), and these three legitimately are not:
-# `Agents` prints "—" for a server nothing binds, and all three print "not readable" when the Agent
-# list did not answer. Forcing a 0 into those cells to buy the alignment would trade a true
-# statement for a false one — the same reason the `// 0` fallbacks are banned above.
+{{/* The tool-server inventory, from restaction.agents-servers (`.servers`). */}}
+{{/* */}}
+{{/* WHY A TABLE AND NOT CARDS: a Card's content is fixed in its own CR — there is no way to fan one */}}
+{{/* Card out per row of an apiRef result, so "a card per server" would mean nine hand-written CRs */}}
+{{/* carrying this cluster's server list inside the chart. The chart must render whatever servers a */}}
+{{/* cluster actually has, so the list has to be data-driven, and Table is the only data-driven */}}
+{{/* container in the widget set. */}}
+{{/* */}}
+{{/* `Discovered` is what the server reports it serves (.status.discoveredTools). `In use` is how many */}}
+{{/* of those at least one agent actually binds. The gap is the point of the column: kagent-tool-server */}}
+{{/* discovers 124 tools and agents bind 26 of them (verified live), so the surface an agent can reach */}}
+{{/* is a small, auditable subset of what the server offers — that is the security story this section */}}
+{{/* exists to tell. */}}
+{{/* */}}
+{{/* STATUS IS EXCEPTION-ONLY and carries BOTH the reconcile exceptions and the gateway advisory. */}}
+{{/* They share one column deliberately: split into "Status" and "Gateway" they would be two columns */}}
+{{/* that are empty on a healthy cluster, which reads as broken rendering rather than as good news. */}}
+{{/* The condition predicate is type-aware (Ready/Accepted True = healthy), so an advisory condition */}}
+{{/* whose True means "there IS a problem" is not silently dropped. Colours: red = a failed */}}
+{{/* Ready/Accepted, orange = an advisory. Today exactly ONE cell fills in: flux-schema-mcp-server is */}}
+{{/* "external endpoint" (https://schemas.fluxoperator.dev/mcp — it leaves the cluster, so no */}}
+{{/* AgentgatewayBackend can front it and its absence is correct, not a gap). */}}
+{{/* */}}
+{{/* EVERY CELL IS RENDERED VERBATIM. The RA emits each cell as the string to print — including */}}
+{{/* "not readable", which is what In use / Agents say when the Agent list did not answer, and the */}}
+{{/* single explanatory row that replaces the table when the RemoteMCPServer list did not answer. An */}}
+{{/* unreadable list must never render as an empty one, and a count that could not be computed must */}}
+{{/* never render as 0, so no `// 0` fallback survives in this template. */}}
+{{/* */}}
+{{/* No rowNavigateTo: there is no /agents/servers/{namespace}/{name} detail page, and a Table whose */}}
+{{/* rowNavigateTo substitutes an empty cell goes silently inert. The link lands with the page. */}}
+{{/* */}}
+{{/* The muted `endpoint`/`protocol`/`timeout` cells carry `var(--gray-color)`, NOT a hex. A cell */}}
+{{/* colour is written straight into the span's inline style, so it is frozen against ONE background */}}
+{{/* while the portal has two, and the literal #8c8c8c that used to sit here measured 3.25:1 on the */}}
+{{/* light surface (#FBFBFB) against WCAG AA's 4.5:1 — the endpoint column, which is the whole point of */}}
+{{/* "where does this server actually live", was unreadable for every light-mode reader. No hex can */}}
+{{/* satisfy both themes at once (table.agents-list carries the luminance arithmetic); the token is */}}
+{{/* re-emitted per mode by cssVariables() and measures 6.46:1 light / 7.04:1 dark. */}}
+{{/* */}}
+{{/* Discovered / In use / Agents are LEFT-aligned here while the same kind of count right-aligns on */}}
+{{/* the agent table, and that is the data being honest rather than an inconsistency to paper over. */}}
+{{/* The SPA right-aligns a column only when every value in it is numeric (tableSorting.ts sniffs the */}}
+{{/* raw dataSource; there is no `align` on the Table CRD), and these three legitimately are not: */}}
+{{/* `Agents` prints "—" for a server nothing binds, and all three print "not readable" when the Agent */}}
+{{/* list did not answer. Forcing a 0 into those cells to buy the alignment would trade a true */}}
+{{/* statement for a false one — the same reason the `// 0` fallbacks are banned above. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

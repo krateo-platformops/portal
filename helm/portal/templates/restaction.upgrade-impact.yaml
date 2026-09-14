@@ -1,22 +1,22 @@
-# Upgrade-impact EXPLAIN data source — what a blueprint version update CHANGES, before the
-# user runs it. Given the blueprint identity from ?extras (.namespace/.name, the detail-page
-# route params) and a TARGET version (?to=, written by the blueprint-impact-target Select),
-# it asks the helm-render-service to render BOTH chart versions and diff the resulting
-# manifests in ONE call (POST /diff — base = installed spec.chart.version, head = ?to).
-#
-# HONESTY — this is a diff of CHART DEFAULTS: both versions render with the chart's default
-# values under a synthetic release named after the blueprint. The values of REAL composition
-# instances are NOT recoverable here and are NOT applied; the rendered `note` says so and the
-# consuming card shows it. v2: recover per-composition values and diff those.
-#
-# Error model: the render service answers 200 + {error} for a chart that fails to fetch or
-# render (data, not a step error), and continueOnError catches transport-level failures —
-# either way the filter emits ONE honest error row + an error summary instead of widget data
-# silently vanishing. When ?to= is absent the head falls back to the installed version
-# (self-diff → empty; the impact widgets are only mounted when a differing ?to= is set, so
-# this is just a safety net). Endpoint: the helm-render-endpoint Secret (server-url =
-# http://helm-render-service.krateo-system.svc:8080), shipped by the helm-render-service
-# chart with snowplowEndpoint.enabled=true — same-namespace convention as blueprints-endpoint.
+{{/* Upgrade-impact EXPLAIN data source — what a blueprint version update CHANGES, before the */}}
+{{/* user runs it. Given the blueprint identity from ?extras (.namespace/.name, the detail-page */}}
+{{/* route params) and a TARGET version (?to=, written by the blueprint-impact-target Select), */}}
+{{/* it asks the helm-render-service to render BOTH chart versions and diff the resulting */}}
+{{/* manifests in ONE call (POST /diff — base = installed spec.chart.version, head = ?to). */}}
+{{/* */}}
+{{/* HONESTY — this is a diff of CHART DEFAULTS: both versions render with the chart's default */}}
+{{/* values under a synthetic release named after the blueprint. The values of REAL composition */}}
+{{/* instances are NOT recoverable here and are NOT applied; the rendered `note` says so and the */}}
+{{/* consuming card shows it. v2: recover per-composition values and diff those. */}}
+{{/* */}}
+{{/* Error model: the render service answers 200 + {error} for a chart that fails to fetch or */}}
+{{/* render (data, not a step error), and continueOnError catches transport-level failures — */}}
+{{/* either way the filter emits ONE honest error row + an error summary instead of widget data */}}
+{{/* silently vanishing. When ?to= is absent the head falls back to the installed version */}}
+{{/* (self-diff → empty; the impact widgets are only mounted when a differing ?to= is set, so */}}
+{{/* this is just a safety net). Endpoint: the helm-render-endpoint Secret (server-url = */}}
+{{/* http://helm-render-service.krateo-system.svc:8080), shipped by the helm-render-service */}}
+{{/* chart with snowplowEndpoint.enabled=true — same-namespace convention as blueprints-endpoint. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -26,18 +26,18 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # The installed blueprint = its CompositionDefinition; spec.chart carries the source
-    # (url [+ repo for classic helm repos] + installed version) the diff bases on.
+    {{/* The installed blueprint = its CompositionDefinition; spec.chart carries the source */}}
+    {{/* (url [+ repo for classic helm repos] + installed version) the diff bases on. */}}
     - name: compdef
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
-    # ONE /diff call renders installed-vs-target and diffs object-by-object (keyed by
-    # apiVersion/kind/namespace/name; summaries name the changed top-level fields).
-    # The payload is jq-built from the compdef — both chart-source spellings supported:
-    # OCI (url+version) and classic helm repo (url+repo+version); `repo` is only sent
-    # when the compdef has one (an empty repo would break the repo-base-URL path).
+    {{/* ONE /diff call renders installed-vs-target and diffs object-by-object (keyed by */}}
+    {{/* apiVersion/kind/namespace/name; summaries name the changed top-level fields). */}}
+    {{/* The payload is jq-built from the compdef — both chart-source spellings supported: */}}
+    {{/* OCI (url+version) and classic helm repo (url+repo+version); `repo` is only sent */}}
+    {{/* when the compdef has one (an empty repo would break the repo-base-URL path). */}}
     - name: impact
       dependsOn:
         name: compdef
@@ -59,13 +59,13 @@ spec:
                releaseName: (.name // "preview"),
                namespace: (.namespace // "default") }
            | tojson }
-  # Shape the raw /diff result into the compact widget contract:
-  #   rows    : per-object { kind, name, namespace, change: added|removed|modified|error,
-  #             color (antd Tag color, server-side value→presentation), detail }
-  #   counts  : { added, removed, modified, total }
-  #   summary : one human line (counts, or the no-changes / render-failed statement)
-  #   note    : the chart-defaults honesty header (always shown by the card)
-  #   from/to : the compared versions; error: "" when healthy
+  {{/* Shape the raw /diff result into the compact widget contract: */}}
+  {{/* rows    : per-object { kind, name, namespace, change: added|removed|modified|error, */}}
+  {{/* color (antd Tag color, server-side value→presentation), detail } */}}
+  {{/* counts  : { added, removed, modified, total } */}}
+  {{/* summary : one human line (counts, or the no-changes / render-failed statement) */}}
+  {{/* note    : the chart-defaults honesty header (always shown by the card) */}}
+  {{/* from/to : the compared versions; error: "" when healthy */}}
   filter: |
     (.compdef.spec.chart // {}) as $c
     | ($c.version // "") as $from

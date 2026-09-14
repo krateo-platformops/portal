@@ -1,7 +1,7 @@
-# Reconciliation band (detail page signature element) — wraps the per-resource
-# rail List. Eyebrow title + a state badge (Synced / NotSynced / Unknown — K8s-native
-# tokens) derived from the composition's real Synced condition. Mirrors the
-# mockup `.rail-panel` placed directly under the title, above the 2-col grid.
+{{/* Reconciliation band (detail page signature element) — wraps the per-resource */}}
+{{/* rail List. Eyebrow title + a state badge (Synced / NotSynced / Unknown — K8s-native */}}
+{{/* tokens) derived from the composition's real Synced condition. Mirrors the */}}
+{{/* mockup `.rail-panel` placed directly under the title, above the 2-col grid. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,7 +10,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   widgetData:
     title: Reconciliation · desired vs actual
@@ -21,14 +21,14 @@ spec:
     extraStatus: processing
     items:
     - resourceRefId: list-composition-detail-rail
-  # Badge = the composition's REAL `Synced` condition (not a derived Converged/Reconciling label):
-  # Synced=True → "Synced" (success), False → "NotSynced" (error), absent → "Unknown" — K8s-native
-  # single PascalCase tokens (kubectl NotReady precedent), never spaced (the badge renderer's mono
-  # style may still uppercase visually — that styling lives in the frontend, not this CR). When the
-  # engine's workload projection says the workload is down (workloadHealthy == false) the badge
-  # keeps the sync FACT but appends "· Unhealthy" (verbatim K8s probe-failure reason) and goes
-  # error — "Synced" alone over a CrashLoopBackOff workload reads as all-clear, which is false.
-  # (The per-resource bars below still come from composition-resources via the rail List's own apiRef.)
+  {{/* Badge = the composition's REAL `Synced` condition (not a derived Converged/Reconciling label): */}}
+  {{/* Synced=True → "Synced" (success), False → "NotSynced" (error), absent → "Unknown" — K8s-native */}}
+  {{/* single PascalCase tokens (kubectl NotReady precedent), never spaced (the badge renderer's mono */}}
+  {{/* style may still uppercase visually — that styling lives in the frontend, not this CR). When the */}}
+  {{/* engine's workload projection says the workload is down (workloadHealthy == false) the badge */}}
+  {{/* keeps the sync FACT but appends "· Unhealthy" (verbatim K8s probe-failure reason) and goes */}}
+  {{/* error — "Synced" alone over a CrashLoopBackOff workload reads as all-clear, which is false. */}}
+  {{/* (The per-resource bars below still come from composition-resources via the rail List's own apiRef.) */}}
   widgetDataTemplate:
   - forPath: extra
     expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | (if $s == null then "Unknown" elif $s.status == "True" then "Synced" else "NotSynced" end) as $base | if .workloadHealthy == false then ($base + " · Unhealthy") else $base end }'

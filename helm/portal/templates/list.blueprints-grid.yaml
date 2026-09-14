@@ -1,10 +1,10 @@
-# Blueprints (installed) as a CARD GRID — the same card UI as the Marketplace, but sourced from
-# the cluster's INSTALLED CompositionDefinitions (blueprints-cards), per the design "blueprints
-# and marketplace are the same page, distinguished only by source (installed vs installable)".
-# Clicking a tile opens the blueprint DETAIL page (/blueprints/{namespace}/{name}), where Create
-# (instantiate) / Uninstall / version-update live.
-# The card body shows "provisions · <composition kind>" (status.kind, e.g. KrateoAuthn) — what the
-# blueprint deploys (mockup `.prov`); falls back to the chart source for any compdef with no kind.
+{{/* Blueprints (installed) as a CARD GRID — the same card UI as the Marketplace, but sourced from */}}
+{{/* the cluster's INSTALLED CompositionDefinitions (blueprints-cards), per the design "blueprints */}}
+{{/* and marketplace are the same page, distinguished only by source (installed vs installable)". */}}
+{{/* Clicking a tile opens the blueprint DETAIL page (/blueprints/{namespace}/{name}), where Create */}}
+{{/* (instantiate) / Uninstall / version-update live. */}}
+{{/* The card body shows "provisions · <composition kind>" (status.kind, e.g. KrateoAuthn) — what the */}}
+{{/* blueprint deploys (mockup `.prov`); falls back to the chart source for any compdef with no kind. */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Listy
 metadata:
@@ -13,7 +13,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [category, projects, q]
   apiRef:
     name: blueprints-cards
@@ -22,10 +22,10 @@ spec:
     grid:
       gutter: 16
       column: 3
-    # UX-audit #21: same page pattern as the Marketplace grid (24 tiles = 8 rows × 3 cols
-    # per page). The installed set is small today but scales with the catalog; the
-    # category/q facets filter server-side BEFORE delivery, a single-page result hides
-    # the pager (hideOnSinglePage in the frontend), so small installs see no change.
+    {{/* UX-audit #21: same page pattern as the Marketplace grid (24 tiles = 8 rows × 3 cols */}}
+    {{/* per page). The installed set is small today but scales with the catalog; the */}}
+    {{/* category/q facets filter server-side BEFORE delivery, a single-page result hides */}}
+    {{/* the pager (hideOnSinglePage in the frontend), so small installs see no change. */}}
     pagination:
       pageSize: 24
     dataSource: []
@@ -34,19 +34,19 @@ spec:
       iconVariant: tile
       icon: fa-cube
       primaryText: '{name}'
-      # version → the bordered ver-badge in the meta row beside the name (was miswired to
-      # the footer); namespace → the footer-left slot (mockup tile-foot ns).
+      {{/* version → the bordered ver-badge in the meta row beside the name (was miswired to */}}
+      {{/* the footer); namespace → the footer-left slot (mockup tile-foot ns). */}}
       subPrimaryText: 'v{version}'
       secondaryText: '{category}'
       secondaryTextAsTag: true
       subSecondaryText: '{namespace}'
       description: '{desc}'
-      # Whole-card click → the blueprint detail page (Delete / version-update live there).
+      {{/* Whole-card click → the blueprint detail page (Delete / version-update live there). */}}
       navigateTo: '/blueprints/{namespace}/{name}'
-      # "Create" — a footer action button in the SAME style as the Marketplace "Install" button
-      # (orange primary). It opens the create-composition form for THIS blueprint. Labelled
-      # "Create" (not "Configure") to match the detail page's verb and telegraph that it
-      # provisions an instance, not a settings page (CTA-audit B1).
+      {{/* "Create" — a footer action button in the SAME style as the Marketplace "Install" button */}}
+      {{/* (orange primary). It opens the create-composition form for THIS blueprint. Labelled */}}
+      {{/* "Create" (not "Configure") to match the detail page's verb and telegraph that it */}}
+      {{/* provisions an instance, not a settings page (CTA-audit B1). */}}
       rowActions:
         - actionId: configure
           label: Create
@@ -58,9 +58,9 @@ spec:
           observability: cyan
           blueprint: magenta
         default: gray
-      # At-a-glance status glyph (top-right of the card) = the blueprint's CompositionDefinition
-      # Ready condition. The icon + colour are computed server-side in the blueprints-cards RA
-      # (readyIcon/readyColor) so the widget stays strongly typed; tooltip = the condition reason.
+      {{/* At-a-glance status glyph (top-right of the card) = the blueprint's CompositionDefinition */}}
+      {{/* Ready condition. The icon + colour are computed server-side in the blueprints-cards RA */}}
+      {{/* (readyIcon/readyColor) so the widget stays strongly typed; tooltip = the condition reason. */}}
       status:
         icon: '{readyIcon}'
         color: '{readyColor}'

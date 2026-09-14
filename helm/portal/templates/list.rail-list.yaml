@@ -1,14 +1,14 @@
-# Reconciliation rail — per-composition desired-vs-actual bars. Real data, no
-# hardcoding: fed by the compositions-list RA, each row a composed antd Progress
-# line whose percent (.healthPercent) + colour (.railState → green/violet/orange/
-# orange/red) are derived server-side from the composition's Ready×Synced conditions
-# (+ workloadHealthy when the blueprint projects it). RED is reserved for Ready=False
-# (genuine apply/reconcile failure); a reconciled composition whose PROJECTED
-# workloadHealthy is false shows GOLD "degraded" (rolling out / workload unready),
-# NOT red — so a normal rolling Deployment update no longer flashes the rail red.
-# Non-healthy compositions sort first (a paused/drifting composition surfaces at
-# the top). Per-composition (cheap, composition-level Ready×Synced); the per-
-# managed-resource rail lives on the detail page (composition-resources RA).
+{{/* Reconciliation rail — per-composition desired-vs-actual bars. Real data, no */}}
+{{/* hardcoding: fed by the compositions-list RA, each row a composed antd Progress */}}
+{{/* line whose percent (.healthPercent) + colour (.railState → green/violet/orange/ */}}
+{{/* orange/red) are derived server-side from the composition's Ready×Synced conditions */}}
+{{/* (+ workloadHealthy when the blueprint projects it). RED is reserved for Ready=False */}}
+{{/* (genuine apply/reconcile failure); a reconciled composition whose PROJECTED */}}
+{{/* workloadHealthy is false shows GOLD "degraded" (rolling out / workload unready), */}}
+{{/* NOT red — so a normal rolling Deployment update no longer flashes the rail red. */}}
+{{/* Non-healthy compositions sort first (a paused/drifting composition surfaces at */}}
+{{/* the top). Per-composition (cheap, composition-level Ready×Synced); the per- */}}
+{{/* managed-resource rail lives on the detail page (composition-resources RA). */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,7 +17,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, q, scope, status]
   apiRef:
     name: compositions-list
@@ -29,7 +29,7 @@ spec:
     itemTemplate:
       primaryText: '{name}'
       subPrimaryText: '{ns}'
-      # D4: each rail row is clickable → that composition's detail page (logs/manifest/relations).
+      {{/* D4: each rail row is clickable → that composition's detail page (logs/manifest/relations). */}}
       navigateTo: '/compositions/{ns}/{name}'
       bar:
         percent: '{healthPercent}'

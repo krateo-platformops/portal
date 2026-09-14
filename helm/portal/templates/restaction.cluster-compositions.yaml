@@ -1,64 +1,64 @@
-# W3-3 spoke read-back data source — the LIVE compositions + reconcile health of ONE
-# registered spoke cluster, read DIRECTLY from the SPOKE apiserver (zero snowplow/engine
-# changes) via api-step `endpointRef`. Renders on /clusters/{name} (?extras .name).
-#
-# HOW THE SPOKE DIAL WORKS (verified in snowplow source, 2026-07-14):
-#   * endpointRef → resolveOne (internal/resolvers/restactions/api/endpoints.go:23) →
-#     plumbing endpoints.FromSecret (v0.9.3 endpoints/endpoints.go:14): the referenced
-#     Secret is the ENDPOINT shape — data keys `server-url` (REQUIRED), `token` |
-#     `username`+`password` | `client-certificate-data`+`client-key-data`,
-#     `certificate-authority-data`, `insecure`, `proxy-url`, `debug`. A kubeconfig-shaped
-#     Secret is NOT consumable — the registration flow derives a second Secret
-#     (default: krateo-system/krateo-spoke-demo-endpoint) from the spoke kubeconfig.
-#   * The dial itself is the resolver's EXTERNAL branch (httpFetchAllowingNonJSON →
-#     plumbing HTTPClientForEndpoint): bearer roundtripper from `token`; TLS from the
-#     endpoint. GOTCHA (plumbing v0.9.3 transport.go:37): RootCAs are installed ONLY for
-#     client-cert auth — a token-auth endpoint's CA is IGNORED, so the derived Secret
-#     sets `insecure: "true"` for a private-CA apiserver.
-#
-# WHY server-url ENDS WITH /apis AND STEP PATHS ARE GROUP-RELATIVE (THE HIJACK SEAM):
-#   snowplow's informer/apistage dispatch (CACHE_ENABLED=true in production) is
-#   ENDPOINT-BLIND — it routes purely on path shape (ParseAPIServerPathToDep,
-#   internal/cache/inventory.go:251; dispatchViaInformer never reads call.Endpoint,
-#   informer_dispatch.go:261). A step path like /apis/core.krateo.io/v1alpha1/
-#   compositiondefinitions would be served from the HUB informer cache (hub data
-#   presented as spoke data) whenever the GVR is synced on the hub — silent
-#   wrong-cluster reads. With `server-url: https://<spoke>/apis` and group-relative
-#   paths (/core.krateo.io/v1alpha1/...), the path parse fails, every cache branch
-#   declines, and the call takes the external branch to the spoke — correct by
-#   construction. Side effects: (a) only /apis group reads are possible through this
-#   endpoint (no /api/v1 core reads — fine here), (b) the external-touched guard also
-#   keeps these results OUT of snowplow's L1 → every page visit re-dials the spoke:
-#   genuinely live read-back.
-#
-# NO userAccessFilter ON SPOKE STEPS (load-bearing): a UAF stage dispatches via the hub
-# ServiceAccount endpoint INSTEAD of the endpointRef (UAF takes precedence — api/
-# inspect.go:20). Spoke reads are therefore endpoint-credentialed (the registered
-# kubeconfig identity), not per-user; per-user narrowing on spokes is a registration-flow
-# follow-up. The RESTAction CR itself stays RBAC-gated on the hub as usual.
-#
-# STAGES (all continueOnError so the page degrades honestly, never a broken widget):
-#   spokeCrds  : LIST the spoke's CRDs (exists on every cluster — also the reachability
-#                probe). jq-bounded OUTPUT (cardinality guard): only composition.krateo.io
-#                CRDs (plural+served version, data-driven — blueprint kinds have
-#                per-blueprint plurals) + whether compositiondefinitions.core.krateo.io
-#                exists there.
-#   spokeCompositions        : iterator over the discovered composition CRDs — one LIST
-#                per plural ON THE SPOKE. Zero discovered CRDs → stage skipped → [].
-#   spokeCompositionDefinitions : LIST the spoke's compositiondefinitions, gated by the
-#                conditional-iterator pattern on spokeCrds' CRD-existence flag (the
-#                ticket's "if the CRD exists there") — no guaranteed-404 call.
-# Kind per row is derived from each LIST envelope's .kind (sub("List$";"")) — items in a
-# k8s LIST carry no kind; nothing hardcoded. ready/synced = status.conditions Ready/Synced.
-#
-# FINAL FILTER: rows + counts + a server-computed statusText/statusColor (value→
-# presentation server-side). #107 (snowplow ≥1.7.13, krateo-platformops/snowplow#113):
-# endpointRef.name is now jq-templated from the request extras, so this ONE RA serves EVERY
-# registered spoke — `<name>-endpoint` derived from the /clusters/{name} route param (no
-# per-spoke RA generation, no single-spoke bind). A cluster with no `<name>-endpoint` Secret
-# (or an unreachable spoke) degrades to reachable=false + an honest status; the namespace
-# stays literal (snowplow V1 keeps endpointRef.namespace non-templatable). See
-# [[snowplow-templated-endpointref]].
+{{/* W3-3 spoke read-back data source — the LIVE compositions + reconcile health of ONE */}}
+{{/* registered spoke cluster, read DIRECTLY from the SPOKE apiserver (zero snowplow/engine */}}
+{{/* changes) via api-step `endpointRef`. Renders on /clusters/{name} (?extras .name). */}}
+{{/* */}}
+{{/* HOW THE SPOKE DIAL WORKS (verified in snowplow source, 2026-07-14): */}}
+{{/* * endpointRef → resolveOne (internal/resolvers/restactions/api/endpoints.go:23) → */}}
+{{/* plumbing endpoints.FromSecret (v0.9.3 endpoints/endpoints.go:14): the referenced */}}
+{{/* Secret is the ENDPOINT shape — data keys `server-url` (REQUIRED), `token` | */}}
+{{/* `username`+`password` | `client-certificate-data`+`client-key-data`, */}}
+{{/* `certificate-authority-data`, `insecure`, `proxy-url`, `debug`. A kubeconfig-shaped */}}
+{{/* Secret is NOT consumable — the registration flow derives a second Secret */}}
+{{/* (default: krateo-system/krateo-spoke-demo-endpoint) from the spoke kubeconfig. */}}
+{{/* * The dial itself is the resolver's EXTERNAL branch (httpFetchAllowingNonJSON → */}}
+{{/* plumbing HTTPClientForEndpoint): bearer roundtripper from `token`; TLS from the */}}
+{{/* endpoint. GOTCHA (plumbing v0.9.3 transport.go:37): RootCAs are installed ONLY for */}}
+{{/* client-cert auth — a token-auth endpoint's CA is IGNORED, so the derived Secret */}}
+{{/* sets `insecure: "true"` for a private-CA apiserver. */}}
+{{/* */}}
+{{/* WHY server-url ENDS WITH /apis AND STEP PATHS ARE GROUP-RELATIVE (THE HIJACK SEAM): */}}
+{{/* snowplow's informer/apistage dispatch (CACHE_ENABLED=true in production) is */}}
+{{/* ENDPOINT-BLIND — it routes purely on path shape (ParseAPIServerPathToDep, */}}
+{{/* internal/cache/inventory.go:251; dispatchViaInformer never reads call.Endpoint, */}}
+{{/* informer_dispatch.go:261). A step path like /apis/core.krateo.io/v1alpha1/ */}}
+{{/* compositiondefinitions would be served from the HUB informer cache (hub data */}}
+{{/* presented as spoke data) whenever the GVR is synced on the hub — silent */}}
+{{/* wrong-cluster reads. With `server-url: https://<spoke>/apis` and group-relative */}}
+{{/* paths (/core.krateo.io/v1alpha1/...), the path parse fails, every cache branch */}}
+{{/* declines, and the call takes the external branch to the spoke — correct by */}}
+{{/* construction. Side effects: (a) only /apis group reads are possible through this */}}
+{{/* endpoint (no /api/v1 core reads — fine here), (b) the external-touched guard also */}}
+{{/* keeps these results OUT of snowplow's L1 → every page visit re-dials the spoke: */}}
+{{/* genuinely live read-back. */}}
+{{/* */}}
+{{/* NO userAccessFilter ON SPOKE STEPS (load-bearing): a UAF stage dispatches via the hub */}}
+{{/* ServiceAccount endpoint INSTEAD of the endpointRef (UAF takes precedence — api/ */}}
+{{/* inspect.go:20). Spoke reads are therefore endpoint-credentialed (the registered */}}
+{{/* kubeconfig identity), not per-user; per-user narrowing on spokes is a registration-flow */}}
+{{/* follow-up. The RESTAction CR itself stays RBAC-gated on the hub as usual. */}}
+{{/* */}}
+{{/* STAGES (all continueOnError so the page degrades honestly, never a broken widget): */}}
+{{/* spokeCrds  : LIST the spoke's CRDs (exists on every cluster — also the reachability */}}
+{{/* probe). jq-bounded OUTPUT (cardinality guard): only composition.krateo.io */}}
+{{/* CRDs (plural+served version, data-driven — blueprint kinds have */}}
+{{/* per-blueprint plurals) + whether compositiondefinitions.core.krateo.io */}}
+{{/* exists there. */}}
+{{/* spokeCompositions        : iterator over the discovered composition CRDs — one LIST */}}
+{{/* per plural ON THE SPOKE. Zero discovered CRDs → stage skipped → []. */}}
+{{/* spokeCompositionDefinitions : LIST the spoke's compositiondefinitions, gated by the */}}
+{{/* conditional-iterator pattern on spokeCrds' CRD-existence flag (the */}}
+{{/* ticket's "if the CRD exists there") — no guaranteed-404 call. */}}
+{{/* Kind per row is derived from each LIST envelope's .kind (sub("List$";"")) — items in a */}}
+{{/* k8s LIST carry no kind; nothing hardcoded. ready/synced = status.conditions Ready/Synced. */}}
+{{/* */}}
+{{/* FINAL FILTER: rows + counts + a server-computed statusText/statusColor (value→ */}}
+{{/* presentation server-side). #107 (snowplow ≥1.7.13, krateo-platformops/snowplow#113): */}}
+{{/* endpointRef.name is now jq-templated from the request extras, so this ONE RA serves EVERY */}}
+{{/* registered spoke — `<name>-endpoint` derived from the /clusters/{name} route param (no */}}
+{{/* per-spoke RA generation, no single-spoke bind). A cluster with no `<name>-endpoint` Secret */}}
+{{/* (or an unreachable spoke) degrades to reachable=false + an honest status; the namespace */}}
+{{/* stays literal (snowplow V1 keeps endpointRef.namespace non-templatable). See */}}
+{{/* [[snowplow-templated-endpointref]]. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -68,29 +68,29 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # Reachability probe + CRD discovery, one round-trip. Group-relative path (see header).
+    {{/* Reachability probe + CRD discovery, one round-trip. Group-relative path (see header). */}}
     - name: spokeCrds
       path: /apiextensions.k8s.io/v1/customresourcedefinitions
       verb: GET
       headers:
         - 'Accept: application/json'
       endpointRef:
-        # #107 — snowplow ≥1.7.13 evaluates endpointRef.name against the request extras (r.dict,
-        # a deep-copy of extras — verified in source: resolve.go evalEndpointRef → evalJQ(name, r.dict),
-        # resolved ONCE per stage before the iterator fan-out), so ONE RA dials the spoke named by the
-        # /clusters/{name} route — `<name>-endpoint` — on EVERY step including the iterator steps.
-        # SECURITY: a crafted `.name` cannot select a reserved `<user>-clientconfig` Secret — snowplow's
-        # `-clientconfig` refusal runs on the POST-DNS1123-truncation name at two layers (eval site +
-        # resolveOne). (The `-endpoint` suffix itself is NOT truncation-proof, but the -clientconfig guard
-        # is what holds.) namespace stays literal (V1). PENDING HARDENING before multi-spoke: constrain
-        # `.name` to a registered-KubernetesTarget allow-list (closes cross-spoke read-across + benign
-        # non-spoke-endpoint SSRF; not exploitable on a single-spoke cluster). See [[snowplow-templated-endpointref]].
+        {{/* #107 — snowplow ≥1.7.13 evaluates endpointRef.name against the request extras (r.dict, */}}
+        {{/* a deep-copy of extras — verified in source: resolve.go evalEndpointRef → evalJQ(name, r.dict), */}}
+        {{/* resolved ONCE per stage before the iterator fan-out), so ONE RA dials the spoke named by the */}}
+        {{/* /clusters/{name} route — `<name>-endpoint` — on EVERY step including the iterator steps. */}}
+        {{/* SECURITY: a crafted `.name` cannot select a reserved `<user>-clientconfig` Secret — snowplow's */}}
+        {{/* `-clientconfig` refusal runs on the POST-DNS1123-truncation name at two layers (eval site + */}}
+        {{/* resolveOne). (The `-endpoint` suffix itself is NOT truncation-proof, but the -clientconfig guard */}}
+        {{/* is what holds.) namespace stays literal (V1). PENDING HARDENING before multi-spoke: constrain */}}
+        {{/* `.name` to a registered-KubernetesTarget allow-list (closes cross-spoke read-across + benign */}}
+        {{/* non-spoke-endpoint SSRF; not exploitable on a single-spoke cluster). See [[snowplow-templated-endpointref]]. */}}
         name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
         namespace: {{ .Values.spokeReadbackEndpointNamespace }}
       continueOnError: true
       errorKey: spokeCrdsError
-      # Bound OUTPUT: hundreds of CRDs in, only the composition-group entries out.
-      # version = first served version (single-yield safe).
+      {{/* Bound OUTPUT: hundreds of CRDs in, only the composition-group entries out. */}}
+      {{/* version = first served version (single-yield safe). */}}
       filter: >
         { compositionCrds: [ .spokeCrds.items[]?
             | select(.spec.group == "composition.krateo.io")
@@ -100,9 +100,9 @@ spec:
             | select(.version != "") ],
           hasCompositionDefinitions: ([ .spokeCrds.items[]?
             | select((.spec.group == "core.krateo.io") and (.spec.names.plural == "compositiondefinitions")) ] | length > 0) }
-    # One LIST per discovered composition plural, ON THE SPOKE. The per-item filter emits
-    # an ARRAY, so multi-plural results splice into one flat row list; the iterator path is
-    # evaluated against the iterator ELEMENT (group/version/plural from spokeCrds).
+    {{/* One LIST per discovered composition plural, ON THE SPOKE. The per-item filter emits */}}
+    {{/* an ARRAY, so multi-plural results splice into one flat row list; the iterator path is */}}
+    {{/* evaluated against the iterator ELEMENT (group/version/plural from spokeCrds). */}}
     - name: spokeCompositions
       dependsOn:
         name: spokeCrds
@@ -112,7 +112,7 @@ spec:
       headers:
         - 'Accept: application/json'
       endpointRef:
-        # #107 — templated per-spoke (see spokeCrds). Evaluated against request extras → `<name>-endpoint`.
+        {{/* #107 — templated per-spoke (see spokeCrds). Evaluated against request extras → `<name>-endpoint`. */}}
         name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
         namespace: {{ .Values.spokeReadbackEndpointNamespace }}
       continueOnError: true
@@ -127,8 +127,8 @@ spec:
               created: (.metadata.creationTimestamp // ""),
               ready: ([ .status.conditions[]? | select(.type == "Ready") | (.status // "") ] | first // ""),
               synced: ([ .status.conditions[]? | select(.type == "Synced") | (.status // "") ] | first // "") } ]
-    # The spoke's CompositionDefinitions — only when spokeCrds saw the CRD there
-    # (conditional-iterator: one empty element when true, zero → stage skipped).
+    {{/* The spoke's CompositionDefinitions — only when spokeCrds saw the CRD there */}}
+    {{/* (conditional-iterator: one empty element when true, zero → stage skipped). */}}
     - name: spokeCompositionDefinitions
       dependsOn:
         name: spokeCrds
@@ -138,7 +138,7 @@ spec:
       headers:
         - 'Accept: application/json'
       endpointRef:
-        # #107 — templated per-spoke (see spokeCrds). Evaluated against request extras → `<name>-endpoint`.
+        {{/* #107 — templated per-spoke (see spokeCrds). Evaluated against request extras → `<name>-endpoint`. */}}
         name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
         namespace: {{ .Values.spokeReadbackEndpointNamespace }}
       continueOnError: true
@@ -153,10 +153,10 @@ spec:
               created: (.metadata.creationTimestamp // ""),
               ready: ([ .status.conditions[]? | select(.type == "Ready") | (.status // "") ] | first // ""),
               synced: ([ .status.conditions[]? | select(.type == "Synced") | (.status // "") ] | first // "") } ]
-  # Rows + counts + the status line, all server-side. `age` stays the raw
-  # creationTimestamp — the Table cell renders it `relative` (house pattern).
-  # The status line counts "N Ready" with the VERBATIM K8s token (capital R) — it tallies the
-  # table's Ready pills right below it, so generic prose "ready" would read ambiguous (UX-20).
+  {{/* Rows + counts + the status line, all server-side. `age` stays the raw */}}
+  {{/* creationTimestamp — the Table cell renders it `relative` (house pattern). */}}
+  {{/* The status line counts "N Ready" with the VERBATIM K8s token (capital R) — it tallies the */}}
+  {{/* table's Ready pills right below it, so generic prose "ready" would read ambiguous (UX-20). */}}
   filter: >
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
     | ($n != "") as $named

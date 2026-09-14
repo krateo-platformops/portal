@@ -1,19 +1,19 @@
-# In-flight builder pull requests — ONE row per pullrequests.github.krateo.io CR (every builder
-# PR: portal + blueprint + API-mapping). A sortable Table (blueprint-builder-deliverables parity,
-# #84 §0.2 — was a Listy). Columns: Pull request / Repo / Branch / Status chip / PR # / Opened.
-#
-# LINKABLE to the real GitHub PR: rowNavigateTo is the whole-placeholder `{url}`. A single
-# `{key}` rowNavigateTo now passes the cell value THROUGH verbatim (no encodeURIComponent) and
-# routes an http(s) target via navigateOrExternal — the frontend fix that made this safe is
-# krateo-frontend@aee40c3 (Table whole-placeholder rowNavigateTo, UX #21). Before it, a Table
-# percent-mangled a full https:// URL, which is why this started life as a Listy (#26/#27); that
-# constraint is gone, so the richer sortable Table shape is now the right widget. A pre-reconcile
-# PR has no url yet (row link is empty until the provider writes status.html_url).
-#
-# STATE chip is GitHub-domain vocabulary (NOT k8s status): open→blue "Open", merged→green
-# "Merged" (a genuinely-landed deliverable earns the health colour), closed→gray "Closed",
-# pre-reconcile→orange. Colour + label + the "#N" cell are all derived server-side in
-# restaction.builder-prs (stateColor / stateLabel / pr).
+{{/* In-flight builder pull requests — ONE row per pullrequests.github.krateo.io CR (every builder */}}
+{{/* PR: portal + blueprint + API-mapping). A sortable Table (blueprint-builder-deliverables parity, */}}
+{{/* #84 §0.2 — was a Listy). Columns: Pull request / Repo / Branch / Status chip / PR # / Opened. */}}
+{{/* */}}
+{{/* LINKABLE to the real GitHub PR: rowNavigateTo is the whole-placeholder `{url}`. A single */}}
+{{/* `{key}` rowNavigateTo now passes the cell value THROUGH verbatim (no encodeURIComponent) and */}}
+{{/* routes an http(s) target via navigateOrExternal — the frontend fix that made this safe is */}}
+{{/* krateo-frontend@aee40c3 (Table whole-placeholder rowNavigateTo, UX #21). Before it, a Table */}}
+{{/* percent-mangled a full https:// URL, which is why this started life as a Listy (#26/#27); that */}}
+{{/* constraint is gone, so the richer sortable Table shape is now the right widget. A pre-reconcile */}}
+{{/* PR has no url yet (row link is empty until the provider writes status.html_url). */}}
+{{/* */}}
+{{/* STATE chip is GitHub-domain vocabulary (NOT k8s status): open→blue "Open", merged→green */}}
+{{/* "Merged" (a genuinely-landed deliverable earns the health colour), closed→gray "Closed", */}}
+{{/* pre-reconcile→orange. Colour + label + the "#N" cell are all derived server-side in */}}
+{{/* restaction.builder-prs (stateColor / stateLabel / pr). */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,8 +29,8 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    # Whole-placeholder → opens the real GitHub PR verbatim (safe per aee40c3). The url rides as a
-    # hidden cell below (bound to no column) so the row carries the link without a visible column.
+    {{/* Whole-placeholder → opens the real GitHub PR verbatim (safe per aee40c3). The url rides as a */}}
+    {{/* hidden cell below (bound to no column) so the row carries the link without a visible column. */}}
     rowNavigateTo: '{url}'
     pagination:
       defaultPageSize: 15
@@ -43,8 +43,8 @@ spec:
       title: Branch
     - valueKey: status
       title: Status
-    # Exception-only in spirit: a healthy row leaves it empty. It exists because the status chip
-    # can now say "Publish failed", and a red chip with nowhere to point is a dead end.
+    {{/* Exception-only in spirit: a healthy row leaves it empty. It exists because the status chip */}}
+    {{/* can now say "Publish failed", and a red chip with nowhere to point is a dead end. */}}
     - valueKey: reason
       title: Reason
     - valueKey: pr

@@ -1,12 +1,12 @@
-# Related resources — the composition's composed children (its managed resources)
-# WITH live reconcile state. Fed by the composition-resources RA (which fetches
-# each managed resource and derives Ready×Synced / Available / ready-by-presence
-# → state), so each row mirrors the mockup `.rel-row`: a state-colored tree dot +
-# the resource Kind (· name) + a right-aligned FILLED state Tag (status-pill spec:
-# single PascalCase tokens "Healthy"/"Drift"/"Pending"/"Failed", green/violet/orange/red
-# — K8s-native vocabulary rule, no spaced/sentence-cased state words).
-# Honest: rows ARE the real .status.managed children, state IS the live object's
-# condition read — no ownerReferences (those point at the parent, usually empty).
+{{/* Related resources — the composition's composed children (its managed resources) */}}
+{{/* WITH live reconcile state. Fed by the composition-resources RA (which fetches */}}
+{{/* each managed resource and derives Ready×Synced / Available / ready-by-presence */}}
+{{/* → state), so each row mirrors the mockup `.rel-row`: a state-colored tree dot + */}}
+{{/* the resource Kind (· name) + a right-aligned FILLED state Tag (status-pill spec: */}}
+{{/* single PascalCase tokens "Healthy"/"Drift"/"Pending"/"Failed", green/violet/orange/red */}}
+{{/* — K8s-native vocabulary rule, no spaced/sentence-cased state words). */}}
+{{/* Honest: rows ARE the real .status.managed children, state IS the live object's */}}
+{{/* condition read — no ownerReferences (those point at the parent, usually empty). */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,7 +15,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: composition-resources
@@ -25,10 +25,10 @@ spec:
     split: false
     dataSource: []
     itemTemplate:
-      # IA followup F5: composition-group children carry a non-empty {navHref} → the row
-      # becomes clickable into that child's own composition detail; core-k8s children have
-      # navHref "" → the row stays inert (interpolate() treats "" as falsy). Honest partial
-      # drill-down — only children that HAVE a first-class detail page link onward.
+      {{/* IA followup F5: composition-group children carry a non-empty {navHref} → the row */}}
+      {{/* becomes clickable into that child's own composition detail; core-k8s children have */}}
+      {{/* navHref "" → the row stays inert (interpolate() treats "" as falsy). Honest partial */}}
+      {{/* drill-down — only children that HAVE a first-class detail page link onward. */}}
       navigateTo: '{navHref}'
       rowVariant: tree
       iconVariant: dot
@@ -41,7 +41,7 @@ spec:
           failed: red
       primaryText: '{kind}'
       subPrimaryText: '{name}'
-      # Single-token label computed server-side (stateLabel); a filled Tag, not bare text.
+      {{/* Single-token label computed server-side (stateLabel); a filled Tag, not bare text. */}}
       secondaryText: '{stateLabel}'
       secondaryTextAsTag: true
   widgetDataTemplate:

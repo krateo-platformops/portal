@@ -1,11 +1,11 @@
-# UX-22: the triggering alert as a LINK — one click from the incident header to the alert detail
-# page (/alerts/{ns}/{name}). The label is the alert's display name (spec.alertName, kept verbatim,
-# emoji and all); the concrete path is baked server-side from incident-detail's alertRoute, which
-# is non-empty ONLY when the alert's real metadata.name was resolved by normalized-displayName
-# match (a report keys its alert by display name, but the CR identity is a slug — see
-# restaction.incident-detail). The chips Flex includes THIS widget only when alertRoute is
-# non-empty and falls back to the inert incident-alert-text otherwise — a display-name-only report
-# never becomes a broken link. The /alerts/{ns}/{name} route is owned by the alerts page group.
+{{/* UX-22: the triggering alert as a LINK — one click from the incident header to the alert detail */}}
+{{/* page (/alerts/{ns}/{name}). The label is the alert's display name (spec.alertName, kept verbatim, */}}
+{{/* emoji and all); the concrete path is baked server-side from incident-detail's alertRoute, which */}}
+{{/* is non-empty ONLY when the alert's real metadata.name was resolved by normalized-displayName */}}
+{{/* match (a report keys its alert by display name, but the CR identity is a slug — see */}}
+{{/* restaction.incident-detail). The chips Flex includes THIS widget only when alertRoute is */}}
+{{/* non-empty and falls back to the inert incident-alert-text otherwise — a display-name-only report */}}
+{{/* never becomes a broken link. The /alerts/{ns}/{name} route is owned by the alerts page group. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
@@ -33,8 +33,8 @@ spec:
   widgetDataTemplate:
     - forPath: label
       expression: '${ "Alert: " + (.alertName // "") }'
-    # Defensive fallback: the chips Flex only renders this widget when alertRoute is non-empty,
-    # but if it ever renders without one the click lands on the alerts LIST, never a 404.
+    {{/* Defensive fallback: the chips Flex only renders this widget when alertRoute is non-empty, */}}
+    {{/* but if it ever renders without one the click lands on the alerts LIST, never a 404. */}}
     - forPath: actions
       expression: '${ { navigate: [ { id: "open-alert", type: "navigate", path: (if (.alertRoute // "") != "" then .alertRoute else "/alerts" end) } ] } }'
   resourcesRefs:

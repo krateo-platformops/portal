@@ -1,12 +1,12 @@
-# Reconcile performance for ONE composition — the composition-dynamic-controller's
-# `reconcile` trace spans from ClickHouse (clickstack otel_traces), scoped SERVER-SIDE
-# in the WHERE to this composition's SpanAttributes[k8s.object.name/.namespace]
-# (from ?extras .name/.namespace — the /compositions/{namespace}/{name} route params).
-# Same external-fetch endpointRef pattern as obs-reconcile-by-composition; fixed 6h
-# window (the detail page has no range picker — the consuming card labels the window).
-# Returns {n, p95, last}: reconcile count, p95 duration (ms), last-reconcile timestamp.
-# Honest-empty: with zero spans in the window, p95/last are null/"" (the consuming
-# Statistics render an em dash), never a fabricated 0ms / epoch time.
+{{/* Reconcile performance for ONE composition — the composition-dynamic-controller's */}}
+{{/* `reconcile` trace spans from ClickHouse (clickstack otel_traces), scoped SERVER-SIDE */}}
+{{/* in the WHERE to this composition's SpanAttributes[k8s.object.name/.namespace] */}}
+{{/* (from ?extras .name/.namespace — the /compositions/{namespace}/{name} route params). */}}
+{{/* Same external-fetch endpointRef pattern as obs-reconcile-by-composition; fixed 6h */}}
+{{/* window (the detail page has no range picker — the consuming card labels the window). */}}
+{{/* Returns {n, p95, last}: reconcile count, p95 duration (ms), last-reconcile timestamp. */}}
+{{/* Honest-empty: with zero spans in the window, p95/last are null/"" (the consuming */}}
+{{/* Statistics render an em dash), never a fabricated 0ms / epoch time. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -20,18 +20,18 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      # name/namespace are sanitised to DNS-1123-ish chars so an odd extras value can't
-      # escape the SQL string literal or the URL.
+      {{/* name/namespace are sanitised to DNS-1123-ish chars so an odd extras value can't */}}
+      {{/* escape the SQL string literal or the URL. */}}
       path: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n | ((.namespace // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $ns | "/?query=SELECT%20count%28%29%20AS%20reconciles%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C0%29%20AS%20p95_ms%2C%20formatDateTime%28max%28Timestamp%29%2C%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20last_ts%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20SpanAttributes%5B%27k8s.object.name%27%5D%3D%27" + $n + "%27%20AND%20SpanAttributes%5B%27k8s.object.namespace%27%5D%3D%27" + $ns + "%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%206%20HOUR%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: perfError
-  # ClickHouse FORMAT JSON => {data:[{reconciles,p95_ms,last_ts}]} — a single global-
-  # aggregate row (count() is a UInt64 → serialized as a STRING → tonumber). With no
-  # matching spans the row still exists with reconciles=0 (and NaN/epoch aggregates),
-  # so p95/last are nulled unless n > 0.
+  {{/* ClickHouse FORMAT JSON => {data:[{reconciles,p95_ms,last_ts}]} — a single global- */}}
+  {{/* aggregate row (count() is a UInt64 → serialized as a STRING → tonumber). With no */}}
+  {{/* matching spans the row still exists with reconciles=0 (and NaN/epoch aggregates), */}}
+  {{/* so p95/last are nulled unless n > 0. */}}
   filter: >
     (((.perf.data) // [])[0] // {}) as $r
     | (($r.reconciles // "0") | tonumber) as $n

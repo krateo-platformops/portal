@@ -1,24 +1,24 @@
-# Settings component drill-down data source (thin, generic — widget representation
-# lives in each consumer's widgetDataTemplate). Resolves ONE Krateo control-plane
-# Deployment (from ?extras .name — the /observability/components/{name} route param) plus
-# the REAL runtime evidence around it, all shaped server-side:
-#   dep    : replica/ready/strategy/image facts + status.conditions (the "why not")
-#   pods   : the Deployment's live pods — matched by ITS OWN spec.selector.matchLabels
-#            in jq (a ?labelSelector= query param is deliberately NOT relied on: the
-#            snowplow LIST dispatch paths don't guarantee query-param passthrough, cf.
-#            the paged-walk ignoring ?limit) — each with phase / ready x/y / restarts /
-#            waiting-reason / age / images
-#   events : recent namespace Events narrowed to this Deployment + its ReplicaSets +
-#            its pods (exact involvedObject names derived from the live pod set — no
-#            loose prefix matching that could catch a sibling component), newest-first,
-#            capped at 20 (cardinality guard at the jq OUTPUT)
-# Pod LOGS are deliberately ABSENT: the apiserver log subresource returns text/plain
-# and snowplow api-steps are JSON-only (handler.go jsonHandlerBytesApply hard-fails
-# json.Unmarshal; external_fetch.go toJSONBytes rejects non-structured bodies), so
-# inline logs would need a snowplow change. The page used to carry a "View logs"
-# button redirecting to /observability?serviceName= for this — removed (it was only ever
-# a section-level redirect, no detail page of its own); per-pod deep-links to the
-# ClickHouse-backed log stream still exist on table.component-detail-pods rows.
+{{/* Settings component drill-down data source (thin, generic — widget representation */}}
+{{/* lives in each consumer's widgetDataTemplate). Resolves ONE Krateo control-plane */}}
+{{/* Deployment (from ?extras .name — the /observability/components/{name} route param) plus */}}
+{{/* the REAL runtime evidence around it, all shaped server-side: */}}
+{{/* dep    : replica/ready/strategy/image facts + status.conditions (the "why not") */}}
+{{/* pods   : the Deployment's live pods — matched by ITS OWN spec.selector.matchLabels */}}
+{{/* in jq (a ?labelSelector= query param is deliberately NOT relied on: the */}}
+{{/* snowplow LIST dispatch paths don't guarantee query-param passthrough, cf. */}}
+{{/* the paged-walk ignoring ?limit) — each with phase / ready x/y / restarts / */}}
+{{/* waiting-reason / age / images */}}
+{{/* events : recent namespace Events narrowed to this Deployment + its ReplicaSets + */}}
+{{/* its pods (exact involvedObject names derived from the live pod set — no */}}
+{{/* loose prefix matching that could catch a sibling component), newest-first, */}}
+{{/* capped at 20 (cardinality guard at the jq OUTPUT) */}}
+{{/* Pod LOGS are deliberately ABSENT: the apiserver log subresource returns text/plain */}}
+{{/* and snowplow api-steps are JSON-only (handler.go jsonHandlerBytesApply hard-fails */}}
+{{/* json.Unmarshal; external_fetch.go toJSONBytes rejects non-structured bodies), so */}}
+{{/* inline logs would need a snowplow change. The page used to carry a "View logs" */}}
+{{/* button redirecting to /observability?serviceName= for this — removed (it was only ever */}}
+{{/* a section-level redirect, no detail page of its own); per-pod deep-links to the */}}
+{{/* ClickHouse-backed log stream still exist on table.component-detail-pods rows. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -29,8 +29,8 @@ metadata:
 spec:
   api:
     - name: dep
-      # .name is sanitised to DNS-1123-ish chars so an odd extras value can neither
-      # traverse the path nor fold the segment away into a cluster-wide LIST.
+      {{/* .name is sanitised to DNS-1123-ish chars so an odd extras value can neither */}}
+      {{/* traverse the path nor fold the segment away into a cluster-wide LIST. */}}
       path: '${ "/apis/apps/v1/namespaces/{{ .Release.Namespace }}/deployments/" + ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) }'
       verb: GET
       headers:
@@ -63,8 +63,8 @@ spec:
         group: ""
         resource: events
         namespaceFrom: .metadata.namespace
-      # Thin projection only (type/reason/message/involvedObject/ts) — the per-component
-      # narrowing needs the live pod set, so it happens in the final filter below.
+      {{/* Thin projection only (type/reason/message/involvedObject/ts) — the per-component */}}
+      {{/* narrowing needs the live pod set, so it happens in the final filter below. */}}
       filter: '[ .events.items[]? | { type: (.type // "Normal"), reason: (.reason // ""), message: (.message // ""), kind: (.involvedObject.kind // ""), obj: (.involvedObject.name // ""), count: (.count // 1), ts: ((.lastTimestamp // .eventTime // .firstTimestamp) // "") } ]'
   filter: >
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n

@@ -1,19 +1,19 @@
-# /kog-builder data source — one row per RestDefinition CR (ogen.krateo.io, the KOG
-# mapping objects oasgen-provider compiles into a generated CRD + controller). All
-# derivation is server-side:
-#   rows   : name/namespace, the Ready condition rolled to a verdict chip (True →
-#            Ready/green, False → Failed/red, absent/Unknown → Pending/orange — a fresh
-#            publish has NO status until the first reconcile), the GENERATED kind +
-#            apiVersion from status.resource (the post-publish verification signal:
-#            populated ⇒ the CRD + controller exist; "—" until then), the OAS source
-#            (status.oasPath, spec fallback pre-reconcile), age, plus agent-facing
-#            fields the table carries as hidden cells (readyReason for grounding a
-#            "why is it Failed?", auth = status.hasSecuritySchemes for the day-2
-#            "configure credentials for <Kind>" hint).
-#   counts : total/ready/failed/pending over the full set (header/summary use).
-# (The Autopilot deep-link hint is no longer emitted here — the page's single "Ask Autopilot →"
-# CTA is the one entry point; the redundant hint strip was removed. The page's public route was
-# renamed /kog-builder to /api-builder, issue #29; the widget names + page slug stay kog-builder.)
+{{/* /kog-builder data source — one row per RestDefinition CR (ogen.krateo.io, the KOG */}}
+{{/* mapping objects oasgen-provider compiles into a generated CRD + controller). All */}}
+{{/* derivation is server-side: */}}
+{{/* rows   : name/namespace, the Ready condition rolled to a verdict chip (True → */}}
+{{/* Ready/green, False → Failed/red, absent/Unknown → Pending/orange — a fresh */}}
+{{/* publish has NO status until the first reconcile), the GENERATED kind + */}}
+{{/* apiVersion from status.resource (the post-publish verification signal: */}}
+{{/* populated ⇒ the CRD + controller exist; "—" until then), the OAS source */}}
+{{/* (status.oasPath, spec fallback pre-reconcile), age, plus agent-facing */}}
+{{/* fields the table carries as hidden cells (readyReason for grounding a */}}
+{{/* "why is it Failed?", auth = status.hasSecuritySchemes for the day-2 */}}
+{{/* "configure credentials for <Kind>" hint). */}}
+{{/* counts : total/ready/failed/pending over the full set (header/summary use). */}}
+{{/* (The Autopilot deep-link hint is no longer emitted here — the page's single "Ask Autopilot →" */}}
+{{/* CTA is the one entry point; the redundant hint strip was removed. The page's public route was */}}
+{{/* renamed /kog-builder to /api-builder, issue #29; the widget names + page slug stay kog-builder.) */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -23,11 +23,11 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # RestDefinition is namespaced (ogen.krateo.io/v1alpha1); the cluster-scope LIST
-    # endpoint returns every namespace the caller may see. UAF gates each item by the
-    # user's list grant on restdefinitions in ITS namespace — a narrow-RBAC user simply
-    # sees fewer/no rows. continueOnError so the page degrades (empty rows) rather than
-    # failing the whole widget (e.g. oasgen-provider CRD not installed).
+    {{/* RestDefinition is namespaced (ogen.krateo.io/v1alpha1); the cluster-scope LIST */}}
+    {{/* endpoint returns every namespace the caller may see. UAF gates each item by the */}}
+    {{/* user's list grant on restdefinitions in ITS namespace — a narrow-RBAC user simply */}}
+    {{/* sees fewer/no rows. continueOnError so the page degrades (empty rows) rather than */}}
+    {{/* failing the whole widget (e.g. oasgen-provider CRD not installed). */}}
     - name: restdefs
       path: /apis/ogen.krateo.io/v1alpha1/restdefinitions
       verb: GET
@@ -40,10 +40,10 @@ spec:
         group: ogen.krateo.io
         resource: restdefinitions
         namespaceFrom: .metadata.namespace
-      # Project the LIST body's .items to the fields the rows need. status is written by
-      # oasgen-provider only after its first reconcile — read EVERY status field
-      # defensively (a just-published RestDefinition carries none of them). The step key
-      # then holds THIS array (a step WITH a filter yields the filter output).
+      {{/* Project the LIST body's .items to the fields the rows need. status is written by */}}
+      {{/* oasgen-provider only after its first reconcile — read EVERY status field */}}
+      {{/* defensively (a just-published RestDefinition carries none of them). The step key */}}
+      {{/* then holds THIS array (a step WITH a filter yields the filter output). */}}
       filter: >
         [ .restdefs.items[]?
           | { name: (.metadata.name // ""),
@@ -54,8 +54,8 @@ spec:
               genApiVersion: (.status.resource.apiVersion // ""),
               oasPath: (.status.oasPath // .spec.oasPath // ""),
               hasAuth: (.status.hasSecuritySchemes // false) } ]
-  # Build the registry rows (newest first) + counts. The Ready verdict and its chip colour
-  # are computed HERE (server-side), never client-side.
+  {{/* Build the registry rows (newest first) + counts. The Ready verdict and its chip colour */}}
+  {{/* are computed HERE (server-side), never client-side. */}}
   filter: >
     ([ (.restdefs // [])[]
         | (.readyCond.status // "") as $rs

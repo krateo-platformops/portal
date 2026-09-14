@@ -1,19 +1,19 @@
-# Policy create Form — the agent-create shape (apiRef -> formdef -> live-CRD-derived schema -> one
-# POST), for a STANDALONE AgentgatewayPolicy.
-#
-# stringSchema, NOT schema. Form.tsx prefers widgetData.stringSchema (a raw JSON string) because
-# JSON.parse preserves key insertion order, while a `schema` object arrives from a Go map and is
-# alphabetised — which would render Attached-to and the JSON body above the Role that decides what
-# the body means. restaction.agents-policy-formdef assembles the string for exactly this reason.
-#
-# reviewBeforeSubmit: a gateway policy changes ENFORCEMENT — authorization, JWT validation, rate
-# limits — for every request crossing the object it attaches to, and nothing on this page undoes it.
-# The primary button reveals a read-only summary first; only the Review step's button creates.
-#
-# NO draft action, unlike agent-create. A draft persists field values to localStorage keyed by the
-# authenticated user, and the body of an identity policy can carry issuer URLs and JWKS endpoints.
-# Round-tripping that through browser storage to save retyping a short JSON block is not a trade
-# worth making, so the button is absent rather than present-and-discouraged.
+{{/* Policy create Form — the agent-create shape (apiRef -> formdef -> live-CRD-derived schema -> one */}}
+{{/* POST), for a STANDALONE AgentgatewayPolicy. */}}
+{{/* */}}
+{{/* stringSchema, NOT schema. Form.tsx prefers widgetData.stringSchema (a raw JSON string) because */}}
+{{/* JSON.parse preserves key insertion order, while a `schema` object arrives from a Go map and is */}}
+{{/* alphabetised — which would render Attached-to and the JSON body above the Role that decides what */}}
+{{/* the body means. restaction.agents-policy-formdef assembles the string for exactly this reason. */}}
+{{/* */}}
+{{/* reviewBeforeSubmit: a gateway policy changes ENFORCEMENT — authorization, JWT validation, rate */}}
+{{/* limits — for every request crossing the object it attaches to, and nothing on this page undoes it. */}}
+{{/* The primary button reveals a read-only summary first; only the Review step's button creates. */}}
+{{/* */}}
+{{/* NO draft action, unlike agent-create. A draft persists field values to localStorage keyed by the */}}
+{{/* authenticated user, and the body of an identity policy can carry issuer URLs and JWKS endpoints. */}}
+{{/* Round-tripping that through browser storage to save retyping a short JSON block is not a trade */}}
+{{/* worth making, so the button is absent rather than present-and-discouraged. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -50,11 +50,11 @@ spec:
           errorMessage: Policy not created — a policy with that name may already exist in that namespace (409), the JSON body may not satisfy the CRD schema (422), or you may not hold create on agentgatewaypolicies.agentgateway.dev there.
           loading:
             display: true
-          # apiVersion/kind travel in the body: buildPayload merges the action payload first, then
-          # applies the overrides below, and the frontend derives the /call target namespace + name
-          # from body metadata — so the resourceRef stays name-free like every other create form.
-          # apiVersion is overridden from the formdef rather than pinned here, so a cluster serving a
-          # later version of the CRD posts to the version it actually serves.
+          {{/* apiVersion/kind travel in the body: buildPayload merges the action payload first, then */}}
+          {{/* applies the overrides below, and the frontend derives the /call target namespace + name */}}
+          {{/* from body metadata — so the resourceRef stays name-free like every other create form. */}}
+          {{/* apiVersion is overridden from the formdef rather than pinned here, so a cluster serving a */}}
+          {{/* later version of the CRD posts to the version it actually serves. */}}
           payload:
             kind: AgentgatewayPolicy
           payloadToOverride:
@@ -64,17 +64,17 @@ spec:
               value: '${ .json.__policy_name__ }'
             - name: metadata.namespace
               value: '${ .json.__policy_namespace__ }'
-            # spec is built WHOLESALE, not merged, so no reserved __key__ can leak into it and no
-            # unselected block is ever emitted half-filled.
-            #
-            # fromjson is safe HERE and would not be in the RESTAction: payloadToOverride is
-            # evaluated client-side by buildPayload against the form's own field values, not by
-            # snowplow's gojq — where a parsed object carrying nested numbers panics the resolver.
-            # A rate limit is nothing but nested numbers, so this distinction is the whole reason
-            # the body is parsed at submit time instead of being pre-parsed server-side.
-            #
-            # try/catch: malformed JSON yields {} and the apiserver rejects the empty policy with a
-            # message, rather than the browser throwing and the submit silently doing nothing.
+            {{/* spec is built WHOLESALE, not merged, so no reserved __key__ can leak into it and no */}}
+            {{/* unselected block is ever emitted half-filled. */}}
+            {{/* */}}
+            {{/* fromjson is safe HERE and would not be in the RESTAction: payloadToOverride is */}}
+            {{/* evaluated client-side by buildPayload against the form's own field values, not by */}}
+            {{/* snowplow's gojq — where a parsed object carrying nested numbers panics the resolver. */}}
+            {{/* A rate limit is nothing but nested numbers, so this distinction is the whole reason */}}
+            {{/* the body is parsed at submit time instead of being pre-parsed server-side. */}}
+            {{/* */}}
+            {{/* try/catch: malformed JSON yields {} and the apiserver rejects the empty policy with a */}}
+            {{/* message, rather than the browser throwing and the submit silently doing nothing. */}}
             - name: spec
               value: >-
                 ${ ( .json.__target__ // "" ) as $t

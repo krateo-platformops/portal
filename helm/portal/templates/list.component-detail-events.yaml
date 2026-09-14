@@ -1,8 +1,8 @@
-# Component events feed — this component's recent k8s Events as an antd List
-# (same row shape as the composition-detail events feed): a status dot (by event
-# type) + message + involvedObject ref pill + reason · relative-time. The RA
-# already narrowed the involvedObject set to this Deployment + its ReplicaSets +
-# its live pods and capped at 20.
+{{/* Component events feed — this component's recent k8s Events as an antd List */}}
+{{/* (same row shape as the composition-detail events feed): a status dot (by event */}}
+{{/* type) + message + involvedObject ref pill + reason · relative-time. The RA */}}
+{{/* already narrowed the involvedObject set to this Deployment + its ReplicaSets + */}}
+{{/* its live pods and capped at 20. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,7 +11,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   apiRef:
     name: component-detail
@@ -21,16 +21,16 @@ spec:
     itemLayout: horizontal
     split: false
     itemTemplate:
-      # IA F7: whole-row click → the involved object's generic resource-view. `route`
-      # is resolved SERVER-SIDE in the component-detail RA (Deployment/ReplicaSet/Pod →
-      # /resources/{ns}/{group}/{version}/{plural}/{name}); events whose kind isn't in
-      # that closed map carry route:"" and stay inert (interpolate() treats "" as falsy).
+      {{/* IA F7: whole-row click → the involved object's generic resource-view. `route` */}}
+      {{/* is resolved SERVER-SIDE in the component-detail RA (Deployment/ReplicaSet/Pod → */}}
+      {{/* /resources/{ns}/{group}/{version}/{plural}/{name}); events whose kind isn't in */}}
+      {{/* that closed map carry route:"" and stay inert (interpolate() treats "" as falsy). */}}
       navigateTo: '{route}'
       iconVariant: dot
       color:
         value: '{type}'
         map:
-          # status-pill spec: green is reserved for HEALTH; a Normal event is neutral info.
+          {{/* status-pill spec: green is reserved for HEALTH; a Normal event is neutral info. */}}
           Normal: gray
           Warning: red
       primaryText: '{message}'

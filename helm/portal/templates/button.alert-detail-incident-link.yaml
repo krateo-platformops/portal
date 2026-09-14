@@ -1,9 +1,9 @@
-# Alert→incident back-link (item 22 alert-side) — the TroubleshootingReport whose
-# spec.alertName normalized-matches THIS alert's displayName, if one exists. A link Button that
-# navigates (SPA) to /incidents/{ns}/{name}; both the label (the incident's root-cause one-liner
-# / honest fallback) and the concrete path are baked server-side by alert-detail (.linkedReport
-# / .linkedRoute) — same literal-navigate pattern as incident-ref-link. The page Flex includes
-# this widget only when sections.incident is true (a match exists), so it's never a dead link.
+{{/* Alert→incident back-link (item 22 alert-side) — the TroubleshootingReport whose */}}
+{{/* spec.alertName normalized-matches THIS alert's displayName, if one exists. A link Button that */}}
+{{/* navigates (SPA) to /incidents/{ns}/{name}; both the label (the incident's root-cause one-liner */}}
+{{/* / honest fallback) and the concrete path are baked server-side by alert-detail (.linkedReport */}}
+{{/* / .linkedRoute) — same literal-navigate pattern as incident-ref-link. The page Flex includes */}}
+{{/* this widget only when sections.incident is true (a match exists), so it's never a dead link. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,7 +12,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: alert-detail
@@ -31,7 +31,7 @@ spec:
   widgetDataTemplate:
     - forPath: label
       expression: '${ .linkedReport.title // "View incident" }'
-    # Defensive fallback to the /incidents list (never a 404) if linkedRoute is somehow empty.
+    {{/* Defensive fallback to the /incidents list (never a 404) if linkedRoute is somehow empty. */}}
     - forPath: actions
       expression: '${ { navigate: [ { id: "open-incident", type: "navigate", path: (if (.linkedRoute // "") != "" then .linkedRoute else "/incidents" end) } ] } }'
   resourcesRefs:

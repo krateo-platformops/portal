@@ -1,13 +1,13 @@
-# Blueprint catalog — lists the cluster's CompositionDefinitions (core.krateo.io),
-# the canonical blueprint set, one entry per blueprint. Replaces the retired
-# per-blueprint self-registered Card pattern (krateo.io/portal-page=blueprints
-# label) — the platform no longer ships one widget CR per blueprint; ONE templated
-# tile is iterated over this list. Honest fields straight off each Composition
-# Definition: name/namespace, chart version (spec.chart.version), category (the
-# krateo.io/tier label: platform/observability), chart url. Feeds BOTH the
-# marketplace grid and the dashboard "Top blueprints" (same `.cards` contract).
-# UAF gates to compositiondefinitions the user may list; continueOnError so a
-# missing grant degrades to an empty catalog, not a broken page.
+{{/* Blueprint catalog — lists the cluster's CompositionDefinitions (core.krateo.io), */}}
+{{/* the canonical blueprint set, one entry per blueprint. Replaces the retired */}}
+{{/* per-blueprint self-registered Card pattern (krateo.io/portal-page=blueprints */}}
+{{/* label) — the platform no longer ships one widget CR per blueprint; ONE templated */}}
+{{/* tile is iterated over this list. Honest fields straight off each Composition */}}
+{{/* Definition: name/namespace, chart version (spec.chart.version), category (the */}}
+{{/* krateo.io/tier label: platform/observability), chart url. Feeds BOTH the */}}
+{{/* marketplace grid and the dashboard "Top blueprints" (same `.cards` contract). */}}
+{{/* UAF gates to compositiondefinitions the user may list; continueOnError so a */}}
+{{/* missing grant degrades to an empty catalog, not a broken page. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -53,10 +53,10 @@ spec:
              category: $cat,
              tags: [ $cat ]
            }]
-  # `category` arrives via ?extras (the /blueprints?category=<k> chip navigation). Echo it as
-  # selectedCategory (the active-chip read-back) and filter the cards by the blueprint tier
-  # (platform/observability/blueprint). "all" / no param shows every blueprint. The dashboard
-  # "Top blueprints" reuse passes no ?category, so $sel defaults to "all" → unfiltered.
+  {{/* `category` arrives via ?extras (the /blueprints?category=<k> chip navigation). Echo it as */}}
+  {{/* selectedCategory (the active-chip read-back) and filter the cards by the blueprint tier */}}
+  {{/* (platform/observability/blueprint). "all" / no param shows every blueprint. The dashboard */}}
+  {{/* "Top blueprints" reuse passes no ?category, so $sel defaults to "all" → unfiltered. */}}
   filter: >
     ((.category) // "all") as $sel
     | ((.q // "") | ascii_downcase) as $q

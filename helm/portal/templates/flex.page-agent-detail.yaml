@@ -1,34 +1,34 @@
-# Convention page root for /agents/{namespace}/{name} — the per-agent specification page ("what one
-# agent is made of"): identity, the standing instructions it runs with, the resolved model and the
-# gateway route its baseUrl lands on, the tools it binds grouped by server, who it delegates to,
-# the skills it publishes back over A2A, its memory/context posture, and the workload it runs as.
-#
-# CARD ORDER IS THE ORDER THE QUESTIONS ARISE, not the order of the CR's fields: what is it
-# (identity) → what was it told (prompt) → what thinks for it (model) → what it can touch (tools)
-# → who it calls (delegation) → who can call it (agent card) → what it remembers (memory) → what is
-# actually running (deployment) → the object itself (manifest). Delegation and Agent card sit
-# adjacent on purpose: they are the two directions of the same edge, and separating them invites
-# reading either one as the whole story.
-#
-# NAMESPACE: the release namespace, NOT the admin tier namespace. The route is declared with the
-# `page: agent-detail` convention, and that convention resolves `flexes/page-<slug>` in the MENU's
+{{/* Convention page root for /agents/{namespace}/{name} — the per-agent specification page ("what one */}}
+{{/* agent is made of"): identity, the standing instructions it runs with, the resolved model and the */}}
+{{/* gateway route its baseUrl lands on, the tools it binds grouped by server, who it delegates to, */}}
+{{/* the skills it publishes back over A2A, its memory/context posture, and the workload it runs as. */}}
+{{/* */}}
+{{/* CARD ORDER IS THE ORDER THE QUESTIONS ARISE, not the order of the CR's fields: what is it */}}
+{{/* (identity) → what was it told (prompt) → what thinks for it (model) → what it can touch (tools) */}}
+{{/* → who it calls (delegation) → who can call it (agent card) → what it remembers (memory) → what is */}}
+{{/* actually running (deployment) → the object itself (manifest). Delegation and Agent card sit */}}
+{{/* adjacent on purpose: they are the two directions of the same edge, and separating them invites */}}
+{{/* reading either one as the whole story. */}}
+{{/* */}}
+{{/* NAMESPACE: the release namespace, NOT the admin tier namespace. The route is declared with the */}}
+{{/* `page: agent-detail` convention, and that convention resolves `flexes/page-<slug>` in the MENU's */}}
 # OWN namespace ({{ .Release.Namespace }}) — a page root parked in the tier namespace is a silent
-# 404. (page-agents can live in the tier namespace only because its nav entry uses resourceRefId,
-# which carries an explicit namespace; this one deliberately does not, so it stays here.) Same
-# reasoning as flex.page-alert-detail.
-#
-# ORDER: the gateway-registration alert, when it fires, comes FIRST — above identity, before the
-# model and the tool tables. An agent nothing can call is not a detail to be found after scrolling
-# past what it would do if anything could call it. It is exception-only (sections.registration is
-# true only for a PROVEN break, never for an unchecked one), so a healthy page is byte-identical to
-# what it was before.
-#
-# Sections are chosen SERVER-SIDE off agent-detail's `sections` flags, so nothing renders as empty
-# structure: a BYO agent (.spec.byo, no .spec.declarative) has no model, no tools, no delegates and
-# no memory to show and simply degrades to identity + manifest; an agent that binds no MCP server
-# gets no tool table; one that delegates to nobody gets no delegation table. An unreadable or
-# missing agent collapses to the header plus one honest sentence. resourcesRefs stay static (the
-# full pool) — unreferenced children are never fetched.
+{{/* 404. (page-agents can live in the tier namespace only because its nav entry uses resourceRefId, */}}
+{{/* which carries an explicit namespace; this one deliberately does not, so it stays here.) Same */}}
+{{/* reasoning as flex.page-alert-detail. */}}
+{{/* */}}
+{{/* ORDER: the gateway-registration alert, when it fires, comes FIRST — above identity, before the */}}
+{{/* model and the tool tables. An agent nothing can call is not a detail to be found after scrolling */}}
+{{/* past what it would do if anything could call it. It is exception-only (sections.registration is */}}
+{{/* true only for a PROVEN break, never for an unchecked one), so a healthy page is byte-identical to */}}
+{{/* what it was before. */}}
+{{/* */}}
+{{/* Sections are chosen SERVER-SIDE off agent-detail's `sections` flags, so nothing renders as empty */}}
+{{/* structure: a BYO agent (.spec.byo, no .spec.declarative) has no model, no tools, no delegates and */}}
+{{/* no memory to show and simply degrades to identity + manifest; an agent that binds no MCP server */}}
+{{/* gets no tool table; one that delegates to nobody gets no delegation table. An unreadable or */}}
+{{/* missing agent collapses to the header plus one honest sentence. resourcesRefs stay static (the */}}
+{{/* full pool) — unreferenced children are never fetched. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -37,7 +37,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  {{/* F6 (snowplow#130): the route params this widget's resolution varies by. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: agent-detail

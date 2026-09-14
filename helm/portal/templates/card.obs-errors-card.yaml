@@ -1,10 +1,10 @@
-# Titled panel around the ERROR-log digest list. GROUPED, COUNTED, most-frequent-first — the
-# distinct problems, collapsing the same error repeating every reconcile into one counted row
-# (the chronological complement is the "Live error & warning stream" card below). R2 #13: the
-# title says "Top recurring errors" so grouped-vs-chronological reads at a glance; the `extra`
-# shows the live headline totals (total error lines + distinct problems over the selected
-# window) from the same RA's `tot` step + a "grouped" cue — so the header reads e.g.
-# "1495 errors · 15 distinct · grouped".
+{{/* Titled panel around the ERROR-log digest list. GROUPED, COUNTED, most-frequent-first — the */}}
+{{/* distinct problems, collapsing the same error repeating every reconcile into one counted row */}}
+{{/* (the chronological complement is the "Live error & warning stream" card below). R2 #13: the */}}
+{{/* title says "Top recurring errors" so grouped-vs-chronological reads at a glance; the `extra` */}}
+{{/* shows the live headline totals (total error lines + distinct problems over the selected */}}
+{{/* window) from the same RA's `tot` step + a "grouped" cue — so the header reads e.g. */}}
+{{/* "1495 errors · 15 distinct · grouped". */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     title: Top recurring errors
@@ -26,9 +26,9 @@ spec:
   widgetDataTemplate:
   - forPath: extra
     expression: '${ ((.total // 0)|tostring) + " errors · " + ((.distinct // 0)|tostring) + " distinct · grouped" }'
-  # "Diagnose with Autopilot" sits ABOVE the list, but ONLY when there are errors (exception-only):
-  # a clean estate shows the empty digest with no diagnose CTA. When present it seeds an on-demand
-  # RCA of the top errors (see button.obs-errors-diagnose / the digest's diagnoseHref).
+  {{/* "Diagnose with Autopilot" sits ABOVE the list, but ONLY when there are errors (exception-only): */}}
+  {{/* a clean estate shows the empty digest with no diagnose CTA. When present it seeds an on-demand */}}
+  {{/* RCA of the top errors (see button.obs-errors-diagnose / the digest's diagnoseHref). */}}
   - forPath: items
     expression: '${ (if (.hasErrors // false) then [ { resourceRefId: "obs-errors-diagnose" } ] else [] end) + [ { resourceRefId: "obs-error-log-list" } ] }'
   apiRef:

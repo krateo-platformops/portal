@@ -1,14 +1,14 @@
-# "Deploy to fleet" form (W3-1) — hosted in the Deploy-to-fleet drawer on the blueprint
-# detail page. Schema (name + clusters multi-select + pre-filled chart context) comes
-# server-side from fleet-rollout-formdef. The submit action sets fanOutPath: clusters
-# (frontend >= 1.3.17): ONE gated submit expands into ONE ordered POST per selected
-# cluster — for each write the `clusters` array is replaced by the SINGLE element before
-# payloadToOverride interpolation, so `${ .json.clusters }` is the scalar cluster name
-# per op. The whole set gets ONE aggregated blast-radius confirm, sequential
-# stop-on-first-error dispatch and per-item results. A fan-out action must NOT use
-# onEventNavigateTo (config error) — onSuccessNavigateTo only.
-# Create-form precedence rule: metadata.name MUST go through payloadToOverride
-# (buildPayload merge-then-set order) — here it is per-op unique: <name>-<cluster>.
+{{/* "Deploy to fleet" form (W3-1) — hosted in the Deploy-to-fleet drawer on the blueprint */}}
+{{/* detail page. Schema (name + clusters multi-select + pre-filled chart context) comes */}}
+{{/* server-side from fleet-rollout-formdef. The submit action sets fanOutPath: clusters */}}
+{{/* (frontend >= 1.3.17): ONE gated submit expands into ONE ordered POST per selected */}}
+{{/* cluster — for each write the `clusters` array is replaced by the SINGLE element before */}}
+{{/* payloadToOverride interpolation, so `${ .json.clusters }` is the scalar cluster name */}}
+{{/* per op. The whole set gets ONE aggregated blast-radius confirm, sequential */}}
+{{/* stop-on-first-error dispatch and per-item results. A fan-out action must NOT use */}}
+{{/* onEventNavigateTo (config error) — onSuccessNavigateTo only. */}}
+{{/* Create-form precedence rule: metadata.name MUST go through payloadToOverride */}}
+{{/* (buildPayload merge-then-set order) — here it is per-op unique: <name>-<cluster>. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,7 +17,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: fleet-rollout-formdef
@@ -39,17 +39,17 @@ spec:
             - 'Content-Type: application/json'
           onSuccessNavigateTo: /compositions
           successMessage: Fleet rollout dispatched
-          # Static body = apiVersion/kind + the release namespace; identity and spec are
-          # per-op (payloadToOverride below, interpolated once per fanned-out cluster).
+          {{/* Static body = apiVersion/kind + the release namespace; identity and spec are */}}
+          {{/* per-op (payloadToOverride below, interpolated once per fanned-out cluster). */}}
           payload:
             apiVersion: core.krateo.io/v1alpha1
             kind: CompositionDefinition
             metadata:
               namespace: {{ .Release.Namespace }}
-          # Per-op body: unique name <name>-<cluster>; spec.chart = the pre-filled blueprint
-          # context riding through the form values (mirrors blueprint-install); spec.deploy
-          # .targetRef.name = the scalar cluster element — OMITTED for the "local" sentinel
-          # (hub deploy has no targetRef; deploy:{} would trip the CRD's required targetRef.name).
+          {{/* Per-op body: unique name <name>-<cluster>; spec.chart = the pre-filled blueprint */}}
+          {{/* context riding through the form values (mirrors blueprint-install); spec.deploy */}}
+          {{/* .targetRef.name = the scalar cluster element — OMITTED for the "local" sentinel */}}
+          {{/* (hub deploy has no targetRef; deploy:{} would trip the CRD's required targetRef.name). */}}
           payloadToOverride:
             - { name: metadata.name, value: '${ .json.name + "-" + .json.clusters }' }
             - { name: metadata.namespace, value: '{{ .Release.Namespace }}' }
@@ -61,9 +61,9 @@ spec:
       expression: '${ .initialValues }'
   resourcesRefs:
     items:
-      # POST target — create CompositionDefinitions in the release namespace (one POST per
-      # fanned-out cluster; snowplow infers apiVersion/kind from this ref, the body carries
-      # metadata + spec). Mirrors form.blueprint-install's create-compdef ref.
+      {{/* POST target — create CompositionDefinitions in the release namespace (one POST per */}}
+      {{/* fanned-out cluster; snowplow infers apiVersion/kind from this ref, the body carries */}}
+      {{/* metadata + spec). Mirrors form.blueprint-install's create-compdef ref. */}}
       - id: create-compdef
         apiVersion: core.krateo.io/v1alpha1
         namespace: {{ .Release.Namespace }}

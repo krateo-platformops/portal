@@ -1,12 +1,12 @@
-# Global search aggregator — feeds the header Search field's results view.
-# Returns a unified list of compositions + blueprints + clusters + incidents whose
-# title matches the search term `q` (the placeholder promises "resources", so the
-# scope spans every top-level entity, not just compositions/blueprints), which the
-# frontend forwards as ?extras={"q":"..."} on the
-# widget /call. The term is read in the top-level `spec.filter` — snowplow
-# >= 1.1.0 (extras-to-widgets / PR #27, Fix-1) forwards request `extras` into a
-# widget's apiRef RESTAction jq dict. Filtering is server-side (jq) because the
-# k8s API has no free-text search; UAF prunes to what the caller may list.
+{{/* Global search aggregator — feeds the header Search field's results view. */}}
+{{/* Returns a unified list of compositions + blueprints + clusters + incidents whose */}}
+{{/* title matches the search term `q` (the placeholder promises "resources", so the */}}
+{{/* scope spans every top-level entity, not just compositions/blueprints), which the */}}
+{{/* frontend forwards as ?extras={"q":"..."} on the */}}
+{{/* widget /call. The term is read in the top-level `spec.filter` — snowplow */}}
+{{/* >= 1.1.0 (extras-to-widgets / PR #27, Fix-1) forwards request `extras` into a */}}
+{{/* widget's apiRef RESTAction jq dict. Filtering is server-side (jq) because the */}}
+{{/* k8s API has no free-text search; UAF prunes to what the caller may list. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -16,8 +16,8 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # compositions — discover composition CRDs, then list each cluster-wide
-    # (mirrors compositions-list).
+    {{/* compositions — discover composition CRDs, then list each cluster-wide */}}
+    {{/* (mirrors compositions-list). */}}
     - name: crds
       path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions
       verb: GET
@@ -39,16 +39,16 @@ spec:
         namespaceFrom: .metadata.namespace
       filter: >
         [.comps.items[]? | {name: .metadata.name, ns: .metadata.namespace}]
-    # blueprints — the INSTALLABLE catalog from the helm index (mirrors
-    # blueprints-catalog), so search finds installable blueprints, not just installed ones.
-    # Requires snowplow >= 1.4.0 (external YAML fetch). Each entry's version list is newest
-    # -first → .value[0]. continueOnError so a missing index degrades to compositions-only.
+    {{/* blueprints — the INSTALLABLE catalog from the helm index (mirrors */}}
+    {{/* blueprints-catalog), so search finds installable blueprints, not just installed ones. */}}
+    {{/* Requires snowplow >= 1.4.0 (external YAML fetch). Each entry's version list is newest */}}
+    {{/* -first → .value[0]. continueOnError so a missing index degrades to compositions-only. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
       filter: >
         [ ((.catalog.entries) // {}) | to_entries[] | .value[0]
           | {name: .name, category: (((.annotations // {})["krateo.io/category"]) // (.keywords[0]) // "uncategorized")} ]
-    # installed CompositionDefinitions — used to decide a blueprint hit's destination: already
-    # on the cluster → open its DETAIL page; only installable → the Marketplace (spotlighted).
+    {{/* installed CompositionDefinitions — used to decide a blueprint hit's destination: already */}}
+    {{/* on the cluster → open its DETAIL page; only installable → the Marketplace (spotlighted). */}}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -60,8 +60,8 @@ spec:
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
       filter: '[.compdefs.items[]? | {name: .metadata.name, ns: .metadata.namespace}]'
-    # clusters — registered KubernetesTargets (the fleet), so search finds a spoke by name.
-    # UAF prunes to what the caller may list; continueOnError so no-RBAC / no-spokes degrades.
+    {{/* clusters — registered KubernetesTargets (the fleet), so search finds a spoke by name. */}}
+    {{/* UAF prunes to what the caller may list; continueOnError so no-RBAC / no-spokes degrades. */}}
     - name: clusters
       path: /apis/core.krateo.io/v1alpha1/kubernetestargets
       verb: GET
@@ -73,8 +73,8 @@ spec:
         resource: kubernetestargets
         namespaceFrom: .metadata.namespace
       filter: '[.clusters.items[]? | {name: .metadata.name, ns: .metadata.namespace}]'
-    # incidents — TroubleshootingReports (observability), namespaced in the release namespace
-    # (mirrors incidents-list). Searchable title = the rootCause one-liner with honest fallbacks.
+    {{/* incidents — TroubleshootingReports (observability), namespaced in the release namespace */}}
+    {{/* (mirrors incidents-list). Searchable title = the rootCause one-liner with honest fallbacks. */}}
     - name: incidents
       path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
       verb: GET
@@ -88,8 +88,8 @@ spec:
                   elif (.spec.alertName // "") != "" then ("Investigation — " + .spec.alertName)
                   else (.metadata.name // "") end)
         }]
-  # Merge both sources into one result list, then filter by the `q` extra
-  # (case-insensitive substring on the title). Empty/absent q → return all.
+  {{/* Merge both sources into one result list, then filter by the `q` extra */}}
+  {{/* (case-insensitive substring on the title). Empty/absent q → return all. */}}
   filter: >
     (.q // "" | ascii_downcase) as $q
     | [ (.compdefs // [])[] | .name ] as $instNames

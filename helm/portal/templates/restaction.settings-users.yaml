@@ -1,34 +1,34 @@
-# Settings → Users tab — STRATEGY-AGNOSTIC platform users. Not the basic-only
-# users CRD (that misses oidc/ldap/oauth identities): instead we list the
-# per-user `<username>-clientconfig` Secret that authn writes after EVERY login
-# regardless of strategy (internal/helpers/kube/config/storage/storage.go) — the
-# same artifact snowplow's UserConfig middleware reads. So this is "everyone who
-# has authenticated", by any strategy.
-#
-# SECURITY: those Secrets hold the user's client cert + private key. The step
-# filter keeps ONLY name + creationTimestamp — .data NEVER leaves snowplow.
-#
-# The cert lifetime is authn's AUTHN_KUBECONFIG_CRT_EXPIRES_IN (flag cert-expires,
-# default 24h) → we read it from authn's own Deployment env (no hardcoding; falls
-# back to authn's compiled 24h default when unset). The Table computes the expiry
-# as creationTimestamp + this duration in its widgetDataTemplate.
-#
-# #88 §0.7: the former Access tab's persona view merged into this ONE Users
-# table (same clientconfig-Secret dataset, same /settings/access/{name}
-# drill-down — there was no real scope difference to separate). `.personas` —
-# one row per clientconfig user with the username (name minus "-clientconfig"),
-# the certificate expiry (creationTimestamp + certDuration, the same jq the
-# table used to do client-side, moved here so it can live next to grants/groups),
-# the groups joined from the basic-strategy User CR when one exists (OIDC/LDAP
-# groups live in the IdP, unknowable from cluster CRs → blank), and the count of
-# managed access grants (RoleBindings labeled krateo.io/managed-by=portal-access
-# whose krateo.io/subject label matches). The two extra stages are ADMIN reads
-# (per-user dispatch, no UAF): non-admins get a 403 → continueOnError → the
-# Users table keeps working with groups/grants blank.
-#
-# Label values must be RFC1123-safe, so the grant convention slugifies the
-# subject (lowercase, [a-z0-9-]) — the join here applies the SAME slug to the
-# username before matching krateo.io/subject (see form.access-grant).
+{{/* Settings → Users tab — STRATEGY-AGNOSTIC platform users. Not the basic-only */}}
+{{/* users CRD (that misses oidc/ldap/oauth identities): instead we list the */}}
+{{/* per-user `<username>-clientconfig` Secret that authn writes after EVERY login */}}
+{{/* regardless of strategy (internal/helpers/kube/config/storage/storage.go) — the */}}
+{{/* same artifact snowplow's UserConfig middleware reads. So this is "everyone who */}}
+{{/* has authenticated", by any strategy. */}}
+{{/* */}}
+{{/* SECURITY: those Secrets hold the user's client cert + private key. The step */}}
+{{/* filter keeps ONLY name + creationTimestamp — .data NEVER leaves snowplow. */}}
+{{/* */}}
+{{/* The cert lifetime is authn's AUTHN_KUBECONFIG_CRT_EXPIRES_IN (flag cert-expires, */}}
+{{/* default 24h) → we read it from authn's own Deployment env (no hardcoding; falls */}}
+{{/* back to authn's compiled 24h default when unset). The Table computes the expiry */}}
+{{/* as creationTimestamp + this duration in its widgetDataTemplate. */}}
+{{/* */}}
+{{/* #88 §0.7: the former Access tab's persona view merged into this ONE Users */}}
+{{/* table (same clientconfig-Secret dataset, same /settings/access/{name} */}}
+{{/* drill-down — there was no real scope difference to separate). `.personas` — */}}
+{{/* one row per clientconfig user with the username (name minus "-clientconfig"), */}}
+{{/* the certificate expiry (creationTimestamp + certDuration, the same jq the */}}
+{{/* table used to do client-side, moved here so it can live next to grants/groups), */}}
+{{/* the groups joined from the basic-strategy User CR when one exists (OIDC/LDAP */}}
+{{/* groups live in the IdP, unknowable from cluster CRs → blank), and the count of */}}
+{{/* managed access grants (RoleBindings labeled krateo.io/managed-by=portal-access */}}
+{{/* whose krateo.io/subject label matches). The two extra stages are ADMIN reads */}}
+{{/* (per-user dispatch, no UAF): non-admins get a 403 → continueOnError → the */}}
+{{/* Users table keeps working with groups/grants blank. */}}
+{{/* */}}
+{{/* Label values must be RFC1123-safe, so the grant convention slugifies the */}}
+{{/* subject (lowercase, [a-z0-9-]) — the join here applies the SAME slug to the */}}
+{{/* username before matching krateo.io/subject (see form.access-grant). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -62,9 +62,9 @@ spec:
       filter: >
         ( [ .authnDeployments.items[]?.spec.template.spec.containers[]?.env[]?
             | select(.name == "AUTHN_KUBECONFIG_CRT_EXPIRES_IN") | .value ][0] ) // "24h"
-    # Basic-strategy User CRs — the only cluster-readable groups source (W3-2).
-    # Cluster-wide list; absent CRD (OIDC/LDAP-only clusters) degrades via
-    # continueOnError to groups-blank personas.
+    {{/* Basic-strategy User CRs — the only cluster-readable groups source (W3-2). */}}
+    {{/* Cluster-wide list; absent CRD (OIDC/LDAP-only clusters) degrades via */}}
+    {{/* continueOnError to groups-blank personas. */}}
     - name: basicUsers
       path: /apis/basic.authn.krateo.io/v1alpha1/users
       verb: GET
@@ -75,9 +75,9 @@ spec:
       filter: >
         [ .basicUsers.items[]?
           | { name: (.metadata.name // ""), groups: (.spec.groups // []) } ]
-    # Managed access grants — RoleBindings the Access page created (label-selected,
-    # cluster-wide list of the namespaced objects). Only the subject label +
-    # namespace survive; counting happens in the top-level filter.
+    {{/* Managed access grants — RoleBindings the Access page created (label-selected, */}}
+    {{/* cluster-wide list of the namespaced objects). Only the subject label + */}}
+    {{/* namespace survive; counting happens in the top-level filter. */}}
     - name: grantBindings
       path: /apis/rbac.authorization.k8s.io/v1/rolebindings?labelSelector=krateo.io%2Fmanaged-by%3Dportal-access
       verb: GET

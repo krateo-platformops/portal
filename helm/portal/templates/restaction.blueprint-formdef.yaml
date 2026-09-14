@@ -1,16 +1,16 @@
-# GENERIC blueprint create-form schema source — ONE RESTAction for ALL blueprints
-# (replaces per-blueprint formdef RAs). The blueprint identity arrives via ?extras
-# (.namespace / .name = route params from /marketplace/{namespace}/{name}/new). It
-# discovers the composition CRD purely from data — no hardcoded GVR:
-#   1. GET the blueprint's CompositionDefinition (core.krateo.io).
-#   2. Its status carries the generated CRD's GVR: apiVersion (group/version),
-#      kind, resource (plural). CRD name = <resource>.<group>.
-#   3. GET that CRD; its openAPIV3Schema.properties.spec IS the form's JSON schema.
-# Returns { schemaSpec, apiVersion, kind, resource } — schema for the fields, GVR for
-# the create POST target. Needs the core-provider CRDs + a CompositionDefinition whose
-# status carries the generated GVR. VERIFIED on kind-krateo-dash after installing the
-# core-provider CRDs and populating a CompositionDefinition status (the controller itself
-# needs a newer k8s — MutatingAdmissionPolicy — than that demo cluster has).
+{{/* GENERIC blueprint create-form schema source — ONE RESTAction for ALL blueprints */}}
+{{/* (replaces per-blueprint formdef RAs). The blueprint identity arrives via ?extras */}}
+{{/* (.namespace / .name = route params from /marketplace/{namespace}/{name}/new). It */}}
+{{/* discovers the composition CRD purely from data — no hardcoded GVR: */}}
+{{/* 1. GET the blueprint's CompositionDefinition (core.krateo.io). */}}
+{{/* 2. Its status carries the generated CRD's GVR: apiVersion (group/version), */}}
+{{/* kind, resource (plural). CRD name = <resource>.<group>. */}}
+{{/* 3. GET that CRD; its openAPIV3Schema.properties.spec IS the form's JSON schema. */}}
+{{/* Returns { schemaSpec, apiVersion, kind, resource } — schema for the fields, GVR for */}}
+{{/* the create POST target. Needs the core-provider CRDs + a CompositionDefinition whose */}}
+{{/* status carries the generated GVR. VERIFIED on kind-krateo-dash after installing the */}}
+{{/* core-provider CRDs and populating a CompositionDefinition status (the controller itself */}}
+{{/* needs a newer k8s — MutatingAdmissionPolicy — than that demo cluster has). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -25,18 +25,18 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
-    # Raw values.schema.json (authoring order intact) from the per-version jsonschema
-    # ConfigMap the core-provider/cdc publishes: <resource>-<version>-jsonschema-configmap
-    # (resource = the plural from the compdef status; version = the apiVersion's v-segment).
-    # It is read as a STRING and string-spliced into `stringSchema` below — never parsed and
-    # re-emitted server-side, so the field order survives (the CRD's openAPIV3Schema, by
-    # contrast, is a Go map serialized alphabetically). continueOnError: a blueprint without
-    # the CM simply yields no stringSchema and the Form falls back to the (alphabetical) schemaSpec.
-    # #66 (tenant self-service): the CM is co-located with its CompositionDefinition (the cdc
-    # writes it into the compdef's OWN namespace), so read it from `.compdef.metadata.namespace`
-    # — NOT the portal release namespace. On the platform install the two are identical
-    # (blueprints in krateo-system); for a tenant whose blueprints live in krateo-blueprints this
-    # is what stops the CM GET 404 → null stringSchema → the Form's "stringSchema Invalid value null".
+    {{/* Raw values.schema.json (authoring order intact) from the per-version jsonschema */}}
+    {{/* ConfigMap the core-provider/cdc publishes: <resource>-<version>-jsonschema-configmap */}}
+    {{/* (resource = the plural from the compdef status; version = the apiVersion's v-segment). */}}
+    {{/* It is read as a STRING and string-spliced into `stringSchema` below — never parsed and */}}
+    {{/* re-emitted server-side, so the field order survives (the CRD's openAPIV3Schema, by */}}
+    {{/* contrast, is a Go map serialized alphabetically). continueOnError: a blueprint without */}}
+    {{/* the CM simply yields no stringSchema and the Form falls back to the (alphabetical) schemaSpec. */}}
+    {{/* #66 (tenant self-service): the CM is co-located with its CompositionDefinition (the cdc */}}
+    {{/* writes it into the compdef's OWN namespace), so read it from `.compdef.metadata.namespace` */}}
+    {{/* — NOT the portal release namespace. On the platform install the two are identical */}}
+    {{/* (blueprints in krateo-system); for a tenant whose blueprints live in krateo-blueprints this */}}
+    {{/* is what stops the CM GET 404 → null stringSchema → the Form's "stringSchema Invalid value null". */}}
     - name: jsonschema
       path: ${ "/api/v1/namespaces/" + (.compdef.metadata.namespace // "{{ .Release.Namespace }}") + "/configmaps/" + .compdef.status.resource + "-" + (.compdef.status.apiVersion | split("/")[1]) + "-jsonschema-configmap" }
       verb: GET
@@ -53,12 +53,12 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
-    # Namespaces fed into the form's Namespace field as a select (enum), RBAC-filtered
-    # to the namespaces where the USER can `create` this composition. Uses snowplow's
-    # native userAccessFilter (the SubjectAccessReview the user-bearer token is appended
-    # to on non-UAF stages — api/resolve.go); cleaner than the reference's per-namespace
-    # SSAR fan-out. group is the shared composition.krateo.io; resource is the blueprint's
-    # (from the CompositionDefinition status); namespaceFrom is each namespace's own name.
+    {{/* Namespaces fed into the form's Namespace field as a select (enum), RBAC-filtered */}}
+    {{/* to the namespaces where the USER can `create` this composition. Uses snowplow's */}}
+    {{/* native userAccessFilter (the SubjectAccessReview the user-bearer token is appended */}}
+    {{/* to on non-UAF stages — api/resolve.go); cleaner than the reference's per-namespace */}}
+    {{/* SSAR fan-out. group is the shared composition.krateo.io; resource is the blueprint's */}}
+    {{/* (from the CompositionDefinition status); namespaceFrom is each namespace's own name. */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -72,25 +72,25 @@ spec:
         resourcesFrom: "[.compdef.status.resource]"
         namespaceFrom: .metadata.name
       filter: "[.namespaces.items[] | .metadata.name]"
-  # The returned schemaSpec is the CRD's spec schema with two RESERVED-KEY identity fields
-  # PREPENDED: `__composition_name__` (the user-entered instance name) + `__composition_namespace__`
-  # (the BLUEPRINT namespace where the CompositionDefinition lives / the RDC controller watches —
-  # i.e. metadata.namespace of the created composition record; NOT the workload target). The
-  # underscore-fenced keys can never collide with a blueprint's own spec property (e.g. a workload
-  # blueprint's OWN `namespace`, which is the payments/workload target and stays a real spec field).
-  # The Form routes these two to metadata.* via payloadToOverride and del()s ONLY them from spec —
-  # every real spec field (including the blueprint's own `namespace`) is preserved. #66 (tenant
-  # self-service): the composition-record namespace is a picker over `$namespaces` — the
-  # userAccessFilter output, i.e. namespaces where the USER can `create` this composition (all
-  # existent, RBAC-verified) — defaulting to the blueprint namespace when the user can create there
-  # (platform admin, unchanged), else the first allowed namespace (a tenant whose blueprints live in
-  # a read-only krateo-blueprints ns creates the record in their OWN ns). metadata.namespace (and so
-  # the POST-target ns, which snowplow/updateNameNamespace derives from body metadata.namespace) is
-  # always one of these — never a nonexistent ns, never one the user can't write to. This does NOT
-  # revive the OLD bug (a NON-fenced synthetic `namespace` enum that collided with the blueprint's
-  # own spec `namespace` and del()'d it): __composition_namespace__ is underscore-fenced, so the
-  # blueprint's own `namespace` spec field is untouched; only real, create-permitted namespaces are
-  # offered. Was previously pinned to a single [$blueprintNs] which 403'd every tenant create.
+  {{/* The returned schemaSpec is the CRD's spec schema with two RESERVED-KEY identity fields */}}
+  {{/* PREPENDED: `__composition_name__` (the user-entered instance name) + `__composition_namespace__` */}}
+  {{/* (the BLUEPRINT namespace where the CompositionDefinition lives / the RDC controller watches — */}}
+  {{/* i.e. metadata.namespace of the created composition record; NOT the workload target). The */}}
+  {{/* underscore-fenced keys can never collide with a blueprint's own spec property (e.g. a workload */}}
+  {{/* blueprint's OWN `namespace`, which is the payments/workload target and stays a real spec field). */}}
+  {{/* The Form routes these two to metadata.* via payloadToOverride and del()s ONLY them from spec — */}}
+  {{/* every real spec field (including the blueprint's own `namespace`) is preserved. #66 (tenant */}}
+  {{/* self-service): the composition-record namespace is a picker over `$namespaces` — the */}}
+  {{/* userAccessFilter output, i.e. namespaces where the USER can `create` this composition (all */}}
+  {{/* existent, RBAC-verified) — defaulting to the blueprint namespace when the user can create there */}}
+  {{/* (platform admin, unchanged), else the first allowed namespace (a tenant whose blueprints live in */}}
+  {{/* a read-only krateo-blueprints ns creates the record in their OWN ns). metadata.namespace (and so */}}
+  {{/* the POST-target ns, which snowplow/updateNameNamespace derives from body metadata.namespace) is */}}
+  {{/* always one of these — never a nonexistent ns, never one the user can't write to. This does NOT */}}
+  {{/* revive the OLD bug (a NON-fenced synthetic `namespace` enum that collided with the blueprint's */}}
+  {{/* own spec `namespace` and del()'d it): __composition_namespace__ is underscore-fenced, so the */}}
+  {{/* blueprint's own `namespace` spec field is untouched; only real, create-permitted namespaces are */}}
+  {{/* offered. Was previously pinned to a single [$blueprintNs] which 403'd every tenant create. */}}
   filter: |
     (.compdef.status.apiVersion | split("/")[1]) as $ver
     | ((.namespace // "") | if . == "" then "{{ .Release.Namespace }}" else . end) as $blueprintNs

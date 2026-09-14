@@ -1,24 +1,24 @@
-# The /agents/{namespace}/{name} page header — the agent's name, its description, and up to two
-# pills (orchestrator, status), in one CR.
-#
-# Replaces SIX: flex.agent-detail-header-block, flex.agent-detail-titleline,
-# paragraph.agent-detail-title, paragraph.agent-detail-subtitle, tag.agent-detail-orchestrator and
-# tag.agent-detail-status. Two levels of Flex and two conditional jq templates to place a name, a
-# line of prose and two pills.
-#
-# Missed by the same four surveys as the alert page, for the same two reasons: it spells its title
-# container `-titleline`, and its `items` are assembled by a jq template. See
-# pageheader.alert-detail.yaml for the full account.
-#
-# THE CONDITIONALS SURVIVE, moved from `items` into the tags expression. Both pills were previously
-# shown or hidden by rebuilding the titleline's `items` array; a PageHeader's `tags` is itself an
-# array, so the same two guards now build that array directly and an absent label contributes no
-# pill rather than an empty one. Fallbacks carried over exactly: orchestrator is always violet,
-# status falls back to orange when `statusColor` is empty.
-#
-# The subtitle was previously CONDITIONAL on a non-empty description, via the header-block's items
-# template. PageHeader renders no subtitle line for an empty string, so the guard is no longer
-# needed to avoid an empty paragraph.
+{{/* The /agents/{namespace}/{name} page header — the agent's name, its description, and up to two */}}
+{{/* pills (orchestrator, status), in one CR. */}}
+{{/* */}}
+{{/* Replaces SIX: flex.agent-detail-header-block, flex.agent-detail-titleline, */}}
+{{/* paragraph.agent-detail-title, paragraph.agent-detail-subtitle, tag.agent-detail-orchestrator and */}}
+{{/* tag.agent-detail-status. Two levels of Flex and two conditional jq templates to place a name, a */}}
+{{/* line of prose and two pills. */}}
+{{/* */}}
+{{/* Missed by the same four surveys as the alert page, for the same two reasons: it spells its title */}}
+{{/* container `-titleline`, and its `items` are assembled by a jq template. See */}}
+{{/* pageheader.alert-detail.yaml for the full account. */}}
+{{/* */}}
+{{/* THE CONDITIONALS SURVIVE, moved from `items` into the tags expression. Both pills were previously */}}
+{{/* shown or hidden by rebuilding the titleline's `items` array; a PageHeader's `tags` is itself an */}}
+{{/* array, so the same two guards now build that array directly and an absent label contributes no */}}
+{{/* pill rather than an empty one. Fallbacks carried over exactly: orchestrator is always violet, */}}
+{{/* status falls back to orange when `statusColor` is empty. */}}
+{{/* */}}
+{{/* The subtitle was previously CONDITIONAL on a non-empty description, via the header-block's items */}}
+{{/* template. PageHeader renders no subtitle line for an empty string, so the guard is no longer */}}
+{{/* needed to avoid an empty paragraph. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -36,13 +36,13 @@ spec:
     subtitle: ""
     tags: []
   widgetDataTemplate:
-    # Was paragraph.agent-detail-title's `forPath: text` (level 1 — PageHeader sets the rank).
+    {{/* Was paragraph.agent-detail-title's `forPath: text` (level 1 — PageHeader sets the rank). */}}
     - forPath: title
       expression: '${ .name // "agent" }'
-    # Was paragraph.agent-detail-subtitle's `forPath: text`, lifted verbatim.
+    {{/* Was paragraph.agent-detail-subtitle's `forPath: text`, lifted verbatim. */}}
     - forPath: subtitle
       expression: '${ .description // "" }'
-    # Was the two Tags plus the two guards in the titleline's items template, fused into one array.
+    {{/* Was the two Tags plus the two guards in the titleline's items template, fused into one array. */}}
     - forPath: tags
       expression: >-
         ${ (if ((.orchestratorLabel // "") != "") then [ { label: .orchestratorLabel, color: "violet" } ] else [] end)

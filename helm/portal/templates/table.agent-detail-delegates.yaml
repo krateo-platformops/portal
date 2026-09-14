@@ -1,26 +1,26 @@
-# One row per tools[].type=Agent reference — who this agent delegates to, and whether that target
-# is actually there and reachable.
-#
-# Rows LINK to this same detail page for the delegate (/agents/{routeNs}/{routeName}), so the
-# delegation tree is walkable. The two placeholder cells are non-column, hidden cells emitted by
-# the RA (the `agent` column carries the display name, and a display name is not a safe route
-# input). They are emitted EMPTY — which makes the row inert, the frontend's own guard — in exactly
-# one case: the fleet was listable AND the delegate is not in it. A delegate we merely could not
-# SEE (the caller holds `get` but not `list`) keeps its link, because the detail route needs only
-# `get` and may well resolve.
-#
-# Status is EXCEPTION-ONLY and type-aware: a healthy delegate renders an empty cell. Red = a
-# Ready/Accepted condition is False, or the target does not exist at all (NotFound); orange = an
-# advisory such as UnsupportedFeatures=True. `Route` is the HTTPRoute matching
-# `x-kagent-host: <delegate>.<namespace>` — an unrouted delegate cannot be reached over A2A no
-# matter how healthy it looks, which is precisely the kind of thing this page exists to show.
-#
-# THE TWO CELLS NEVER CONTRADICT EACH OTHER. A delegate resolved as NotFound used to get a live
-# HTTPRoute name printed beside its red pill, unmarked — the row asserting in one cell that the
-# target does not exist and in the next that it is routed. A route pointing at a deleted agent is
-# a real finding, so it is now PRESENTED as one: the cell reads
-# "<route> — orphaned, the target does not exist" and carries the orange exception marker. A
-# NotFound delegate with no route prints nothing at all; the status pill has already said it.
+{{/* One row per tools[].type=Agent reference — who this agent delegates to, and whether that target */}}
+{{/* is actually there and reachable. */}}
+{{/* */}}
+{{/* Rows LINK to this same detail page for the delegate (/agents/{routeNs}/{routeName}), so the */}}
+{{/* delegation tree is walkable. The two placeholder cells are non-column, hidden cells emitted by */}}
+{{/* the RA (the `agent` column carries the display name, and a display name is not a safe route */}}
+{{/* input). They are emitted EMPTY — which makes the row inert, the frontend's own guard — in exactly */}}
+{{/* one case: the fleet was listable AND the delegate is not in it. A delegate we merely could not */}}
+{{/* SEE (the caller holds `get` but not `list`) keeps its link, because the detail route needs only */}}
+{{/* `get` and may well resolve. */}}
+{{/* */}}
+{{/* Status is EXCEPTION-ONLY and type-aware: a healthy delegate renders an empty cell. Red = a */}}
+{{/* Ready/Accepted condition is False, or the target does not exist at all (NotFound); orange = an */}}
+{{/* advisory such as UnsupportedFeatures=True. `Route` is the HTTPRoute matching */}}
+{{/* `x-kagent-host: <delegate>.<namespace>` — an unrouted delegate cannot be reached over A2A no */}}
+{{/* matter how healthy it looks, which is precisely the kind of thing this page exists to show. */}}
+{{/* */}}
+{{/* THE TWO CELLS NEVER CONTRADICT EACH OTHER. A delegate resolved as NotFound used to get a live */}}
+{{/* HTTPRoute name printed beside its red pill, unmarked — the row asserting in one cell that the */}}
+{{/* target does not exist and in the next that it is routed. A route pointing at a deleted agent is */}}
+{{/* a real finding, so it is now PRESENTED as one: the cell reads */}}
+{{/* "<route> — orphaned, the target does not exist" and carries the orange exception marker. A */}}
+{{/* NotFound delegate with no route prints nothing at all; the status pill has already said it. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,7 +29,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  {{/* F6 (snowplow#130): the route params this widget's resolution varies by. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: agent-detail

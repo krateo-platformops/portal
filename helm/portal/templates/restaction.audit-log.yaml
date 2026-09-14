@@ -1,11 +1,11 @@
-# General audit log — every gated mutating action the portal records as an AuditRecord
-# (audit.krateo.io/v1alpha1), newest first, across the whole namespace. Unlike
-# restaction.incident-auditrecords (which filters to ONE incident's target resources), this
-# lists ALL records so the audit trail is actually browsable — otherwise records emitted for
-# actions not tied to an incident (a plain create/edit/delete) are written but shown nowhere.
-# Each row: actor (human, or the agent identity), the write (verb + group/resource/name · ns),
-# the outcome (OK/FAILED + HTTP status), and a relative age. Read-only receipt; rows are inert.
-# continueOnError: a CRD-less cluster (404) leaves the table empty, never an error.
+{{/* General audit log — every gated mutating action the portal records as an AuditRecord */}}
+{{/* (audit.krateo.io/v1alpha1), newest first, across the whole namespace. Unlike */}}
+{{/* restaction.incident-auditrecords (which filters to ONE incident's target resources), this */}}
+{{/* lists ALL records so the audit trail is actually browsable — otherwise records emitted for */}}
+{{/* actions not tied to an incident (a plain create/edit/delete) are written but shown nowhere. */}}
+{{/* Each row: actor (human, or the agent identity), the write (verb + group/resource/name · ns), */}}
+{{/* the outcome (OK/FAILED + HTTP status), and a relative age. Read-only receipt; rows are inert. */}}
+{{/* continueOnError: a CRD-less cluster (404) leaves the table empty, never an error. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -20,8 +20,8 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: auditsError
-  # Literal `|` block (NOT folded `>`) — the filter carries `#` comments; a folded block would
-  # collapse newlines to spaces and comment out the rest of the jq (same as incident-auditrecords).
+  {{/* Literal `|` block (NOT folded `>`) — the filter carries `#` comments; a folded block would */}}
+  {{/* collapse newlines to spaces and comment out the rest of the jq (same as incident-auditrecords). */}}
   filter: |
     # Normalise Python isoformat (drop `.ffffff`, fold +00:00 → Z) before parsing; render a compact
     # relative age. Unparseable → the raw first-10 (a date). Same helper as incident-auditrecords.

@@ -1,10 +1,10 @@
-# Live reconcile metrics from ClickHouse (clickstack otel_traces + otel_metrics_sum). The
-# composition-dynamic-controller emits a 'reconcile' span per reconciliation; step `recon`
-# GETs a 10-min-bucketed throughput + p95/avg latency series over the selected window. Span
-# StatusCode is ALWAYS Unset, so success/failure can't come from traces — step `fail`
-# instead reads the platform's own reconcile counters (provider_runtime.reconcile.{failure,
-# success}) as a max-min delta over the same window → a REAL failure count + error rate.
-# Exposes {series[], current, failures, successes}. External-fetch endpointRef, FORMAT JSON.
+{{/* Live reconcile metrics from ClickHouse (clickstack otel_traces + otel_metrics_sum). The */}}
+{{/* composition-dynamic-controller emits a 'reconcile' span per reconciliation; step `recon` */}}
+{{/* GETs a 10-min-bucketed throughput + p95/avg latency series over the selected window. Span */}}
+{{/* StatusCode is ALWAYS Unset, so success/failure can't come from traces — step `fail` */}}
+{{/* instead reads the platform's own reconcile counters (provider_runtime.reconcile.{failure, */}}
+{{/* success}) as a max-min delta over the same window → a REAL failure count + error rate. */}}
+{{/* Exposes {series[], current, failures, successes}. External-fetch endpointRef, FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -34,8 +34,8 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: failError
-  # recon => {data:[{ts,reconciles,p95_ms,avg_ms}]}; fail => {data:[{m,v}]} with m the
-  # counter name. failures/successes are the max-min deltas (reset-safe: single series).
+  {{/* recon => {data:[{ts,reconciles,p95_ms,avg_ms}]}; fail => {data:[{m,v}]} with m the */}}
+  {{/* counter name. failures/successes are the max-min deltas (reset-safe: single series). */}}
   filter: >
     { series: ((.recon.data) // []),
       current: (((.recon.data) // []) | last // {}),

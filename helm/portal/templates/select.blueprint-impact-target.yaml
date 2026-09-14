@@ -1,19 +1,19 @@
-# Upgrade-impact TARGET picker — a standalone URL-query-bound Select (queryParam: to), the
-# same URL-state mechanism as the dashboard range / project scope: picking a version writes
-# ?to=<version>, which the frontend folds into extras, and the page Flex mounts the
-# "What this update changes" card when ?to= differs from the installed version. allowClear ✕
-# removes ?to= and the card unmounts.
-#
-# WHY A PARALLEL PICKER: the Update form's own version Select is a Form.Item control — its
-# selection lives in form-local state and never reaches the URL, so server-side widgets can't
-# see it. This Select is the read-only preview twin beside it (the Update flow is untouched).
-# Options = ALL the helm-index versions blueprint-detail already resolves, the installed one
-# INCLUDED and labeled "· installed" (picking it is a harmless no-op — the page gate hides
-# the card when ?to= equals the installed version). Including it is ALSO load-bearing: the
-# frontend's URL-bound Select (Select.tsx `commit`) collapses "every option selected" to
-# CLEARING the param, so a 1-option list could never set ?to=; with the installed version in
-# the list there are always ≥ 2 options whenever the picker is mounted (the col-right gate
-# mounts it only when an alternative version exists). Latest is labeled server-side too.
+{{/* Upgrade-impact TARGET picker — a standalone URL-query-bound Select (queryParam: to), the */}}
+{{/* same URL-state mechanism as the dashboard range / project scope: picking a version writes */}}
+{{/* ?to=<version>, which the frontend folds into extras, and the page Flex mounts the */}}
+{{/* "What this update changes" card when ?to= differs from the installed version. allowClear ✕ */}}
+{{/* removes ?to= and the card unmounts. */}}
+{{/* */}}
+{{/* WHY A PARALLEL PICKER: the Update form's own version Select is a Form.Item control — its */}}
+{{/* selection lives in form-local state and never reaches the URL, so server-side widgets can't */}}
+{{/* see it. This Select is the read-only preview twin beside it (the Update flow is untouched). */}}
+{{/* Options = ALL the helm-index versions blueprint-detail already resolves, the installed one */}}
+{{/* INCLUDED and labeled "· installed" (picking it is a harmless no-op — the page gate hides */}}
+{{/* the card when ?to= equals the installed version). Including it is ALSO load-bearing: the */}}
+{{/* frontend's URL-bound Select (Select.tsx `commit`) collapses "every option selected" to */}}
+{{/* CLEARING the param, so a 1-option list could never set ?to=; with the installed version in */}}
+{{/* the list there are always ≥ 2 options whenever the picker is mounted (the col-right gate */}}
+{{/* mounts it only when an alternative version exists). Latest is labeled server-side too. */}}
 kind: Select
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -22,7 +22,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace, to]
   apiRef:
     name: blueprint-detail

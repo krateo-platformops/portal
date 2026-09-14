@@ -1,30 +1,30 @@
-# Composition events via the events-presenter (krateo-sse-proxy): the canonical
-# krateo composition-events source (events flow k8s -> OTel -> ClickHouse ->
-# sse-proxy), NOT raw k8s core events.
-#
-# This page is generic/runtime. `found` resolves THIS composition's event-collection id:
-# its `krateo.io/composition-id` LABEL when present (installer-created children inherit the
-# root/installer id), ELSE its own `metadata.uid` — an editor-created ROOT composition carries
-# no such label, and the OTel `compositionresolver` processor stamps a composition's own
-# reconcile events (involvedObject = the composition CR) with the composition's uid when it has
-# no inherited label, so this uid fallback matches those events.
-# That id is what the OTel→ClickHouse pipeline tags events with. `getEvents` then
-# asks the presenter to filter SERVER-SIDE via ?composition_id=<that label>
-# (sse-proxy >= 1.1.0, PR #1: bound as a ClickHouse param against
-# LogAttributes['krateo.io/composition-id']). So `list` is already scoped to this
-# composition (incl. its managed resources) — no client-side involvedObject scope
-# needed; we only guard list=[] when the id can't be resolved (else the presenter
-# would return ALL events unfiltered). `compositionId` (the label) also drives the
-# EventList SSE topic/endpoint. Path templates read extras+`.found` safely (full
-# dict); a per-STEP filter does NOT see extras. exportJwt forwards the user's JWT
-# (the proxy validates it only when JWT_SIGN_KEY is set). DEPENDS ON the
-# `sse-proxy-internal-endpoint` Endpoint + the krateo-sse-proxy stack; absent it,
-# getEvents fails gracefully (continueOnError).
-#
-# GOTCHA (P0, fixed): the final filter MUST be a LITERAL block (|). A folded block (>)
-# joins same-indent lines with spaces, so a base-indent jq `#` comment swallowed the
-# rest of the joined line — $builtin/$crdPlural and the result-object opener never
-# reached jq, the filter never compiled, and the feed was ALWAYS empty.
+{{/* Composition events via the events-presenter (krateo-sse-proxy): the canonical */}}
+{{/* krateo composition-events source (events flow k8s -> OTel -> ClickHouse -> */}}
+{{/* sse-proxy), NOT raw k8s core events. */}}
+{{/* */}}
+{{/* This page is generic/runtime. `found` resolves THIS composition's event-collection id: */}}
+{{/* its `krateo.io/composition-id` LABEL when present (installer-created children inherit the */}}
+{{/* root/installer id), ELSE its own `metadata.uid` — an editor-created ROOT composition carries */}}
+{{/* no such label, and the OTel `compositionresolver` processor stamps a composition's own */}}
+{{/* reconcile events (involvedObject = the composition CR) with the composition's uid when it has */}}
+{{/* no inherited label, so this uid fallback matches those events. */}}
+{{/* That id is what the OTel→ClickHouse pipeline tags events with. `getEvents` then */}}
+{{/* asks the presenter to filter SERVER-SIDE via ?composition_id=<that label> */}}
+{{/* (sse-proxy >= 1.1.0, PR #1: bound as a ClickHouse param against */}}
+{{/* LogAttributes['krateo.io/composition-id']). So `list` is already scoped to this */}}
+{{/* composition (incl. its managed resources) — no client-side involvedObject scope */}}
+{{/* needed; we only guard list=[] when the id can't be resolved (else the presenter */}}
+{{/* would return ALL events unfiltered). `compositionId` (the label) also drives the */}}
+{{/* EventList SSE topic/endpoint. Path templates read extras+`.found` safely (full */}}
+{{/* dict); a per-STEP filter does NOT see extras. exportJwt forwards the user's JWT */}}
+{{/* (the proxy validates it only when JWT_SIGN_KEY is set). DEPENDS ON the */}}
+{{/* `sse-proxy-internal-endpoint` Endpoint + the krateo-sse-proxy stack; absent it, */}}
+{{/* getEvents fails gracefully (continueOnError). */}}
+{{/* */}}
+{{/* GOTCHA (P0, fixed): the final filter MUST be a LITERAL block (|). A folded block (>) */}}
+{{/* joins same-indent lines with spaces, so a base-indent jq `#` comment swallowed the */}}
+{{/* rest of the joined line — $builtin/$crdPlural and the result-object opener never */}}
+{{/* reached jq, the filter never compiled, and the feed was ALWAYS empty. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -34,11 +34,11 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # #72: discover composition TYPES from CompositionDefinitions under a userAccessFilter — NOT a
-    # cluster-wide customresourcedefinitions list (which runs as the caller and 403s for a namespace-
-    # scoped tenant → $cid never resolves → empty feed). snowplow lists CDs as its SA, then refilters
-    # to the CDs the CALLER can list, covering every namespace the caller is granted. {plural, version}
-    # shape unchanged (found iterates it).
+    {{/* #72: discover composition TYPES from CompositionDefinitions under a userAccessFilter — NOT a */}}
+    {{/* cluster-wide customresourcedefinitions list (which runs as the caller and 403s for a namespace- */}}
+    {{/* scoped tenant → $cid never resolves → empty feed). snowplow lists CDs as its SA, then refilters */}}
+    {{/* to the CDs the CALLER can list, covering every namespace the caller is granted. {plural, version} */}}
+    {{/* shape unchanged (found iterates it). */}}
     - name: crds
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -55,9 +55,9 @@ spec:
       dependsOn:
         name: crds
         iterator: .crds
-      # #72: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list
-      # (no /namespaces/ segment) → 403 for a tenant. This composition is always in .namespace and the
-      # final filter selects it by name+namespace, so scoping loses nothing and is tenant-authorizable.
+      {{/* #72: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list */}}
+      {{/* (no /namespaces/ segment) → 403 for a tenant. This composition is always in .namespace and the */}}
+      {{/* final filter selects it by name+namespace, so scoping loses nothing and is tenant-authorizable. */}}
       path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
       verb: GET
       headers:
@@ -68,29 +68,29 @@ spec:
       endpointRef:
         name: sse-proxy-internal-endpoint
         namespace: {{ .Release.Namespace }}
-      # Static path (no dependsOn / dynamic template — those tripped a 400). We GET
-      # recent events and scope to THIS composition CLIENT-SIDE in the final filter
-      # by the `compositionId` field that sse-proxy >= 1.1.0 stamps on every event
-      # (from LogAttributes['krateo.io/composition-id']).
+      {{/* Static path (no dependsOn / dynamic template — those tripped a 400). We GET */}}
+      {{/* recent events and scope to THIS composition CLIENT-SIDE in the final filter */}}
+      {{/* by the `compositionId` field that sse-proxy >= 1.1.0 stamps on every event */}}
+      {{/* (from LogAttributes['krateo.io/composition-id']). */}}
       path: /events?limit=200
       verb: GET
       headers:
         - 'Accept: application/json'
       exportJwt: true
       continueOnError: true
-    # IA F7: kind→plural discovery for per-event deep-links. The involvedObject in an
-    # event carries {apiVersion, kind, name, namespace} but NOT the plural, and a
-    # lowercase(kind)+"s" guess is WRONG for many kinds — so resolve the plural from
-    # the REAL CRD registry (status.acceptedNames.plural, keyed by group+kind). Built-in
-    # core/apps/batch kinds (no CRD) are covered by a small static k8s-scoping map in the
-    # final filter. Any involvedObject we still can't resolve gets route "" → inert.
-    # #72: this stays a cluster-wide customresourcedefinitions list ON PURPOSE — it only ENRICHES
-    # event deep-links (plural resolution for arbitrary CRD kinds), and it already degrades gracefully
-    # (continueOnError). For a namespace-scoped tenant it 403s → $crdPlural empty → third-party-CRD
-    # deep-links go inert, but the events themselves still render (built-in kinds resolve via $builtin,
-    # and composition-kind involvedObjects route to /compositions/ directly, needing no plural). A CD
-    # list can't replace it (CDs only cover composition kinds, which don't need it), and it must not
-    # gate the feed — the tenant-blocking discovery was `crds`/`found` above, now fixed.
+    {{/* IA F7: kind→plural discovery for per-event deep-links. The involvedObject in an */}}
+    {{/* event carries {apiVersion, kind, name, namespace} but NOT the plural, and a */}}
+    {{/* lowercase(kind)+"s" guess is WRONG for many kinds — so resolve the plural from */}}
+    {{/* the REAL CRD registry (status.acceptedNames.plural, keyed by group+kind). Built-in */}}
+    {{/* core/apps/batch kinds (no CRD) are covered by a small static k8s-scoping map in the */}}
+    {{/* final filter. Any involvedObject we still can't resolve gets route "" → inert. */}}
+    {{/* #72: this stays a cluster-wide customresourcedefinitions list ON PURPOSE — it only ENRICHES */}}
+    {{/* event deep-links (plural resolution for arbitrary CRD kinds), and it already degrades gracefully */}}
+    {{/* (continueOnError). For a namespace-scoped tenant it 403s → $crdPlural empty → third-party-CRD */}}
+    {{/* deep-links go inert, but the events themselves still render (built-in kinds resolve via $builtin, */}}
+    {{/* and composition-kind involvedObjects route to /compositions/ directly, needing no plural). A CD */}}
+    {{/* list can't replace it (CDs only cover composition kinds, which don't need it), and it must not */}}
+    {{/* gate the feed — the tenant-blocking discovery was `crds`/`found` above, now fixed. */}}
     - name: allcrds
       path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions
       verb: GET

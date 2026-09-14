@@ -1,9 +1,9 @@
-# Edit composition — schema-driven Form hosted in the Edit drawer. Mirrors the create
-# Form but: (1) schema = the composition's OWN CRD spec schema (composition-editdef),
-# (2) fields are PRE-FILLED from the current .spec (initialValues), (3) submit is a
-# merge-PATCH of spec (no resourceVersion read-modify-write needed). The composition
-# identity comes from the detail route params (?extras → composition-editdef). On
-# success the engine closes the drawer + invalidates widget queries → detail refreshes.
+{{/* Edit composition — schema-driven Form hosted in the Edit drawer. Mirrors the create */}}
+{{/* Form but: (1) schema = the composition's OWN CRD spec schema (composition-editdef), */}}
+{{/* (2) fields are PRE-FILLED from the current .spec (initialValues), (3) submit is a */}}
+{{/* merge-PATCH of spec (no resourceVersion read-modify-write needed). The composition */}}
+{{/* identity comes from the detail route params (?extras → composition-editdef). On */}}
+{{/* success the engine closes the drawer + invalidates widget queries → detail refreshes. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,7 +12,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: composition-editdef
@@ -32,7 +32,7 @@ spec:
           headers:
             - 'Content-Type: application/merge-patch+json'
           successMessage: Composition updated
-          # The whole form payload becomes spec (merge-patch updates spec in place).
+          {{/* The whole form payload becomes spec (merge-patch updates spec in place). */}}
           payloadToOverride:
             - { name: spec, value: '${ .json }' }
   widgetDataTemplate:

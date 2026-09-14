@@ -1,17 +1,17 @@
-# Blueprint DETAIL data source — resolves ONE installed blueprint (its CompositionDefinition,
-# from ?extras .namespace/.name = route /blueprints/{namespace}/{name}) and joins the krateo-blueprints
-# helm index to discover the AVAILABLE versions (for the version-picker / update). Returns ONLY
-# raw, server-shaped data; each detail widget slices its own view from this:
-#   detail            : the full CompositionDefinition (managedFields stripped)
-#   name / namespace  : identity (echoed from the object, falling back to extras)
-#   chart             : the chart name (spec.chart.repo) or its url
-#   currentVersion    : spec.chart.version (installed)
-#   availableVersions : every version the helm index lists for this chart (+ current), unique
-#   latestVersion / updateAvailable : best-effort newest vs installed
-#   ready / synced / created : status surface
-#   versionSchema / versionInitial : the update Form's JSON schema (version enum) + initial value
-#   gvr               : PATCH/DELETE target (always core.krateo.io compositiondefinitions)
-# Needs snowplow >= 1.4.0 for the external helm-index YAML fetch (GKE is on 1.4.1).
+{{/* Blueprint DETAIL data source — resolves ONE installed blueprint (its CompositionDefinition, */}}
+{{/* from ?extras .namespace/.name = route /blueprints/{namespace}/{name}) and joins the krateo-blueprints */}}
+{{/* helm index to discover the AVAILABLE versions (for the version-picker / update). Returns ONLY */}}
+{{/* raw, server-shaped data; each detail widget slices its own view from this: */}}
+{{/* detail            : the full CompositionDefinition (managedFields stripped) */}}
+{{/* name / namespace  : identity (echoed from the object, falling back to extras) */}}
+{{/* chart             : the chart name (spec.chart.repo) or its url */}}
+{{/* currentVersion    : spec.chart.version (installed) */}}
+{{/* availableVersions : every version the helm index lists for this chart (+ current), unique */}}
+{{/* latestVersion / updateAvailable : best-effort newest vs installed */}}
+{{/* ready / synced / created : status surface */}}
+{{/* versionSchema / versionInitial : the update Form's JSON schema (version enum) + initial value */}}
+{{/* gvr               : PATCH/DELETE target (always core.krateo.io compositiondefinitions) */}}
+{{/* Needs snowplow >= 1.4.0 for the external helm-index YAML fetch (GKE is on 1.4.1). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -21,23 +21,23 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # The installed blueprint = its CompositionDefinition (core.krateo.io). Identity from extras.
-    # NOTE: no per-step filter — a per-step filter's output REPLACES this step's key, so a
-    # `del(.compdef…)` (which returns the whole accumulated root) would nest it as
+    {{/* The installed blueprint = its CompositionDefinition (core.krateo.io). Identity from extras. */}}
+    {{/* NOTE: no per-step filter — a per-step filter's output REPLACES this step's key, so a */}}
+    {{/* `del(.compdef…)` (which returns the whole accumulated root) would nest it as */}}
     # {compdef:{compdef:…}}. The managedFields strip happens in the top-level filter instead.
     - name: compdef
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
-    # The helm index — used to enumerate the chart's available versions (update picker).
+    {{/* The helm index — used to enumerate the chart's available versions (update picker). */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
-    # IA correlation (blueprint → running instances): the compositions CREATED FROM this
-    # blueprint are the instances of the CD's GENERATED kind — its status.apiVersion +
-    # status.resource (e.g. composition.krateo.io/v0-1-0 + keystonedemoes). Listed
-    # cluster-wide (a blueprint's instances can live in any namespace). continueOnError +
-    # a 404-safe fallback path: an unreconciled CD (no status.apiVersion) or a kind with
-    # zero instances degrades to an empty "Running compositions" card, never a failed widget.
+    {{/* IA correlation (blueprint → running instances): the compositions CREATED FROM this */}}
+    {{/* blueprint are the instances of the CD's GENERATED kind — its status.apiVersion + */}}
+    {{/* status.resource (e.g. composition.krateo.io/v0-1-0 + keystonedemoes). Listed */}}
+    {{/* cluster-wide (a blueprint's instances can live in any namespace). continueOnError + */}}
+    {{/* a 404-safe fallback path: an unreconciled CD (no status.apiVersion) or a kind with */}}
+    {{/* zero instances degrades to an empty "Running compositions" card, never a failed widget. */}}
     - name: comps
       path: ${ "/apis/" + ((.compdef.status.apiVersion) // "none.krateo.io/v1") + "/" + ((.compdef.status.resource) // "none") }
       verb: GET

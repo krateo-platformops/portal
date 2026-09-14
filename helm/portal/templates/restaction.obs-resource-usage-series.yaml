@@ -1,18 +1,18 @@
-# Cluster resource-usage TIME SERIES from ClickHouse (clickstack otel_metrics_gauge — the
-# k8s cluster/kubelet receiver). The companion obs-resource-usage RA is a LIVE 5-min snapshot
-# (top pods, one point); this one is the trend over the selected ?range window, bucketed, for
-# the LineChart (R2 #15). Two cluster totals per bucket: CPU cores and Memory GiB.
-#
-# Shape mirrors obs-reconcile-metrics: the query is bucketed SERVER-SIDE (toStartOfInterval),
-# so the chart just maps series -> {t,series,v}. Because a gauge is a POINT SAMPLE, summing all
-# raw rows in a bucket would over-count pods sampled more than once — so the inner query first
-# averages each pod's value within the bucket (avg(Value) per t,pod,metric), then the outer sums
-# across pods → one honest cluster total per bucket. CPU in cores and Memory in GiB (not
-# millicores/MiB) so BOTH series sit in the same low-magnitude range and read legibly on a
-# single shared y-axis (the LineChart has no dual-axis). `ts` is UNIX epoch seconds.
-#
-# Bucket width scales with the window (~24-60 points): 1h→2m, 6h→15m, 24h→1h, 7d→6h. Default
-# 24h (R2 #10 — matches the range chips / dashboard). External-fetch endpointRef, FORMAT JSON.
+{{/* Cluster resource-usage TIME SERIES from ClickHouse (clickstack otel_metrics_gauge — the */}}
+{{/* k8s cluster/kubelet receiver). The companion obs-resource-usage RA is a LIVE 5-min snapshot */}}
+{{/* (top pods, one point); this one is the trend over the selected ?range window, bucketed, for */}}
+{{/* the LineChart (R2 #15). Two cluster totals per bucket: CPU cores and Memory GiB. */}}
+{{/* */}}
+{{/* Shape mirrors obs-reconcile-metrics: the query is bucketed SERVER-SIDE (toStartOfInterval), */}}
+{{/* so the chart just maps series -> {t,series,v}. Because a gauge is a POINT SAMPLE, summing all */}}
+{{/* raw rows in a bucket would over-count pods sampled more than once — so the inner query first */}}
+{{/* averages each pod's value within the bucket (avg(Value) per t,pod,metric), then the outer sums */}}
+{{/* across pods → one honest cluster total per bucket. CPU in cores and Memory in GiB (not */}}
+{{/* millicores/MiB) so BOTH series sit in the same low-magnitude range and read legibly on a */}}
+{{/* single shared y-axis (the LineChart has no dual-axis). `ts` is UNIX epoch seconds. */}}
+{{/* */}}
+{{/* Bucket width scales with the window (~24-60 points): 1h→2m, 6h→15m, 24h→1h, 7d→6h. Default */}}
+{{/* 24h (R2 #10 — matches the range chips / dashboard). External-fetch endpointRef, FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -32,6 +32,6 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: usageError
-  # usage => {data:[{ts,cpu_cores,mem_gib}]}. The LineChart fans each bucket into two series rows.
+  {{/* usage => {data:[{ts,cpu_cores,mem_gib}]}. The LineChart fans each bucket into two series rows. */}}
   filter: >
     { series: ((.usage.data) // []) }

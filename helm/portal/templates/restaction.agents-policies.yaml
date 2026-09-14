@@ -1,64 +1,64 @@
-# The POLICY SURFACE behind /agents/policies — what the agent gateway actually enforces.
-#
-# ONE RESTAction for the whole page: the role of each policy, the human-readable summary of the
-# values it carries and the aggregate counts in the pagehead are ALL computed here in jq. The role
-# Cards and their Tables render those strings verbatim — no widget does arithmetic, no widget
-# re-reads a spec block, and no widget decides which columns exist.
-#
-# WHY A DERIVED "role" AT ALL: an AgentgatewayPolicy has no kind, category or label that says what
-# it is for. Its purpose is only legible from WHICH spec blocks it carries, so the classification
-# below IS the product decision. It is a PRECEDENCE, not a set of independent tests, because real
-# policies combine blocks — and this list is the implemented order, first match wins (:guardrail
-# before identity, cors before observability; a policy carrying promptGuard AND jwtAuthentication
-# files as guardrail):
-#
-#   1. backend.ai.promptGuard                                        -> guardrail
-#   2. traffic.jwtAuthentication|authorization|apiKeyAuthentication
-#      |basicAuthentication|extAuth                                  -> identity
-#   3. traffic.rateLimit(local|global|conditional)|buffer            -> limits
-#   4. traffic.retry                                                 -> resiliency
-#   5. traffic.cors                                                  -> cors
-#   6. frontend.accessLog|metrics|tracing                            -> observability
-#   7. backend.auth                                                  -> passthrough
-#   8. anything else                                                 -> other (Unclassified)
-#
-# resiliency-mcp carries retry AND timeouts, so `limits` keys off rateLimit/buffer only — a bare
-# timeouts block is a property of a retry policy, not a budget of its own. `limits` additionally
-# requires a rateLimit shape we can actually RENDER (local, global or conditional): a rateLimit in
-# a shape a future gateway introduces must NOT be filed under a card that asserts we understood it.
-#
-# NOTHING IS EVER SUMMARISED AS "—". Every role's summariser can come up empty (a block we classify
-# but whose sub-fields we do not read), and every unclassified policy has no summariser at all. Both
-# fall back to naming the spec blocks the object actually carries ("carries traffic.csrf,
-# traffic.timeouts"), so the cell always says what is enforced or admits it cannot summarise it.
-#
-# WHY httproutes IS A SECOND STEP: targetRefs names an HTTPRoute, which tells a reader nothing.
-# Joining to the route's own matches turns "agentgateway-policies-llm" into "/llm/v1" — the URL
-# space the policy actually governs. A BARE "/" is deliberately NOT rendered: 20 of the 33 routes on
-# krateo-057 match path "/" and are discriminated by an exact `x-kagent-host` header, so "· /" would
-# assert the policy governs the gateway root when it governs one header-selected backend. When the
-# targeted routes share a single distinct header match, that header is shown instead; when they do
-# not, the count alone is shown, which claims less. The join happens in the global filter against a
-# name-keyed index, so there is no dependsOn and no N+1: two independent cluster-scope lists, one pass.
-#
-# WHY THE GUARDRAIL IS COUNTED, NOT PRINTED: promptGuard.request/response are arrays of guards whose
-# regex `matches` are multi-hundred-character jailbreak patterns. Printing them would drown the page
-# and tell an operator nothing they can act on; the actionable fact is the SHAPE — how many guards
-# run per direction and what each one is. A guard is not always a regex (the CRD also allows webhook,
-# openAIModeration, googleModelArmor and bedrockGuardrails), so each entry is labelled by its own
-# kind rather than by `.regex.action`, which would render a webhook guard as "1 ?".
-#
-# RBAC — AND WHY THE ERROR KEYS ARE READ, NOT JUST DECLARED. Each step carries a userAccessFilter,
-# so snowplow lists as its SA and then REFILTERS to the namespaces where the CALLER holds the grant.
-# That refilter is SILENT: a caller with no agentgateway.dev grant gets `items: []`, byte-identical
-# to a cluster with no policies (refilter.go applyUserAccessFilterOnPig drops items, it does not
-# error). A transport/403 failure on the list itself is different — continueOnError leaves the step
-# absent and populates the errorKey. So this filter exports BOTH facts:
-#   * policiesReadable=false  -> the step itself failed; the page must say so, never "0 policies".
-#   * policiesReadable=true, total=0 -> ambiguous by construction; the subtitle names BOTH readings
-#     ("none installed, or you cannot list them") rather than asserting the gateway enforces nothing.
-# Same for routes: a caller who may read policies but not routes keeps every policy, and the subtitle
-# says the URL spaces are missing instead of the rows quietly losing their path.
+{{/* The POLICY SURFACE behind /agents/policies — what the agent gateway actually enforces. */}}
+{{/* */}}
+{{/* ONE RESTAction for the whole page: the role of each policy, the human-readable summary of the */}}
+{{/* values it carries and the aggregate counts in the pagehead are ALL computed here in jq. The role */}}
+{{/* Cards and their Tables render those strings verbatim — no widget does arithmetic, no widget */}}
+{{/* re-reads a spec block, and no widget decides which columns exist. */}}
+{{/* */}}
+{{/* WHY A DERIVED "role" AT ALL: an AgentgatewayPolicy has no kind, category or label that says what */}}
+{{/* it is for. Its purpose is only legible from WHICH spec blocks it carries, so the classification */}}
+{{/* below IS the product decision. It is a PRECEDENCE, not a set of independent tests, because real */}}
+{{/* policies combine blocks — and this list is the implemented order, first match wins (:guardrail */}}
+{{/* before identity, cors before observability; a policy carrying promptGuard AND jwtAuthentication */}}
+{{/* files as guardrail): */}}
+{{/* */}}
+{{/* 1. backend.ai.promptGuard                                        -> guardrail */}}
+{{/* 2. traffic.jwtAuthentication|authorization|apiKeyAuthentication */}}
+{{/* |basicAuthentication|extAuth                                  -> identity */}}
+{{/* 3. traffic.rateLimit(local|global|conditional)|buffer            -> limits */}}
+{{/* 4. traffic.retry                                                 -> resiliency */}}
+{{/* 5. traffic.cors                                                  -> cors */}}
+{{/* 6. frontend.accessLog|metrics|tracing                            -> observability */}}
+{{/* 7. backend.auth                                                  -> passthrough */}}
+{{/* 8. anything else                                                 -> other (Unclassified) */}}
+{{/* */}}
+{{/* resiliency-mcp carries retry AND timeouts, so `limits` keys off rateLimit/buffer only — a bare */}}
+{{/* timeouts block is a property of a retry policy, not a budget of its own. `limits` additionally */}}
+{{/* requires a rateLimit shape we can actually RENDER (local, global or conditional): a rateLimit in */}}
+{{/* a shape a future gateway introduces must NOT be filed under a card that asserts we understood it. */}}
+{{/* */}}
+{{/* NOTHING IS EVER SUMMARISED AS "—". Every role's summariser can come up empty (a block we classify */}}
+{{/* but whose sub-fields we do not read), and every unclassified policy has no summariser at all. Both */}}
+{{/* fall back to naming the spec blocks the object actually carries ("carries traffic.csrf, */}}
+{{/* traffic.timeouts"), so the cell always says what is enforced or admits it cannot summarise it. */}}
+{{/* */}}
+{{/* WHY httproutes IS A SECOND STEP: targetRefs names an HTTPRoute, which tells a reader nothing. */}}
+{{/* Joining to the route's own matches turns "agentgateway-policies-llm" into "/llm/v1" — the URL */}}
+{{/* space the policy actually governs. A BARE "/" is deliberately NOT rendered: 20 of the 33 routes on */}}
+{{/* krateo-057 match path "/" and are discriminated by an exact `x-kagent-host` header, so "· /" would */}}
+{{/* assert the policy governs the gateway root when it governs one header-selected backend. When the */}}
+{{/* targeted routes share a single distinct header match, that header is shown instead; when they do */}}
+{{/* not, the count alone is shown, which claims less. The join happens in the global filter against a */}}
+{{/* name-keyed index, so there is no dependsOn and no N+1: two independent cluster-scope lists, one pass. */}}
+{{/* */}}
+{{/* WHY THE GUARDRAIL IS COUNTED, NOT PRINTED: promptGuard.request/response are arrays of guards whose */}}
+{{/* regex `matches` are multi-hundred-character jailbreak patterns. Printing them would drown the page */}}
+{{/* and tell an operator nothing they can act on; the actionable fact is the SHAPE — how many guards */}}
+{{/* run per direction and what each one is. A guard is not always a regex (the CRD also allows webhook, */}}
+{{/* openAIModeration, googleModelArmor and bedrockGuardrails), so each entry is labelled by its own */}}
+{{/* kind rather than by `.regex.action`, which would render a webhook guard as "1 ?". */}}
+{{/* */}}
+{{/* RBAC — AND WHY THE ERROR KEYS ARE READ, NOT JUST DECLARED. Each step carries a userAccessFilter, */}}
+{{/* so snowplow lists as its SA and then REFILTERS to the namespaces where the CALLER holds the grant. */}}
+{{/* That refilter is SILENT: a caller with no agentgateway.dev grant gets `items: []`, byte-identical */}}
+{{/* to a cluster with no policies (refilter.go applyUserAccessFilterOnPig drops items, it does not */}}
+{{/* error). A transport/403 failure on the list itself is different — continueOnError leaves the step */}}
+{{/* absent and populates the errorKey. So this filter exports BOTH facts: */}}
+{{/* * policiesReadable=false  -> the step itself failed; the page must say so, never "0 policies". */}}
+{{/* * policiesReadable=true, total=0 -> ambiguous by construction; the subtitle names BOTH readings */}}
+{{/* ("none installed, or you cannot list them") rather than asserting the gateway enforces nothing. */}}
+{{/* Same for routes: a caller who may read policies but not routes keeps every policy, and the subtitle */}}
+{{/* says the URL spaces are missing instead of the rows quietly losing their path. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -78,8 +78,8 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: policiesError
-  # The route join. v1 is the storage version of httproutes on the cluster (v1beta1 is still served
-  # but is not the storage version); pin v1 so the paths we read are the canonical ones.
+  {{/* The route join. v1 is the storage version of httproutes on the cluster (v1beta1 is still served */}}
+  {{/* but is not the storage version); pin v1 so the paths we read are the canonical ones. */}}
   - name: routes
     path: /apis/gateway.networking.k8s.io/v1/httproutes
     verb: GET

@@ -1,33 +1,33 @@
-# Policy create-form schema source — the agent-formdef pattern (live cluster -> form schema), for
-# AgentgatewayPolicy (agentgateway.dev/v1alpha1, Namespaced).
-#
-# WHAT THIS FORM DELIBERATELY DOES NOT DO. The mockup's Add-policy drawer opens with an Ownership
-# choice: "Add to composition values" or "Standalone policy". Only the second is built. All 31
-# policies live on krateo-057 carry app.kubernetes.io/managed-by=Helm — every one is rendered by the
-# agentgateway-policies composition from its values, so "add to composition values" is not a create
-# at all, it is a PATCH of a different CR (the AgentgatewayPolicies composition) whose values schema
-# this page does not own. Offering it as a half-working second radio would produce policies that
-# survive until the next reconcile and then vanish, which is worse than not offering it. The Alert
-# above the form says so in those words, and points at the composition instead.
-#
-# THE SCHEMA IS ASSEMBLED AS TEXT, NEVER AS A jq OBJECT — same hard constraint as agent-formdef, for
-# the same reason: snowplow runs a gojq fork whose encodeObject sorts keys, so `$obj | tojson` comes
-# back alphabetised and SchemaFields renders the form in that order. $props below is an ARRAY (gojq
-# preserves array order) and the properties block is concatenated. Only each property NODE goes
-# through tojson, where key order carries no meaning. To add a field: insert it into $props at the
-# position you want it to render.
-#
-# THE TARGET IS ONE FIELD, NOT TWO. targetRefs[] needs a kind AND a name that agree, and a form with
-# separate "kind" and "name" selects lets a user pick HTTPRoute + the name of a Service and submit
-# something that matches nothing. The single `__target__` enum carries "<Kind>/<namespace>/<name>"
-# and the Form's payloadToOverride splits it, so the pair cannot be mismatched. Its `group` is
-# derived the same way: "" for Service (core), gateway.networking.k8s.io for the other two — that is
-# what the 66 live targetRefs use (10 Gateway, 40 HTTPRoute, 16 Service).
-#
-# THREE-STATE READS. Every list step carries continueOnError + errorKey and every errorKey is read
-# below. snowplow's userAccessFilter EMPTIES a list the caller may not see rather than erroring, so
-# "the cluster has none" and "your grant covers none" arrive identically — every field description
-# that could present a failed or filtered read as an empty cluster says which one it is.
+{{/* Policy create-form schema source — the agent-formdef pattern (live cluster -> form schema), for */}}
+{{/* AgentgatewayPolicy (agentgateway.dev/v1alpha1, Namespaced). */}}
+{{/* */}}
+{{/* WHAT THIS FORM DELIBERATELY DOES NOT DO. The mockup's Add-policy drawer opens with an Ownership */}}
+{{/* choice: "Add to composition values" or "Standalone policy". Only the second is built. All 31 */}}
+{{/* policies live on krateo-057 carry app.kubernetes.io/managed-by=Helm — every one is rendered by the */}}
+{{/* agentgateway-policies composition from its values, so "add to composition values" is not a create */}}
+{{/* at all, it is a PATCH of a different CR (the AgentgatewayPolicies composition) whose values schema */}}
+{{/* this page does not own. Offering it as a half-working second radio would produce policies that */}}
+{{/* survive until the next reconcile and then vanish, which is worse than not offering it. The Alert */}}
+{{/* above the form says so in those words, and points at the composition instead. */}}
+{{/* */}}
+{{/* THE SCHEMA IS ASSEMBLED AS TEXT, NEVER AS A jq OBJECT — same hard constraint as agent-formdef, for */}}
+{{/* the same reason: snowplow runs a gojq fork whose encodeObject sorts keys, so `$obj | tojson` comes */}}
+{{/* back alphabetised and SchemaFields renders the form in that order. $props below is an ARRAY (gojq */}}
+{{/* preserves array order) and the properties block is concatenated. Only each property NODE goes */}}
+{{/* through tojson, where key order carries no meaning. To add a field: insert it into $props at the */}}
+{{/* position you want it to render. */}}
+{{/* */}}
+{{/* THE TARGET IS ONE FIELD, NOT TWO. targetRefs[] needs a kind AND a name that agree, and a form with */}}
+{{/* separate "kind" and "name" selects lets a user pick HTTPRoute + the name of a Service and submit */}}
+{{/* something that matches nothing. The single `__target__` enum carries "<Kind>/<namespace>/<name>" */}}
+{{/* and the Form's payloadToOverride splits it, so the pair cannot be mismatched. Its `group` is */}}
+{{/* derived the same way: "" for Service (core), gateway.networking.k8s.io for the other two — that is */}}
+{{/* what the 66 live targetRefs use (10 Gateway, 40 HTTPRoute, 16 Service). */}}
+{{/* */}}
+{{/* THREE-STATE READS. Every list step carries continueOnError + errorKey and every errorKey is read */}}
+{{/* below. snowplow's userAccessFilter EMPTIES a list the caller may not see rather than erroring, so */}}
+{{/* "the cluster has none" and "your grant covers none" arrive identically — every field description */}}
+{{/* that could present a failed or filtered read as an empty cluster says which one it is. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -37,15 +37,15 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # The CRD itself. NOT continueOnError: no CRD means no policy kind on this cluster, and a form
-    # that cannot say which apiVersion it posts to must fail loudly rather than render.
+    {{/* The CRD itself. NOT continueOnError: no CRD means no policy kind on this cluster, and a form */}}
+    {{/* that cannot say which apiVersion it posts to must fail loudly rather than render. */}}
     - name: crd
       path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/agentgatewaypolicies.agentgateway.dev
       verb: GET
       headers:
         - 'Accept: application/json'
-    # Namespaces the caller may CREATE an AgentgatewayPolicy in — filtered by snowplow against the
-    # real verb, so the Namespace select never offers somewhere the POST would 403.
+    {{/* Namespaces the caller may CREATE an AgentgatewayPolicy in — filtered by snowplow against the */}}
+    {{/* real verb, so the Namespace select never offers somewhere the POST would 403. */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -82,9 +82,9 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: routesError
-    # Services are scoped to the release namespace, unlike the two Gateway-API kinds. A cluster-wide
-    # Service list is hundreds of entries of which the gateway can target a handful, and all 16 live
-    # Service targetRefs are in this namespace. The field description says the list is scoped.
+    {{/* Services are scoped to the release namespace, unlike the two Gateway-API kinds. A cluster-wide */}}
+    {{/* Service list is hundreds of entries of which the gateway can target a handful, and all 16 live */}}
+    {{/* Service targetRefs are in this namespace. The field description says the list is scoped. */}}
     - name: services
       path: /api/v1/namespaces/{{ .Release.Namespace }}/services
       verb: GET
@@ -97,11 +97,11 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: servicesError
-    # The policies already on the cluster, read ONLY to seed worked examples into the body field.
-    # The apiserver strict-decodes this CRD (an unknown field is a BadRequest, not a warning), so a
-    # user authoring the block from memory gets a 422 and no clue which key was wrong. A real block
-    # of the same role, copied from an object that is currently Accepted, is the difference between
-    # a field someone can fill in and one they cannot.
+    {{/* The policies already on the cluster, read ONLY to seed worked examples into the body field. */}}
+    {{/* The apiserver strict-decodes this CRD (an unknown field is a BadRequest, not a warning), so a */}}
+    {{/* user authoring the block from memory gets a 422 and no clue which key was wrong. A real block */}}
+    {{/* of the same role, copied from an object that is currently Accepted, is the difference between */}}
+    {{/* a field someone can fill in and one they cannot. */}}
     - name: policies
       path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
       verb: GET
@@ -114,7 +114,7 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: policiesError
-  # Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }.
+  {{/* Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }. */}}
   filter: |
     # A step that fails under continueOnError writes its reason to the errorKey as an ACCUMULATING
     # SLICE (snowplow accumulateErrorKey always stores []any), each entry either the apiserver Status

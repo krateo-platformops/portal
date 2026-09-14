@@ -6,34 +6,34 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     xField: t
     yField: v
     colorField: series
-    # Petrol cyan LINE + points to match the area fill AND the render — without this the single
-    # "Created" series takes G2's default blue. Theme-aware (the widget resolves it via getColorCode).
+    {{/* Petrol cyan LINE + points to match the area fill AND the render — without this the single */}}
+    {{/* "Created" series takes G2's default blue. Theme-aware (the widget resolves it via getColorCode). */}}
     colorMap:
       Created: cyan
     shapeField: smooth
     area: true
-    # Single "Created" series — the card title already says "Compositions created", so the
-    # one-item legend was redundant. Hidden.
+    {{/* Single "Created" series — the card title already says "Compositions created", so the */}}
+    {{/* one-item legend was redundant. Hidden. */}}
     legend: false
     height: 150
-    # x values are emitted as UNIX epoch SECONDS (below) and formatted to a label in the
-    # BROWSER's local timezone by the LineChart widget — so a 21:00-Rome bucket reads "21:00",
-    # not the server clock's UTC "19:00". 24h -> "hour" (HH:00), daily ranges -> "day" (Mon D).
+    {{/* x values are emitted as UNIX epoch SECONDS (below) and formatted to a label in the */}}
+    {{/* BROWSER's local timezone by the LineChart widget — so a 21:00-Rome bucket reads "21:00", */}}
+    {{/* not the server clock's UTC "19:00". 24h -> "hour" (HH:00), daily ranges -> "day" (Mon D). */}}
     xTimeUnit: hour
-    # Zero-anchored INTEGER y-axis (no fractional 0..1 ticks for a count) with a marker
-    # on each bucket. NO domainMax: it is a hard CAP, not a floor — it clipped real
-    # peaks (a day with 15 rendered as 3). zero+nice auto-scale to the real max and
-    # round up for headroom, so the peak is shown in full and never cropped.
+    {{/* Zero-anchored INTEGER y-axis (no fractional 0..1 ticks for a count) with a marker */}}
+    {{/* on each bucket. NO domainMax: it is a hard CAP, not a floor — it clipped real */}}
+    {{/* peaks (a day with 15 rendered as 3). zero+nice auto-scale to the real max and */}}
+    {{/* round up for headroom, so the peak is shown in full and never cropped. */}}
     point: true
     scale:
-      # NB: quote the "y" key — bare `y:` is parsed as the YAML 1.1 boolean `true`,
-      # which would put the scale config on the wrong channel and silently no-op.
+      {{/* NB: quote the "y" key — bare `y:` is parsed as the YAML 1.1 boolean `true`, */}}
+      {{/* which would put the scale config on the wrong channel and silently no-op. */}}
       "y":
         zero: true
         nice: true
@@ -45,28 +45,28 @@ spec:
       "y":
         tickCount: 4
     data: []
-    # live-refresh: watch the composition kinds in the data (computed, not hardcoded)
+    {{/* live-refresh: watch the composition kinds in the data (computed, not hardcoded) */}}
     watch: []
   widgetDataTemplate:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
-  # The window ENDS AT THE CURRENT (live) period: $end = floor(now) to the hour (24h) or day
-  # (daily) boundary, and we walk back n buckets — so the rightmost bar is the LIVE hour/day, not
-  # the last COMPLETE one (a brand-new composition appears immediately). 24 consecutive hours are
-  # always 24 DISTINCT "HH:00" labels, so no same-label collision (G2 merges same-label points).
-  # Trade-off: a composition in the trailing partial hour that falls just OUTSIDE the 24-bucket
-  # span (between the rolling cutoff and the oldest bucket) isn't shown — accepted, since ending
-  # at the live hour was the explicit ask. (Daily ranges already ended at today; now uniform.)
-  # NB: `t` is the bucket's epoch SECONDS — the client (xTimeUnit) renders the local-TZ label.
+  {{/* The window ENDS AT THE CURRENT (live) period: $end = floor(now) to the hour (24h) or day */}}
+  {{/* (daily) boundary, and we walk back n buckets — so the rightmost bar is the LIVE hour/day, not */}}
+  {{/* the last COMPLETE one (a brand-new composition appears immediately). 24 consecutive hours are */}}
+  {{/* always 24 DISTINCT "HH:00" labels, so no same-label collision (G2 merges same-label points). */}}
+  {{/* Trade-off: a composition in the trailing partial hour that falls just OUTSIDE the 24-bucket */}}
+  {{/* span (between the rolling cutoff and the oldest bucket) isn't shown — accepted, since ending */}}
+  {{/* at the live hour was the explicit ask. (Daily ranges already ended at today; now uniform.) */}}
+  {{/* NB: `t` is the bucket's epoch SECONDS — the client (xTimeUnit) renders the local-TZ label. */}}
   - forPath: data
     expression: '${ . as $r | ($r.range // "all") as $range | (if $range=="24h" then {n:24,step:3600} elif $range=="7d" then {n:8,step:86400} elif $range=="30d" then {n:31,step:86400} else {n:15,step:86400} end) as $cfg | (now|floor) as $now | ($now - ($now % $cfg.step)) as $end | (reduce ($r.list[]?) as $it ({}; (($it.ts // "") | (fromdateiso8601? // null)) as $e | if ($e|type) != "number" then . else ($e - ($e % $cfg.step)) as $b | .[($b|tostring)] = ((.[($b|tostring)] // 0) + 1) end)) as $counts | [ range(0; $cfg.n) | ($end - (. * $cfg.step)) as $b | { t: $b, series: "Created", v: ($counts[($b|tostring)] // 0) } ] | reverse }'
-  # xTimeUnit drives the client's local-TZ label format: hourly window -> "HH:00", daily -> "Mon D".
+  {{/* xTimeUnit drives the client's local-TZ label format: hourly window -> "HH:00", daily -> "Mon D". */}}
   - forPath: xTimeUnit
     expression: '${ if (.range // "all")=="24h" then "hour" else "day" end }'
-  # Annotations: a single orange peak `point` marker at the busiest bucket — recomputes the same
-  # buckets as `data` (forPath exprs don't chain) and derives the peak (max_by v). NO "now" lineX:
-  # the dashed vertical bar read as useless against our sparse real data, so it's dropped. `t`
-  # stays epoch SECONDS (matching `data`) so the client localizes the peak marker to the same band.
+  {{/* Annotations: a single orange peak `point` marker at the busiest bucket — recomputes the same */}}
+  {{/* buckets as `data` (forPath exprs don't chain) and derives the peak (max_by v). NO "now" lineX: */}}
+  {{/* the dashed vertical bar read as useless against our sparse real data, so it's dropped. `t` */}}
+  {{/* stays epoch SECONDS (matching `data`) so the client localizes the peak marker to the same band. */}}
   - forPath: annotations
     expression: '${ . as $r | ($r.range // "all") as $range | (if $range=="24h" then {n:24,step:3600} elif $range=="7d" then {n:8,step:86400} elif $range=="30d" then {n:31,step:86400} else {n:15,step:86400} end) as $cfg | (now|floor) as $now | ($now - ($now % $cfg.step)) as $end | (reduce ($r.list[]?) as $it ({}; (($it.ts // "") | (fromdateiso8601? // null)) as $e | if ($e|type) != "number" then . else ($e - ($e % $cfg.step)) as $b | .[($b|tostring)] = ((.[($b|tostring)] // 0) + 1) end)) as $counts | ([ range(0; $cfg.n) | ($end - (. * $cfg.step)) as $b | { t: $b, v: ($counts[($b|tostring)] // 0) } ] | reverse) as $d | ($d | max_by(.v)) as $peak | [ {type:"point", data:[{t:$peak.t, v:$peak.v}], encode:{x:"t", y:"v"}, scale:{color:{type:"identity"}}, style:{fill:"#F2A33C", stroke:"#070C12", lineWidth:2, r:6}, size:9, tooltip:false} ] }'
   apiRef:

@@ -1,29 +1,29 @@
-# The /resources/{namespace}/{group}/{version}/{plural}/{name} page header — the generic
-# resource-view H1, in one CR.
-#
-# Replaces four: flex.resource-detail-header (a vertical Flex whose only job was to stack them),
-# paragraph.resource-detail-eyebrow, paragraph.resource-detail-title and
-# paragraph.resource-detail-subtitle.
-#
-# EVERYTHING HERE IS DATA-DRIVEN, so the migration is mostly about not losing three things:
-#
-#   the apiRef      All three Paragraphs read the SAME action (resource-detail), which is why they
-#                   merge at all — a PageHeader has one apiRef, and one is all this page needed.
-#   the templates   Retargeted, not rewritten: forPath: text -> title / subtitle. Drop one and the
-#                   line renders empty, because this page has no static copy to fall back on: both
-#                   Paragraphs ship `text: ""` on purpose rather than guessing an object's name.
-#   keyExtras       All five route params. This is a parameterized route, and every absorbed CR
-#                   declared the same five, so the union is those five. Dropping one serves another
-#                   object's header from this cache cell.
-#
-# THE EYEBROW IS GONE, and that is a deletion rather than a regression. It computed the object's
-# apiVersion (e.g. "apps/v1") into a `variant: eyebrow` Paragraph, and Paragraph.tsx returns null
-# for that variant — it has rendered as nothing for some time. The apiVersion is not lost to the
-# reader: it is the first line of the manifest card directly below.
-#
-# No counter, no tags, no items. This page has no count; its status lives in the conditions list,
-# which composes only when the kind HAS conditions; and its one action — clearing a stuck
-# create-pending annotation — belongs to the exception block that explains it, not to the header.
+{{/* The /resources/{namespace}/{group}/{version}/{plural}/{name} page header — the generic */}}
+{{/* resource-view H1, in one CR. */}}
+{{/* */}}
+{{/* Replaces four: flex.resource-detail-header (a vertical Flex whose only job was to stack them), */}}
+{{/* paragraph.resource-detail-eyebrow, paragraph.resource-detail-title and */}}
+{{/* paragraph.resource-detail-subtitle. */}}
+{{/* */}}
+{{/* EVERYTHING HERE IS DATA-DRIVEN, so the migration is mostly about not losing three things: */}}
+{{/* */}}
+{{/* the apiRef      All three Paragraphs read the SAME action (resource-detail), which is why they */}}
+{{/* merge at all — a PageHeader has one apiRef, and one is all this page needed. */}}
+{{/* the templates   Retargeted, not rewritten: forPath: text -> title / subtitle. Drop one and the */}}
+{{/* line renders empty, because this page has no static copy to fall back on: both */}}
+{{/* Paragraphs ship `text: ""` on purpose rather than guessing an object's name. */}}
+{{/* keyExtras       All five route params. This is a parameterized route, and every absorbed CR */}}
+{{/* declared the same five, so the union is those five. Dropping one serves another */}}
+{{/* object's header from this cache cell. */}}
+{{/* */}}
+{{/* THE EYEBROW IS GONE, and that is a deletion rather than a regression. It computed the object's */}}
+{{/* apiVersion (e.g. "apps/v1") into a `variant: eyebrow` Paragraph, and Paragraph.tsx returns null */}}
+{{/* for that variant — it has rendered as nothing for some time. The apiVersion is not lost to the */}}
+{{/* reader: it is the first line of the manifest card directly below. */}}
+{{/* */}}
+{{/* No counter, no tags, no items. This page has no count; its status lives in the conditions list, */}}
+{{/* which composes only when the kind HAS conditions; and its one action — clearing a stuck */}}
+{{/* create-pending annotation — belongs to the exception block that explains it, not to the header. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -32,21 +32,21 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the five route params that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): the five route params that partition this widget's cache cell. */}}
   keyExtras: [namespace, group, version, plural, name]
   apiRef:
     name: resource-detail
     namespace: {{ .Release.Namespace }}
-  # Empty statics, filled by the templates below — the same honest placeholder the Paragraphs
-  # used. A guessed title would name an object the page has not fetched yet.
+  {{/* Empty statics, filled by the templates below — the same honest placeholder the Paragraphs */}}
+  {{/* used. A guessed title would name an object the page has not fetched yet. */}}
   widgetData:
     title: ""
     subtitle: ""
   widgetDataTemplate:
-    # "Kind · name", e.g. "Deployment · krateo-portal". Was paragraph.resource-detail-title.
+    {{/* "Kind · name", e.g. "Deployment · krateo-portal". Was paragraph.resource-detail-title. */}}
     - forPath: title
       expression: '${ .kindName // "" }'
-    # "namespace X · created <ts>", "cluster-scoped", or "Not found in namespace X".
+    {{/* "namespace X · created <ts>", "cluster-scoped", or "Not found in namespace X". */}}
     - forPath: subtitle
       expression: '${ .subtitle // "" }'
   resourcesRefs:

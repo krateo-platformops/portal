@@ -1,11 +1,11 @@
-# Blueprint INSTALL form — deploys a CompositionDefinition (i.e. installs the blueprint).
-# Distinct from blueprint-create (which instantiates an ALREADY-installed blueprint from its
-# generated CRD). Schema = the CompositionDefinition CRD spec (full), via blueprint-install
-# -formdef; chart.{url,repo,version} are pre-filled from the helm index for the selected
-# blueprint. Submit POSTs the CompositionDefinition into the chosen namespace; on success
-# it lands on the NEW blueprint's detail page (/blueprints/{ns}/{name} — resolveJq sees the
-# built request body as `.json`, whose metadata carries name+namespace via payloadToOverride;
-# the exact pattern proven by form.blueprint-create).
+{{/* Blueprint INSTALL form — deploys a CompositionDefinition (i.e. installs the blueprint). */}}
+{{/* Distinct from blueprint-create (which instantiates an ALREADY-installed blueprint from its */}}
+{{/* generated CRD). Schema = the CompositionDefinition CRD spec (full), via blueprint-install */}}
+{{/* -formdef; chart.{url,repo,version} are pre-filled from the helm index for the selected */}}
+{{/* blueprint. Submit POSTs the CompositionDefinition into the chosen namespace; on success */}}
+{{/* it lands on the NEW blueprint's detail page (/blueprints/{ns}/{name} — resolveJq sees the */}}
+{{/* built request body as `.json`, whose metadata carries name+namespace via payloadToOverride; */}}
+{{/* the exact pattern proven by form.blueprint-create). */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   apiRef:
     name: blueprint-install-formdef
@@ -38,11 +38,11 @@ spec:
             - 'Content-Type: application/json'
           onSuccessNavigateTo: '${ "/blueprints/" + .json.metadata.namespace + "/" + .json.metadata.name }'
           successMessage: Blueprint installed
-          # Body = metadata (name from the form, namespace fixed to the release ns) + spec
-          # (the form values minus the synthetic name). antd registers the hidden-section
-          # fields, so an untouched optional object rides along EMPTY (e.g. deploy.targetRef:{}),
-          # which the real CRD rejects (targetRef.name required) → 422. RECURSIVELY prune empty
-          # values (null / "" / {} / []) bottom-up so only filled objects (chart) remain.
+          {{/* Body = metadata (name from the form, namespace fixed to the release ns) + spec */}}
+          {{/* (the form values minus the synthetic name). antd registers the hidden-section */}}
+          {{/* fields, so an untouched optional object rides along EMPTY (e.g. deploy.targetRef:{}), */}}
+          {{/* which the real CRD rejects (targetRef.name required) → 422. RECURSIVELY prune empty */}}
+          {{/* values (null / "" / {} / []) bottom-up so only filled objects (chart) remain. */}}
           payload:
             apiVersion: core.krateo.io/v1alpha1
             kind: CompositionDefinition
@@ -59,8 +59,8 @@ spec:
       expression: '${ .initialValues }'
   resourcesRefs:
     items:
-      # POST target — create a CompositionDefinition in the release namespace. snowplow infers
-      # apiVersion/kind from this ref; the body carries metadata + spec.
+      {{/* POST target — create a CompositionDefinition in the release namespace. snowplow infers */}}
+      {{/* apiVersion/kind from this ref; the body carries metadata + spec. */}}
       - id: create-compdef
         apiVersion: core.krateo.io/v1alpha1
         namespace: {{ .Release.Namespace }}

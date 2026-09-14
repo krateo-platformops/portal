@@ -1,6 +1,6 @@
-# Lists the TroubleshootingReport CRs (observability.krateo.io, written by the krateo-alert-
-# troubleshooter when a HyperDX alert fires and Autopilot finishes its RCA).
-# Collapses to ONE entry per alert (latest analysis + run count) for the analysis panel.
+{{/* Lists the TroubleshootingReport CRs (observability.krateo.io, written by the krateo-alert- */}}
+{{/* troubleshooter when a HyperDX alert fires and Autopilot finishes its RCA). */}}
+{{/* Collapses to ONE entry per alert (latest analysis + run count) for the analysis panel. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -15,14 +15,14 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: reportsError
-  # The troubleshooter upserts ONE CR per alert, but OLD generateName CRs may still exist —
-  # so GROUP BY alertName defensively, picking the latest CR (max .spec.triggeredAt) per alert.
-  # runCount  = annotation observability.krateo.io/run-count (number) else count of CRs for that
-  #             alert else 1. lastRunAt = annotation observability.krateo.io/last-run-at else the
-  #             latest .spec.triggeredAt. Rows sorted by lastRunAt DESC; pane fields = most-recent.
-  # Each row also carries askHref: a URL-encoded (@uri) /incidents?ask=<seed> deep-link the feed
-  # uses as navigateTo — clicking an alert opens the Autopilot rail seeded to continue THAT alert.
-  # (Retargeted from /observability in the IA split: the feed now lives on /incidents.)
+  {{/* The troubleshooter upserts ONE CR per alert, but OLD generateName CRs may still exist — */}}
+  {{/* so GROUP BY alertName defensively, picking the latest CR (max .spec.triggeredAt) per alert. */}}
+  {{/* runCount  = annotation observability.krateo.io/run-count (number) else count of CRs for that */}}
+  {{/* alert else 1. lastRunAt = annotation observability.krateo.io/last-run-at else the */}}
+  {{/* latest .spec.triggeredAt. Rows sorted by lastRunAt DESC; pane fields = most-recent. */}}
+  {{/* Each row also carries askHref: a URL-encoded (@uri) /incidents?ask=<seed> deep-link the feed */}}
+  {{/* uses as navigateTo — clicking an alert opens the Autopilot rail seeded to continue THAT alert. */}}
+  {{/* (Retargeted from /observability in the IA split: the feed now lives on /incidents.) */}}
   filter: >
     ( ((.reports.items) // []) ) as $items
     | ( $items | group_by(.spec.alertName // "") | map(

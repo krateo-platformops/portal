@@ -6,22 +6,22 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, q, scope, status]
   widgetData:
     title: Healthy
     value: 0
     valueStyle:
       color: var(--green-color)
-    # live-refresh: watch the composition kinds in the data (computed, not hardcoded)
+    {{/* live-refresh: watch the composition kinds in the data (computed, not hardcoded) */}}
     watch: []
   widgetDataTemplate:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
   - forPath: value
-    # Use the RA's projection-aware `.state == "healthy"` (Ready=True AND workloadHealthy != false),
-    # NOT a re-derived Ready==True — else a composition that is Ready=True but whose managed workload
-    # is unhealthy is wrongly counted healthy here while the rail marks it failed (over-counting by 1).
+    {{/* Use the RA's projection-aware `.state == "healthy"` (Ready=True AND workloadHealthy != false), */}}
+    {{/* NOT a re-derived Ready==True — else a composition that is Ready=True but whose managed workload */}}
+    {{/* is unhealthy is wrongly counted healthy here while the rail marks it failed (over-counting by 1). */}}
     expression: ${ [.list[] | select(.state == "healthy")] | length }
   apiRef:
     name: compositions-list

@@ -1,20 +1,20 @@
-# Incident-detail SECTION CARDS — one unified visual language for the investigation anatomy
-# (UX-20/#23/#24). Every major section (Evidence · Reasoning trace · Remediation · — and the
-# Root cause + Missing-context cards defined in their own files) is the SAME antd Card treatment:
-# titleVariant: eyebrow (small mono uppercase section caption), variant: outlined (one border +
-# padding family), an optional headerLeft one-line desc, and the section's content widgets as Card
-# children. This replaces the old bare "strong Paragraph label + secondary Paragraph desc + loose
-# widget" run, so Evidence(Table+Markdown), Reasoning(Steps) and Remediation(rows) read as ONE
-# family instead of three different UIs. Each card is included by the page Flex ONLY when its data
-# exists (sections flags), so none renders over empty structure. All copy/counts are server-side.
-#
-# NB Card children are NOT constrained by the container allowedResources enum (Cards are
-# unconstrained — see card.incident-gaps-card), so a Card can host Table/Markdown/Steps/Flex freely.
+{{/* Incident-detail SECTION CARDS — one unified visual language for the investigation anatomy */}}
+{{/* (UX-20/#23/#24). Every major section (Evidence · Reasoning trace · Remediation · — and the */}}
+{{/* Root cause + Missing-context cards defined in their own files) is the SAME antd Card treatment: */}}
+{{/* titleVariant: eyebrow (small mono uppercase section caption), variant: outlined (one border + */}}
+{{/* padding family), an optional headerLeft one-line desc, and the section's content widgets as Card */}}
+{{/* children. This replaces the old bare "strong Paragraph label + secondary Paragraph desc + loose */}}
+{{/* widget" run, so Evidence(Table+Markdown), Reasoning(Steps) and Remediation(rows) read as ONE */}}
+{{/* family instead of three different UIs. Each card is included by the page Flex ONLY when its data */}}
+{{/* exists (sections flags), so none renders over empty structure. All copy/counts are server-side. */}}
+{{/* */}}
+{{/* NB Card children are NOT constrained by the container allowedResources enum (Cards are */}}
+{{/* unconstrained — see card.incident-gaps-card), so a Card can host Table/Markdown/Steps/Flex freely. */}}
 
-# EVIDENCE lead-in (issue #69 Reiteration 2): plain prose sentence above the table+sources block,
-# e.g. "After evaluating 5 resources across 4 sources, the agent found the following:". Replaces
-# the removed stat-style eyebrow title. Static-ish copy driven from RA evidenceLeadIn (server-side
-# singular/plural). Static text: ' ' until the apiRef resolves.
+{{/* EVIDENCE lead-in (issue #69 Reiteration 2): plain prose sentence above the table+sources block, */}}
+{{/* e.g. "After evaluating 5 resources across 4 sources, the agent found the following:". Replaces */}}
+{{/* the removed stat-style eyebrow title. Static-ish copy driven from RA evidenceLeadIn (server-side */}}
+{{/* singular/plural). Static text: ' ' until the apiRef resolves. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -35,9 +35,9 @@ spec:
   resourcesRefs:
     items: []
 ---
-# EVIDENCE section (UX-23): the "N sources · N analyzed resources" count folds into the CARD TITLE
-# (one presentation with the list, no separate grey caption); the card hosts the analyzed Table and
-# the numbered source cards Markdown as one block.
+{{/* EVIDENCE section (UX-23): the "N sources · N analyzed resources" count folds into the CARD TITLE */}}
+{{/* (one presentation with the list, no separate grey caption); the card hosts the analyzed Table and */}}
+{{/* the numbered source cards Markdown as one block. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -46,13 +46,13 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
     namespace: {{ .Release.Namespace }}
   widgetData:
-    # Scroll target for the Summary panel's "What happened" table-of-contents link (#69).
+    {{/* Scroll target for the Summary panel's "What happened" table-of-contents link (#69). */}}
     anchorId: incident-what-happened
     title: What happened
     titleVariant: eyebrow
@@ -64,9 +64,9 @@ spec:
     - resourceRefId: incident-evidence-leadin
     - resourceRefId: incident-evidence-tabs
   widgetDataTemplate:
-    # Lead-in prose sentence always first; the two-tab Tabs widget (Resources + Sources) follows
-    # whenever there is any evidence data. If neither axis has data the card still shows the
-    # lead-in so the section renders honestly rather than disappearing entirely.
+    {{/* Lead-in prose sentence always first; the two-tab Tabs widget (Resources + Sources) follows */}}
+    {{/* whenever there is any evidence data. If neither axis has data the card still shows the */}}
+    {{/* lead-in so the section renders honestly rather than disappearing entirely. */}}
     - forPath: items
       expression: '${ [ { resourceRefId: "incident-evidence-leadin" } ] + (if ((.sections.evidence // false)) then [ { resourceRefId: "incident-evidence-tabs" } ] else [] end) }'
   resourcesRefs:
@@ -84,9 +84,9 @@ spec:
       resource: tabs
       verb: GET
 ---
-# REMEDIATION PLAN section — the gated apply rows under the shared card header. The card hosts
-# only the first `sections.remCount` rows (server-side templated `items`), so a 3-step plan renders
-# exactly 3 rows inside one card and a v1 report renders no card at all.
+{{/* REMEDIATION PLAN section — the gated apply rows under the shared card header. The card hosts */}}
+{{/* only the first `sections.remCount` rows (server-side templated `items`), so a 3-step plan renders */}}
+{{/* exactly 3 rows inside one card and a v1 report renders no card at all. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -95,30 +95,30 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
     namespace: {{ .Release.Namespace }}
   widgetData:
-    # Scroll target for the Summary panel's "How to fix" table-of-contents link (#69).
+    {{/* Scroll target for the Summary panel's "How to fix" table-of-contents link (#69). */}}
     anchorId: incident-how-to-fix
     title: How to fix
     titleVariant: eyebrow
     variant: outlined
-    # #103: fa-screwdriver-wrench's glyph sits low-right within its own viewBox (off-centre even
-    # though .iconFloat flex-centers the SVG element itself), so it visually touched the tile's
-    # edge unlike the Evidence/Why cards' icons. fa-wrench is a simple, well-centred glyph at the
-    # same weight, still reads as "fix".
+    {{/* #103: fa-screwdriver-wrench's glyph sits low-right within its own viewBox (off-centre even */}}
+    {{/* though .iconFloat flex-centers the SVG element itself), so it visually touched the tile's */}}
+    {{/* edge unlike the Evidence/Why cards' icons. fa-wrench is a simple, well-centred glyph at the */}}
+    {{/* same weight, still reads as "fix". */}}
     icon:
       name: fa-wrench
       color: cyan
     items:
     - resourceRefId: incident-rem-widget
   widgetDataTemplate:
-    # Single Steps widget that shows all plan steps with finish/process/wait status.
-    # The Steps widget itself embeds each step's Flex (markdown + button) via resourceRefId,
-    # so the action button lives inside the step — not below the navigator.
+    {{/* Single Steps widget that shows all plan steps with finish/process/wait status. */}}
+    {{/* The Steps widget itself embeds each step's Flex (markdown + button) via resourceRefId, */}}
+    {{/* so the action button lives inside the step — not below the navigator. */}}
     - forPath: items
       expression: '${ [ { resourceRefId: "incident-rem-widget" } ] }'
   resourcesRefs:
@@ -130,11 +130,11 @@ spec:
       resource: steps
       verb: GET
 ---
-# REMEDIATION AUDIT LOG section (feature #7) — the read-only trail of gated mutations recorded
-# against THIS incident's resources (actor · verb · resource · result · when), same section-CARD
-# family as Evidence/Why/Remediation. apiRef is incident-auditrecords (its own data source) so the
-# card reads hasRecords/auditDesc; it hosts the audit Table. The page Flex includes this card ONLY
-# when there are records (incident-auditrecords .hasRecords) — exception-only, no empty section.
+{{/* REMEDIATION AUDIT LOG section (feature #7) — the read-only trail of gated mutations recorded */}}
+{{/* against THIS incident's resources (actor · verb · resource · result · when), same section-CARD */}}
+{{/* family as Evidence/Why/Remediation. apiRef is incident-auditrecords (its own data source) so the */}}
+{{/* card reads hasRecords/auditDesc; it hosts the audit Table. The page Flex includes this card ONLY */}}
+{{/* when there are records (incident-auditrecords .hasRecords) — exception-only, no empty section. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -143,7 +143,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-auditrecords
@@ -166,6 +166,6 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: tables
       verb: GET
-# #86 §0.7: the standalone "Similar incidents" strong-label Paragraph (incident-sec-similar-label)
-# was retired — Similar incidents is now the section Card card.incident-similar.yaml, matching the
-# Evidence/Why/Remediation family (its title replaces this label).
+{{/* #86 §0.7: the standalone "Similar incidents" strong-label Paragraph (incident-sec-similar-label) */}}
+{{/* was retired — Similar incidents is now the section Card card.incident-similar.yaml, matching the */}}
+{{/* Evidence/Why/Remediation family (its title replaces this label). */}}

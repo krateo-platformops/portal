@@ -1,18 +1,18 @@
-# Error-log digest from ClickHouse (clickstack otel_logs). Component logs carry level+msg
-# INSIDE the Body JSON (SeverityText is empty at ingest), so both are parsed with
-# JSONExtractString(Body,'level'|'msg'). Only ERROR is surfaced — WARN is ~200x noisier
-# (snowplow per-request warns) and drowns the signal. Step `digest` GROUPs the selected window by
-# service+msg → the DISTINCT problems with an occurrence count + last-seen (collapses the
-# same error repeating every reconcile into one row, ordered most-frequent-first). Step
-# `tot` is the headline totals. External-fetch endpointRef, ClickHouse FORMAT JSON.
-#
-# COUNT-VS-ROWS (Vincenzo R): the grouping message is COALESCEd
-# msg-from-Body-JSON → raw Body → 'unlabeled error' (truncated to 160), and `digest` NO LONGER
-# filters `msg!=''`. Previously an error line whose Body wasn't the {level,msg} JSON shape
-# extracted an empty msg, and the digest-only `AND msg!=''` guard dropped EVERY grouped row →
-# digest.data=[] → the list rendered "No data" while the header (from `tot`, which had no such
-# guard) still counted e.g. "130185 errors · 97 distinct". `tot`'s distinct_problems now uses the
-# SAME coalesced expression so the headline reconciles with the rendered groups.
+{{/* Error-log digest from ClickHouse (clickstack otel_logs). Component logs carry level+msg */}}
+{{/* INSIDE the Body JSON (SeverityText is empty at ingest), so both are parsed with */}}
+{{/* JSONExtractString(Body,'level'|'msg'). Only ERROR is surfaced — WARN is ~200x noisier */}}
+{{/* (snowplow per-request warns) and drowns the signal. Step `digest` GROUPs the selected window by */}}
+{{/* service+msg → the DISTINCT problems with an occurrence count + last-seen (collapses the */}}
+{{/* same error repeating every reconcile into one row, ordered most-frequent-first). Step */}}
+{{/* `tot` is the headline totals. External-fetch endpointRef, ClickHouse FORMAT JSON. */}}
+{{/* */}}
+{{/* COUNT-VS-ROWS (Vincenzo R): the grouping message is COALESCEd */}}
+{{/* msg-from-Body-JSON → raw Body → 'unlabeled error' (truncated to 160), and `digest` NO LONGER */}}
+{{/* filters `msg!=''`. Previously an error line whose Body wasn't the {level,msg} JSON shape */}}
+{{/* extracted an empty msg, and the digest-only `AND msg!=''` guard dropped EVERY grouped row → */}}
+{{/* digest.data=[] → the list rendered "No data" while the header (from `tot`, which had no such */}}
+{{/* guard) still counted e.g. "130185 errors · 97 distinct". `tot`'s distinct_problems now uses the */}}
+{{/* SAME coalesced expression so the headline reconciles with the rendered groups. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -42,15 +42,15 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: totError
-  # digest => {data:[{service,msg,occurrences,last_ts}]}; tot => {data:[{total,distinct_problems}]}.
-  # Each row gains a server-baked `route` into the log stream scoped to its component
-  # (/observability?serviceName= — the same hand-off the component-detail logs CTA uses); a row
-  # with no ServiceName carries route:"" and stays INERT in the list.
-  # diagnoseHref: an on-demand "Diagnose with Autopilot" seed (button.obs-errors-diagnose) — the
-  # top-8 errors baked into an /incidents?ask= prompt (@uri-encoded ONCE, navigate uses it verbatim),
-  # so the rail opens pre-seeded to RCA the most frequent errors WITHOUT an alert/incident. Empty +
-  # hasErrors:false on a clean estate (the button is gated off), so it never links to a bare ask.
-  # Literal `|` block (NOT folded `>`) — the seed string carries newlines; folding would mangle them.
+  {{/* digest => {data:[{service,msg,occurrences,last_ts}]}; tot => {data:[{total,distinct_problems}]}. */}}
+  {{/* Each row gains a server-baked `route` into the log stream scoped to its component */}}
+  {{/* (/observability?serviceName= — the same hand-off the component-detail logs CTA uses); a row */}}
+  {{/* with no ServiceName carries route:"" and stays INERT in the list. */}}
+  {{/* diagnoseHref: an on-demand "Diagnose with Autopilot" seed (button.obs-errors-diagnose) — the */}}
+  {{/* top-8 errors baked into an /incidents?ask= prompt (@uri-encoded ONCE, navigate uses it verbatim), */}}
+  {{/* so the rail opens pre-seeded to RCA the most frequent errors WITHOUT an alert/incident. Empty + */}}
+  {{/* hasErrors:false on a clean estate (the button is gated off), so it never links to a bare ask. */}}
+  {{/* Literal `|` block (NOT folded `>`) — the seed string carries newlines; folding would mangle them. */}}
   filter: |
     (((.digest.data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?serviceName=" + ($s | @uri) + "&tab=Telemetry") end) })) as $rows
     | ([ $rows[0:8] | to_entries[] | (((.key) + 1) | tostring) + ". " + (.value.service // "unknown") + " — \"" + (.value.msg // "") + "\" (x" + ((.value.occurrences // 0) | tostring) + ")" ] | join("\n")) as $top

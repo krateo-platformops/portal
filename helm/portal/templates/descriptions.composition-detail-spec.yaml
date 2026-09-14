@@ -1,8 +1,8 @@
-# The composition's spec as label/value rows. Generic: whatever fields the
-# blueprint's claim carries. Nested objects/arrays are flattened to DOTTED-PATH
-# leaf rows (jq paths(scalars)) — e.g. database.engine / database.size / tags.0 —
-# so a deep spec reads as structured rows here, distinct from the raw-YAML
-# Manifest card (no JSON blob, no [object Object]). Nothing hardcoded.
+{{/* The composition's spec as label/value rows. Generic: whatever fields the */}}
+{{/* blueprint's claim carries. Nested objects/arrays are flattened to DOTTED-PATH */}}
+{{/* leaf rows (jq paths(scalars)) — e.g. database.engine / database.size / tags.0 — */}}
+{{/* so a deep spec reads as structured rows here, distinct from the raw-YAML */}}
+{{/* Manifest card (no JSON blob, no [object Object]). Nothing hardcoded. */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,22 +11,22 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: composition-detail
     namespace: {{ .Release.Namespace }}
   widgetData:
     column: 1
-    # Form-style (read-only mirror of the create Form): connector-rail label/value fields grouped
-    # into sections — top-level scalars ungrouped, each nested object becomes its own labelled section.
+    {{/* Form-style (read-only mirror of the create Form): connector-rail label/value fields grouped */}}
+    {{/* into sections — top-level scalars ungrouped, each nested object becomes its own labelled section. */}}
     variant: form
     bordered: false
     size: small
     items: []
   widgetDataTemplate:
-    # Each scalar leaf → { section, label, value }: a top-level scalar (path length 1) has no section;
-    # a nested scalar groups under its FIRST path segment, with the remaining path as the label.
+    {{/* Each scalar leaf → { section, label, value }: a top-level scalar (path length 1) has no section; */}}
+    {{/* a nested scalar groups under its FIRST path segment, with the remaining path as the label. */}}
     - forPath: items
       expression: '${ (.detail.spec // {}) as $s | [ $s | paths(scalars) as $p | { section: (if ($p|length) > 1 then ($p[0]|tostring) else "" end), label: (if ($p|length) > 1 then ($p[1:] | map(tostring) | join(".")) else ($p[0]|tostring) end), value: ($s | getpath($p) | tostring) } ] }'
   resourcesRefs:

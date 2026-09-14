@@ -1,29 +1,29 @@
-# Per-resource reconciliation rail data (detail page signature). Resolves the
-# target composition's managed resources (from ?extras .name/.namespace) and
-# FETCHES each to read its live ready state.
-#
-# Snowplow execution contract (verified against source): a step `filter` sees
-# ONLY that step's response (NOT extras); the `iterator` expression is evaluated
-# against the FULL dict (extras + prior stages) and must yield a JSON array; the
-# `path` template is evaluated per yielded element. So:
-#   crds      → list composition.krateo.io CRDs.
-#   found     → per CRD, emit EVERY composition's managed entries (the step
-#               filter can't see extras), each TAGGED with its parent name/ns
-#               (_cn/_cns) + a reconstructed fetchable GET path (_getpath).
-#               core-provider's .status.managed[].path now INCLUDES /namespaces/
-#               <ns>/ for namespaced kinds (it used to omit it), so _getpath uses
-#               .path as-is when it already carries /namespaces/ and injects only
-#               when absent (idempotent for both shapes; issue #152 — double-inject
-#               → 404 → healthy-by-presence). Cluster-scoped kinds keep .path.
-#   resources → ITERATOR (full dict) filters _cn/_cns to the target (only the
-#               target's ~N resources are fetched), GETs each at _getpath, and
-#               its filter shapes the live object to {kind,name,ns,conditions}.
-# Final filter derives per-resource state (Ready×Synced / Available / ready-by-
-# presence) + aggregate, folding in the composition's own workload projection
-# (workloadUnhealthy/workloadMessage from .status.workloadHealthy/.healthMessage,
-# ridden through `found` as _wh/_whMsg) so `converged` can't claim full
-# convergence over a crashlooping workload. Nothing hardcoded (the cluster-scoped
-# kind list is static k8s API scoping, not derived data).
+{{/* Per-resource reconciliation rail data (detail page signature). Resolves the */}}
+{{/* target composition's managed resources (from ?extras .name/.namespace) and */}}
+{{/* FETCHES each to read its live ready state. */}}
+{{/* */}}
+{{/* Snowplow execution contract (verified against source): a step `filter` sees */}}
+{{/* ONLY that step's response (NOT extras); the `iterator` expression is evaluated */}}
+{{/* against the FULL dict (extras + prior stages) and must yield a JSON array; the */}}
+{{/* `path` template is evaluated per yielded element. So: */}}
+{{/* crds      → list composition.krateo.io CRDs. */}}
+{{/* found     → per CRD, emit EVERY composition's managed entries (the step */}}
+{{/* filter can't see extras), each TAGGED with its parent name/ns */}}
+{{/* (_cn/_cns) + a reconstructed fetchable GET path (_getpath). */}}
+{{/* core-provider's .status.managed[].path now INCLUDES /namespaces/ */}}
+{{/* <ns>/ for namespaced kinds (it used to omit it), so _getpath uses */}}
+{{/* .path as-is when it already carries /namespaces/ and injects only */}}
+{{/* when absent (idempotent for both shapes; issue #152 — double-inject */}}
+{{/* → 404 → healthy-by-presence). Cluster-scoped kinds keep .path. */}}
+{{/* resources → ITERATOR (full dict) filters _cn/_cns to the target (only the */}}
+{{/* target's ~N resources are fetched), GETs each at _getpath, and */}}
+{{/* its filter shapes the live object to {kind,name,ns,conditions}. */}}
+{{/* Final filter derives per-resource state (Ready×Synced / Available / ready-by- */}}
+{{/* presence) + aggregate, folding in the composition's own workload projection */}}
+{{/* (workloadUnhealthy/workloadMessage from .status.workloadHealthy/.healthMessage, */}}
+{{/* ridden through `found` as _wh/_whMsg) so `converged` can't claim full */}}
+{{/* convergence over a crashlooping workload. Nothing hardcoded (the cluster-scoped */}}
+{{/* kind list is static k8s API scoping, not derived data). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -33,13 +33,13 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # #72: discover composition TYPES from CompositionDefinitions under a userAccessFilter — NOT a
-    # cluster-wide customresourcedefinitions list. The CRD list runs as the CALLER (no UAF → caller
-    # token, internal/dynamic/sa_client.go); a namespace-scoped tenant can't list CRDs cluster-wide
-    # → 403 → empty → blank rail. Listing CompositionDefinitions cluster-wide under a UAF on
-    # `compositiondefinitions` has snowplow list as its SA (cluster-wide grant) then refilter to the
-    # CDs the CALLER can list — so every namespace the caller is granted is covered, no hardcoded ns.
-    # {plural, version} shape unchanged (found iterates it).
+    {{/* #72: discover composition TYPES from CompositionDefinitions under a userAccessFilter — NOT a */}}
+    {{/* cluster-wide customresourcedefinitions list. The CRD list runs as the CALLER (no UAF → caller */}}
+    {{/* token, internal/dynamic/sa_client.go); a namespace-scoped tenant can't list CRDs cluster-wide */}}
+    {{/* → 403 → empty → blank rail. Listing CompositionDefinitions cluster-wide under a UAF on */}}
+    {{/* `compositiondefinitions` has snowplow list as its SA (cluster-wide grant) then refilter to the */}}
+    {{/* CDs the CALLER can list — so every namespace the caller is granted is covered, no hardcoded ns. */}}
+    {{/* {plural, version} shape unchanged (found iterates it). */}}
     - name: crds
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -56,18 +56,18 @@ spec:
       dependsOn:
         name: crds
         iterator: .crds
-      # #72: NAMESPACE-SCOPED to the target's ns (?extras .namespace) — was a cluster-wide list
-      # (no /namespaces/ segment), which runs as the caller and 403s for a namespace-scoped tenant.
-      # The composition is always in .namespace, and the `resources` iterator already selects the
-      # target by _cn/_cns, so scoping here loses nothing and makes it tenant-authorizable.
+      {{/* #72: NAMESPACE-SCOPED to the target's ns (?extras .namespace) — was a cluster-wide list */}}
+      {{/* (no /namespaces/ segment), which runs as the caller and 403s for a namespace-scoped tenant. */}}
+      {{/* The composition is always in .namespace, and the `resources` iterator already selects the */}}
+      {{/* target by _cn/_cns, so scoping here loses nothing and makes it tenant-authorizable. */}}
       path: ${ "/apis/composition.krateo.io/" + (.version) + "/namespaces/" + (.namespace) + "/" + (.plural) }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      # Emit ALL managed entries (every composition of this kind), each tagged
-      # with parent _cn/_cns + reconstructed _getpath. No extras here (the step
-      # filter can't see them) — the resources iterator selects the target.
+      {{/* Emit ALL managed entries (every composition of this kind), each tagged */}}
+      {{/* with parent _cn/_cns + reconstructed _getpath. No extras here (the step */}}
+      {{/* filter can't see them) — the resources iterator selects the target. */}}
       filter: >
         (["clusterroles","clusterrolebindings","namespaces","customresourcedefinitions","clusterissuers","persistentvolumes","storageclasses","nodes","priorityclasses","validatingwebhookconfigurations","mutatingwebhookconfigurations","apiservices","certificatesigningrequests","podsecuritypolicies","ingressclasses","runtimeclasses","csidrivers","csinodes","volumeattachments"]) as $clusterKinds
         | [ .found.items[]?
@@ -98,7 +98,7 @@ spec:
     - name: resources
       dependsOn:
         name: found
-        # full-dict context: bind extras then select this composition's entries.
+        {{/* full-dict context: bind extras then select this composition's entries. */}}
         iterator: '.name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns) ]'
       path: ${ ._getpath }
       verb: GET
@@ -106,22 +106,22 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: resErr
-      # Shape each fetched live object to {rkind,rname,rns,conditions} (1-elem
-      # array; 404s/Status drop to []). (.resources // .) tolerates either
-      # dict-keyed or root-bound response shapes across dispatch paths.
+      {{/* Shape each fetched live object to {rkind,rname,rns,conditions} (1-elem */}}
+      {{/* array; 404s/Status drop to []). (.resources // .) tolerates either */}}
+      {{/* dict-keyed or root-bound response shapes across dispatch paths. */}}
       filter: >
         [ (.resources // .)
           | select(type == "object" and (.kind // "") != "Status" and (.metadata.name // "") != "")
           | { rkind: (.kind // ""), rname: .metadata.name, rns: (.metadata.namespace // ""), conditions: (.status.conditions // []) } ]
-  # Authoritative row list = the composition's DECLARED managed resources (.found,
-  # target-filtered) → total is always the true managed count, independent of
-  # whether every per-resource GET round-tripped (the informer dispatch can drop
-  # core kinds). Live state is JOINED from the fetched objects (.resources) by
-  # name(+ns); kind prefers the fetched object's kind, falls back to the managed
-  # plural. A managed resource with no fetched conditions = healthy-by-presence.
-  # LITERAL block (|), not folded (>): folding joins same-indent lines with spaces,
-  # so a base-indent jq `#` comment would swallow the code joined after it (the
-  # composition-events filter shipped broken exactly this way).
+  {{/* Authoritative row list = the composition's DECLARED managed resources (.found, */}}
+  {{/* target-filtered) → total is always the true managed count, independent of */}}
+  {{/* whether every per-resource GET round-tripped (the informer dispatch can drop */}}
+  {{/* core kinds). Live state is JOINED from the fetched objects (.resources) by */}}
+  {{/* name(+ns); kind prefers the fetched object's kind, falls back to the managed */}}
+  {{/* plural. A managed resource with no fetched conditions = healthy-by-presence. */}}
+  {{/* LITERAL block (|), not folded (>): folding joins same-indent lines with spaces, */}}
+  {{/* so a base-indent jq `#` comment would swallow the code joined after it (the */}}
+  {{/* composition-events filter shipped broken exactly this way). */}}
   filter: |
     (.name) as $n | (.namespace) as $ns
     | ({"serviceaccounts":"ServiceAccount","configmaps":"ConfigMap","secrets":"Secret","services":"Service","endpoints":"Endpoints","persistentvolumeclaims":"PersistentVolumeClaim","deployments":"Deployment","replicasets":"ReplicaSet","statefulsets":"StatefulSet","daemonsets":"DaemonSet","pods":"Pod","jobs":"Job","cronjobs":"CronJob","clusterroles":"ClusterRole","clusterrolebindings":"ClusterRoleBinding","roles":"Role","rolebindings":"RoleBinding","ingresses":"Ingress","networkpolicies":"NetworkPolicy","namespaces":"Namespace"}) as $kindMap
