@@ -45,7 +45,17 @@ spec:
       {{/* Agent control plane — the kagent fleet, the tool servers they may call and the gateway */}}
       {{/* policies that gate each hop. Sits with Observability/Incidents/Alerts: it is an operational */}}
       {{/* surface, not a builder. */}}
+      {{/* The agent control plane lives in the SEPARATE portal-agents chart. This flag must track */}}
+      {{/* whether that chart is installed, and it defaults to FALSE so a portal-only install shows */}}
+      {{/* no sidebar entry rather than one that 404s. */}}
+      {{/* */}}
+      {{/* It has to be a values flag rather than letting the ref resolve: isNavEntryAllowed */}}
+      {{/* (navModel.ts) hides an entry only when its ref was dropped by the RBAC allowed-filter. A */}}
+      {{/* ref whose TARGET does not exist is a different case — the ref is still declared on this */}}
+      {{/* CR, so the entry would stay visible and the page would 404. */}}
+{{- if .Values.agents.enabled }}
       - { label: Agents,       icon: fa-robot,        order: 14, path: /agents,       resourceRefId: agents }
+{{- end }}
       {{/* ── Builders ───────────────────────────────────────────────────────────────── */}}
       - { type: divider, order: 20 }
       {{/* The Autopilot builders — three sibling deliverables surfaces, each = how-it-works + */}}
@@ -101,21 +111,29 @@ spec:
       {{/* these are 2-segment and the detail route is 3-segment, so they cannot collide — but the */}}
       {{/* ordering is what makes that independent of how the matcher is implemented, and it is the */}}
       {{/* convention the block already follows. */}}
+{{- if .Values.agents.enabled }}
       - { order: 936, path: "/agents/new", page: agent-create }
+{{- end }}
       {{/* The gateway policies that gate each agent hop. A sub-page rather than a section because it */}}
       {{/* aggregates across the whole fleet, not per-agent — and a route rather than a nav item so */}}
       {{/* the sidebar keeps saying one thing. */}}
+{{- if .Values.agents.enabled }}
       - { order: 937, path: "/agents/policies", page: agents-policies }
+{{- end }}
       {{/* "+ Add policy" from the policies page header. STATIC PATH, and it sits directly under its */}}
       {{/* parent for the same reason /agents/new sits under /agents: both are 2-segment vs the */}}
       {{/* 3-segment detail route, so they cannot collide, and keeping the static ones together makes */}}
       {{/* that independent of how the matcher is implemented. */}}
+{{- if .Values.agents.enabled }}
       - { order: 939, path: "/agents/policies/new", page: agents-policy-create }
+{{- end }}
       {{/* per-agent detail — identity, resolved model + egress route, bound tool servers, delegates. */}}
       {{/* The agents table rowNavigateTo targets this; a Table whose rowNavigateTo has any empty */}}
       {{/* placeholder goes silently inert, which is why the RA carries dedicated routeNs/routeName */}}
       {{/* cells rather than interpolating the display name. */}}
+{{- if .Values.agents.enabled }}
       - { order: 938, path: "/agents/{namespace}/{name}", page: agent-detail }
+{{- end }}
       {{/* per-namespace compositions list — the namespace breadcrumb crumb links here. */}}
       {{/* Reuses page-compositions; its compositions-table self-filters by ?extras.namespace */}}
       {{/* (compositions-list RA) since the route param rides through as extras. */}}
@@ -231,12 +249,14 @@ spec:
         namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
         resource: flexes
         verb: GET
+{{- if .Values.agents.enabled }}
       - id: agents
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: page-agents
         namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
         resource: flexes
         verb: GET
+{{- end }}
       - id: portal-builder
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: page-portal-builder
