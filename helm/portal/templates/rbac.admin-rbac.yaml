@@ -16,8 +16,17 @@ type: kubernetes.io/basic-auth
 metadata:
   name: admin-password
   namespace: {{ .Release.Namespace }}
-stringData:
-  password: {{ $password | quote }}
+{{/* `data` with an explicit b64enc, NOT `stringData`. stringData is WRITE-ONLY: the apiserver */}}
+{{/* converts it to `data` and drops the field, so a rendered object declaring stringData can */}}
+{{/* never match the object that comes back. CDC's three-way merge therefore saw drift on EVERY */}}
+{{/* reconcile and ran a real helm upgrade each cycle — a release-record write roughly every two */}}
+{{/* minutes, which at HELM_MAX_HISTORY=3 rotated every rollback target out within six. */}}
+{{/* */}}
+{{/* This was diagnosed as the randAlphaNum re-rendering. It was not: release records v36 and v37 */}}
+{{/* on krateo-057 hold BYTE-IDENTICAL manifests, so the lookup guard above was already doing its */}}
+{{/* job and the password was stable. The perpetual diff was this field the whole time. */}}
+data:
+  password: {{ $password | b64enc | quote }}
 ---
 apiVersion: basic.authn.krateo.io/v1alpha1
 kind: User
