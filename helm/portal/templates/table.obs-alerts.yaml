@@ -1,12 +1,12 @@
-# HyperDX alerts status — lists the Alert CRs (observability.krateo.io) with their live state,
-# from restaction.obs-alerts. state is a filled Tag (status-pill spec): ALERT→red "Alert",
-# PENDING→orange "Pending", OK→green "OK" ("OK" kept verbatim — it is the literal HyperDX state
-# word, and "Ok"/"Healthy" would be prettier but less truthful). The numbers/threshold are the
-# real alert config; state is mirrored from HyperDX by the reconciler.
-# Lives on the /alerts rule catalog. Row click → the per-alert detail page
-# /alerts/{namespace}/{name} (item 25); the "Investigate with Autopilot" ask flow the row used
-# to own now rides that page's pagehead button (the seed is still built server-side, just one
-# hop further in). Routed via routeNs/routeName cells (the CR's real identity, not displayName).
+{{/* HyperDX alerts status — lists the Alert CRs (observability.krateo.io) with their live state, */}}
+{{/* from restaction.obs-alerts. state is a filled Tag (status-pill spec): ALERT→red "Alert", */}}
+{{/* PENDING→orange "Pending", OK→green "OK" ("OK" kept verbatim — it is the literal HyperDX state */}}
+{{/* word, and "Ok"/"Healthy" would be prettier but less truthful). The numbers/threshold are the */}}
+{{/* real alert config; state is mirrored from HyperDX by the reconciler. */}}
+{{/* Lives on the /alerts rule catalog. Row click → the per-alert detail page */}}
+{{/* /alerts/{namespace}/{name} (item 25); the "Investigate with Autopilot" ask flow the row used */}}
+{{/* to own now rides that page's pagehead button (the seed is still built server-side, just one */}}
+{{/* hop further in). Routed via routeNs/routeName cells (the CR's real identity, not displayName). */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,40 +19,40 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    # No-scroll: fit the columns to the width (the wide "Watching" SQL cell ellipsis-truncates, full
-    # text on hover) instead of a horizontal scrollbar. Needs the Table `fitContent` field on the
-    # deployed frontend CRD (frontend >= the release that adds it) — a no-op until then.
+    {{/* No-scroll: fit the columns to the width (the wide "Watching" SQL cell ellipsis-truncates, full */}}
+    {{/* text on hover) instead of a horizontal scrollbar. Needs the Table `fitContent` field on the */}}
+    {{/* deployed frontend CRD (frontend >= the release that adds it) — a no-op until then. */}}
     fitContent: true
-    # Row click → the ENRICHED per-alert detail page /alerts/{ns}/{name} (flex.page-alert-detail),
-    # which carries the pagehead actions — Investigate with Autopilot · Edit · Delete — built off the
-    # live CRD schema. NOT the generic /resources/{ns}/{group}/{version}/{plural}/{name} manifest view:
-    # that shows the raw CR but none of those actions, which regressed feedback G ("see alert details
-    # on open — not only 'diagnose with Autopilot'"). Matches this file's header + button.incident-
-    # alert-link, which both route to /alerts/{ns}/{name}.
-    # Route params ride in hidden routeNs/routeName cells (the CR's metadata.namespace/name, NOT the
-    # emoji-bearing displayName); the Table URI-encodes each interpolated cell.
+    {{/* Row click → the ENRICHED per-alert detail page /alerts/{ns}/{name} (flex.page-alert-detail), */}}
+    {{/* which carries the pagehead actions — Investigate with Autopilot · Edit · Delete — built off the */}}
+    {{/* live CRD schema. NOT the generic /resources/{ns}/{group}/{version}/{plural}/{name} manifest view: */}}
+    {{/* that shows the raw CR but none of those actions, which regressed feedback G ("see alert details */}}
+    {{/* on open — not only 'diagnose with Autopilot'"). Matches this file's header + button.incident- */}}
+    {{/* alert-link, which both route to /alerts/{ns}/{name}. */}}
+    {{/* Route params ride in hidden routeNs/routeName cells (the CR's metadata.namespace/name, NOT the */}}
+    {{/* emoji-bearing displayName); the Table URI-encodes each interpolated cell. */}}
     rowNavigateTo: /alerts/{routeNs}/{routeName}
     pagination:
       defaultPageSize: 10
     columns:
     - valueKey: name
       title: Alert
-    # WATCHING gets a floor, and it is the only column that truly needs one. It carries the
-    # alert's entire meaning — the telemetry query — and is the one thing distinguishing one row
-    # from another, yet under fitContent it was the FIRST to ellipsise:
-    #   Body:"CrashLoopBackOff" OR Body:"B…
-    # tells a reader nothing at all.
-    #
-    # minWidth, not width. fitContent shrinks every column to the container, so a fixed `width`
-    # would just re-create the overflow it was meant to fix; a floor keeps this column readable
-    # and lets the short ones (Threshold, Every, State) give up their slack instead.
-    #
-    # INERT UNTIL THE CRD ROLLS. Table.columns[] is a strict structural schema with no
-    # x-kubernetes-preserve-unknown-fields, so an apiserver on the older CRD PRUNES minWidth
-    # SILENTLY — the CR applies clean and the column is unchanged, with no error anywhere.
-    # Verified against krateo-057 while writing this: the live CRD still lists only
-    # [color, title, valueKey]. frontend 1.5.35 publishes the regenerated frontend-crds chart;
-    # the frontend-crd composition has to roll it before these lines do anything.
+    {{/* WATCHING gets a floor, and it is the only column that truly needs one. It carries the */}}
+    {{/* alert's entire meaning — the telemetry query — and is the one thing distinguishing one row */}}
+    {{/* from another, yet under fitContent it was the FIRST to ellipsise: */}}
+    {{/* Body:"CrashLoopBackOff" OR Body:"B… */}}
+    {{/* tells a reader nothing at all. */}}
+    {{/* */}}
+    {{/* minWidth, not width. fitContent shrinks every column to the container, so a fixed `width` */}}
+    {{/* would just re-create the overflow it was meant to fix; a floor keeps this column readable */}}
+    {{/* and lets the short ones (Threshold, Every, State) give up their slack instead. */}}
+    {{/* */}}
+    {{/* INERT UNTIL THE CRD ROLLS. Table.columns[] is a strict structural schema with no */}}
+    {{/* x-kubernetes-preserve-unknown-fields, so an apiserver on the older CRD PRUNES minWidth */}}
+    {{/* SILENTLY — the CR applies clean and the column is unchanged, with no error anywhere. */}}
+    {{/* Verified against krateo-057 while writing this: the live CRD still lists only */}}
+    {{/* [color, title, valueKey]. frontend 1.5.35 publishes the regenerated frontend-crds chart; */}}
+    {{/* the frontend-crd composition has to roll it before these lines do anything. */}}
     - valueKey: watching
       title: Watching
       minWidth: 380

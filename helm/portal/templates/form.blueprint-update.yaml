@@ -1,8 +1,8 @@
-# Blueprint UPDATE form — change the installed blueprint's chart version. Schema = a single
-# `version` Select whose enum is the helm index's available versions (blueprint-detail
-# .versionSchema); initial value = the currently-installed version. Submit MERGE-PATCHes the
-# CompositionDefinition's spec.chart.version, so the core-provider re-pulls that chart version.
-# Target GVR resolved server-side (.gvr) — no hardcode. On success it reloads the detail page.
+{{/* Blueprint UPDATE form — change the installed blueprint's chart version. Schema = a single */}}
+{{/* `version` Select whose enum is the helm index's available versions (blueprint-detail */}}
+{{/* .versionSchema); initial value = the currently-installed version. Submit MERGE-PATCHes the */}}
+{{/* CompositionDefinition's spec.chart.version, so the core-provider re-pulls that chart version. */}}
+{{/* Target GVR resolved server-side (.gvr) — no hardcode. On success it reloads the detail page. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,7 +11,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: blueprint-detail
@@ -20,8 +20,8 @@ spec:
     layout: inline
     submitActionId: submit
     schema: {}
-    # Gate Update behind an actual change — initialValues.version = the installed version, so
-    # the button stays disabled until the user picks a DIFFERENT version (no no-op patches).
+    {{/* Gate Update behind an actual change — initialValues.version = the installed version, so */}}
+    {{/* the button stays disabled until the user picks a DIFFERENT version (no no-op patches). */}}
     submitDisabledWhenPristine: true
     buttonConfig:
       primary:
@@ -34,7 +34,7 @@ spec:
           headers:
             - 'Content-Type: application/merge-patch+json'
           successMessage: Blueprint version updated
-          # Merge-patch body = only spec.chart.version; url/repo are left untouched.
+          {{/* Merge-patch body = only spec.chart.version; url/repo are left untouched. */}}
           payload: {}
           payloadToOverride:
             - { name: spec.chart.version, value: '${ .json.version }' }

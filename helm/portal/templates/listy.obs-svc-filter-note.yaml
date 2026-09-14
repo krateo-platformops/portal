@@ -1,17 +1,17 @@
-# Service-scope indicator for the Telemetry tab (R2 #11). When the log stream is narrowed by
-# ?serviceName= (the Settings/resource-table component drill-down hand-off), the filtered state was
-# only legible inside the log-stream card's `extra` line — easy to miss, and no way to clear
-# it without hand-editing the URL. This is a single dismissible chip that appears ABOVE the
-# log-stream card ONLY when svc is set: it names the active service filter and, on click,
-# navigates back to the UNSCOPED page (/observability?range=…, svc dropped) — the "clear".
-#
-# No apiRef — snowplow merges request extras into a no-apiRef widget's widgetDataTemplate data
-# source (the range-chips pattern), so `.serviceName` and `.range`/`.projects` are read SYNCHRONOUSLY
-# per request. svc is sanitized identically to the log-stream RA (contains-match alphabet) so
-# the label can't inject markup. When svc is empty the template emits [] and hideWhenEmpty
-# renders nothing at all (exception-only: no indicator in the healthy/default unfiltered case).
-# The chip carries the fa-xmark "clear" glyph; blue/neutral chip (this is a FILTER affordance,
-# never a status), route re-emits ?projects (shell scope) so clearing svc keeps the tenant scope.
+{{/* Service-scope indicator for the Telemetry tab (R2 #11). When the log stream is narrowed by */}}
+{{/* ?serviceName= (the Settings/resource-table component drill-down hand-off), the filtered state was */}}
+{{/* only legible inside the log-stream card's `extra` line — easy to miss, and no way to clear */}}
+{{/* it without hand-editing the URL. This is a single dismissible chip that appears ABOVE the */}}
+{{/* log-stream card ONLY when svc is set: it names the active service filter and, on click, */}}
+{{/* navigates back to the UNSCOPED page (/observability?range=…, svc dropped) — the "clear". */}}
+{{/* */}}
+{{/* No apiRef — snowplow merges request extras into a no-apiRef widget's widgetDataTemplate data */}}
+{{/* source (the range-chips pattern), so `.serviceName` and `.range`/`.projects` are read SYNCHRONOUSLY */}}
+{{/* per request. svc is sanitized identically to the log-stream RA (contains-match alphabet) so */}}
+{{/* the label can't inject markup. When svc is empty the template emits [] and hideWhenEmpty */}}
+{{/* renders nothing at all (exception-only: no indicator in the healthy/default unfiltered case). */}}
+{{/* The chip carries the fa-xmark "clear" glyph; blue/neutral chip (this is a FILTER affordance, */}}
+{{/* never a status), route re-emits ?projects (shell scope) so clearing svc keeps the tenant scope. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -20,11 +20,11 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell — `svc` gates the
-  # chip's presence, `range`/`projects` are carried into the clear route.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `svc` gates the */}}
+  {{/* chip's presence, `range`/`projects` are carried into the clear route. */}}
   keyExtras: [serviceName, range, projects]
   widgetData:
-    # Empty dataSource (svc unset) => render nothing, no antd "No data" placeholder.
+    {{/* Empty dataSource (svc unset) => render nothing, no antd "No data" placeholder. */}}
     hideWhenEmpty: true
     itemTemplate:
       rowVariant: chip

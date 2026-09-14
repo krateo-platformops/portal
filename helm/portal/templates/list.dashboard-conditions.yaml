@@ -1,7 +1,7 @@
-# Per-condition COVERAGE gauges — the honest aggregate of the REAL status.conditions across all
-# compositions (replaces the invented Healthy/Pending/Failed donut). For each distinct condition
-# TYPE (Ready, Synced, …) a bar shows how many compositions have it True ("N/M"), cyan fill; the
-# unfilled trail is the gap. Nothing derived — straight off `.conditions[].type`/`.status`.
+{{/* Per-condition COVERAGE gauges — the honest aggregate of the REAL status.conditions across all */}}
+{{/* compositions (replaces the invented Healthy/Pending/Failed donut). For each distinct condition */}}
+{{/* TYPE (Ready, Synced, …) a bar shows how many compositions have it True ("N/M"), cyan fill; the */}}
+{{/* unfilled trail is the gap. Nothing derived — straight off `.conditions[].type`/`.status`. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,17 +10,17 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, q, scope, status]
   apiRef:
     name: compositions-list
     namespace: {{ .Release.Namespace }}
   widgetData:
     itemTemplate:
-      # ONLY the Ready row is clickable (route baked server-side): its unfilled trail
-      # IS the failed set, so it drills into /compositions?status=failed. The other
-      # condition types have no equivalent pre-filtered view — route:"" keeps them
-      # inert (never a broken link).
+      {{/* ONLY the Ready row is clickable (route baked server-side): its unfilled trail */}}
+      {{/* IS the failed set, so it drills into /compositions?status=failed. The other */}}
+      {{/* condition types have no equivalent pre-filtered view — route:"" keeps them */}}
+      {{/* inert (never a broken link). */}}
       navigateTo: '{route}'
       primaryText: '{type}'
       bar:

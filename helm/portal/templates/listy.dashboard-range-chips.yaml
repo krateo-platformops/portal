@@ -1,11 +1,11 @@
-# Dashboard time-range chips — ONE data-driven Listy(chip) replacing the four Helm-looped
-# range-btn-* Buttons (widget-sprawl collapse). The range is URL state (?range=24h|7d|30d|all):
-# each chip navigates to /dashboard?range=<k>, which the frontend forwards into the request
-# `extras` — so every range-scoped widget (stats, donut, throughput, greeting) and the chips'
-# own active flag read `.range` from extras SYNCHRONOUSLY, per request. Default 24h when the
-# URL carries no ?range. Chip navigateTo bypasses the client-side same-path query merge the
-# old Buttons used, so the routes are merged SERVER-SIDE: ?projects (the shell scope selector,
-# rides every route) is re-emitted onto each chip's route from extras (@uri-encoded).
+{{/* Dashboard time-range chips — ONE data-driven Listy(chip) replacing the four Helm-looped */}}
+{{/* range-btn-* Buttons (widget-sprawl collapse). The range is URL state (?range=24h|7d|30d|all): */}}
+{{/* each chip navigates to /dashboard?range=<k>, which the frontend forwards into the request */}}
+{{/* `extras` — so every range-scoped widget (stats, donut, throughput, greeting) and the chips' */}}
+{{/* own active flag read `.range` from extras SYNCHRONOUSLY, per request. Default 24h when the */}}
+{{/* URL carries no ?range. Chip navigateTo bypasses the client-side same-path query merge the */}}
+{{/* old Buttons used, so the routes are merged SERVER-SIDE: ?projects (the shell scope selector, */}}
+{{/* rides every route) is re-emitted onto each chip's route from extras (@uri-encoded). */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,8 +14,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell — `range` drives
-  # the active flag, `projects` is carried into the routes.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `range` drives */}}
+  {{/* the active flag, `projects` is carried into the routes. */}}
   keyExtras: [projects, range]
   widgetData:
     itemTemplate:
@@ -23,8 +23,8 @@ spec:
       primaryText: '{label}'
       navigateTo: '{route}'
     dataSource: []
-  # No apiRef — snowplow merges request extras into a no-apiRef widget's
-  # widgetDataTemplate data source (same mechanism the old range Buttons used).
+  {{/* No apiRef — snowplow merges request extras into a no-apiRef widget's */}}
+  {{/* widgetDataTemplate data source (same mechanism the old range Buttons used). */}}
   widgetDataTemplate:
     - forPath: dataSource
       expression: '${ ((.range // "24h") | tostring) as $sel | ((.projects // "") | tostring) as $projects | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $carry | [{key: "24h", label: "24h"}, {key: "7d", label: "7d"}, {key: "30d", label: "30d"}, {key: "all", label: "All"}] | map({label: .label, active: (.key == $sel), route: ("/dashboard?range=" + .key + $carry)}) }'

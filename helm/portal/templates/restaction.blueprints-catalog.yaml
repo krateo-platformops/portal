@@ -1,24 +1,24 @@
-# Marketplace catalog — the INSTALLABLE items, merged from TWO helm-repo
-# indexes: /charts/blueprints/index.yaml (~311 CompositionDefinition blueprints) AND
-# /charts/operators/index.yaml (~18 Kubernetes operators). Every entry is stamped with
-# `source: blueprint|operator` so the grid can tell them apart (badge + tinted icon) and
-# a type toggle can filter them. Honest fields straight off each index: name/description/
-# version/url. Categories are NOT a curated annotation any more — each card's `tags` are
-# its raw helm `keywords` (multi-tag: a card lives under EVERY one of its keywords), and
-# the `categories` array (distinct keyword + count, the popular ones) drives the chips
-# data-driven. `?category=<kw>` keeps a card if <kw> is in its keywords; `?source=<src>`
-# filters by type; `?q=` matches name/description/keywords.
-#
-# REQUIRES snowplow >= 1.4.0: the external `endpointRef` GET returns text/yaml, which
-# snowplow converts YAML->JSON (external_fetch.go) before the jq filter runs.
-#
-# A compdefs api-step LISTs installed CompositionDefinitions and the filter LEFT-JOINs them onto
-# the catalog by the helm-repo identity "<repoBaseUrl>|<chartName>" (a helm-repo CD carries
-# spec.chart.repo = chart NAME + spec.chart.url = repo BASE URL). Only helm-repo CDs (non-empty
-# .repo) can match; OCI/platform-component CDs are excluded, so a same-named OCI component never
-# false-lights a tile → `installed` + `installedVersion` + `installedNs`/`installedName` (detail
-# link). `continueOnError` everywhere: a missing index or a UAF-denied compdef list degrades to an
-# empty/partial catalog, not a broken page.
+{{/* Marketplace catalog — the INSTALLABLE items, merged from TWO helm-repo */}}
+{{/* indexes: /charts/blueprints/index.yaml (~311 CompositionDefinition blueprints) AND */}}
+{{/* /charts/operators/index.yaml (~18 Kubernetes operators). Every entry is stamped with */}}
+{{/* `source: blueprint|operator` so the grid can tell them apart (badge + tinted icon) and */}}
+{{/* a type toggle can filter them. Honest fields straight off each index: name/description/ */}}
+{{/* version/url. Categories are NOT a curated annotation any more — each card's `tags` are */}}
+{{/* its raw helm `keywords` (multi-tag: a card lives under EVERY one of its keywords), and */}}
+{{/* the `categories` array (distinct keyword + count, the popular ones) drives the chips */}}
+{{/* data-driven. `?category=<kw>` keeps a card if <kw> is in its keywords; `?source=<src>` */}}
+{{/* filters by type; `?q=` matches name/description/keywords. */}}
+{{/* */}}
+{{/* REQUIRES snowplow >= 1.4.0: the external `endpointRef` GET returns text/yaml, which */}}
+{{/* snowplow converts YAML->JSON (external_fetch.go) before the jq filter runs. */}}
+{{/* */}}
+{{/* A compdefs api-step LISTs installed CompositionDefinitions and the filter LEFT-JOINs them onto */}}
+{{/* the catalog by the helm-repo identity "<repoBaseUrl>|<chartName>" (a helm-repo CD carries */}}
+{{/* spec.chart.repo = chart NAME + spec.chart.url = repo BASE URL). Only helm-repo CDs (non-empty */}}
+{{/* .repo) can match; OCI/platform-component CDs are excluded, so a same-named OCI component never */}}
+{{/* false-lights a tile → `installed` + `installedVersion` + `installedNs`/`installedName` (detail */}}
+{{/* link). `continueOnError` everywhere: a missing index or a UAF-denied compdef list degrades to an */}}
+{{/* empty/partial catalog, not a broken page. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -40,14 +40,14 @@ spec:
         group: core.krateo.io
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
-      # Project each installed CD down to just what the join needs. For a HELM-REPO install the
-      # core-provider ChartInfo carries `spec.chart.repo` = the chart NAME and `spec.chart.url` =
-      # the helm-repo BASE URL; OCI/tgz installs leave `repo` empty (url = full oci/tgz path). The
-      # marketplace catalog only lists helm-repo blueprints, so the honest installed-match is against
-      # helm-repo CDs (non-empty .repo). `ns`+`name` ride along for the installed-detail link.
+      {{/* Project each installed CD down to just what the join needs. For a HELM-REPO install the */}}
+      {{/* core-provider ChartInfo carries `spec.chart.repo` = the chart NAME and `spec.chart.url` = */}}
+      {{/* the helm-repo BASE URL; OCI/tgz installs leave `repo` empty (url = full oci/tgz path). The */}}
+      {{/* marketplace catalog only lists helm-repo blueprints, so the honest installed-match is against */}}
+      {{/* helm-repo CDs (non-empty .repo). `ns`+`name` ride along for the installed-detail link. */}}
       filter: '[.compdefs.items[]? | {name: .metadata.name, ns: .metadata.namespace, version: (.spec.chart.version // ""), repo: (.spec.chart.repo // ""), url: (.spec.chart.url // "")}]'
-  # Literal block (|) NOT folded (>): the jq carries inline `#` comments, and a folded
-  # scalar would join a comment line onto the following code line (commenting the code out).
+  {{/* Literal block (|) NOT folded (>): the jq carries inline `#` comments, and a folded */}}
+  {{/* scalar would join a comment line onto the following code line (commenting the code out). */}}
   filter: |
     def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
       | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);

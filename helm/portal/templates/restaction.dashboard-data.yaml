@@ -1,12 +1,12 @@
-# Dashboard data source = compositions-list shape, scoped by the active time-range.
-# Mirrors compositions-list (CRD discovery -> cluster LIST per kind, UAF-gated), then
-# pre-filters the list by creationTimestamp. Returns the SAME shape as compositions-list
-# ({list:[...]}) so the dashboard stat/donut/throughput widgets keep their per-widget jq
-# unchanged — only their apiRef is repointed here. The range scope is shared across those
-# widgets, so it lives once here (a page-level scope) rather than in each widget. The range
-# comes from the request `extras` (?range= in the URL, forwarded by the frontend) and is
-# read SYNCHRONOUSLY in the filter as `.range` — NOT a persisted ConfigMap. (The earlier
-# ConfigMap-PATCH approach lagged snowplow's informer read-after-write and was removed.)
+{{/* Dashboard data source = compositions-list shape, scoped by the active time-range. */}}
+{{/* Mirrors compositions-list (CRD discovery -> cluster LIST per kind, UAF-gated), then */}}
+{{/* pre-filters the list by creationTimestamp. Returns the SAME shape as compositions-list */}}
+{{/* ({list:[...]}) so the dashboard stat/donut/throughput widgets keep their per-widget jq */}}
+{{/* unchanged — only their apiRef is repointed here. The range scope is shared across those */}}
+{{/* widgets, so it lives once here (a page-level scope) rather than in each widget. The range */}}
+{{/* comes from the request `extras` (?range= in the URL, forwarded by the frontend) and is */}}
+{{/* read SYNCHRONOUSLY in the filter as `.range` — NOT a persisted ConfigMap. (The earlier */}}
+{{/* ConfigMap-PATCH approach lagged snowplow's informer read-after-write and was removed.) */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -38,9 +38,9 @@ spec:
     filter: >
       [.allCompositions.items[]?
        | {uid: .metadata.uid, name: .metadata.name, ns: .metadata.namespace, ts: .metadata.creationTimestamp, kind: .kind, av: .apiVersion, conditions: (.status.conditions // [])}]
-  # The range comes from the request `extras` (?range=… in the URL, forwarded by the
-  # frontend) and is read here as `.range` — synchronous, no ConfigMap read-after-write
-  # lag. Defaults to 24h when the URL carries no ?range.
+  {{/* The range comes from the request `extras` (?range=… in the URL, forwarded by the */}}
+  {{/* frontend) and is read here as `.range` — synchronous, no ConfigMap read-after-write */}}
+  {{/* lag. Defaults to 24h when the URL carries no ?range. */}}
   filter: >
     ((.range) // "24h") as $range
     | (if $range == "24h" then 86400 elif $range == "7d" then 604800 elif $range == "30d" then 2592000 else 0 end) as $window

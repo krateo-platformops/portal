@@ -1,25 +1,25 @@
-# The /blueprints/{namespace}/{name}/new page header — title and the blueprint-aware subtitle,
-# in one CR.
-#
-# Replaces three: flex.create-header (a vertical Flex), paragraph.create-title and
-# paragraph.create-subtitle.
-#
-# THESE CRs WERE SHARED, AND ARE NOT ANY MORE. `create-header` was the generic header for four
-# create pages — alert-create, agent-create, agents-policy-create and this one — which is why it
-# could not be migrated per-page earlier without either keeping it or splitting it. The other three
-# have since moved to their own PageHeaders, so a word-boundary sweep of the chart now finds
-# exactly ONE referrer: flex.page-blueprint-create. The sharing dissolved on its own.
-#
-# Re-derived rather than remembered. An earlier analysis of this CR was written against a tree in
-# which those three pages still used it, and was stale by the time it was read — so the referrer
-# set was recomputed against the current tree before anything was deleted.
-#
-# Named for its page, not for the generic role it used to play: `blueprint-create-page-header`
-# rather than `create-page-header`, so the next create page cannot quietly re-share it.
-#
-# NO apiRef, deliberately. The subtitle's text comes from the route's own `name` extra, resolved
-# in the widgetDataTemplate — a widgetDataTemplate does not need an apiRef to read extras. The CR
-# it replaces worked the same way and said so.
+{{/* The /blueprints/{namespace}/{name}/new page header — title and the blueprint-aware subtitle, */}}
+{{/* in one CR. */}}
+{{/* */}}
+{{/* Replaces three: flex.create-header (a vertical Flex), paragraph.create-title and */}}
+{{/* paragraph.create-subtitle. */}}
+{{/* */}}
+{{/* THESE CRs WERE SHARED, AND ARE NOT ANY MORE. `create-header` was the generic header for four */}}
+{{/* create pages — alert-create, agent-create, agents-policy-create and this one — which is why it */}}
+{{/* could not be migrated per-page earlier without either keeping it or splitting it. The other three */}}
+{{/* have since moved to their own PageHeaders, so a word-boundary sweep of the chart now finds */}}
+{{/* exactly ONE referrer: flex.page-blueprint-create. The sharing dissolved on its own. */}}
+{{/* */}}
+{{/* Re-derived rather than remembered. An earlier analysis of this CR was written against a tree in */}}
+{{/* which those three pages still used it, and was stale by the time it was read — so the referrer */}}
+{{/* set was recomputed against the current tree before anything was deleted. */}}
+{{/* */}}
+{{/* Named for its page, not for the generic role it used to play: `blueprint-create-page-header` */}}
+{{/* rather than `create-page-header`, so the next create page cannot quietly re-share it. */}}
+{{/* */}}
+{{/* NO apiRef, deliberately. The subtitle's text comes from the route's own `name` extra, resolved */}}
+{{/* in the widgetDataTemplate — a widgetDataTemplate does not need an apiRef to read extras. The CR */}}
+{{/* it replaces worked the same way and said so. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -28,16 +28,16 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params that partition this widget's cache cell. Carried verbatim
-  # — all three absorbed CRs declared exactly [name, namespace]. Without it, one blueprint's
-  # create page is served from another blueprint's cache cell, and the subtitle names the wrong
-  # blueprint on a page whose whole job is provisioning from it.
+  {{/* F6 (snowplow#130): the route params that partition this widget's cache cell. Carried verbatim */}}
+  {{/* — all three absorbed CRs declared exactly [name, namespace]. Without it, one blueprint's */}}
+  {{/* create page is served from another blueprint's cache cell, and the subtitle names the wrong */}}
+  {{/* blueprint on a page whose whole job is provisioning from it. */}}
   keyExtras: [name, namespace]
   widgetData:
     title: Create composition
     subtitle: Configure and provision a new resource from the selected blueprint
   widgetDataTemplate:
-    # Was paragraph.create-subtitle's `forPath: text`, unchanged apart from the field it targets.
+    {{/* Was paragraph.create-subtitle's `forPath: text`, unchanged apart from the field it targets. */}}
     - forPath: subtitle
       expression: '${ "Configure and provision a new resource from the " + (.name // "selected") + " blueprint" }'
   resourcesRefs:

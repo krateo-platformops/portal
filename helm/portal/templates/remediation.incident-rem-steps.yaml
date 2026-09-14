@@ -1,17 +1,17 @@
-# REMEDIATION PLAN step rows (mockup .remrow) — a fixed pool of 6 row triplets
-# (Flex + Markdown + gated Button); the page Flex includes only the first
-# `sections.remCount` rows, so a 3-step plan renders exactly 3 rows and a v1 report none.
-# Per step:
-#   · the Markdown row: "N. description" + the mono op line (VERB resource/name -n ns +
-#     the payload JSON) + successCriterion + observedOutcome (only when present) — all
-#     shaped server-side by incident-detail (.remSteps[i].md).
-#   · a REAL gated Button whose REST action is built server-side from the step's
-#     {verb, gvr, target, payload}: the resourcesRefsTemplate resolves apiVersion/resource/
-#     name/namespace per step, and — because the template `verb` field is enum-validated,
-#     so it cannot be an expression — one ref per REST verb is declared and the action
-#     picks "rem-target-<i>-<verb>" server-side. Mutating verbs automatically ride the
-#     frontend blast-radius HITL gate; DELETE steps render as danger buttons.
-#   · applied steps (observedOutcome present) drop the Button — the row reads as a receipt.
+{{/* REMEDIATION PLAN step rows (mockup .remrow) — a fixed pool of 6 row triplets */}}
+{{/* (Flex + Markdown + gated Button); the page Flex includes only the first */}}
+{{/* `sections.remCount` rows, so a 3-step plan renders exactly 3 rows and a v1 report none. */}}
+{{/* Per step: */}}
+{{/* · the Markdown row: "N. description" + the mono op line (VERB resource/name -n ns + */}}
+{{/* the payload JSON) + successCriterion + observedOutcome (only when present) — all */}}
+{{/* shaped server-side by incident-detail (.remSteps[i].md). */}}
+{{/* · a REAL gated Button whose REST action is built server-side from the step's */}}
+{{/* {verb, gvr, target, payload}: the resourcesRefsTemplate resolves apiVersion/resource/ */}}
+{{/* name/namespace per step, and — because the template `verb` field is enum-validated, */}}
+{{/* so it cannot be an expression — one ref per REST verb is declared and the action */}}
+{{/* picks "rem-target-<i>-<verb>" server-side. Mutating verbs automatically ride the */}}
+{{/* frontend blast-radius HITL gate; DELETE steps render as danger buttons. */}}
+{{/* · applied steps (observedOutcome present) drop the Button — the row reads as a receipt. */}}
 {{- range $i := until 6 }}
 ---
 kind: Flex
@@ -22,7 +22,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
@@ -31,21 +31,21 @@ spec:
     allowedResources:
     - markdowns
     - buttons
-    # Horizontal layout: markdown content on the left, "Review & apply" button on the right.
-    # The card now shows only the CURRENT (first unapplied) step's Flex, so there is no
-    # redundant button appearing for every step at once.
+    {{/* Horizontal layout: markdown content on the left, "Review & apply" button on the right. */}}
+    {{/* The card now shows only the CURRENT (first unapplied) step's Flex, so there is no */}}
+    {{/* redundant button appearing for every step at once. */}}
     gap: small
     vertical: false
-    # #86 §0.8: centre (was flex-start) so the "Review & apply" button aligns to the VERTICAL MIDDLE
-    # of the step's markdown block rather than pinning to its first text line — reads balanced when
-    # the step description wraps to multiple lines.
+    {{/* #86 §0.8: centre (was flex-start) so the "Review & apply" button aligns to the VERTICAL MIDDLE */}}
+    {{/* of the step's markdown block rather than pinning to its first text line — reads balanced when */}}
+    {{/* the step description wraps to multiple lines. */}}
     align: center
     justify: space-between
     items:
     - resourceRefId: incident-rem-step-md-{{ $i }}
   widgetDataTemplate:
-    # Applied steps → receipt (markdown only); current step → markdown + button; future steps → markdown only.
-    # Sequential lock: button appears ONLY for the current (first unapplied) step index.
+    {{/* Applied steps → receipt (markdown only); current step → markdown + button; future steps → markdown only. */}}
+    {{/* Sequential lock: button appears ONLY for the current (first unapplied) step index. */}}
     - forPath: items
       expression: '${ [ { resourceRefId: "incident-rem-step-md-{{ $i }}" } ] + (if (((.remSteps // [])[{{ $i }}] // {}).applied // false) then [] elif ((.remCurrentStep // 99) == {{ $i }}) then [ { resourceRefId: "incident-rem-apply-{{ $i }}" } ] else [] end) }'
   resourcesRefs:
@@ -71,27 +71,27 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
     namespace: {{ $.Release.Namespace }}
   widgetData:
     markdown: ''
-    # NO allowCopy. It rendered ONE button at the top of the step that copied the whole markdown —
-    # the REMEDIATE/VERIFY eyebrow, the explanation sentence, the JSON payload AND every shell
-    # command, in a single blob. The intent was right (most SREs apply from a terminal, not the
-    # portal) but the result could not be pasted into one, which is the only reason the button gets
-    # pressed: "a copy button that copies literally everything … it must be placed where there is a
-    # command to execute otherwise it is useless" (report-provenance-test).
-    #
-    # frontend 1.5.33 gives every fenced code block its own copy control, so the affordance now sits
-    # ON the command. Keeping this one as well would put two buttons on the same step, one of which
-    # silently does the wrong thing. Verified live on 1.5.33 before removing it — the per-block
-    # button is present and copies only its own block.
-    #
-    # Do not restore it to "make copy discoverable": the widget-level button copies the document, and
-    # a remediation step is not a document anyone wants.
+    {{/* NO allowCopy. It rendered ONE button at the top of the step that copied the whole markdown — */}}
+    {{/* the REMEDIATE/VERIFY eyebrow, the explanation sentence, the JSON payload AND every shell */}}
+    {{/* command, in a single blob. The intent was right (most SREs apply from a terminal, not the */}}
+    {{/* portal) but the result could not be pasted into one, which is the only reason the button gets */}}
+    {{/* pressed: "a copy button that copies literally everything … it must be placed where there is a */}}
+    {{/* command to execute otherwise it is useless" (report-provenance-test). */}}
+    {{/* */}}
+    {{/* frontend 1.5.33 gives every fenced code block its own copy control, so the affordance now sits */}}
+    {{/* ON the command. Keeping this one as well would put two buttons on the same step, one of which */}}
+    {{/* silently does the wrong thing. Verified live on 1.5.33 before removing it — the per-block */}}
+    {{/* button is present and copies only its own block. */}}
+    {{/* */}}
+    {{/* Do not restore it to "make copy discoverable": the widget-level button copies the document, and */}}
+    {{/* a remediation step is not a document anyone wants. */}}
   widgetDataTemplate:
   - forPath: markdown
     expression: '${ ((.remSteps // [])[{{ $i }}] // {}).md // "" }'
@@ -106,18 +106,18 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: incident-detail
     namespace: {{ $.Release.Namespace }}
   widgetData:
-    # Static fallback (used only if the template can't resolve): a safe navigate to the
-    # Marketplace — never a REST call, so a v1/partial report can't dispatch a broken op.
+    {{/* Static fallback (used only if the template can't resolve): a safe navigate to the */}}
+    {{/* Marketplace — never a REST call, so a v1/partial report can't dispatch a broken op. */}}
     label: Review & apply
     icon: fa-shield-halved
     type: primary
-    # UX-27 (#69 §0.10): standard 'middle' control size (Brand v2 density), not 'small'.
+    {{/* UX-27 (#69 §0.10): standard 'middle' control size (Brand v2 density), not 'small'. */}}
     size: middle
     clickActionId: rem-apply-{{ $i }}
     actions:
@@ -128,15 +128,15 @@ spec:
           loading:
             display: true
   widgetDataTemplate:
-    # Two shapes, chosen server-side from the step's `actionable` flag (incident-detail):
-    #  · actionable (full 3-part gvr + name + a real REST verb) → the gated REST action —
-    #    DELETE is the only crimson verb (danger); the whole action is rebuilt from the step
-    #    (verb-keyed target ref, per-verb headers, payload as body, successMessage echoing the
-    #    successCriterion). Mutating verbs ride the frontend blast-radius HITL gate.
-    #  · NOT actionable (an "apply"/"install" provision intent, or an under-specified gvr with
-    #    no resolvable resource) → a NAVIGATE to the Marketplace: the honest gated path to
-    #    provision a MISSING dependency is self-service, not a PATCH of a resource that doesn't
-    #    exist. Removes the "no resource reference" dispatch error on install-type remediations.
+    {{/* Two shapes, chosen server-side from the step's `actionable` flag (incident-detail): */}}
+    {{/* · actionable (full 3-part gvr + name + a real REST verb) → the gated REST action — */}}
+    {{/* DELETE is the only crimson verb (danger); the whole action is rebuilt from the step */}}
+    {{/* (verb-keyed target ref, per-verb headers, payload as body, successMessage echoing the */}}
+    {{/* successCriterion). Mutating verbs ride the frontend blast-radius HITL gate. */}}
+    {{/* · NOT actionable (an "apply"/"install" provision intent, or an under-specified gvr with */}}
+    {{/* no resolvable resource) → a NAVIGATE to the Marketplace: the honest gated path to */}}
+    {{/* provision a MISSING dependency is self-service, not a PATCH of a resource that doesn't */}}
+    {{/* exist. Removes the "no resource reference" dispatch error on install-type remediations. */}}
     - forPath: danger
       expression: '${ ((.remSteps // [])[{{ $i }}] // {}).danger // false }'
     - forPath: label

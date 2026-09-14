@@ -1,18 +1,18 @@
-# Fleet-rollout form schema source (W3-1) — builds, SERVER-SIDE, the schema for the
-# "Deploy to fleet" Form on the blueprint detail page: pick N registered spoke clusters and
-# fan the blueprint out as ONE CompositionDefinition per selected cluster (the Form's rest
-# action sets fanOutPath: clusters — frontend >= 1.3.17).
-#   - stage `compdef` : the installed blueprint (?extras .namespace/.name, same read as
-#     blueprint-detail) — its spec.chart {url,repo,version} is the chart context each
-#     fanned-out CompositionDefinition must carry (nothing hardcoded client-side).
-#   - stage `targets` : LIST of registered KubernetesTargets → the `clusters` multi-select
-#     enum, LIVE names only (mirrors blueprint-install-formdef's targets step: list-UAF +
-#     continueOnError so no grant / no spokes degrades instead of failing the widget).
-# The filter emits { schemaSpec, initialValues }: `name` (the per-op name prefix) +
-# `clusters` (array of enum strings → fixed-options multi-select; "local" is a computed
-# sentinel meaning "this hub, no targetRef") + `chart` (the blueprint context as pre-filled
-# form fields, the same way blueprint-install carries chart.{url,repo,version} through the
-# form values so payloadToOverride can read them from .json).
+{{/* Fleet-rollout form schema source (W3-1) — builds, SERVER-SIDE, the schema for the */}}
+{{/* "Deploy to fleet" Form on the blueprint detail page: pick N registered spoke clusters and */}}
+{{/* fan the blueprint out as ONE CompositionDefinition per selected cluster (the Form's rest */}}
+{{/* action sets fanOutPath: clusters — frontend >= 1.3.17). */}}
+{{/* - stage `compdef` : the installed blueprint (?extras .namespace/.name, same read as */}}
+{{/* blueprint-detail) — its spec.chart {url,repo,version} is the chart context each */}}
+{{/* fanned-out CompositionDefinition must carry (nothing hardcoded client-side). */}}
+{{/* - stage `targets` : LIST of registered KubernetesTargets → the `clusters` multi-select */}}
+{{/* enum, LIVE names only (mirrors blueprint-install-formdef's targets step: list-UAF + */}}
+{{/* continueOnError so no grant / no spokes degrades instead of failing the widget). */}}
+{{/* The filter emits { schemaSpec, initialValues }: `name` (the per-op name prefix) + */}}
+{{/* `clusters` (array of enum strings → fixed-options multi-select; "local" is a computed */}}
+{{/* sentinel meaning "this hub, no targetRef") + `chart` (the blueprint context as pre-filled */}}
+{{/* form fields, the same way blueprint-install carries chart.{url,repo,version} through the */}}
+{{/* form values so payloadToOverride can read them from .json). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -22,18 +22,18 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # The installed blueprint = its CompositionDefinition (identity from extras — the detail
-    # route /blueprints/{namespace}/{name}). Source of the chart context.
+    {{/* The installed blueprint = its CompositionDefinition (identity from extras — the detail */}}
+    {{/* route /blueprints/{namespace}/{name}). Source of the chart context. */}}
     - name: compdef
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
-    # Registered spokes: their names become the `clusters` enum (LIVE list — never hardcoded).
-    # KubernetesTarget is namespaced; the cluster-scope collection endpoint returns targets across
-    # all namespaces the caller may see. UAF gates each row by the user's per-namespace list grant on
-    # kubernetestargets; continueOnError so a narrow-RBAC user still gets the form (hub-only rollout
-    # via the "local" sentinel).
+    {{/* Registered spokes: their names become the `clusters` enum (LIVE list — never hardcoded). */}}
+    {{/* KubernetesTarget is namespaced; the cluster-scope collection endpoint returns targets across */}}
+    {{/* all namespaces the caller may see. UAF gates each row by the user's per-namespace list grant on */}}
+    {{/* kubernetestargets; continueOnError so a narrow-RBAC user still gets the form (hub-only rollout */}}
+    {{/* via the "local" sentinel). */}}
     - name: targets
       path: /apis/core.krateo.io/v1alpha1/kubernetestargets
       verb: GET

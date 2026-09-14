@@ -1,10 +1,10 @@
-# Sidebar nav — antd Menu hosted in the app-shell Sider; the SINGLE route source (no RoutesLoader).
-# Each inline item is a folded nav entry (widget-taxonomy-and-layout.md §H):
-#  - items with a `label` → a visible sidebar entry AND a route;
-#  - label-less items → route-only (hidden), e.g. the templated detail/create routes;
-#  - content endpoint precedence: `resourceRefId` (via resourcesRefs, RBAC-aware)
-#    → the `flexes/page-<slug>` convention (`page:` overrides the path-derived slug).
-# Templated `{param}` segments become :param and reach the page widget via ?extras.
+{{/* Sidebar nav — antd Menu hosted in the app-shell Sider; the SINGLE route source (no RoutesLoader). */}}
+{{/* Each inline item is a folded nav entry (widget-taxonomy-and-layout.md §H): */}}
+{{/* - items with a `label` → a visible sidebar entry AND a route; */}}
+{{/* - label-less items → route-only (hidden), e.g. the templated detail/create routes; */}}
+{{/* - content endpoint precedence: `resourceRefId` (via resourcesRefs, RBAC-aware) */}}
+{{/* → the `flexes/page-<slug>` convention (`page:` overrides the path-derived slug). */}}
+{{/* Templated `{param}` segments become :param and reach the page widget via ?extras. */}}
 kind: Menu
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,153 +14,153 @@ spec:
   widgetData:
     mode: inline
     theme: light
-    # NOTE: stale — predates the convention; the menu now references flexes/tables, not
-    # navmenuitems/pages. Kept until the Menu.schema.json allowedResources enum is updated.
-    # Was `navmenuitems` + `pages` — BOTH kinds were removed in the routing refactor, and every
-    # child this menu actually holds is a page-root Flex. So the declaration named two things that
-    # no longer exist and excluded the one thing it contains. It rendered fine throughout, because
-    # nothing enforces allowedResources at runtime; the X5 containment lint is what found it.
+    {{/* NOTE: stale — predates the convention; the menu now references flexes/tables, not */}}
+    {{/* navmenuitems/pages. Kept until the Menu.schema.json allowedResources enum is updated. */}}
+    {{/* Was `navmenuitems` + `pages` — BOTH kinds were removed in the routing refactor, and every */}}
+    {{/* child this menu actually holds is a page-root Flex. So the declaration named two things that */}}
+    {{/* no longer exist and excluded the one thing it contains. It rendered fine throughout, because */}}
+    {{/* nothing enforces allowedResources at runtime; the X5 containment lint is what found it. */}}
     allowedResources:
       - flexes
     items:
-      # ── Operations ──────────────────────────────────────────────────────────────
+      {{/* ── Operations ────────────────────────────────────────────────────────────── */}}
       - { label: Dashboard,    icon: fa-gauge,        order: 1, path: /dashboard,    resourceRefId: dashboard }
       - { label: Compositions, icon: fa-cubes,        order: 2, path: /compositions, resourceRefId: compositions }
-      # Blueprints → page-blueprints (header + the now-selectable catalog table).
+      {{/* Blueprints → page-blueprints (header + the now-selectable catalog table). */}}
       - { label: Blueprints,   icon: fa-layer-group,  order: 3, path: /blueprints,   resourceRefId: blueprints }
       - { label: Marketplace,  icon: fa-store,        order: 4, path: /marketplace,  resourceRefId: marketplace }
-      # ── Observability ────────────────────────────────────────────────────────────
+      {{/* ── Observability ──────────────────────────────────────────────────────────── */}}
       - { type: divider, order: 10 }
-      # Observability → page-observability: aggregates compositions health, reconciliation,
-      # by-kind/by-project distribution, inventory and recent activity into one view.
+      {{/* Observability → page-observability: aggregates compositions health, reconciliation, */}}
+      {{/* by-kind/by-project distribution, inventory and recent activity into one view. */}}
       - { label: Observability, icon: fa-chart-line,  order: 11, path: /observability, resourceRefId: observability }
-      # Incidents → page-incidents: the SRE page — one row per TroubleshootingReport
-      # (lifecycle chips, gated remediation on the detail pages). Alerts + the Autopilot
-      # troubleshooting feed moved here from /observability in the IA split.
+      {{/* Incidents → page-incidents: the SRE page — one row per TroubleshootingReport */}}
+      {{/* (lifecycle chips, gated remediation on the detail pages). Alerts + the Autopilot */}}
+      {{/* troubleshooting feed moved here from /observability in the IA split. */}}
       - { label: Incidents,    icon: fa-triangle-exclamation, order: 12, path: /incidents, resourceRefId: incidents }
-      # Alerts → page-alerts (IA D/4): the alerting CONFIGURATION surface — the alert-rules
-      # table (thresholds/intervals/state). Rules are config, not incidents, so they moved off
-      # the /incidents triage page to here; /incidents keeps only firing signal + investigation.
+      {{/* Alerts → page-alerts (IA D/4): the alerting CONFIGURATION surface — the alert-rules */}}
+      {{/* table (thresholds/intervals/state). Rules are config, not incidents, so they moved off */}}
+      {{/* the /incidents triage page to here; /incidents keeps only firing signal + investigation. */}}
       - { label: Alerts,       icon: fa-bell,         order: 13, path: /alerts,       resourceRefId: alerts }
-      # Agent control plane — the kagent fleet, the tool servers they may call and the gateway
-      # policies that gate each hop. Sits with Observability/Incidents/Alerts: it is an operational
-      # surface, not a builder.
+      {{/* Agent control plane — the kagent fleet, the tool servers they may call and the gateway */}}
+      {{/* policies that gate each hop. Sits with Observability/Incidents/Alerts: it is an operational */}}
+      {{/* surface, not a builder. */}}
       - { label: Agents,       icon: fa-robot,        order: 14, path: /agents,       resourceRefId: agents }
-      # ── Builders ─────────────────────────────────────────────────────────────────
+      {{/* ── Builders ───────────────────────────────────────────────────────────────── */}}
       - { type: divider, order: 20 }
-      # The Autopilot builders — three sibling deliverables surfaces, each = how-it-works +
-      # its previously-published deliverables (linkable) + an empty-state rail CTA. The
-      # authoring flow itself lives in the Autopilot rail; these pages show what it produced.
-      #   Portal Builder (CHART-P1)   → in-flight builder pull requests (all repos).
-      #   Blueprint Builder           → authored blueprints (PR ⋈ CompositionDefinition); each
-      #                                 row links to /blueprints/<ns>/<chart>.
-      #   API Builder (KOG, CHART-K1) → the RestDefinition registry (generated API kinds).
+      {{/* The Autopilot builders — three sibling deliverables surfaces, each = how-it-works + */}}
+      {{/* its previously-published deliverables (linkable) + an empty-state rail CTA. The */}}
+      {{/* authoring flow itself lives in the Autopilot rail; these pages show what it produced. */}}
+      {{/* Portal Builder (CHART-P1)   → in-flight builder pull requests (all repos). */}}
+      {{/* Blueprint Builder           → authored blueprints (PR ⋈ CompositionDefinition); each */}}
+      {{/* row links to /blueprints/<ns>/<chart>. */}}
+      {{/* API Builder (KOG, CHART-K1) → the RestDefinition registry (generated API kinds). */}}
       - { label: Portal Builder,    icon: fa-hammer,    order: 21, path: /portal-builder,    resourceRefId: portal-builder }
       - { label: Blueprint Builder, icon: fa-pen-ruler, order: 22, path: /blueprint-builder, resourceRefId: blueprint-builder }
-      # /controller-builder is the canonical path (KOG compiles OpenAPI/REST mappings into new
-      # CONTROLLERS, so "Controller Builder" is the accurate label/H1); the page: slug stays
-      # kog-builder (internal). The hidden aliases below keep old /api-builder and /kog-builder
-      # deep-links resolving to the same page.
+      {{/* /controller-builder is the canonical path (KOG compiles OpenAPI/REST mappings into new */}}
+      {{/* CONTROLLERS, so "Controller Builder" is the accurate label/H1); the page: slug stays */}}
+      {{/* kog-builder (internal). The hidden aliases below keep old /api-builder and /kog-builder */}}
+      {{/* deep-links resolving to the same page. */}}
       - { label: Controller Builder, icon: fa-plug,     order: 23, path: /controller-builder, resourceRefId: api-builder }
-      # hidden aliases (route-only, no label) so old /api-builder and /kog-builder deep-links resolve.
-      # order is int32 in the widget CRD — must be a whole number, and high so it sorts with
-      # the other route-only entries (/search=800, detail routes 900+), never among the 1–23 nav.
+      {{/* hidden aliases (route-only, no label) so old /api-builder and /kog-builder deep-links resolve. */}}
+      {{/* order is int32 in the widget CRD — must be a whole number, and high so it sorts with */}}
+      {{/* the other route-only entries (/search=800, detail routes 900+), never among the 1–23 nav. */}}
       - { order: 801, path: /kog-builder,  resourceRefId: api-builder }
       - { order: 802, path: /api-builder,  resourceRefId: api-builder }
-      # ── Administration ───────────────────────────────────────────────────────────
+      {{/* ── Administration ─────────────────────────────────────────────────────────── */}}
       - { type: divider, order: 30 }
       - { label: Settings,     icon: fa-gear,         order: 31, path: /settings,     resourceRefId: settings }
-      # Clusters → page-clusters: the hub-and-spoke registry (registered KubernetesTargets a
-      # CompositionDefinition can deploy to; health rolled up from CompositionDefinition.status.target).
+      {{/* Clusters → page-clusters: the hub-and-spoke registry (registered KubernetesTargets a */}}
+      {{/* CompositionDefinition can deploy to; health rolled up from CompositionDefinition.status.target). */}}
       - { label: Clusters,     icon: fa-server,       order: 32, path: /clusters,     resourceRefId: clusters }
-      # (per-composition resource topology now lives on the composition detail page as a FlowChart —
-      #  the cluster-wide /estate graph was removed: it had to list every composition, unusable at scale.)
-      # (Builder Demo is gone from this chart — the Autopilot-authored demo page is re-homed as
-      #  its OWN composition alongside the portal composition, not baked in here. The nav entry
-      #  went first; its three page-builderdemo CRs outlived it by several releases, reachable by
-      #  no route, and were deleted once a structural survey turned them up.)
-      # route-only (no label → hidden). /search renders page-search (header family +
-      # the search-results List); ?q= is forwarded as extras to the global-search RA
-      # (server-side jq filter) and echoed in the header subtitle.
+      {{/* (per-composition resource topology now lives on the composition detail page as a FlowChart — */}}
+      {{/* the cluster-wide /estate graph was removed: it had to list every composition, unusable at scale.) */}}
+      {{/* (Builder Demo is gone from this chart — the Autopilot-authored demo page is re-homed as */}}
+      {{/* its OWN composition alongside the portal composition, not baked in here. The nav entry */}}
+      {{/* went first; its three page-builderdemo CRs outlived it by several releases, reachable by */}}
+      {{/* no route, and were deleted once a structural survey turned them up.) */}}
+      {{/* route-only (no label → hidden). /search renders page-search (header family + */}}
+      {{/* the search-results List); ?q= is forwarded as extras to the global-search RA */}}
+      {{/* (server-side jq filter) and echoed in the header subtitle. */}}
       - { order: 800, path: /search, resourceRefId: page-search }
-      # Templated detail + create routes via the convention. Paths are quoted — the
-      # {param} braces would otherwise be read as YAML flow mappings.
+      {{/* Templated detail + create routes via the convention. Paths are quoted — the */}}
+      {{/* {param} braces would otherwise be read as YAML flow mappings. */}}
       - { order: 900, path: "/compositions/{namespace}/{name}",   page: composition-detail }
-      # Alert create Form (/alerts/new) — hidden route; the /alerts "New alert" CTA + empty-state
-      # hint navigate here. Static (2-segment) path, so it never collides with the 3-segment
-      # /alerts/{namespace}/{name} detail route below.
+      {{/* Alert create Form (/alerts/new) — hidden route; the /alerts "New alert" CTA + empty-state */}}
+      {{/* hint navigate here. Static (2-segment) path, so it never collides with the 3-segment */}}
+      {{/* /alerts/{namespace}/{name} detail route below. */}}
       - { order: 934, path: "/alerts/new", page: alert-create }
-      # per-alert detail page (UX round-2 #25) — rule config, live State, HyperDX links, incident back-link.
+      {{/* per-alert detail page (UX round-2 #25) — rule config, live State, HyperDX links, incident back-link. */}}
       - { order: 935, path: "/alerts/{namespace}/{name}", page: alert-detail }
-      # ── Agent control plane routes ──────────────────────────────────────────────────
-      # ONE sidebar entry (Agents, order 14) for the whole control plane: the tool servers are an
-      # in-page section of /agents, and the routes below are reached FROM that page, never from the
-      # sidebar. Three surfaces for one operational concern would read as three features.
-      #
-      # STATIC PATHS FIRST, exactly as /alerts/new sits above /alerts/{namespace}/{name}. Both of
-      # these are 2-segment and the detail route is 3-segment, so they cannot collide — but the
-      # ordering is what makes that independent of how the matcher is implemented, and it is the
-      # convention the block already follows.
+      {{/* ── Agent control plane routes ────────────────────────────────────────────────── */}}
+      {{/* ONE sidebar entry (Agents, order 14) for the whole control plane: the tool servers are an */}}
+      {{/* in-page section of /agents, and the routes below are reached FROM that page, never from the */}}
+      {{/* sidebar. Three surfaces for one operational concern would read as three features. */}}
+      {{/* */}}
+      {{/* STATIC PATHS FIRST, exactly as /alerts/new sits above /alerts/{namespace}/{name}. Both of */}}
+      {{/* these are 2-segment and the detail route is 3-segment, so they cannot collide — but the */}}
+      {{/* ordering is what makes that independent of how the matcher is implemented, and it is the */}}
+      {{/* convention the block already follows. */}}
       - { order: 936, path: "/agents/new", page: agent-create }
-      # The gateway policies that gate each agent hop. A sub-page rather than a section because it
-      # aggregates across the whole fleet, not per-agent — and a route rather than a nav item so
-      # the sidebar keeps saying one thing.
+      {{/* The gateway policies that gate each agent hop. A sub-page rather than a section because it */}}
+      {{/* aggregates across the whole fleet, not per-agent — and a route rather than a nav item so */}}
+      {{/* the sidebar keeps saying one thing. */}}
       - { order: 937, path: "/agents/policies", page: agents-policies }
-      # "+ Add policy" from the policies page header. STATIC PATH, and it sits directly under its
-      # parent for the same reason /agents/new sits under /agents: both are 2-segment vs the
-      # 3-segment detail route, so they cannot collide, and keeping the static ones together makes
-      # that independent of how the matcher is implemented.
+      {{/* "+ Add policy" from the policies page header. STATIC PATH, and it sits directly under its */}}
+      {{/* parent for the same reason /agents/new sits under /agents: both are 2-segment vs the */}}
+      {{/* 3-segment detail route, so they cannot collide, and keeping the static ones together makes */}}
+      {{/* that independent of how the matcher is implemented. */}}
       - { order: 939, path: "/agents/policies/new", page: agents-policy-create }
-      # per-agent detail — identity, resolved model + egress route, bound tool servers, delegates.
-      # The agents table rowNavigateTo targets this; a Table whose rowNavigateTo has any empty
-      # placeholder goes silently inert, which is why the RA carries dedicated routeNs/routeName
-      # cells rather than interpolating the display name.
+      {{/* per-agent detail — identity, resolved model + egress route, bound tool servers, delegates. */}}
+      {{/* The agents table rowNavigateTo targets this; a Table whose rowNavigateTo has any empty */}}
+      {{/* placeholder goes silently inert, which is why the RA carries dedicated routeNs/routeName */}}
+      {{/* cells rather than interpolating the display name. */}}
       - { order: 938, path: "/agents/{namespace}/{name}", page: agent-detail }
-      # per-namespace compositions list — the namespace breadcrumb crumb links here.
-      # Reuses page-compositions; its compositions-table self-filters by ?extras.namespace
-      # (compositions-list RA) since the route param rides through as extras.
+      {{/* per-namespace compositions list — the namespace breadcrumb crumb links here. */}}
+      {{/* Reuses page-compositions; its compositions-table self-filters by ?extras.namespace */}}
+      {{/* (compositions-list RA) since the route param rides through as extras. */}}
       - { order: 905, path: "/compositions/{namespace}",          page: compositions }
       - { order: 910, path: "/blueprints/{namespace}/{name}/new", page: blueprint-create }
-      # Install a blueprint = deploy a CompositionDefinition (the marketplace card's Install
-      # navigates here with the blueprint name; the form renders the CompositionDefinition CRD).
+      {{/* Install a blueprint = deploy a CompositionDefinition (the marketplace card's Install */}}
+      {{/* navigates here with the blueprint name; the form renders the CompositionDefinition CRD). */}}
       - { order: 915, path: "/marketplace/{name}/install", page: blueprint-install }
-      # Register a cluster = POST a KubernetesTarget (the clusters page's "Register cluster" CTA
-      # navigates here; route-only/hidden → the register-cluster Form via page-clusters-register).
+      {{/* Register a cluster = POST a KubernetesTarget (the clusters page's "Register cluster" CTA */}}
+      {{/* navigates here; route-only/hidden → the register-cluster Form via page-clusters-register). */}}
       - { order: 917, path: "/clusters/register", page: clusters-register }
-      # Cluster drill-down — a clusters-table row click lands here (route-only/hidden).
-      # One KubernetesTarget: identity + probe verdict + the blueprints targeting it
-      # (the "Down" investigation surface the registry table links into).
+      {{/* Cluster drill-down — a clusters-table row click lands here (route-only/hidden). */}}
+      {{/* One KubernetesTarget: identity + probe verdict + the blueprints targeting it */}}
+      {{/* (the "Down" investigation surface the registry table links into). */}}
       - { order: 918, path: "/clusters/{name}", page: cluster-detail }
-      # Marketplace blueprint detail — a catalog tile's "Details" lands here (and Autopilot can
-      # navigate here). Shows the helm-index metadata (description / versions / links) + Install.
+      {{/* Marketplace blueprint detail — a catalog tile's "Details" lands here (and Autopilot can */}}
+      {{/* navigate here). Shows the helm-index metadata (description / versions / links) + Install. */}}
       - { order: 912, path: "/marketplace/{name}", page: marketplace-detail }
-      # Installed-blueprint detail — a Blueprints card click lands here. Shows chart/version/status
-      # and hosts Create (instantiate) / Delete (uninstall) / version-update.
+      {{/* Installed-blueprint detail — a Blueprints card click lands here. Shows chart/version/status */}}
+      {{/* and hosts Create (instantiate) / Delete (uninstall) / version-update. */}}
       - { order: 920, path: "/blueprints/{namespace}/{name}", page: blueprint-detail }
-      # Observability component drill-down — a Components-tab row click (obs-components
-      # Table) lands here. Pods / conditions / events for one control-plane Deployment.
+      {{/* Observability component drill-down — a Components-tab row click (obs-components */}}
+      {{/* Table) lands here. Pods / conditions / events for one control-plane Deployment. */}}
       - { order: 930, path: "/observability/components/{name}", page: component-detail }
-      # Incident detail — an incidents-table row click lands here (route-only/hidden). The
-      # investigation anatomy: evidence / gaps / reasoning / root cause / gated remediation.
+      {{/* Incident detail — an incidents-table row click lands here (route-only/hidden). The */}}
+      {{/* investigation anatomy: evidence / gaps / reasoning / root cause / gated remediation. */}}
       - { order: 940, path: "/incidents/{namespace}/{name}", page: incident-detail }
-      # Access persona drill-down (W3-2) — a Settings → Access row click lands here.
-      # Capability preview (SubjectAccessReview, run as the calling admin) + the grant
-      # form (Role + RoleBinding in ONE gated ops[] submit) + managed-grant revoke.
-      # {username} + the ?ns= scope ride through as extras to every RA on the page.
+      {{/* Access persona drill-down (W3-2) — a Settings → Access row click lands here. */}}
+      {{/* Capability preview (SubjectAccessReview, run as the calling admin) + the grant */}}
+      {{/* form (Role + RoleBinding in ONE gated ops[] submit) + managed-grant revoke. */}}
+      {{/* {username} + the ?ns= scope ride through as extras to every RA on the page. */}}
       - { order: 950, path: "/settings/access/{username}", page: access-detail }
-      # Generic resource-view (IA F5-full) — the last-mile drill target for ANY k8s object
-      # (composition composed-children of non-composition kinds, incident analyzedResources).
-      # Route-only/hidden. The 5 segments ride through as extras; restaction.resource-detail
-      # DISCOVERS namespaced vs cluster-scoped from the apiserver, so the {namespace} segment is
-      # a filler for cluster-scoped kinds (pass "cluster"). group "core" → the core API group.
+      {{/* Generic resource-view (IA F5-full) — the last-mile drill target for ANY k8s object */}}
+      {{/* (composition composed-children of non-composition kinds, incident analyzedResources). */}}
+      {{/* Route-only/hidden. The 5 segments ride through as extras; restaction.resource-detail */}}
+      {{/* DISCOVERS namespaced vs cluster-scoped from the apiserver, so the {namespace} segment is */}}
+      {{/* a filler for cluster-scoped kinds (pass "cluster"). group "core" → the core API group. */}}
       - { order: 960, path: "/resources/{namespace}/{group}/{version}/{plural}/{name}", page: resource-detail }
-      # (The /kog-builder route is now the visible "API Builder" nav entry above, order 23.
-      #  Autopilot still deep-links here after a gated publish / from the empty-state ?ask= CTA.)
-      # Builder-published pages (#106) — each Autopilot-authored page drops a nav fragment at
-      # files/nav-fragments/<slug>.yaml ({ item: {<nav entry>} }). The Portal builder writes it as
-      # part of the publish PR, so the sidebar entry ships WITH the page — no manual menu edit.
-      # Builder pages use the page:<slug> convention (resolves flexes/page-<slug>), so a fragment
-      # needs ONLY the `item` (no resourcesRefs entry). Glob over an empty/absent dir is a no-op.
+      {{/* (The /kog-builder route is now the visible "API Builder" nav entry above, order 23. */}}
+      {{/* Autopilot still deep-links here after a gated publish / from the empty-state ?ask= CTA.) */}}
+      {{/* Builder-published pages (#106) — each Autopilot-authored page drops a nav fragment at */}}
+      {{/* files/nav-fragments/<slug>.yaml ({ item: {<nav entry>} }). The Portal builder writes it as */}}
+      {{/* part of the publish PR, so the sidebar entry ships WITH the page — no manual menu edit. */}}
+      {{/* Builder pages use the page:<slug> convention (resolves flexes/page-<slug>), so a fragment */}}
+      {{/* needs ONLY the `item` (no resourcesRefs entry). Glob over an empty/absent dir is a no-op. */}}
       {{- range $path, $_ := (.Files.Glob "files/nav-fragments/*.yaml") }}
       {{- with ((($.Files.Get $path) | fromYaml).item) }}
       - {{ . | toJson }}
@@ -186,9 +186,9 @@ spec:
         namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
         resource: flexes
         verb: GET
-      # #68: Compositions is a COMMON-tier page (release namespace, tenant-readable) so tenants see
-      # their own Krateos — its ref namespace must match page-compositions' new home, else the
-      # RBAC menu-ref stamp (not resourceName-aware, snowplow#123) can't resolve it.
+      {{/* #68: Compositions is a COMMON-tier page (release namespace, tenant-readable) so tenants see */}}
+      {{/* their own Krateos — its ref namespace must match page-compositions' new home, else the */}}
+      {{/* RBAC menu-ref stamp (not resourceName-aware, snowplow#123) can't resolve it. */}}
       - id: compositions
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: page-compositions

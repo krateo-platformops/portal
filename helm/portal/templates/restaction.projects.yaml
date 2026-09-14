@@ -1,13 +1,13 @@
-# Projects = namespaces (platform model: tenant = cluster, project = namespace). Lists the
-# namespaces the caller may `list` (UAF-gated, so each user sees only their projects) and shapes
-# them into Select `options` for the MULTI-select project scope in the shell HEADER. The
-# project-select widget binds this to the ?projects= URL param (comma-joined) → extras, which
-# compositions-list and blueprints-cards read as `.projects` to scope server-side.
-#
-# ALL listable namespaces are offered — INCLUDING the installer's own namespace (krateo-system),
-# where the platform's own compositions live. (An earlier build excluded the installer namespace
-# via an installer-CR lookup; that exclusion was reverted, so the system namespace is selectable
-# like any other project and its compositions can be scoped to.)
+{{/* Projects = namespaces (platform model: tenant = cluster, project = namespace). Lists the */}}
+{{/* namespaces the caller may `list` (UAF-gated, so each user sees only their projects) and shapes */}}
+{{/* them into Select `options` for the MULTI-select project scope in the shell HEADER. The */}}
+{{/* project-select widget binds this to the ?projects= URL param (comma-joined) → extras, which */}}
+{{/* compositions-list and blueprints-cards read as `.projects` to scope server-side. */}}
+{{/* */}}
+{{/* ALL listable namespaces are offered — INCLUDING the installer's own namespace (krateo-system), */}}
+{{/* where the platform's own compositions live. (An earlier build excluded the installer namespace */}}
+{{/* via an installer-CR lookup; that exclusion was reverted, so the system namespace is selectable */}}
+{{/* like any other project and its compositions can be scoped to.) */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -17,7 +17,7 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # The namespaces the caller may list (UAF-gated → each user sees only their projects).
+    {{/* The namespaces the caller may list (UAF-gated → each user sees only their projects). */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -28,8 +28,8 @@ spec:
         group: ""
         resource: namespaces
         namespaceFrom: .metadata.name
-  # Build the Select options from every listable namespace — no exclusion. An empty selection
-  # still means "All projects" (cluster-wide), shown via the placeholder.
+  {{/* Build the Select options from every listable namespace — no exclusion. An empty selection */}}
+  {{/* still means "All projects" (cluster-wide), shown via the placeholder. */}}
   filter: >
     {
       options: (

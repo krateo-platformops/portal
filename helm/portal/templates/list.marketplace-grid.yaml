@@ -1,11 +1,11 @@
-# Marketplace content — antd `List` in 3-col grid mode, ONE templated tile per
-# INSTALLABLE blueprint, iterated over `blueprints-catalog` (the krateo-blueprints helm-repo
-# index, ~311 charts). A single itemTemplate renders every tile from the catalog's flat
-# data — name + version·maturity + a soft-tint category pill. The category facet rides
-# in via ?category extras (marketplace-category-chips). Honest fields only (name/version/
-# category/maturity off the helm index); no invented ratings/install-counts. Each tile's footer Install button
-# (rowActions → `install`, a navigate action) opens the install form at
-# /marketplace/{name}/install, which renders the CompositionDefinition CRD and deploys it.
+{{/* Marketplace content — antd `List` in 3-col grid mode, ONE templated tile per */}}
+{{/* INSTALLABLE blueprint, iterated over `blueprints-catalog` (the krateo-blueprints helm-repo */}}
+{{/* index, ~311 charts). A single itemTemplate renders every tile from the catalog's flat */}}
+{{/* data — name + version·maturity + a soft-tint category pill. The category facet rides */}}
+{{/* in via ?category extras (marketplace-category-chips). Honest fields only (name/version/ */}}
+{{/* category/maturity off the helm index); no invented ratings/install-counts. Each tile's footer Install button */}}
+{{/* (rowActions → `install`, a navigate action) opens the install form at */}}
+{{/* /marketplace/{name}/install, which renders the CompositionDefinition CRD and deploys it. */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Listy
 metadata:
@@ -14,9 +14,9 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
-  # `spotlight` = a global-search catalog hit's hand-off (?spotlight=<name>): the
-  # catalog RA sorts that card first + stamps its status glyph (orange star).
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  {{/* `spotlight` = a global-search catalog hit's hand-off (?spotlight=<name>): the */}}
+  {{/* catalog RA sorts that card first + stamps its status glyph (orange star). */}}
   keyExtras: [category, q, source, sort, spotlight]
   apiRef:
     name: blueprints-catalog
@@ -25,64 +25,64 @@ spec:
     grid:
       gutter: 16
       column: 3
-    # UX-audit #21: the catalog is ~400 cards — one unpaginated wall. Plain antd List
-    # pagination over the DELIVERED array, 24 tiles (8 rows × 3 cols) per page. The
-    # category/source/q/sort facets filter server-side in the catalog RA (?extras) BEFORE
-    # delivery, so paging composes with them: antd clamps the current page into the
-    # filtered range, and a single-page result hides the pager entirely (hideOnSinglePage
-    # in the frontend — chrome is exception-only).
+    {{/* UX-audit #21: the catalog is ~400 cards — one unpaginated wall. Plain antd List */}}
+    {{/* pagination over the DELIVERED array, 24 tiles (8 rows × 3 cols) per page. The */}}
+    {{/* category/source/q/sort facets filter server-side in the catalog RA (?extras) BEFORE */}}
+    {{/* delivery, so paging composes with them: antd clamps the current page into the */}}
+    {{/* filtered range, and a single-page result hides the pager entirely (hideOnSinglePage */}}
+    {{/* in the frontend — chrome is exception-only). */}}
     pagination:
       pageSize: 24
     dataSource: []
-    # `card` rowVariant: each grid cell is a full antd Card — icon-tile + name + version
-    # badge (subPrimaryText) + category tag (secondaryText) + 2-line description + a footer
-    # (maturity left, visible Install button right). Per-category icon (from the RA) + colour
-    # map tint the tile + tag.
+    {{/* `card` rowVariant: each grid cell is a full antd Card — icon-tile + name + version */}}
+    {{/* badge (subPrimaryText) + category tag (secondaryText) + 2-line description + a footer */}}
+    {{/* (maturity left, visible Install button right). Per-category icon (from the RA) + colour */}}
+    {{/* map tint the tile + tag. */}}
     itemTemplate:
       rowVariant: card
       iconVariant: tile
-      # Whole-tile click → the blueprint's marketplace DETAIL page (same destination as the
-      # footer Details button) — mirrors blueprints-grid's whole-card navigateTo; the footer
-      # buttons (Details/Install) keep their own actions on top.
+      {{/* Whole-tile click → the blueprint's marketplace DETAIL page (same destination as the */}}
+      {{/* footer Details button) — mirrors blueprints-grid's whole-card navigateTo; the footer */}}
+      {{/* buttons (Details/Install) keep their own actions on top. */}}
       navigateTo: '/marketplace/{name}'
       icon: '{icon}'
       primaryText: '{name}'
-      # Footer-left = the helm chart version (subSecondaryText → card-foot left); the top keeps
-      # just name + category tag. Maturity dropped (not in the mockup).
+      {{/* Footer-left = the helm chart version (subSecondaryText → card-foot left); the top keeps */}}
+      {{/* just name + category tag. Maturity dropped (not in the mockup). */}}
       subSecondaryText: 'v{version}'
-      # Category pill (the mockup's per-tile defining signal): the card's `krateo.io/category`
-      # (Compute/Network/Database/…), rendered as the single soft-tint Tag the card variant
-      # supports. The Blueprint-vs-Operator TYPE stays on the icon — its glyph (per-category /
-      # per-service, from the catalog RA) + `typeColor` tile tint (Blueprint cyan / Operator
-      # magenta) both encode type, so it isn't lost by moving the tag to category. When a card
-      # has no category (e.g. operators), `{category}` resolves empty → no pill (never invented).
+      {{/* Category pill (the mockup's per-tile defining signal): the card's `krateo.io/category` */}}
+      {{/* (Compute/Network/Database/…), rendered as the single soft-tint Tag the card variant */}}
+      {{/* supports. The Blueprint-vs-Operator TYPE stays on the icon — its glyph (per-category / */}}
+      {{/* per-service, from the catalog RA) + `typeColor` tile tint (Blueprint cyan / Operator */}}
+      {{/* magenta) both encode type, so it isn't lost by moving the tag to category. When a card */}}
+      {{/* has no category (e.g. operators), `{category}` resolves empty → no pill (never invented). */}}
       secondaryText: '{category}'
       secondaryTextAsTag: true
       description: '{description}'
-      # `color` = typeColor (Blueprint cyan / Operator magenta): tints BOTH the icon tile and the
-      # category Tag, so the blueprint-vs-operator TYPE reads at a glance from every card's colour
-      # even though the tag TEXT now carries the category. Type isn't lost — it moved to the icon.
+      {{/* `color` = typeColor (Blueprint cyan / Operator magenta): tints BOTH the icon tile and the */}}
+      {{/* category Tag, so the blueprint-vs-operator TYPE reads at a glance from every card's colour */}}
+      {{/* even though the tag TEXT now carries the category. Type isn't lost — it moved to the icon. */}}
       color:
         value: '{typeColor}'
         default: gray
-      # "Installed" badge (top-right of the tile) — a SUBTLE green check that appears ONLY when this
-      # blueprint is actually installed (exception-only; empty -> no glyph, no noise on the common
-      # not-installed state). icon/colour/tooltip are all computed server-side in the catalog RA via
-      # the honest repoBase|chartName join against installed helm-repo CompositionDefinitions — never
-      # fabricated. The tooltip reads "Installed · v<version>". This reuses the ONE status channel the
-      # card variant supports (no new widget field); the primary whole-tile navigateTo (-> Details)
-      # is untouched, so the badge is purely informational.
+      {{/* "Installed" badge (top-right of the tile) — a SUBTLE green check that appears ONLY when this */}}
+      {{/* blueprint is actually installed (exception-only; empty -> no glyph, no noise on the common */}}
+      {{/* not-installed state). icon/colour/tooltip are all computed server-side in the catalog RA via */}}
+      {{/* the honest repoBase|chartName join against installed helm-repo CompositionDefinitions — never */}}
+      {{/* fabricated. The tooltip reads "Installed · v<version>". This reuses the ONE status channel the */}}
+      {{/* card variant supports (no new widget field); the primary whole-tile navigateTo (-> Details) */}}
+      {{/* is untouched, so the badge is purely informational. */}}
       status:
         icon: '{installedIcon}'
         color: '{installedColor}'
         tooltip: '{installedTooltip}'
-      # Per-tile Install — a VISIBLE footer button (card variant). It NAVIGATES to the install
-      # form for THIS row (${name} interpolated from the card's customPayload), where the user
-      # reviews the CompositionDefinition (CRD schema, chart pre-filled) and deploys it.
-      # ORDER MATTERS (UX-audit #10): the frontend makes the FIRST rowAction the primary
-      # button (ListView card variant). Install leads — the page's job is acquisition, and the
-      # whole tile already navigates to Details, so a primary Details button would be double
-      # emphasis on navigation. Mirrors blueprints-grid, where Create leads.
+      {{/* Per-tile Install — a VISIBLE footer button (card variant). It NAVIGATES to the install */}}
+      {{/* form for THIS row (${name} interpolated from the card's customPayload), where the user */}}
+      {{/* reviews the CompositionDefinition (CRD schema, chart pre-filled) and deploys it. */}}
+      {{/* ORDER MATTERS (UX-audit #10): the frontend makes the FIRST rowAction the primary */}}
+      {{/* button (ListView card variant). Install leads — the page's job is acquisition, and the */}}
+      {{/* whole tile already navigates to Details, so a primary Details button would be double */}}
+      {{/* emphasis on navigation. Mirrors blueprints-grid, where Create leads. */}}
       rowActions:
         - actionId: install
           label: Install

@@ -89,3 +89,28 @@ jobs:
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-values-schema.py
+
+  # Helm stores one release record as base64(gzip(json)) in a Secret, and k8s rejects a Secret whose
+  # decoded data passes MaxSecretSize — a compiled-in 1 MiB constant. The portal crossed it on
+  # 2026-09-11 and nothing noticed for two days: CDC applies content BEFORE writing the record, so
+  # the cluster converged while helm history silently froze. This models the record and fails before
+  # that can happen again. Do NOT replace it with a manifest-bytes or CR-count check — both have
+  # moved opposite to the record in this chart's own history.
+  release-size:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The Helm release record must stay writable
+        run: python3 scripts/lint-release-size.py

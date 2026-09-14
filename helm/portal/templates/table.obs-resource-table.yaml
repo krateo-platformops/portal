@@ -1,13 +1,13 @@
-# Top pods by resource usage — latest CPU (millicores) + memory working-set (MiB) per pod,
-# from otel_metrics_gauge via obs-resource-usage. Sorted memory-desc server-side (the top rows
-# are the memory hogs). Memory cell is tinted by magnitude (>1 GiB crimson, >512 MiB orange);
-# the numbers are the real measured gauge values.
-# Rows deep-link to the log stream scoped to the pod (CTA audit #89 F8): /observability?serviceName={pod}
-# where {pod} is the raw pod name. obs-log-stream RESOLVES that pod name to its owning OTel
-# ServiceName server-side (the ServiceName whose "<name>-" prefixes the pod name) then exact-matches,
-# so the pod's service logs show (exact resolution replaced an earlier bidirectional substring match).
-# This closes the loop "this pod is the memory hog → what is it logging?". Empty/absent pod → the Table's
-# buildRowPath returns undefined, so the row is inert (no broken link).
+{{/* Top pods by resource usage — latest CPU (millicores) + memory working-set (MiB) per pod, */}}
+{{/* from otel_metrics_gauge via obs-resource-usage. Sorted memory-desc server-side (the top rows */}}
+{{/* are the memory hogs). Memory cell is tinted by magnitude (>1 GiB crimson, >512 MiB orange); */}}
+{{/* the numbers are the real measured gauge values. */}}
+{{/* Rows deep-link to the log stream scoped to the pod (CTA audit #89 F8): /observability?serviceName={pod} */}}
+{{/* where {pod} is the raw pod name. obs-log-stream RESOLVES that pod name to its owning OTel */}}
+{{/* ServiceName server-side (the ServiceName whose "<name>-" prefixes the pod name) then exact-matches, */}}
+{{/* so the pod's service logs show (exact resolution replaced an earlier bidirectional substring match). */}}
+{{/* This closes the loop "this pod is the memory hog → what is it logging?". Empty/absent pod → the Table's */}}
+{{/* buildRowPath returns undefined, so the row is inert (no broken link). */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,8 +21,8 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    # Row → observability log stream, scoped to this pod's owning service (see header).
-    # &tab=Telemetry (feedback S): open the Telemetry (logs) tab, not the default Reconciliation.
+    {{/* Row → observability log stream, scoped to this pod's owning service (see header). */}}
+    {{/* &tab=Telemetry (feedback S): open the Telemetry (logs) tab, not the default Reconciliation. */}}
     rowNavigateTo: /observability?serviceName={pod}&tab=Telemetry
     pagination:
       defaultPageSize: 10

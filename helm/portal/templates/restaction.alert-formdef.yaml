@@ -1,16 +1,16 @@
-# Alert create-form schema source — the SAME logic as blueprint-formdef, but the Alert is a
-# plain namespaced CRD (observability.krateo.io/v1alpha1), NOT a CompositionDefinition, so the
-# GVR is known statically and there is no compdef/jsonschema-ConfigMap indirection:
-#   1. GET the Alert CRD (apiextensions.k8s.io) — its openAPIV3Schema.properties.spec IS the
-#      form's live JSON schema (so the form always tracks the deployed CRD; add a spec field to
-#      the CRD and the form grows it, no chart change).
-#   2. GET the namespaces the USER can `create alerts` in (snowplow userAccessFilter / SSAR) —
-#      offered as the Namespace field enum, same #66 tenant pattern as blueprint-formdef.
-# Returns { schemaSpec, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }:
-# schemaSpec = the CRD spec schema with two reserved-key identity fields prepended
-# (__alert_name__ → metadata.name, __alert_namespace__ → metadata.namespace, a create-permitted
-# ns picker); apiVersion/kind/resource = the static GVR for the create POST target. Consumed by
-# form.alert-create (schema ← schemaSpec, create target ← resourcesRefsTemplate off the GVR).
+{{/* Alert create-form schema source — the SAME logic as blueprint-formdef, but the Alert is a */}}
+{{/* plain namespaced CRD (observability.krateo.io/v1alpha1), NOT a CompositionDefinition, so the */}}
+{{/* GVR is known statically and there is no compdef/jsonschema-ConfigMap indirection: */}}
+{{/* 1. GET the Alert CRD (apiextensions.k8s.io) — its openAPIV3Schema.properties.spec IS the */}}
+{{/* form's live JSON schema (so the form always tracks the deployed CRD; add a spec field to */}}
+{{/* the CRD and the form grows it, no chart change). */}}
+{{/* 2. GET the namespaces the USER can `create alerts` in (snowplow userAccessFilter / SSAR) — */}}
+{{/* offered as the Namespace field enum, same #66 tenant pattern as blueprint-formdef. */}}
+{{/* Returns { schemaSpec, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }: */}}
+{{/* schemaSpec = the CRD spec schema with two reserved-key identity fields prepended */}}
+{{/* (__alert_name__ → metadata.name, __alert_namespace__ → metadata.namespace, a create-permitted */}}
+{{/* ns picker); apiVersion/kind/resource = the static GVR for the create POST target. Consumed by */}}
+{{/* form.alert-create (schema ← schemaSpec, create target ← resourcesRefsTemplate off the GVR). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -25,12 +25,12 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
-    # Namespaces the user can `create` an Alert in — RBAC-filtered via snowplow's native
-    # userAccessFilter (the SubjectAccessReview the user-bearer token is appended to). Offered as
-    # the Namespace field enum; defaults to the portal release namespace when the user can create
-    # there (platform admin), else the first allowed namespace (a namespace-scoped tenant). Same
-    # create-permitted-picker pattern as blueprint-formdef's #66 fix — never a ns the user can't
-    # write to, so the create POST never 403s on the target.
+    {{/* Namespaces the user can `create` an Alert in — RBAC-filtered via snowplow's native */}}
+    {{/* userAccessFilter (the SubjectAccessReview the user-bearer token is appended to). Offered as */}}
+    {{/* the Namespace field enum; defaults to the portal release namespace when the user can create */}}
+    {{/* there (platform admin), else the first allowed namespace (a namespace-scoped tenant). Same */}}
+    {{/* create-permitted-picker pattern as blueprint-formdef's #66 fix — never a ns the user can't */}}
+    {{/* write to, so the create POST never 403s on the target. */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -44,10 +44,10 @@ spec:
         resourcesFrom: '["alerts"]'
         namespaceFrom: .metadata.name
       filter: "[.namespaces.items[] | .metadata.name]"
-  # The returned schemaSpec is the CRD's spec schema with two RESERVED-KEY identity fields
-  # PREPENDED: __alert_name__ (the Alert's metadata.name) + __alert_namespace__ (metadata.namespace,
-  # a picker over create-permitted namespaces). Underscore-fenced so they never collide with a spec
-  # property; the Form routes them to metadata.* via payloadToOverride and del()s ONLY them from spec.
+  {{/* The returned schemaSpec is the CRD's spec schema with two RESERVED-KEY identity fields */}}
+  {{/* PREPENDED: __alert_name__ (the Alert's metadata.name) + __alert_namespace__ (metadata.namespace, */}}
+  {{/* a picker over create-permitted namespaces). Underscore-fenced so they never collide with a spec */}}
+  {{/* property; the Form routes them to metadata.* via payloadToOverride and del()s ONLY them from spec. */}}
   filter: |
     "v1alpha1" as $ver
     | (.namespaces // []) as $nsAll

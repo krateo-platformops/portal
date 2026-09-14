@@ -1,18 +1,18 @@
-# Edit-form data source — resolves, for ONE composition (?extras .name/.namespace):
-#   schemaSpec : the form fields — from the blueprint's jsonschema ConfigMap (values.schema.json),
-#                NOT the CRD openAPIV3Schema (#74: a namespace-scoped tenant can't GET a cluster-
-#                scoped CRD, and a CD .status doesn't carry the schema).
-#   values     : the current .spec (pre-fills the form)
-#   gvr        : apiVersion/resource/name/namespace (the PATCH target)
-# Compositions are heterogeneous per-blueprint kinds, so discover the TYPE generically. #74 (tenant
-# self-service — sibling of #66/#70/#72): discover via a CompositionDefinition list under a
-# userAccessFilter (snowplow lists as its SA, then refilters to the CDs the CALLER can list) — covers
-# every namespace the caller is granted, with NO cluster-wide customresourcedefinitions list (which
-# runs as the caller and 403s for a tenant → empty form). The schema comes from the per-version
-# jsonschema ConfigMap the core-provider/cdc publishes in the CD's OWN namespace (namespaced, tenant-
-# readable), keyed <resource>-<version>-jsonschema-configmap — the SAME source the create form uses
-# (restaction.blueprint-formdef, #66). Only fetched when the Edit drawer opens. Extras reach RA api
-# steps on this snowplow (same as composition-detail).
+{{/* Edit-form data source — resolves, for ONE composition (?extras .name/.namespace): */}}
+{{/* schemaSpec : the form fields — from the blueprint's jsonschema ConfigMap (values.schema.json), */}}
+{{/* NOT the CRD openAPIV3Schema (#74: a namespace-scoped tenant can't GET a cluster- */}}
+{{/* scoped CRD, and a CD .status doesn't carry the schema). */}}
+{{/* values     : the current .spec (pre-fills the form) */}}
+{{/* gvr        : apiVersion/resource/name/namespace (the PATCH target) */}}
+{{/* Compositions are heterogeneous per-blueprint kinds, so discover the TYPE generically. #74 (tenant */}}
+{{/* self-service — sibling of #66/#70/#72): discover via a CompositionDefinition list under a */}}
+{{/* userAccessFilter (snowplow lists as its SA, then refilters to the CDs the CALLER can list) — covers */}}
+{{/* every namespace the caller is granted, with NO cluster-wide customresourcedefinitions list (which */}}
+{{/* runs as the caller and 403s for a tenant → empty form). The schema comes from the per-version */}}
+{{/* jsonschema ConfigMap the core-provider/cdc publishes in the CD's OWN namespace (namespaced, tenant- */}}
+{{/* readable), keyed <resource>-<version>-jsonschema-configmap — the SAME source the create form uses */}}
+{{/* (restaction.blueprint-formdef, #66). Only fetched when the Edit drawer opens. Extras reach RA api */}}
+{{/* steps on this snowplow (same as composition-detail). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -22,9 +22,9 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # Type discovery via CompositionDefinitions under a UAF (#74) — plural/version/kind/group + the
-    # CD's own namespace (where its jsonschema ConfigMap lives). No CRD schema here (a CD .status
-    # doesn't carry it — the schema is read from the CM below).
+    {{/* Type discovery via CompositionDefinitions under a UAF (#74) — plural/version/kind/group + the */}}
+    {{/* CD's own namespace (where its jsonschema ConfigMap lives). No CRD schema here (a CD .status */}}
+    {{/* doesn't carry it — the schema is read from the CM below). */}}
     - name: crds
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -36,32 +36,32 @@ spec:
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
       continueOnError: true
-      # Guarded: a 404/odd body can make .crds a non-object (string) or an item's .status a
-      # scalar — type-guard .items and `try` the select so a malformed response yields [] (no
-      # discovered types → empty form) instead of a "Cannot index" crash that surfaces as the
-      # generic "couldn't reach the server" widget error.
+      {{/* Guarded: a 404/odd body can make .crds a non-object (string) or an item's .status a */}}
+      {{/* scalar — type-guard .items and `try` the select so a malformed response yields [] (no */}}
+      {{/* discovered types → empty form) instead of a "Cannot index" crash that surfaces as the */}}
+      {{/* generic "couldn't reach the server" widget error. */}}
       filter: "[(.crds // {} | if type == \"object\" then .items else null end) // [] | .[]? | select((try (.status.resource != null and .status.apiVersion != null) catch false)) | {plural: .status.resource, kind: (.status.kind // \"\"), group: ((.status.apiVersion | split(\"/\")[0]) // \"\"), version: ((.status.apiVersion | split(\"/\")[1]) // \"\"), cdNamespace: (.metadata.namespace // \"\")}]"
     - name: found
       dependsOn:
         name: crds
         iterator: .crds
-      # #74: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list
-      # (→ 403 for a namespace-scoped tenant). The composition is always in .namespace.
+      {{/* #74: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list */}}
+      {{/* (→ 403 for a namespace-scoped tenant). The composition is always in .namespace. */}}
       path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      # Guarded: a 404/odd body can make .found a non-object (string) — type-guard .items so it
-      # yields [] (composition not found → empty form) instead of a "Cannot index" crash. `del`
-      # is wrapped in `try` (bind the item, catch returns it unchanged) so an item with a scalar
-      # .metadata survives rather than aborting the whole step.
+      {{/* Guarded: a 404/odd body can make .found a non-object (string) — type-guard .items so it */}}
+      {{/* yields [] (composition not found → empty form) instead of a "Cannot index" crash. `del` */}}
+      {{/* is wrapped in `try` (bind the item, catch returns it unchanged) so an item with a scalar */}}
+      {{/* .metadata survives rather than aborting the whole step. */}}
       filter: "[(.found // {} | if type == \"object\" then .items else null end) // [] | .[]? | . as $it | (try ($it | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])) catch $it)]"
-    # #74: the form SCHEMA — the per-version jsonschema ConfigMap in the CD's OWN namespace
-    # (namespaced, tenant-readable), keyed <resource>-<version>-jsonschema-configmap. Iterate ONLY the
-    # CD whose kind matches THIS composition (from found), so exactly one CM is fetched. The
-    # crds→found→jsonschema dependsOn chain guarantees both .crds and .found are resolved when this
-    # step's iterator + path evaluate. continueOnError: absent CM → null → empty schema (no error).
+    {{/* #74: the form SCHEMA — the per-version jsonschema ConfigMap in the CD's OWN namespace */}}
+    {{/* (namespaced, tenant-readable), keyed <resource>-<version>-jsonschema-configmap. Iterate ONLY the */}}
+    {{/* CD whose kind matches THIS composition (from found), so exactly one CM is fetched. The */}}
+    {{/* crds→found→jsonschema dependsOn chain guarantees both .crds and .found are resolved when this */}}
+    {{/* step's iterator + path evaluate. continueOnError: absent CM → null → empty schema (no error). */}}
     - name: jsonschema
       dependsOn:
         name: found
@@ -72,9 +72,9 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: jsonschemaError
-  # LITERAL block (|), NOT folded (>): the filter carries `#` comments, and folding joins lines with
-  # spaces so a `#` would swallow the jq after it (the composition-events filter shipped broken this
-  # way once). `|` preserves newlines so comments terminate.
+  {{/* LITERAL block (|), NOT folded (>): the filter carries `#` comments, and folding joins lines with */}}
+  {{/* spaces so a `#` would swallow the jq after it (the composition-events filter shipped broken this */}}
+  {{/* way once). `|` preserves newlines so comments terminate. */}}
   filter: |
     .name as $n
     | .namespace as $ns

@@ -1,13 +1,13 @@
-# Observability main Tabs (R2 #9) — splits the page into Reconciliation (composition health
-# from live cluster snapshots), Telemetry (OTel → ClickHouse error digest, log stream and
-# resource usage) and Components (platform-health drill-down for the control-plane's own
-# Deployments — moved here from Settings, which is user administration only now). The
-# Reconciliation/Telemetry/Components tabs are each a single Col wrapper resolved through
-# resourcesRefs (the Tabs allowedResources enum has `cols` but not `flexes`), so every tab opens
-# with its own section header + caption. The range chips stay ABOVE the tabs
-# (shared filter), so all tabs re-render on a range change — hence keyExtras carries `range`
-# (and `projects`, the shell scope selector that rides every route) so the Tabs' own cache cell
-# partitions per range+scope like its children do.
+{{/* Observability main Tabs (R2 #9) — splits the page into Reconciliation (composition health */}}
+{{/* from live cluster snapshots), Telemetry (OTel → ClickHouse error digest, log stream and */}}
+{{/* resource usage) and Components (platform-health drill-down for the control-plane's own */}}
+{{/* Deployments — moved here from Settings, which is user administration only now). The */}}
+{{/* Reconciliation/Telemetry/Components tabs are each a single Col wrapper resolved through */}}
+{{/* resourcesRefs (the Tabs allowedResources enum has `cols` but not `flexes`), so every tab opens */}}
+{{/* with its own section header + caption. The range chips stay ABOVE the tabs */}}
+{{/* (shared filter), so all tabs re-render on a range change — hence keyExtras carries `range` */}}
+{{/* (and `projects`, the shell scope selector that rides every route) so the Tabs' own cache cell */}}
+{{/* partitions per range+scope like its children do. */}}
 kind: Tabs
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,16 +16,16 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the shared range chips write ?range=, the shell writes ?projects= —
-  # both reach the Tabs on every visit, so both are declared here.
+  {{/* F6 (snowplow#130): the shared range chips write ?range=, the shell writes ?projects= — */}}
+  {{/* both reach the Tabs on every visit, so both are declared here. */}}
   keyExtras: [projects, range]
   widgetData:
     allowedResources:
       - cols
       - tables
-    # #83 §0.1: no per-tab `title:` — each tab's content already opens with its own section
-    # heading + subtitle (obs-tab-reconciliation / obs-tab-telemetry), so a Tabs-level title here
-    # rendered a second, redundant heading line above that. The `label` is the tab's name.
+    {{/* #83 §0.1: no per-tab `title:` — each tab's content already opens with its own section */}}
+    {{/* heading + subtitle (obs-tab-reconciliation / obs-tab-telemetry), so a Tabs-level title here */}}
+    {{/* rendered a second, redundant heading line above that. The `label` is the tab's name. */}}
     items:
       - label: Reconciliation
         resourceRefId: obs-tab-reconciliation

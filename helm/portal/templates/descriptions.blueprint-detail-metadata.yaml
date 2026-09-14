@@ -1,6 +1,6 @@
-# CompositionDefinition metadata (namespace / uid / created + labels) as label/value rows.
-# Shaped server-side by the blueprint-detail RA (.detail.metadata). Mirrors
-# descriptions-composition-detail-metadata.
+{{/* CompositionDefinition metadata (namespace / uid / created + labels) as label/value rows. */}}
+{{/* Shaped server-side by the blueprint-detail RA (.detail.metadata). Mirrors */}}
+{{/* descriptions-composition-detail-metadata. */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,7 +9,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: blueprint-detail
@@ -19,8 +19,8 @@ spec:
     bordered: true
     size: small
     items: []
-  # Created renders as the compact relative age the compositions table uses (Descriptions
-  # items have no `format: relative` → derived server-side via `now`; date fallback past ~60d).
+  {{/* Created renders as the compact relative age the compositions table uses (Descriptions */}}
+  {{/* items have no `format: relative` → derived server-side via `now`; date fallback past ~60d). */}}
   widgetDataTemplate:
     - forPath: items
       expression: '${ def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end; [ { label: "Namespace", value: (.detail.metadata.namespace // "") }, { label: "UID", value: (.detail.metadata.uid // "") }, { label: "Created", value: ((.detail.metadata.creationTimestamp // "") | rel) } ] + ((.detail.metadata.labels // {}) | to_entries | map({ label: ("label/" + .key), value: .value })) }'

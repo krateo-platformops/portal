@@ -1,11 +1,11 @@
-# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
-# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
-# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{/* GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps */}}
+{{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
+{{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-# Live reconcile throughput — the composition-dynamic-controller's `reconcile` trace spans,
-# bucketed 10-min, straight from ClickHouse (otel_traces) via restaction.obs-reconcile-metrics.
-# Data is ALREADY bucketed server-side (ClickHouse), so this chart just maps series -> {t,v};
-# `t` is UNIX epoch seconds (the widget localizes the axis label to the browser TZ).
+{{/* Live reconcile throughput — the composition-dynamic-controller's `reconcile` trace spans, */}}
+{{/* bucketed 10-min, straight from ClickHouse (otel_traces) via restaction.obs-reconcile-metrics. */}}
+{{/* Data is ALREADY bucketed server-side (ClickHouse), so this chart just maps series -> {t,v}; */}}
+{{/* `t` is UNIX epoch seconds (the widget localizes the axis label to the browser TZ). */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,7 +15,7 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     xField: t

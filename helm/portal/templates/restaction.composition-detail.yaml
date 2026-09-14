@@ -1,22 +1,22 @@
-# Thin, generic data source — NO widget representation logic (that lives in each
-# consuming widget's widgetDataTemplate). Resolves ONE composition (from ?extras
-# .name/.namespace): compositions are heterogeneous per-blueprint kinds, so
-# discover generically (list composition.krateo.io CRDs, list each cluster-wide,
-# pick name+namespace). Returns ONLY raw data:
-#   detail     : the full composition object (managedFields stripped)
-#   conditions : .status.conditions PLUS a synthesized Workload condition when the
-#                engine's status-projection says the managed workload is unhealthy
-#                (.status.workloadHealthy == false) — the SAME synthesis as the
-#                compositions-list RA, so a CrashLoopBackOff comp can't read
-#                all-green here while its raw Ready/Synced stay True. `detail`
-#                itself stays UNTOUCHED (the manifest viewer must never show a
-#                condition the cluster doesn't hold).
-#   workloadHealthy / healthMessage : the raw projection fields (null when the
-#                engine doesn't project them — absence is not a health claim).
-# Every detail widget (header/status/subtitle/spec/health/manifest/metadata/
-# relations) shapes its own slice from this in its widgetDataTemplate. Events are
-# a separate concern → restaction.composition-events (the events-presenter/SSE).
-# Extras reach RA api steps on this snowplow (same mechanism as blueprint-formdef).
+{{/* Thin, generic data source — NO widget representation logic (that lives in each */}}
+{{/* consuming widget's widgetDataTemplate). Resolves ONE composition (from ?extras */}}
+{{/* .name/.namespace): compositions are heterogeneous per-blueprint kinds, so */}}
+{{/* discover generically (list composition.krateo.io CRDs, list each cluster-wide, */}}
+{{/* pick name+namespace). Returns ONLY raw data: */}}
+{{/* detail     : the full composition object (managedFields stripped) */}}
+{{/* conditions : .status.conditions PLUS a synthesized Workload condition when the */}}
+{{/* engine's status-projection says the managed workload is unhealthy */}}
+{{/* (.status.workloadHealthy == false) — the SAME synthesis as the */}}
+{{/* compositions-list RA, so a CrashLoopBackOff comp can't read */}}
+{{/* all-green here while its raw Ready/Synced stay True. `detail` */}}
+{{/* itself stays UNTOUCHED (the manifest viewer must never show a */}}
+{{/* condition the cluster doesn't hold). */}}
+{{/* workloadHealthy / healthMessage : the raw projection fields (null when the */}}
+{{/* engine doesn't project them — absence is not a health claim). */}}
+{{/* Every detail widget (header/status/subtitle/spec/health/manifest/metadata/ */}}
+{{/* relations) shapes its own slice from this in its widgetDataTemplate. Events are */}}
+{{/* a separate concern → restaction.composition-events (the events-presenter/SSE). */}}
+{{/* Extras reach RA api steps on this snowplow (same mechanism as blueprint-formdef). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -26,18 +26,18 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # #72: discover composition TYPES from CompositionDefinitions — NOT a cluster-wide
-    # customresourcedefinitions list. That CRD list runs as the CALLER (no userAccessFilter →
-    # caller token, per internal/dynamic/sa_client.go), and a namespace-scoped tenant cannot list
-    # CRDs cluster-wide → 403 → continueOnError → empty discovery → blank detail page. Instead list
-    # CompositionDefinitions cluster-wide UNDER a userAccessFilter on `compositiondefinitions`:
-    # snowplow lists as its SA (which holds the cluster-wide grant), then REFILTERS to the CDs in
-    # namespaces where the CALLER can list them — so a tenant sees types in EVERY namespace it's
-    # granted (krateo-system, krateo-blueprints per acmp#53, its own ns, …), an admin sees all, with
-    # NO hardcoded namespaces. The CD .status carries everything the former `crds` (plural/version/
-    # kind/group) AND `compdefs` (name/namespace for the blueprint reverse-link) steps needed, so
-    # `compdefs` is folded in here (cdName/cdNamespace). Per-instance visibility is still gated by the
-    # namespace-scoped `found` fetch below, so no cross-tenant leak.
+    {{/* #72: discover composition TYPES from CompositionDefinitions — NOT a cluster-wide */}}
+    {{/* customresourcedefinitions list. That CRD list runs as the CALLER (no userAccessFilter → */}}
+    {{/* caller token, per internal/dynamic/sa_client.go), and a namespace-scoped tenant cannot list */}}
+    {{/* CRDs cluster-wide → 403 → continueOnError → empty discovery → blank detail page. Instead list */}}
+    {{/* CompositionDefinitions cluster-wide UNDER a userAccessFilter on `compositiondefinitions`: */}}
+    {{/* snowplow lists as its SA (which holds the cluster-wide grant), then REFILTERS to the CDs in */}}
+    {{/* namespaces where the CALLER can list them — so a tenant sees types in EVERY namespace it's */}}
+    {{/* granted (krateo-system, krateo-blueprints per acmp#53, its own ns, …), an admin sees all, with */}}
+    {{/* NO hardcoded namespaces. The CD .status carries everything the former `crds` (plural/version/ */}}
+    {{/* kind/group) AND `compdefs` (name/namespace for the blueprint reverse-link) steps needed, so */}}
+    {{/* `compdefs` is folded in here (cdName/cdNamespace). Per-instance visibility is still gated by the */}}
+    {{/* namespace-scoped `found` fetch below, so no cross-tenant leak. */}}
     - name: crds
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -54,8 +54,8 @@ spec:
       dependsOn:
         name: crds
         iterator: .crds
-      # Namespace-scoped (the composition is always in ?extras .namespace) — never a cluster-wide
-      # list, so this stays fast even when other namespaces hold tens of thousands of compositions.
+      {{/* Namespace-scoped (the composition is always in ?extras .namespace) — never a cluster-wide */}}
+      {{/* list, so this stays fast even when other namespaces hold tens of thousands of compositions. */}}
       path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
       verb: GET
       headers:

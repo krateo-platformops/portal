@@ -1,14 +1,14 @@
-# Revoke the managed grant in the active ?ns scope (W3-2) — the DELETE twin of
-# the grant form's ops[] action: RoleBinding FIRST, then Role (the safe delete
-# order — an interrupted set leaves a subject-less Role, never a dangling
-# binding). ONE aggregated blast-radius confirm gates the pair (DELETEs are
-# unconditionally gated); ONE set AuditRecord records it.
-#
-# The two DELETE targets resolve SERVER-SIDE from the LIVE objects: access-grants
-# emits `.current` (the managed pair in the active namespace) and the
-# resourcesRefsTemplate below fills name/namespace from it — nothing re-derived
-# client-side. Rendered only when a grant exists in scope (see
-# flex.access-grants-actions), so the refs are never empty when clickable.
+{{/* Revoke the managed grant in the active ?ns scope (W3-2) — the DELETE twin of */}}
+{{/* the grant form's ops[] action: RoleBinding FIRST, then Role (the safe delete */}}
+{{/* order — an interrupted set leaves a subject-less Role, never a dangling */}}
+{{/* binding). ONE aggregated blast-radius confirm gates the pair (DELETEs are */}}
+{{/* unconditionally gated); ONE set AuditRecord records it. */}}
+{{/* */}}
+{{/* The two DELETE targets resolve SERVER-SIDE from the LIVE objects: access-grants */}}
+{{/* emits `.current` (the managed pair in the active namespace) and the */}}
+{{/* resourcesRefsTemplate below fills name/namespace from it — nothing re-derived */}}
+{{/* client-side. Rendered only when a grant exists in scope (see */}}
+{{/* flex.access-grants-actions), so the refs are never empty when clickable. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,7 +17,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [username, ns]
   apiRef:
     name: access-grants
@@ -41,7 +41,7 @@ spec:
           loading:
             display: true
           ops:
-            # RoleBinding first: stop-on-first-error must never orphan a live binding.
+            {{/* RoleBinding first: stop-on-first-error must never orphan a live binding. */}}
             - resourceRefId: delete-grant-binding
             - resourceRefId: delete-grant-role
   widgetDataTemplate:

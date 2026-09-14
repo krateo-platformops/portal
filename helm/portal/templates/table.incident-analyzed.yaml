@@ -1,6 +1,6 @@
-# analyzedResources table (mockup .ares) — the cluster objects the agent actually read
-# during the RCA: gvr / name / namespace / what was read. Off incident-detail; the page
-# Flex includes it only when analyzedResources is non-empty.
+{{/* analyzedResources table (mockup .ares) — the cluster objects the agent actually read */}}
+{{/* during the RCA: gvr / name / namespace / what was read. Off incident-detail; the page */}}
+{{/* Flex includes it only when analyzedResources is non-empty. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,21 +9,21 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   widgetData:
     allowedResources: []
     bordered: false
     size: small
-    # UX-19 #21: each analyzed resource drills into the RIGHT page per-kind — a composition-kind
-    # row goes to its own /compositions/{ns}/{name} detail (not the generic /resources view),
-    # everything else to /resources/... The branch can't live in a multi-segment template, so the
-    # server precomputes the WHOLE destination into a single hidden `route` cell; rowNavigateTo is
-    # `{route}` (frontend Table >= 1.3.78 uses a whole-placeholder cell VERBATIM, no slash-encoding).
-    # An unparseable row emits route:"" → buildRowPath finds a missing token → the row stays inert.
+    {{/* UX-19 #21: each analyzed resource drills into the RIGHT page per-kind — a composition-kind */}}
+    {{/* row goes to its own /compositions/{ns}/{name} detail (not the generic /resources view), */}}
+    {{/* everything else to /resources/... The branch can't live in a multi-segment template, so the */}}
+    {{/* server precomputes the WHOLE destination into a single hidden `route` cell; rowNavigateTo is */}}
+    {{/* `{route}` (frontend Table >= 1.3.78 uses a whole-placeholder cell VERBATIM, no slash-encoding). */}}
+    {{/* An unparseable row emits route:"" → buildRowPath finds a missing token → the row stays inert. */}}
     rowNavigateTo: '{route}'
-    # Human header, not the status-field name — 'analyzedResources · gvr' rendered as a
-    # shouting 'ANALYZEDRESOURCES · GVR' column caption.
+    {{/* Human header, not the status-field name — 'analyzedResources · gvr' rendered as a */}}
+    {{/* shouting 'ANALYZEDRESOURCES · GVR' column caption. */}}
     columns:
     - valueKey: gvr
       title: Analyzed resource

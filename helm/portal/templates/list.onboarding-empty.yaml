@@ -1,20 +1,20 @@
-# Onboarding empty-state — the first-run "what do you want to build?" surface for a
-# zero-knowledge user. It renders ONLY when the user owns NO compositions yet, then
-# disappears the moment they have one — a server-driven conditional section, not a
-# client "we decided you're new" flag.
-#
-# GATE: apiRef = compositions-list (returns the user's ns-scoped `.list`). The
-# widgetDataTemplate emits the intent tiles ONLY when `(.list | length) == 0`; otherwise
-# it emits an empty array and `hideWhenEmpty: true` makes the whole Listy render nothing
-# (instead of an antd "No data" box). So the card appears/vanishes purely with the data.
-#
-# TILES (curated intents, Autopilot-driven): each is a Card that NAVIGATES to a real
-# marketplace SEARCH (`?q=<term>` — honest: it shows whatever actually matches, never a
-# fabricated count) AND opens the Autopilot rail with a matching starter prompt
-# (`&ask=<prompt>`, URL-encoded via @uri — consumed once by AutopilotProvider). If
-# Autopilot is disabled on this install the `ask` is simply ignored and the tile still
-# filters the marketplace — graceful degradation. The first tile hands the whole choice
-# to Autopilot ("help me choose"), the rest seed a concrete intent.
+{{/* Onboarding empty-state — the first-run "what do you want to build?" surface for a */}}
+{{/* zero-knowledge user. It renders ONLY when the user owns NO compositions yet, then */}}
+{{/* disappears the moment they have one — a server-driven conditional section, not a */}}
+{{/* client "we decided you're new" flag. */}}
+{{/* */}}
+{{/* GATE: apiRef = compositions-list (returns the user's ns-scoped `.list`). The */}}
+{{/* widgetDataTemplate emits the intent tiles ONLY when `(.list | length) == 0`; otherwise */}}
+{{/* it emits an empty array and `hideWhenEmpty: true` makes the whole Listy render nothing */}}
+{{/* (instead of an antd "No data" box). So the card appears/vanishes purely with the data. */}}
+{{/* */}}
+{{/* TILES (curated intents, Autopilot-driven): each is a Card that NAVIGATES to a real */}}
+{{/* marketplace SEARCH (`?q=<term>` — honest: it shows whatever actually matches, never a */}}
+{{/* fabricated count) AND opens the Autopilot rail with a matching starter prompt */}}
+{{/* (`&ask=<prompt>`, URL-encoded via @uri — consumed once by AutopilotProvider). If */}}
+{{/* Autopilot is disabled on this install the `ask` is simply ignored and the tile still */}}
+{{/* filters the marketplace — graceful degradation. The first tile hands the whole choice */}}
+{{/* to Autopilot ("help me choose"), the rest seed a concrete intent. */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Listy
 metadata:
@@ -23,15 +23,15 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6: the extras keys that partition this widget's cache cell. Undeclared keys still
-  # reach the jq dict but do NOT vary the key, so a content-bearing key left out here
-  # serves one scope's content from another's cell.
+  {{/* F6: the extras keys that partition this widget's cache cell. Undeclared keys still */}}
+  {{/* reach the jq dict but do NOT vary the key, so a content-bearing key left out here */}}
+  {{/* serves one scope's content from another's cell. */}}
   keyExtras: [projects, q, scope]
   apiRef:
     name: compositions-list
     namespace: {{ .Release.Namespace }}
   widgetData:
-    # When the gate emits [] (the user already owns a composition), render nothing.
+    {{/* When the gate emits [] (the user already owns a composition), render nothing. */}}
     hideWhenEmpty: true
     bordered: true
     header: "Welcome to Krateo — what do you want to build?"

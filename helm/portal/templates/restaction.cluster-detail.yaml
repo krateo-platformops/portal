@@ -1,25 +1,25 @@
-# Cluster drill-down data source — ONE KubernetesTarget (from ?extras .name — the
-# /clusters/{name} route param) plus the CompositionDefinitions that TARGET it, all
-# shaped server-side (nothing-hardcoded). Mirrors clusters-list's two stages and its
-# health grammar, narrowed to a single spoke:
-#   targets  : collection LIST of KubernetesTargets (they live on the hub) — the per-name
-#              row is selected in jq (LIST-then-select, same resolution shape as
-#              incident-detail; avoids a per-name GET and degrades to "NotFound" instead
-#              of failing the widget). KubernetesTarget is NAMESPACED (core-provider 2.8.0),
-#              but the collection endpoint returns all visible namespaces AND we select in
-#              jq, so no per-name GET path (which would need the namespace segment) is used —
-#              the read works unchanged after the scope migration. A target's OWN status is FLAT
-#              (.status.connectionStatus/.version/.lastProbeTime — probed directly by
-#              core-provider) and is the primary health signal.
-#   compdefs : LIST of CompositionDefinitions — each carries spec.deploy.targetRef.name
-#              (the spoke it targets) and status.target.{connectionStatus,version}
-#              (per-blueprint reachability). The filter JOINs them to this target:
-#              `blueprints` rows (name/namespace/per-blueprint health, each linking to
-#              the existing /blueprints/{namespace}/{name} route) + the roll-up
-#              fallback when the target's own probe is silent.
-# Health verdict = clusters-list's exact mapping (own probe first, compdef roll-up as
-# fallback): Healthy → green, Down → red, otherwise Unknown → gray. Both list steps
-# continueOnError so the page degrades (NotFound / empty rows), never a broken widget.
+{{/* Cluster drill-down data source — ONE KubernetesTarget (from ?extras .name — the */}}
+{{/* /clusters/{name} route param) plus the CompositionDefinitions that TARGET it, all */}}
+{{/* shaped server-side (nothing-hardcoded). Mirrors clusters-list's two stages and its */}}
+{{/* health grammar, narrowed to a single spoke: */}}
+{{/* targets  : collection LIST of KubernetesTargets (they live on the hub) — the per-name */}}
+{{/* row is selected in jq (LIST-then-select, same resolution shape as */}}
+{{/* incident-detail; avoids a per-name GET and degrades to "NotFound" instead */}}
+{{/* of failing the widget). KubernetesTarget is NAMESPACED (core-provider 2.8.0), */}}
+{{/* but the collection endpoint returns all visible namespaces AND we select in */}}
+{{/* jq, so no per-name GET path (which would need the namespace segment) is used — */}}
+{{/* the read works unchanged after the scope migration. A target's OWN status is FLAT */}}
+{{/* (.status.connectionStatus/.version/.lastProbeTime — probed directly by */}}
+{{/* core-provider) and is the primary health signal. */}}
+{{/* compdefs : LIST of CompositionDefinitions — each carries spec.deploy.targetRef.name */}}
+{{/* (the spoke it targets) and status.target.{connectionStatus,version} */}}
+{{/* (per-blueprint reachability). The filter JOINs them to this target: */}}
+{{/* `blueprints` rows (name/namespace/per-blueprint health, each linking to */}}
+{{/* the existing /blueprints/{namespace}/{name} route) + the roll-up */}}
+{{/* fallback when the target's own probe is silent. */}}
+{{/* Health verdict = clusters-list's exact mapping (own probe first, compdef roll-up as */}}
+{{/* fallback): Healthy → green, Down → red, otherwise Unknown → gray. Both list steps */}}
+{{/* continueOnError so the page degrades (NotFound / empty rows), never a broken widget. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -29,10 +29,10 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # KubernetesTarget is namespaced (core.krateo.io/v1alpha1) as of core-provider 2.8.0, but
-    # this is the collection LIST endpoint (no namespace segment → all visible namespaces) and
-    # the per-name row is selected in jq. UAF gates the LIST by the user's list grant on
-    # kubernetestargets; a narrow-RBAC user simply sees "NotFound".
+    {{/* KubernetesTarget is namespaced (core.krateo.io/v1alpha1) as of core-provider 2.8.0, but */}}
+    {{/* this is the collection LIST endpoint (no namespace segment → all visible namespaces) and */}}
+    {{/* the per-name row is selected in jq. UAF gates the LIST by the user's list grant on */}}
+    {{/* kubernetestargets; a narrow-RBAC user simply sees "NotFound". */}}
     - name: targets
       path: /apis/core.krateo.io/v1alpha1/kubernetestargets
       verb: GET
@@ -44,8 +44,8 @@ spec:
         verb: list
         group: core.krateo.io
         resource: kubernetestargets
-      # Same thin projection as clusters-list (status read defensively — a freshly-registered
-      # target may carry none). The step key then holds THIS array.
+      {{/* Same thin projection as clusters-list (status read defensively — a freshly-registered */}}
+      {{/* target may carry none). The step key then holds THIS array. */}}
       filter: >
         [ .targets.items[]?
           | { name: .metadata.name,
@@ -54,8 +54,8 @@ spec:
               conn: (.status.connectionStatus // ""),
               version: (.status.version // ""),
               lastProbe: (.status.lastProbeTime // .metadata.creationTimestamp // "") } ]
-    # CompositionDefinitions — cluster-scope LIST (same shape clusters-list relies on); we
-    # keep name+namespace here (unlike clusters-list) so each row can link to its detail page.
+    {{/* CompositionDefinitions — cluster-scope LIST (same shape clusters-list relies on); we */}}
+    {{/* keep name+namespace here (unlike clusters-list) so each row can link to its detail page. */}}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -77,10 +77,10 @@ spec:
               ver: (.spec.chart.version // ""),
               k8sVer: (.status.target.version // "") }
           | select(.target != "") ]
-  # Select THIS target by the sanitised route param, JOIN its targeting blueprints and
-  # derive the single health verdict (clusters-list's mapping). `blueprints` rows carry
-  # everything the Listy renders — per-row health label/colour computed HERE (server-side
-  # value→presentation), versionLabel pre-formatted so an absent version renders empty.
+  {{/* Select THIS target by the sanitised route param, JOIN its targeting blueprints and */}}
+  {{/* derive the single health verdict (clusters-list's mapping). `blueprints` rows carry */}}
+  {{/* everything the Listy renders — per-row health label/colour computed HERE (server-side */}}
+  {{/* value→presentation), versionLabel pre-formatted so an absent version renders empty. */}}
   filter: >
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
     | ([ (.targets // [])[] | select(.name == $n) ] | first // {}) as $t

@@ -1,26 +1,26 @@
-# The dashboard page header — the greeting, what it is showing, and the create CTA, in one CR.
-#
-# Replaces SIX: row.header-row, flex.header-greeting-flex, flex.header-actions-flex,
-# paragraph.greeting-eyebrow, paragraph.greeting-title and paragraph.greeting-subtitle.
-#
-# THIS DELETES THE LAST EYEBROW IN THE CHART. Paragraph.tsx returns null for `variant: eyebrow`,
-# and its comment says the canonical source is the chart's *-eyebrow CRs — so the frontend hack
-# could not go until the last CR did. With this one gone, it can.
-#
-# THE RANGE CHIPS DO NOT COME INTO THE HEADER, and that is the one judgement here.
-# flex.header-actions-flex was a `justify: space-between` row holding TWO different things: the
-# 24h/7d/30d/all range chips on the left, "New composition" on the right. PageHeader's `items` are
-# the page's ACTIONS and it right-aligns them, so folding the whole Flex in would have pushed a
-# filter control to the right edge and pressed it against the CTA.
-#
-# They separate by what they are instead: the CTA is an action and joins the header; the chips are
-# a filter bar and become the next sibling — which is where every other migrated page puts one
-# (blueprints-filterbar, compositions-toolbar, incidents-status-chips). header-actions-flex then
-# holds nothing of its own and goes too.
-#
-# The greeting keeps its frontend-resolved placeholders for the time of day and display name;
-# those are substituted by the frontend, not by jq, and a PageHeader title renders through the
-# same path a Paragraph did.
+{{/* The dashboard page header — the greeting, what it is showing, and the create CTA, in one CR. */}}
+{{/* */}}
+{{/* Replaces SIX: row.header-row, flex.header-greeting-flex, flex.header-actions-flex, */}}
+{{/* paragraph.greeting-eyebrow, paragraph.greeting-title and paragraph.greeting-subtitle. */}}
+{{/* */}}
+{{/* THIS DELETES THE LAST EYEBROW IN THE CHART. Paragraph.tsx returns null for `variant: eyebrow`, */}}
+{{/* and its comment says the canonical source is the chart's *-eyebrow CRs — so the frontend hack */}}
+{{/* could not go until the last CR did. With this one gone, it can. */}}
+{{/* */}}
+{{/* THE RANGE CHIPS DO NOT COME INTO THE HEADER, and that is the one judgement here. */}}
+{{/* flex.header-actions-flex was a `justify: space-between` row holding TWO different things: the */}}
+{{/* 24h/7d/30d/all range chips on the left, "New composition" on the right. PageHeader's `items` are */}}
+{{/* the page's ACTIONS and it right-aligns them, so folding the whole Flex in would have pushed a */}}
+{{/* filter control to the right edge and pressed it against the CTA. */}}
+{{/* */}}
+{{/* They separate by what they are instead: the CTA is an action and joins the header; the chips are */}}
+{{/* a filter bar and become the next sibling — which is where every other migrated page puts one */}}
+{{/* (blueprints-filterbar, compositions-toolbar, incidents-status-chips). header-actions-flex then */}}
+{{/* holds nothing of its own and goes too. */}}
+{{/* */}}
+{{/* The greeting keeps its frontend-resolved placeholders for the time of day and display name; */}}
+{{/* those are substituted by the frontend, not by jq, and a PageHeader title renders through the */}}
+{{/* same path a Paragraph did. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,8 +29,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # From paragraph.greeting-subtitle: the subtitle names the active range, so the cache cell has to
-  # be partitioned by it.
+  {{/* From paragraph.greeting-subtitle: the subtitle names the active range, so the cache cell has to */}}
+  {{/* be partitioned by it. */}}
   keyExtras: [range]
   apiRef:
     name: dashboard-data
@@ -43,7 +43,7 @@ spec:
     items:
     - resourceRefId: new-composition
   widgetDataTemplate:
-    # Was paragraph.greeting-subtitle's `forPath: text`, lifted verbatim and re-indented.
+    {{/* Was paragraph.greeting-subtitle's `forPath: text`, lifted verbatim and re-indented. */}}
     - forPath: subtitle
       expression: >-
         ${ "Here's what's happening across your platform" + ({"24h":" in the last 24 hours","7d":" this week","30d":" this month","all":""}[.range // "all"]) }

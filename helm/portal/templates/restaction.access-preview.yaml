@@ -1,25 +1,25 @@
-# Access persona capability preview (W3-2) — "what can this persona do?".
-# Each capability row POSTs a SubjectAccessReview DIRECTLY to the apiserver path
-# (RA stages take arbitrary paths + verbs, so snowplow /call's namespace-injection
-# limitation does not apply): REAL apiserver-authorizer truth, the same primitive
-# as `kubectl auth can-i --as`. SAR "creates" are virtual (nothing persisted) —
-# safe on a read-path RA that prewarm/refresh may re-fire.
-#
-# WHO RUNS IT (honesty limit, labeled in the UI): the CALLING ADMIN's clientconfig
-# — /call and RA dispatch forward no impersonation headers, so this is a run-as-
-# admin check ABOUT the persona, not the persona's live session. Creating SARs
-# needs cluster-wide create subjectaccessreviews; non-admins get a 403 per stage
-# → continueOnError → the top-level filter flags `available: false` and the table
-# renders an honest "preview unavailable" row.
-#
-# GROUPS ARE INPUTS, NOT RESOLVED: k8s SAR evaluates exactly the groups passed.
-# Basic-strategy personas get spec.groups from their User CR (userinfo stage);
-# OIDC/LDAP groups live in the IdP → user-only check that UNDERSTATES
-# group-granted access ("groups unknown" in the header). system:authenticated is
-# always appended (matches the authn cert reality at login time).
-#
-# STATIC STAGES (one per capability): the spec's dependsOn.iterator wiring is
-# unverified for RESULT aggregation — the documented fallback is used instead.
+{{/* Access persona capability preview (W3-2) — "what can this persona do?". */}}
+{{/* Each capability row POSTs a SubjectAccessReview DIRECTLY to the apiserver path */}}
+{{/* (RA stages take arbitrary paths + verbs, so snowplow /call's namespace-injection */}}
+{{/* limitation does not apply): REAL apiserver-authorizer truth, the same primitive */}}
+{{/* as `kubectl auth can-i --as`. SAR "creates" are virtual (nothing persisted) — */}}
+{{/* safe on a read-path RA that prewarm/refresh may re-fire. */}}
+{{/* */}}
+{{/* WHO RUNS IT (honesty limit, labeled in the UI): the CALLING ADMIN's clientconfig */}}
+{{/* — /call and RA dispatch forward no impersonation headers, so this is a run-as- */}}
+{{/* admin check ABOUT the persona, not the persona's live session. Creating SARs */}}
+{{/* needs cluster-wide create subjectaccessreviews; non-admins get a 403 per stage */}}
+{{/* → continueOnError → the top-level filter flags `available: false` and the table */}}
+{{/* renders an honest "preview unavailable" row. */}}
+{{/* */}}
+{{/* GROUPS ARE INPUTS, NOT RESOLVED: k8s SAR evaluates exactly the groups passed. */}}
+{{/* Basic-strategy personas get spec.groups from their User CR (userinfo stage); */}}
+{{/* OIDC/LDAP groups live in the IdP → user-only check that UNDERSTATES */}}
+{{/* group-granted access ("groups unknown" in the header). system:authenticated is */}}
+{{/* always appended (matches the authn cert reality at login time). */}}
+{{/* */}}
+{{/* STATIC STAGES (one per capability): the spec's dependsOn.iterator wiring is */}}
+{{/* unverified for RESULT aggregation — the documented fallback is used instead. */}}
 {{- /* The capability matrix. key = jq-safe stage suffix; group/resource/verb =
      SAR resourceAttributes; cluster = true checks cluster-wide (no namespace —
      e.g. a genuinely cluster-scoped resource). resource "*" matches only rules
@@ -45,9 +45,9 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # Persona groups — readable only for basic-strategy users (User CR spec.groups).
-    # Cluster-wide list, matched on metadata.name == the route's username extra.
-    # Missing CRD / no match → groups [] + strategy "unknown" (user-only check).
+    {{/* Persona groups — readable only for basic-strategy users (User CR spec.groups). */}}
+    {{/* Cluster-wide list, matched on metadata.name == the route's username extra. */}}
+    {{/* Missing CRD / no match → groups [] + strategy "unknown" (user-only check). */}}
     - name: userinfo
       path: /apis/basic.authn.krateo.io/v1alpha1/users
       verb: GET
@@ -80,9 +80,9 @@ spec:
         { allowed: (.sar_{{ .key }}.status.allowed // false),
           evaluated: ((.sar_{{ .key }} | type == "object") and (.sar_{{ .key }}.status != null)) }
     {{- end }}
-  # Fold the static stages into table-ready rows + the honesty header fields.
-  # `available` keys off the first SAR stage having a real .status — a 403 lands
-  # under its errorKey, so evaluated stays false and the UI degrades honestly.
+  {{/* Fold the static stages into table-ready rows + the honesty header fields. */}}
+  {{/* `available` keys off the first SAR stage having a real .status — a 403 lands */}}
+  {{/* under its errorKey, so evaluated stays false and the UI degrades honestly. */}}
   filter: >
     (if (.ns // "") != "" then .ns else {{ .Release.Namespace | quote }} end) as $ns
     | {

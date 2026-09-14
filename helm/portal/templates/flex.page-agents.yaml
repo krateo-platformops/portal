@@ -1,28 +1,28 @@
-# Convention page root for /agents — the agent control plane.
-#
-# Reached from the sidebar via `resourceRefId: agents` in menu.sidebar-nav, whose resourcesRefs
-# entry carries this admin-tier namespace explicitly. That indirection is what makes the entry
-# RBAC-aware (snowplow resolves it as the caller, so the nav item disappears for a user who cannot
-# GET this Flex) and it is also why this root can live in the tier namespace at all — the bare
-# `page:` convention would look for it in the frontend's configured namespace and 404.
-#
-# Pagehead + the agent inventory table.
-#
-# THE "New agent" CTA IS NOW ON. It was withheld while the route did not exist: a Button navigating
-# to an unrouted path falls through to the shell catch-all (RoutesContext.tsx `{ element:
-# <WidgetPage />, path: '*' }`) and WidgetPage renders <Page404/>, so advertising it then would have
-# shipped a primary call-to-action that dead-ends — and neither guard catches that (mockup-diff.mjs
-# only flags an empty `actions`, lint-keyextras only covers parameterized routes). Both halves are
-# in place now: menu.sidebar-nav carries `{ order: 936, path: "/agents/new", page: agent-create }`,
+{{/* Convention page root for /agents — the agent control plane. */}}
+{{/* */}}
+{{/* Reached from the sidebar via `resourceRefId: agents` in menu.sidebar-nav, whose resourcesRefs */}}
+{{/* entry carries this admin-tier namespace explicitly. That indirection is what makes the entry */}}
+{{/* RBAC-aware (snowplow resolves it as the caller, so the nav item disappears for a user who cannot */}}
+{{/* GET this Flex) and it is also why this root can live in the tier namespace at all — the bare */}}
+{{/* `page:` convention would look for it in the frontend's configured namespace and 404. */}}
+{{/* */}}
+{{/* Pagehead + the agent inventory table. */}}
+{{/* */}}
+{{/* THE "New agent" CTA IS NOW ON. It was withheld while the route did not exist: a Button navigating */}}
+{{/* to an unrouted path falls through to the shell catch-all (RoutesContext.tsx `{ element: */}}
+{{/* <WidgetPage />, path: '*' }`) and WidgetPage renders <Page404/>, so advertising it then would have */}}
+{{/* shipped a primary call-to-action that dead-ends — and neither guard catches that (mockup-diff.mjs */}}
+{{/* only flags an empty `actions`, lint-keyextras only covers parameterized routes). Both halves are */}}
+{{/* in place now: menu.sidebar-nav carries `{ order: 936, path: "/agents/new", page: agent-create }`, */}}
 # and page-agent-create was moved to {{ `{{ .Release.Namespace }}` }} so that `page:` convention
-# actually resolves it (Menu.tsx passes config.params.FRONTEND_NAMESPACE into buildNavModel, so
-# `page: <slug>` looks for flexes/page-<slug> THERE, never in this admin-tier namespace — see the
-# header of flex.page-agent-create). Without that move the CTA would 404 on any install that sets
-# .Values.tiers.admin, which is the tiered-RBAC layout the tier helper exists for.
-#
-# WHY THE CTA MATTERS MORE THAN IT LOOKS: until now /agents/new was reachable by URL only. A create
-# surface with no entry point anywhere in the product is, in practice, a surface that does not
-# exist — the audit found it by reading the chart, not by using the portal.
+{{/* actually resolves it (Menu.tsx passes config.params.FRONTEND_NAMESPACE into buildNavModel, so */}}
+{{/* `page: <slug>` looks for flexes/page-<slug> THERE, never in this admin-tier namespace — see the */}}
+{{/* header of flex.page-agent-create). Without that move the CTA would 404 on any install that sets */}}
+{{/* .Values.tiers.admin, which is the tiered-RBAC layout the tier helper exists for. */}}
+{{/* */}}
+{{/* WHY THE CTA MATTERS MORE THAN IT LOOKS: until now /agents/new was reachable by URL only. A create */}}
+{{/* surface with no entry point anywhere in the product is, in practice, a surface that does not */}}
+{{/* exist — the audit found it by reading the chart, not by using the portal. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -40,15 +40,15 @@ spec:
     gap: middle
     items:
     - resourceRefId: agents-page-header
-    # Both actions the page offers, paired in the header as the mockup shows them. Replaces the
-    # single-button agents-new-cta: a reader looking for "how do I add a policy" should not have to
-    # discover it on another page.
-    # The summary band: three stat cards, each fed by the same action as the section it summarises,
-    # so a number on the card can never disagree with the table under the tab.
+    {{/* Both actions the page offers, paired in the header as the mockup shows them. Replaces the */}}
+    {{/* single-button agents-new-cta: a reader looking for "how do I add a policy" should not have to */}}
+    {{/* discover it on another page. */}}
+    {{/* The summary band: three stat cards, each fed by the same action as the section it summarises, */}}
+    {{/* so a number on the card can never disagree with the table under the tab. */}}
     - resourceRefId: agents-stats
-    # THE PAGE IS TABBED. Every section below was already built and verified; they were simply
-    # stacked, which is also why "the sections are not clearly divided" was reported — the mockup
-    # never divided them, it separated them into tabs.
+    {{/* THE PAGE IS TABBED. Every section below was already built and verified; they were simply */}}
+    {{/* stacked, which is also why "the sections are not clearly divided" was reported — the mockup */}}
+    {{/* never divided them, it separated them into tabs. */}}
     - resourceRefId: agents-main
   resourcesRefs:
     items:
@@ -64,8 +64,8 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: rows
       verb: GET
-    # The four sections are resolved one level down, inside their tab panes (col.agents-tab-*),
-    # so this page no longer composes them directly.
+    {{/* The four sections are resolved one level down, inside their tab panes (col.agents-tab-*), */}}
+    {{/* so this page no longer composes them directly. */}}
     - id: agents-main
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-main

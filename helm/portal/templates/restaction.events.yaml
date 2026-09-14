@@ -1,16 +1,16 @@
-# Dashboard recent-activity — real events from the events-presenter (krateo-sse-proxy),
-# the canonical krateo events source (k8s -> OTel -> ClickHouse -> sse-proxy), NOT raw
-# k8s core events. No composition filter here: the dashboard shows ALL recent activity.
-# Thin/generic: raw GET + exportJwt; the EventList shapes/caps. DEPENDS ON the platform's
-# `sse-proxy-internal-endpoint` Endpoint + the sse-proxy stack; absent that, getEvents fails
-# gracefully (continueOnError) and the card is empty.
-#
-# Per-row deep-link: sse-proxy (>= 1.1.0) stamps `compositionId` on every event (from the
-# LogAttributes['krateo.io/composition-id'] label — the same field composition-events scopes
-# by). The crds→comps walk below (mirrors composition-events' crds→found) resolves that id
-# back to the composition's {ns,name} SERVER-SIDE, and each event gains `route`
-# ("/compositions/<ns>/<name>", or "" when the event carries no resolvable composition tag —
-# those rows stay inert in the activity lists; nothing is fabricated).
+{{/* Dashboard recent-activity — real events from the events-presenter (krateo-sse-proxy), */}}
+{{/* the canonical krateo events source (k8s -> OTel -> ClickHouse -> sse-proxy), NOT raw */}}
+{{/* k8s core events. No composition filter here: the dashboard shows ALL recent activity. */}}
+{{/* Thin/generic: raw GET + exportJwt; the EventList shapes/caps. DEPENDS ON the platform's */}}
+{{/* `sse-proxy-internal-endpoint` Endpoint + the sse-proxy stack; absent that, getEvents fails */}}
+{{/* gracefully (continueOnError) and the card is empty. */}}
+{{/* */}}
+{{/* Per-row deep-link: sse-proxy (>= 1.1.0) stamps `compositionId` on every event (from the */}}
+{{/* LogAttributes['krateo.io/composition-id'] label — the same field composition-events scopes */}}
+{{/* by). The crds→comps walk below (mirrors composition-events' crds→found) resolves that id */}}
+{{/* back to the composition's {ns,name} SERVER-SIDE, and each event gains `route` */}}
+{{/* ("/compositions/<ns>/<name>", or "" when the event carries no resolvable composition tag — */}}
+{{/* those rows stay inert in the activity lists; nothing is fabricated). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:

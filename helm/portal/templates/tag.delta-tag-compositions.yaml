@@ -6,27 +6,27 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     label: '0 total'
     color: gray
-    # Sized to match (slightly exceed) the caption so the delta number is legible.
+    {{/* Sized to match (slightly exceed) the caption so the delta number is legible. */}}
     style:
       fontSize: '13px'
       fontWeight: 700
       lineHeight: '18px'
-    # live-refresh: watch the composition kinds so this total updates with the count Statistic
-    # (which already watches) — computed, not hardcoded. NOTE: this is the ABSOLUTE total, not a
-    # delta/trend — rendered as a neutral "N total" pill (no up-arrow, no positive colour) so it
-    # never implies growth that did not happen (audit: honest-data).
+    {{/* live-refresh: watch the composition kinds so this total updates with the count Statistic */}}
+    {{/* (which already watches) — computed, not hardcoded. NOTE: this is the ABSOLUTE total, not a */}}
+    {{/* delta/trend — rendered as a neutral "N total" pill (no up-arrow, no positive colour) so it */}}
+    {{/* never implies growth that did not happen (audit: honest-data). */}}
     watch: []
   widgetDataTemplate:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
-  # Range-aware, honest label: for a time window the count is compositions CREATED in it →
-  # "N new"; for the "all" window it's the grand total → "N total". (Was always "N total",
-  # which read as misleading next to the big count — 7 "total" beside 29.)
+  {{/* Range-aware, honest label: for a time window the count is compositions CREATED in it → */}}
+  {{/* "N new"; for the "all" window it's the grand total → "N total". (Was always "N total", */}}
+  {{/* which read as misleading next to the big count — 7 "total" beside 29.) */}}
   - forPath: label
     expression: '${ ((.list | length) | tostring) + (if (.range // "all") == "all" then " total" else " new" end) }'
   apiRef:

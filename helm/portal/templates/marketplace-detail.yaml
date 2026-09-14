@@ -1,21 +1,21 @@
-# =============================================================================
-# Marketplace blueprint DETAIL page — route /marketplace/{name} (page-<slug>).
-# Mirrors the installed-blueprint detail page (flex.page-blueprint-detail) but the
-# data source is the helm-repo index entry for THIS chart (not an installed
-# CompositionDefinition). Surfaces the honest index.yaml metadata: description, the full
-# version list, appVersion, type, the krateo.io category/maturity/supported-version
-# annotations, keywords, home/sources/chart-package links, published date + digest. The
-# header action is Install (→ /marketplace/{name}/install) or, if the blueprint is already
-# installed, Configure (→ its installed-blueprint detail). All fields are server-shaped by
-# the marketplace-detail RA below; widgets only slice their view. Needs snowplow >= 1.4.0
-# (external YAML fetch), same as blueprints-catalog / blueprint-detail.
-#
-# Grouped in one multi-doc template (vs one file per CR) because they're a single cohesive
-# feature; snowplow indexes by kind+name, so file layout is cosmetic.
-# =============================================================================
+{{/* ============================================================================= */}}
+{{/* Marketplace blueprint DETAIL page — route /marketplace/{name} (page-<slug>). */}}
+{{/* Mirrors the installed-blueprint detail page (flex.page-blueprint-detail) but the */}}
+{{/* data source is the helm-repo index entry for THIS chart (not an installed */}}
+{{/* CompositionDefinition). Surfaces the honest index.yaml metadata: description, the full */}}
+{{/* version list, appVersion, type, the krateo.io category/maturity/supported-version */}}
+{{/* annotations, keywords, home/sources/chart-package links, published date + digest. The */}}
+{{/* header action is Install (→ /marketplace/{name}/install) or, if the blueprint is already */}}
+{{/* installed, Configure (→ its installed-blueprint detail). All fields are server-shaped by */}}
+{{/* the marketplace-detail RA below; widgets only slice their view. Needs snowplow >= 1.4.0 */}}
+{{/* (external YAML fetch), same as blueprints-catalog / blueprint-detail. */}}
+{{/* */}}
+{{/* Grouped in one multi-doc template (vs one file per CR) because they're a single cohesive */}}
+{{/* feature; snowplow indexes by kind+name, so file layout is cosmetic. */}}
+{{/* ============================================================================= */}}
 ---
-# DATA SOURCE — resolve ONE catalog entry by ?extras.name (route /marketplace/{name}).
-# Fetches the helm index + the installed CompositionDefinitions (to mark installed/Configure).
+{{/* DATA SOURCE — resolve ONE catalog entry by ?extras.name (route /marketplace/{name}). */}}
+{{/* Fetches the helm index + the installed CompositionDefinitions (to mark installed/Configure). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -72,7 +72,7 @@ spec:
         installedNamespace: ($instNs[$n] // "{{ .Release.Namespace }}")
       }
 ---
-# PAGE ROOT — header block over a 2-column grid (mirrors page-blueprint-detail).
+{{/* PAGE ROOT — header block over a 2-column grid (mirrors page-blueprint-detail). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -81,7 +81,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   widgetData:
     vertical: true
@@ -107,7 +107,7 @@ spec:
         resource: rows
         verb: GET
 ---
-# Header action — Install (catalog) or Configure (already installed).
+{{/* Header action — Install (catalog) or Configure (already installed). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -116,7 +116,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   widgetData:
     allowedResources:
@@ -142,7 +142,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   apiRef:
     name: marketplace-detail
@@ -151,7 +151,7 @@ spec:
     label: Install
     icon: fa-download
     type: primary
-    # #82 §0.5: middle (was small) — matches the blueprint-detail action buttons (#78 §0.4).
+    {{/* #82 §0.5: middle (was small) — matches the blueprint-detail action buttons (#78 §0.4). */}}
     size: middle
     clickActionId: act
     actions:
@@ -169,10 +169,10 @@ spec:
   resourcesRefs:
     items: []
 ---
-# #82 §0.6: ONE full-width panel (was a 15:9 two-column grid). The right "Source & links" column
-# had too little content for its own panel, so the single meaningful facts folded into the About
-# card: an "Installed" row + the home/sources/package links. The right column, its Source card and
-# its keywords/versions Descriptions are removed.
+{{/* #82 §0.6: ONE full-width panel (was a 15:9 two-column grid). The right "Source & links" column */}}
+{{/* had too little content for its own panel, so the single meaningful facts folded into the About */}}
+{{/* card: an "Installed" row + the home/sources/package links. The right column, its Source card and */}}
+{{/* its keywords/versions Descriptions are removed. */}}
 kind: Row
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -181,7 +181,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   widgetData:
     allowedResources:
@@ -207,7 +207,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   widgetData:
     vertical: true
@@ -225,7 +225,7 @@ spec:
         resource: cards
         verb: GET
 ---
-# "About" card — description paragraph + the chart-metadata Descriptions.
+{{/* "About" card — description paragraph + the chart-metadata Descriptions. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -234,12 +234,12 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   widgetData:
     title: About
-    # #82 §0.6: description + metadata rows + the home/sources/package links (moved here from the
-    # deleted "Source & links" panel), so it's one panel instead of two.
+    {{/* #82 §0.6: description + metadata rows + the home/sources/package links (moved here from the */}}
+    {{/* deleted "Source & links" panel), so it's one panel instead of two. */}}
     items:
       - resourceRefId: marketplace-detail-description
       - resourceRefId: descriptions-marketplace-detail-about
@@ -273,7 +273,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   apiRef:
     name: marketplace-detail
@@ -286,7 +286,7 @@ spec:
   resourcesRefs:
     items: []
 ---
-# Chart metadata rows from the index entry.
+{{/* Chart metadata rows from the index entry. */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -295,7 +295,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [category, name]
   apiRef:
     name: marketplace-detail
@@ -311,7 +311,7 @@ spec:
   resourcesRefs:
     items: []
 ---
-# Home + sources + chart package URLs — Paragraph auto-linkifies raw URLs.
+{{/* Home + sources + chart package URLs — Paragraph auto-linkifies raw URLs. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -320,7 +320,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   apiRef:
     name: marketplace-detail

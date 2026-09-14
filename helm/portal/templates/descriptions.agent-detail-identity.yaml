@@ -1,16 +1,16 @@
-# Identity rows, shaped entirely server-side by the agent-detail RA.
-#
-# Rows that would be a lie are OMITTED rather than filled with a placeholder: `Streaming` only
-# exists on a declarative agent, and the advisory row only when a condition actually carries a
-# message. `Conditions` lists EVERY condition in Kubernetes vocabulary (Accepted · Ready ·
-# UnsupportedFeatures, NotReady for a False one) — the full posture, while the title-line chip
-# stays exception-only. Booleans never leak as bare true/false (streaming reads enabled/disabled).
-# `Reachable at` is derived from the live HTTPRoute set and has FOUR outcomes, because "no route
-# visible" is not the same claim as "no route exists": routed (name → the matching rule's
-# backends); no HTTPRoute matches this agent's x-kagent-host, so it cannot be reached; the read
-# succeeded but returned nothing at all, which is a cluster that routes nothing OR a grant that
-# covers no HTTPRoute (stated as that disjunction, never as the reader's fault); or the HTTPRoute
-# read failed outright, and the row quotes the reason.
+{{/* Identity rows, shaped entirely server-side by the agent-detail RA. */}}
+{{/* */}}
+{{/* Rows that would be a lie are OMITTED rather than filled with a placeholder: `Streaming` only */}}
+{{/* exists on a declarative agent, and the advisory row only when a condition actually carries a */}}
+{{/* message. `Conditions` lists EVERY condition in Kubernetes vocabulary (Accepted · Ready · */}}
+{{/* UnsupportedFeatures, NotReady for a False one) — the full posture, while the title-line chip */}}
+{{/* stays exception-only. Booleans never leak as bare true/false (streaming reads enabled/disabled). */}}
+{{/* `Reachable at` is derived from the live HTTPRoute set and has FOUR outcomes, because "no route */}}
+{{/* visible" is not the same claim as "no route exists": routed (name → the matching rule's */}}
+{{/* backends); no HTTPRoute matches this agent's x-kagent-host, so it cannot be reached; the read */}}
+{{/* succeeded but returned nothing at all, which is a cluster that routes nothing OR a grant that */}}
+{{/* covers no HTTPRoute (stated as that disjunction, never as the reader's fault); or the HTTPRoute */}}
+{{/* read failed outright, and the row quotes the reason. */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,7 +19,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): the route params this widget's resolution varies by.
+  {{/* F6 (snowplow#130): the route params this widget's resolution varies by. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: agent-detail

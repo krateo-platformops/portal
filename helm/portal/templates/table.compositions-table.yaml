@@ -6,13 +6,13 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, q, scope, status, namespace]
   widgetData:
     allowedResources: []
     bordered: false
     size: small
-    # Row click → the composition detail page ({ns}/{name} from the row's cells).
+    {{/* Row click → the composition detail page ({ns}/{name} from the row's cells). */}}
     rowNavigateTo: /compositions/{ns}/{name}
     columns:
     - valueKey: name
@@ -28,52 +28,52 @@ spec:
     - valueKey: age
       title: Created
     dataSource: []
-    # Live-refresh: watch the composition kinds this table lists. Computed from the
-    # data (the distinct apiVersion/kind in .list) — NOT a hardcoded kind list — so it
-    # refetches when any composition it shows changes, and generalizes to any blueprint.
+    {{/* Live-refresh: watch the composition kinds this table lists. Computed from the */}}
+    {{/* data (the distinct apiVersion/kind in .list) — NOT a hardcoded kind list — so it */}}
+    {{/* refetches when any composition it shows changes, and generalizes to any blueprint. */}}
     watch: []
   widgetDataTemplate:
-  # Rows come from `.filtered` (compositions-list applies the toolbar's status + time
-  # filters server-side via ?status/?range/?from/?to); `.list` stays the dashboard's
-  # full set.
-  #
-  # STATUS cell = the row's REAL conditions as pills, sorted deterministically
-  # (Ready, then Synced, then others alphabetical — the raw CR order varied
-  # row-to-row) with HONEST labels: a condition whose status != "True" must SAY so,
-  # so Ready=False reads red "NotReady", not a red pill still captioned "Ready"
-  # (mirrors tag.composition-detail-status's Ready=False → "NotReady" idiom). Labels
-  # are K8s-NATIVE single PascalCase tokens (kubectl node-status precedent: NotReady),
-  # never spaced/sentence-cased: Ready/NotReady, Synced/NotSynced, generic Not<Type>;
-  # the synthetic Workload condition (RA-injected, always unhealthy) reads "Unhealthy"
-  # (the verbatim K8s probe-failure event reason — the pill set already names the axis);
-  # a non-True/False status reads "<Type>Unknown" (gray; keeps WHICH condition is
-  # unknown in the multi-pill cell). Hues follow the status-pill spec: True=green
-  # (health), False=red, unknown=gray — cyan is brand/interactive only, never a status
-  # colour. Label + colour are computed HERE server-side — the frontend renders them
-  # verbatim.
-  #
-  # RECONCILE cell = a state TAG from the pre-derived `.railState` (4 states incl.
-  # drift, so a Ready-but-Synced=false composition reads violet "Drift", not orange
-  # "Pending"); wording mirrors list.obs-reconcile-breakdown (Converged/Drift/
-  # Pending/Failed). It WAS a `bar` bound to `.healthPercent`, but that value is a
-  # synthetic 100/50/20 constant and a bar fill IS a printed number ("never print a
-  # number that is not measured") — so the table shows the state word instead.
-  # `.healthPercent` stays untouched in the RA output (list.rail-list + the
-  # dashboard still consume it); only this table's presentation changed.
-  #
-  # PAGINATION (paginate + virtualize, spec 2026-07-10): the SPA requests a bounded
-  # page (`?page=N&perPage=M`, default 50) so snowplow injects `.slice={page,perPage,
-  # offset}` (resolve.go injectSlice). We slice `.filtered` to the WINDOW
-  # `[offset : offset+perPage]` (classic pager — matches the frontend's controlled
-  # antd pager) so the returned `dataSource` is ONE page, not the whole 60K set that
-  # wedged the browser. When no slice is present (unpaginated request, e.g. the
-  # dashboard sharing this RA) we fall back to the full `.filtered` — behaviour is
-  # byte-identical to pre-pagination for those callers.
+  {{/* Rows come from `.filtered` (compositions-list applies the toolbar's status + time */}}
+  {{/* filters server-side via ?status/?range/?from/?to); `.list` stays the dashboard's */}}
+  {{/* full set. */}}
+  {{/* */}}
+  {{/* STATUS cell = the row's REAL conditions as pills, sorted deterministically */}}
+  {{/* (Ready, then Synced, then others alphabetical — the raw CR order varied */}}
+  {{/* row-to-row) with HONEST labels: a condition whose status != "True" must SAY so, */}}
+  {{/* so Ready=False reads red "NotReady", not a red pill still captioned "Ready" */}}
+  {{/* (mirrors tag.composition-detail-status's Ready=False → "NotReady" idiom). Labels */}}
+  {{/* are K8s-NATIVE single PascalCase tokens (kubectl node-status precedent: NotReady), */}}
+  {{/* never spaced/sentence-cased: Ready/NotReady, Synced/NotSynced, generic Not<Type>; */}}
+  {{/* the synthetic Workload condition (RA-injected, always unhealthy) reads "Unhealthy" */}}
+  {{/* (the verbatim K8s probe-failure event reason — the pill set already names the axis); */}}
+  {{/* a non-True/False status reads "<Type>Unknown" (gray; keeps WHICH condition is */}}
+  {{/* unknown in the multi-pill cell). Hues follow the status-pill spec: True=green */}}
+  {{/* (health), False=red, unknown=gray — cyan is brand/interactive only, never a status */}}
+  {{/* colour. Label + colour are computed HERE server-side — the frontend renders them */}}
+  {{/* verbatim. */}}
+  {{/* */}}
+  {{/* RECONCILE cell = a state TAG from the pre-derived `.railState` (4 states incl. */}}
+  {{/* drift, so a Ready-but-Synced=false composition reads violet "Drift", not orange */}}
+  {{/* "Pending"); wording mirrors list.obs-reconcile-breakdown (Converged/Drift/ */}}
+  {{/* Pending/Failed). It WAS a `bar` bound to `.healthPercent`, but that value is a */}}
+  {{/* synthetic 100/50/20 constant and a bar fill IS a printed number ("never print a */}}
+  {{/* number that is not measured") — so the table shows the state word instead. */}}
+  {{/* `.healthPercent` stays untouched in the RA output (list.rail-list + the */}}
+  {{/* dashboard still consume it); only this table's presentation changed. */}}
+  {{/* */}}
+  {{/* PAGINATION (paginate + virtualize, spec 2026-07-10): the SPA requests a bounded */}}
+  {{/* page (`?page=N&perPage=M`, default 50) so snowplow injects `.slice={page,perPage, */}}
+  {{/* offset}` (resolve.go injectSlice). We slice `.filtered` to the WINDOW */}}
+  {{/* `[offset : offset+perPage]` (classic pager — matches the frontend's controlled */}}
+  {{/* antd pager) so the returned `dataSource` is ONE page, not the whole 60K set that */}}
+  {{/* wedged the browser. When no slice is present (unpaginated request, e.g. the */}}
+  {{/* dashboard sharing this RA) we fall back to the full `.filtered` — behaviour is */}}
+  {{/* byte-identical to pre-pagination for those callers. */}}
   - forPath: dataSource
     expression: '${ (if .slice then (.filtered[.slice.offset : (.slice.offset + .slice.perPage)]) else .filtered end) as $rows | [ $rows[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"status",kind:"conditions",stringValue:(((.conditions // []) | sort_by([(if .type=="Ready" then 0 elif .type=="Synced" then 1 else 2 end), .type]) | map({type:(if .status=="True" then .type elif .status=="False" then (if .type=="Workload" then "Unhealthy" else ("Not" + .type) end) else (.type + "Unknown") end), status:.status, color:(if .status=="True" then "green" elif .status=="False" then "red" else "gray" end)})) | tojson)}, {valueKey:"reconcile",kind:"tag",stringValue:( .railState | if .=="healthy" then "Converged" elif .=="failed" then "Failed" elif .=="drift" then "Drift" elif .=="degraded" then "Degraded" else "Pending" end),color:( .railState | if .=="healthy" then "green" elif .=="failed" then "red" elif .=="drift" then "violet" elif .=="degraded" then "orange" else "orange" end )}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:.ts,format:"relative"} ] ] }'
-  # Pager needs the TOTAL row count (the full filtered set) so it can render the right
-  # number of pages while `dataSource` holds only the current window. `current` mirrors
-  # the requested page (`.slice.page`) so the controlled pager stays in sync.
+  {{/* Pager needs the TOTAL row count (the full filtered set) so it can render the right */}}
+  {{/* number of pages while `dataSource` holds only the current window. `current` mirrors */}}
+  {{/* the requested page (`.slice.page`) so the controlled pager stays in sync. */}}
   - forPath: pagination
     expression: '${ { total: (.filtered | length), pageSize: (.slice.perPage // 50), current: (.slice.page // 1) } }'
   - forPath: watch

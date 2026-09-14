@@ -1,25 +1,25 @@
-# The /observability/components/{name} page header — the component's name, its readiness pill
-# and the deployment line, in one CR.
-#
-# Replaces FIVE: flex.component-detail-title-stack (a vertical Flex), flex.component-detail-title-line
-# (a horizontal Flex inside it), paragraph.component-detail-header, tag.component-detail-status and
-# paragraph.component-detail-subtitle. Two levels of Flex whose only job was to put three things in
-# the shape PageHeader is.
-#
-# THE TAG BECOMES `tags`, drawn natively through the same StatusPill the Tag widget uses, so the
-# pill keeps its leading status dot (frontend#218). `color: gray` replaces the Tag's old
-# `color: default`, which is not in PageHeader's closed colour enum and would have been rejected
-# by the strict CRD.
-#
-# THE TWO TAG TEMPLATES BECOME ONE, and that is a fix rather than a translation. The Tag ran the
-# SAME four-way branch twice — once for `label`, once for `color` — so an edit to one and not the
-# other would have produced a pill whose word and colour disagreed, with nothing to catch it.
-# PageHeader takes the pill as one object, so the branch is evaluated once and the two can no
-# longer drift. Verified branch-by-branch against the original: NotFound/gray, ScaledToZero/gray,
-# Ready/green, NotReady/red, including the `dep: {}` and empty-input cases.
-#
-# All four absorbed CRs read the same apiRef (component-detail) and declare the same keyExtras
-# ([name]), which is why this merges: a PageHeader has one apiRef.
+{{/* The /observability/components/{name} page header — the component's name, its readiness pill */}}
+{{/* and the deployment line, in one CR. */}}
+{{/* */}}
+{{/* Replaces FIVE: flex.component-detail-title-stack (a vertical Flex), flex.component-detail-title-line */}}
+{{/* (a horizontal Flex inside it), paragraph.component-detail-header, tag.component-detail-status and */}}
+{{/* paragraph.component-detail-subtitle. Two levels of Flex whose only job was to put three things in */}}
+{{/* the shape PageHeader is. */}}
+{{/* */}}
+{{/* THE TAG BECOMES `tags`, drawn natively through the same StatusPill the Tag widget uses, so the */}}
+{{/* pill keeps its leading status dot (frontend#218). `color: gray` replaces the Tag's old */}}
+{{/* `color: default`, which is not in PageHeader's closed colour enum and would have been rejected */}}
+{{/* by the strict CRD. */}}
+{{/* */}}
+{{/* THE TWO TAG TEMPLATES BECOME ONE, and that is a fix rather than a translation. The Tag ran the */}}
+{{/* SAME four-way branch twice — once for `label`, once for `color` — so an edit to one and not the */}}
+{{/* other would have produced a pill whose word and colour disagreed, with nothing to catch it. */}}
+{{/* PageHeader takes the pill as one object, so the branch is evaluated once and the two can no */}}
+{{/* longer drift. Verified branch-by-branch against the original: NotFound/gray, ScaledToZero/gray, */}}
+{{/* Ready/green, NotReady/red, including the `dep: {}` and empty-input cases. */}}
+{{/* */}}
+{{/* All four absorbed CRs read the same apiRef (component-detail) and declare the same keyExtras */}}
+{{/* ([name]), which is why this merges: a PageHeader has one apiRef. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -28,8 +28,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell. Carried verbatim —
-  # all five absorbed CRs declared exactly [name].
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. Carried verbatim — */}}
+  {{/* all five absorbed CRs declared exactly [name]. */}}
   keyExtras: [name]
   apiRef:
     name: component-detail
@@ -41,13 +41,13 @@ spec:
     - label: Unknown
       color: gray
   widgetDataTemplate:
-    # Was paragraph.component-detail-header's `forPath: text`.
+    {{/* Was paragraph.component-detail-header's `forPath: text`. */}}
     - forPath: title
       expression: '${ .name // "component" }'
-    # Was paragraph.component-detail-subtitle's `forPath: text`, lifted verbatim.
+    {{/* Was paragraph.component-detail-subtitle's `forPath: text`, lifted verbatim. */}}
     - forPath: subtitle
       expression: '${ if (.found // false) then ("Deployment · " + "{{ .Release.Namespace }}" + " · created " + ((.dep.created // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end)) else ("Deployment · " + "{{ .Release.Namespace }}" + " · NotFound") end }'
-    # Was the Tag's TWO templates (forPath: label, forPath: color), now one branch.
+    {{/* Was the Tag's TWO templates (forPath: label, forPath: color), now one branch. */}}
     - forPath: tags
       expression: '${ [ ( if (.found // false) | not then {label:"NotFound", color:"gray"} elif (.dep.replicas // 0) == 0 then {label:"ScaledToZero", color:"gray"} elif (.dep.ready // 0) == (.dep.replicas // 0) then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] }'
   resourcesRefs:

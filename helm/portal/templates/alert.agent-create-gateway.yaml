@@ -1,40 +1,40 @@
-# The single most important thing on /agents/new: a created Agent goes Ready and is still
-# unreachable by anything. This is a PRE-flight warning, deliberately rendered ABOVE the form, not a
-# post-create toast — by the time a toast fires the agent already exists and the person has moved on.
-# That is exactly how krateo-blueprint-agent sat unreachable for a week (2026-09-04).
-#
-# antd Alert, type=warning. `alerts` is not in the Flex allowedResources enum, so this is hosted
-# inside agent-create-gateway-card — the Card CRD declares no allowedResources at all (see that
-# file for the checked enums). Tabs would also be legal; Card is a layout choice.
-#
-# Static text — there is nothing live to resolve before the agent exists, so no apiRef. Note this is
-# deliberately NOT the place read failures are reported: those are named in the field descriptions
-# agent-formdef builds, right under whichever picker they emptied.
-#
-# THE WARNING USED TO OVERSTATE ITS CASE and has been corrected against the deployed charts. It read
-# "Neither is writable from the portal: both are Installer componentValues, so anything written here
-# would be reverted on the next reconcile." Three things were wrong with that:
-#
-#   1. "Not writable from the portal" is false. The Installer is itself a Composition
-#      (installers.composition.krateo.io — verified on krateo-057), and every composition detail
-#      page in this chart carries an Edit drawer over the schema-driven composition-edit Form
-#      (button.composition-detail-edit). The values below are edited there like any other
-#      composition value. The portal cannot do it from THIS form, which is a different claim.
-#   2. Both keys are DECLARED, not improvised. componentValues.agentgateway-policies.extraSubAgents
-#      and componentValues.krateo-autopilot.extraAgents are typed properties of the Installer CRD
-#      (read off installers.composition.krateo.io v0-3-172 on krateo-057), and extraSubAgents is
-#      already carrying the four -bench agents live. A declared one-entry value is not the same
-#      difficulty as "rendered by another chart", which is how the old wording read.
-#   3. It missed that registration is now DERIVED for platform agents. installer e779002 (shipped in
-#      0.3.172, the deployed tag) makes chart/templates/compositions.yaml build
-#      agentgateway-policies `subAgents` from every feature-enabled `agent: true` component pin —
-#      precisely so that the krateo-blueprint-agent drift cannot recur. That does not help an agent
-#      created HERE, which is not a component pin, and saying so is the accurate scope of the
-#      warning: hand registration is what a NON-component agent needs, not what everything needs.
-#
-# An overstated warning is worse than a plain one, because it is the reason people learn to skip
-# warnings. What stays true, and is the whole point, is the first sentence: this form creates the
-# Agent, it does not make it reachable, and the agent will report Ready in the meantime.
+{{/* The single most important thing on /agents/new: a created Agent goes Ready and is still */}}
+{{/* unreachable by anything. This is a PRE-flight warning, deliberately rendered ABOVE the form, not a */}}
+{{/* post-create toast — by the time a toast fires the agent already exists and the person has moved on. */}}
+{{/* That is exactly how krateo-blueprint-agent sat unreachable for a week (2026-09-04). */}}
+{{/* */}}
+{{/* antd Alert, type=warning. `alerts` is not in the Flex allowedResources enum, so this is hosted */}}
+{{/* inside agent-create-gateway-card — the Card CRD declares no allowedResources at all (see that */}}
+{{/* file for the checked enums). Tabs would also be legal; Card is a layout choice. */}}
+{{/* */}}
+{{/* Static text — there is nothing live to resolve before the agent exists, so no apiRef. Note this is */}}
+{{/* deliberately NOT the place read failures are reported: those are named in the field descriptions */}}
+{{/* agent-formdef builds, right under whichever picker they emptied. */}}
+{{/* */}}
+{{/* THE WARNING USED TO OVERSTATE ITS CASE and has been corrected against the deployed charts. It read */}}
+{{/* "Neither is writable from the portal: both are Installer componentValues, so anything written here */}}
+{{/* would be reverted on the next reconcile." Three things were wrong with that: */}}
+{{/* */}}
+{{/* 1. "Not writable from the portal" is false. The Installer is itself a Composition */}}
+{{/* (installers.composition.krateo.io — verified on krateo-057), and every composition detail */}}
+{{/* page in this chart carries an Edit drawer over the schema-driven composition-edit Form */}}
+{{/* (button.composition-detail-edit). The values below are edited there like any other */}}
+{{/* composition value. The portal cannot do it from THIS form, which is a different claim. */}}
+{{/* 2. Both keys are DECLARED, not improvised. componentValues.agentgateway-policies.extraSubAgents */}}
+{{/* and componentValues.krateo-autopilot.extraAgents are typed properties of the Installer CRD */}}
+{{/* (read off installers.composition.krateo.io v0-3-172 on krateo-057), and extraSubAgents is */}}
+{{/* already carrying the four -bench agents live. A declared one-entry value is not the same */}}
+{{/* difficulty as "rendered by another chart", which is how the old wording read. */}}
+{{/* 3. It missed that registration is now DERIVED for platform agents. installer e779002 (shipped in */}}
+{{/* 0.3.172, the deployed tag) makes chart/templates/compositions.yaml build */}}
+{{/* agentgateway-policies `subAgents` from every feature-enabled `agent: true` component pin — */}}
+{{/* precisely so that the krateo-blueprint-agent drift cannot recur. That does not help an agent */}}
+{{/* created HERE, which is not a component pin, and saying so is the accurate scope of the */}}
+{{/* warning: hand registration is what a NON-component agent needs, not what everything needs. */}}
+{{/* */}}
+{{/* An overstated warning is worse than a plain one, because it is the reason people learn to skip */}}
+{{/* warnings. What stays true, and is the whole point, is the first sentence: this form creates the */}}
+{{/* Agent, it does not make it reachable, and the agent will report Ready in the meantime. */}}
 kind: Alert
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

@@ -1,29 +1,29 @@
-# Access grant Form (W3-2) — THE flagship ops[] consumer: ONE gated submit
-# creates the Role AND its RoleBinding (two different payload shapes, two
-# different resource plurals) as ONE ordered set. `ops` (frontend >= 1.3.18):
-# each op resolves its OWN resourceRef + builds its OWN payload/payloadToOverride
-# against the SAME submitted values; the whole set gets ONE aggregated
-# blast-radius confirm, sequential stop-on-first-error dispatch (Role FIRST — a
-# Role failure never leaves a dangling binding) and ONE set AuditRecord. The
-# action's top-level resourceRefId is dispatch-ignored but must name a valid ref
-# (contract: point it at the first op's).
-#
-# Grant convention (spec Q6): name krateo-access-<subject-slug>-<ns>, labels
-# krateo.io/managed-by=portal-access + krateo.io/subject=<subject-slug>. The
-# slug (lowercase, [a-z0-9-]) keeps RFC1123 names + label values legal for
-# email-style usernames; RoleBinding subjects[] keeps the RAW name (RBAC
-# identity must be exact). metadata.name goes through payloadToOverride
-# (create-form precedence rule: buildPayload merge-then-set order).
-#
-# v1 scope: NAMESPACED only (Role + RoleBinding). ClusterRole/ClusterRoleBinding
-# creation is structurally impossible via the frozen /call (forced
-# namespaces/<ns> path) — cluster-wide grants are documented out of scope.
-#
-# Presets expand CLIENT-SIDE in the payloadToOverride jq (the existing authored-
-# jq contract — values resolve via snowplow /jq, structured arrays/objects
-# survive). stringSchema (not schema) so fields render in authoring order.
-# Collision policy (spec Q4): a repeat grant in the same namespace 409s —
-# surfaced honestly via errorMessage; edit = revoke + re-grant.
+{{/* Access grant Form (W3-2) — THE flagship ops[] consumer: ONE gated submit */}}
+{{/* creates the Role AND its RoleBinding (two different payload shapes, two */}}
+{{/* different resource plurals) as ONE ordered set. `ops` (frontend >= 1.3.18): */}}
+{{/* each op resolves its OWN resourceRef + builds its OWN payload/payloadToOverride */}}
+{{/* against the SAME submitted values; the whole set gets ONE aggregated */}}
+{{/* blast-radius confirm, sequential stop-on-first-error dispatch (Role FIRST — a */}}
+{{/* Role failure never leaves a dangling binding) and ONE set AuditRecord. The */}}
+{{/* action's top-level resourceRefId is dispatch-ignored but must name a valid ref */}}
+{{/* (contract: point it at the first op's). */}}
+{{/* */}}
+{{/* Grant convention (spec Q6): name krateo-access-<subject-slug>-<ns>, labels */}}
+{{/* krateo.io/managed-by=portal-access + krateo.io/subject=<subject-slug>. The */}}
+{{/* slug (lowercase, [a-z0-9-]) keeps RFC1123 names + label values legal for */}}
+{{/* email-style usernames; RoleBinding subjects[] keeps the RAW name (RBAC */}}
+{{/* identity must be exact). metadata.name goes through payloadToOverride */}}
+{{/* (create-form precedence rule: buildPayload merge-then-set order). */}}
+{{/* */}}
+{{/* v1 scope: NAMESPACED only (Role + RoleBinding). ClusterRole/ClusterRoleBinding */}}
+{{/* creation is structurally impossible via the frozen /call (forced */}}
+{{/* namespaces/<ns> path) — cluster-wide grants are documented out of scope. */}}
+{{/* */}}
+{{/* Presets expand CLIENT-SIDE in the payloadToOverride jq (the existing authored- */}}
+{{/* jq contract — values resolve via snowplow /jq, structured arrays/objects */}}
+{{/* survive). stringSchema (not schema) so fields render in authoring order. */}}
+{{/* Collision policy (spec Q4): a repeat grant in the same namespace 409s — */}}
+{{/* surfaced honestly via errorMessage; edit = revoke + re-grant. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -32,7 +32,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [username, ns]
   apiRef:
     name: access-grants
@@ -58,8 +58,8 @@ spec:
           loading:
             display: true
           ops:
-            # Role FIRST (dependency order; stop-on-first-error means a Role
-            # failure dispatches no binding).
+            {{/* Role FIRST (dependency order; stop-on-first-error means a Role */}}
+            {{/* failure dispatches no binding). */}}
             - resourceRefId: create-role
               payload:
                 apiVersion: rbac.authorization.k8s.io/v1
@@ -88,16 +88,16 @@ spec:
                   value: '${ def slug: ascii_downcase | gsub("[^a-z0-9-]"; "-"); {"apiGroup":"rbac.authorization.k8s.io","kind":"Role","name":("krateo-access-" + (.json.subjectName | slug) + "-" + .json.namespace)} }'
                 - name: subjects
                   value: '${ [{"apiGroup":"rbac.authorization.k8s.io","kind":.json.subjectKind,"name":.json.subjectName}] }'
-  # Prefill from the route: subject = the persona whose page this is, namespace =
-  # the active ?ns scope — both echoed server-side by access-grants.
+  {{/* Prefill from the route: subject = the persona whose page this is, namespace = */}}
+  {{/* the active ?ns scope — both echoed server-side by access-grants. */}}
   widgetDataTemplate:
     - forPath: initialValues
       expression: '${ { subjectKind: "User", subjectName: (.username // ""), namespace: (.ns // {{ .Release.Namespace | quote }}) } }'
   resourcesRefs:
     items:
-      # POST collections — namespaced targets; the frontend injects name+namespace
-      # into each op's /call path from that op's built payload metadata
-      # (updateNameNamespace), so the refs stay name-free like every create form.
+      {{/* POST collections — namespaced targets; the frontend injects name+namespace */}}
+      {{/* into each op's /call path from that op's built payload metadata */}}
+      {{/* (updateNameNamespace), so the refs stay name-free like every create form. */}}
       - id: create-role
         apiVersion: rbac.authorization.k8s.io/v1
         resource: roles

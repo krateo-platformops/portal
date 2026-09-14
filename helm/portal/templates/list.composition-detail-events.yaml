@@ -1,14 +1,14 @@
-# "Events" feed — this composition's recent events as an antd List (NOT the
-# bespoke non-antd EventList, which is retired under the antd-only widget registry
-# rule). Fed by the composition-events RA (.list = events the sse-proxy >= 1.1.0
-# tagged with THIS composition's krateo.io/composition-id, schema-shaped + capped).
-# Each row = a status dot (by event type) + message + involvedObject ref +
-# reason · relative-time — the mockup `.event` row. Live in-card append was an
-# EventList/SSE concern; live events still surface globally via the SSE bell.
-# Honest empty-state: when the pipeline yields NOTHING the panel must say so (one
-# inert gray explanatory row pointing at kubectl events), never sit silently blank
-# under the card's "Live" badge. The no-composition-id case (events can't be
-# correlated at all) gets its own honest message.
+{{/* "Events" feed — this composition's recent events as an antd List (NOT the */}}
+{{/* bespoke non-antd EventList, which is retired under the antd-only widget registry */}}
+{{/* rule). Fed by the composition-events RA (.list = events the sse-proxy >= 1.1.0 */}}
+{{/* tagged with THIS composition's krateo.io/composition-id, schema-shaped + capped). */}}
+{{/* Each row = a status dot (by event type) + message + involvedObject ref + */}}
+{{/* reason · relative-time — the mockup `.event` row. Live in-card append was an */}}
+{{/* EventList/SSE concern; live events still surface globally via the SSE bell. */}}
+{{/* Honest empty-state: when the pipeline yields NOTHING the panel must say so (one */}}
+{{/* inert gray explanatory row pointing at kubectl events), never sit silently blank */}}
+{{/* under the card's "Live" badge. The no-composition-id case (events can't be */}}
+{{/* correlated at all) gets its own honest message. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,7 +17,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: composition-events
@@ -27,24 +27,24 @@ spec:
     itemLayout: horizontal
     split: false
     itemTemplate:
-      # IA F7: whole-row click → the involved object's generic resource-view. `route` is
-      # resolved SERVER-SIDE in the composition-events RA (involvedObject apiVersion+kind →
-      # real plural from the CRD registry / built-in k8s scoping → /resources/{ns}/{group}/
-      # {version}/{plural}/{name}); events whose involvedObject kind can't be resolved to a
-      # plural carry route:"" and stay inert (interpolate() treats "" as falsy).
+      {{/* IA F7: whole-row click → the involved object's generic resource-view. `route` is */}}
+      {{/* resolved SERVER-SIDE in the composition-events RA (involvedObject apiVersion+kind → */}}
+      {{/* real plural from the CRD registry / built-in k8s scoping → /resources/{ns}/{group}/ */}}
+      {{/* {version}/{plural}/{name}); events whose involvedObject kind can't be resolved to a */}}
+      {{/* plural carry route:"" and stay inert (interpolate() treats "" as falsy). */}}
       navigateTo: '{route}'
       iconVariant: dot
       color:
         value: '{type}'
         map:
-          # status-pill spec: green is reserved for HEALTH; a Normal event is neutral info.
+          {{/* status-pill spec: green is reserved for HEALTH; a Normal event is neutral info. */}}
           Normal: gray
           Warning: red
-        # The synthetic Empty row falls through to a muted dot.
+        {{/* The synthetic Empty row falls through to a muted dot. */}}
         default: gray
       primaryText: '{message}'
       subPrimaryText: '{ref}'
-      # Render the involvedObject ref (Kind/name) as a mono bordered pill (mockup `.event` chip).
+      {{/* Render the involvedObject ref (Kind/name) as a mono bordered pill (mockup `.event` chip). */}}
       subPrimaryTextMono: true
       secondaryText: '{reason}'
       subSecondaryText: '{ts}'
@@ -52,9 +52,9 @@ spec:
         subSecondaryText: relative
   widgetDataTemplate:
     - forPath: dataSource
-      # Empty feed → ONE inert explanatory row (type Empty → gray dot, route "" → not
-      # clickable, ts "" → formatRelativeTime passes it through blank). .namespace /
-      # .compositionId are RA-echoed, so the message is built server-side, nothing guessed.
+      {{/* Empty feed → ONE inert explanatory row (type Empty → gray dot, route "" → not */}}
+      {{/* clickable, ts "" → formatRelativeTime passes it through blank). .namespace / */}}
+      {{/* .compositionId are RA-echoed, so the message is built server-side, nothing guessed. */}}
       expression: '${ (.list // []) as $evts | if ($evts | length) == 0 then [ { message: (if (.compositionId // "") == "" then "Events cannot be correlated — this composition has no krateo.io/composition-id label" else ("No streamed events for this composition — check kubectl events -n " + (.namespace // "") + " for raw cluster events") end), reason: "", type: "Empty", ref: "", ts: "", route: "" } ] else ($evts | map({ message: (.message // ""), reason: (.reason // ""), type: (if (.type // "") == "Warning" then "Warning" else "Normal" end), ref: ((.involvedObject.kind // "") + "/" + (.involvedObject.name // "")), ts: (.lastTimestamp // .firstTimestamp // .eventTime // ""), route: (.route // "") })) end }'
   resourcesRefs:
     items: []

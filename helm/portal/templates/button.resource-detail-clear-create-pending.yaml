@@ -1,16 +1,16 @@
-# Clears krateo.io/external-create-pending on THIS object, whatever kind it is.
-#
-# A generic detail page cannot hardcode a GVR, so the PATCH target is built by
-# resourcesRefsTemplate from the four identity fields restaction.resource-detail now emits — the
-# same mechanism the incident remediation buttons use to patch an arbitrary resource.
-#
-# A JSON-merge-patch removes a key by setting it to null. The payload is built in the template
-# rather than written statically because `null` is the entire point of it: a static
-# `krateo.io/external-create-pending: null` in widgetData risks being dropped as an empty value on
-# the way through, whereas the jq `null` survives as a real JSON null.
-#
-# `danger` styling: this is a mutation on a live object whose wrong outcome is a DUPLICATE external
-# resource. It should not look like a refresh button. The alert beside it says what to check first.
+{{/* Clears krateo.io/external-create-pending on THIS object, whatever kind it is. */}}
+{{/* */}}
+{{/* A generic detail page cannot hardcode a GVR, so the PATCH target is built by */}}
+{{/* resourcesRefsTemplate from the four identity fields restaction.resource-detail now emits — the */}}
+{{/* same mechanism the incident remediation buttons use to patch an arbitrary resource. */}}
+{{/* */}}
+{{/* A JSON-merge-patch removes a key by setting it to null. The payload is built in the template */}}
+{{/* rather than written statically because `null` is the entire point of it: a static */}}
+{{/* `krateo.io/external-create-pending: null` in widgetData risks being dropped as an empty value on */}}
+{{/* the way through, whereas the jq `null` survives as a real JSON null. */}}
+{{/* */}}
+{{/* `danger` styling: this is a mutation on a live object whose wrong outcome is a DUPLICATE external */}}
+{{/* resource. It should not look like a refresh button. The alert beside it says what to check first. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -42,7 +42,7 @@ spec:
           loading:
             display: true
   widgetDataTemplate:
-    # The payload carries a real JSON null, which is how merge-patch deletes a key.
+    {{/* The payload carries a real JSON null, which is how merge-patch deletes a key. */}}
     - forPath: actions
       expression: >-
         ${ { rest: [ { id: "clear-create-pending", type: "rest", resourceRefId: "create-pending-target",

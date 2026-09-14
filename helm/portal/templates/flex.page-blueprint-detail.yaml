@@ -1,14 +1,14 @@
-# Blueprint detail page — route /blueprints/{namespace}/{name} (page-<slug> convention).
-# Same layout as the composition detail page: a pagehead (back-link + name + status Tag +
-# subtitle on the left, Create/Delete actions on the right) over a 2-column grid (Row 15:9):
-#   left  = Details (chart / versions / status / synced / created)
-#   right = Update version (version picker form) + Preview update impact + Metadata
-# plus, full-width under the grid, the "What this update changes" card — mounted ONLY while
-# ?to= (written by the Preview update impact Select, dashboard-range URL-state pattern)
-# names a version DIFFERENT from the installed one; no preview selected ⇒ the page is
-# byte-identical to before (exception-only). Every widget reads the shared blueprint-detail
-# RA (installed CompositionDefinition + helm index versions, resolved from ?extras); the
-# impact card reads the upgrade-impact RA (helm-render-service /diff).
+{{/* Blueprint detail page — route /blueprints/{namespace}/{name} (page-<slug> convention). */}}
+{{/* Same layout as the composition detail page: a pagehead (back-link + name + status Tag + */}}
+{{/* subtitle on the left, Create/Delete actions on the right) over a 2-column grid (Row 15:9): */}}
+{{/* left  = Details (chart / versions / status / synced / created) */}}
+{{/* right = Update version (version picker form) + Preview update impact + Metadata */}}
+{{/* plus, full-width under the grid, the "What this update changes" card — mounted ONLY while */}}
+{{/* ?to= (written by the Preview update impact Select, dashboard-range URL-state pattern) */}}
+{{/* names a version DIFFERENT from the installed one; no preview selected ⇒ the page is */}}
+{{/* byte-identical to before (exception-only). Every widget reads the shared blueprint-detail */}}
+{{/* RA (installed CompositionDefinition + helm index versions, resolved from ?extras); the */}}
+{{/* impact card reads the upgrade-impact RA (helm-render-service /diff). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,8 +17,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell — `to` included:
-  # the mounted-items set varies with the previewed target version.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `to` included: */}}
+  {{/* the mounted-items set varies with the previewed target version. */}}
   keyExtras: [name, namespace, to]
   apiRef:
     name: blueprint-detail
@@ -33,9 +33,9 @@ spec:
     items:
       - resourceRefId: blueprint-detail-page-header
       - resourceRefId: blueprint-detail-grid
-  # `.to` is the raw URL query param (extras merge is non-overwriting, and blueprint-detail's
-  # filter emits no `to` key, so the extras value survives); `.currentVersion` comes from the
-  # RA. Equal / absent / cleared ⇒ the impact card is not mounted and never fetched.
+  {{/* `.to` is the raw URL query param (extras merge is non-overwriting, and blueprint-detail's */}}
+  {{/* filter emits no `to` key, so the extras value survives); `.currentVersion` comes from the */}}
+  {{/* RA. Equal / absent / cleared ⇒ the impact card is not mounted and never fetched. */}}
   widgetDataTemplate:
     - forPath: items
       expression: >-

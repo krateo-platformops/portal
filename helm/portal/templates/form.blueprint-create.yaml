@@ -1,21 +1,21 @@
-# GENERIC blueprint create Form — ONE Form for ALL blueprints (replaces every
-# per-blueprint create form, e.g. the hand-authored rancher-create).
-#   - apiRef → blueprint-formdef: returns the CRD's spec schema (with reserved-key identity
-#     fields __composition_name__ + __composition_namespace__ prepended) + the discovered GVR
-#     (apiVersion/kind/resource). The identity keys are underscore-fenced so they never collide
-#     with a blueprint's own spec property (e.g. a workload blueprint's own `namespace`).
-#   - schema ← schemaSpec: SchemaFields renders the instance Name, the (pinned) blueprint
-#     Namespace, and the blueprint's own spec fields (incl. its own workload `namespace`).
-#   - create target (resourcesRefsTemplate) is built from the discovered GVR — no hardcode.
-#   - submit routes the user's name/namespace into metadata and the rest into spec.
-# page-blueprint-create points its child ref at THIS form (forms/blueprint-create) instead
-# of a per-blueprint form. VERIFIED end-to-end on kind-krateo-dash (after installing the
-# core-provider CRDs + a CompositionDefinition with populated status): the form renders the
-# discovered schema and a submit deploys the composition. Both prior unknowns resolved:
-#  - snowplow's POST /call INFERS apiVersion/kind from the URL (resource+apiVersion query);
-#    the body only needs metadata + spec, so action.payload doesn't template them.
-#  - resourcesRefsTemplate resolves ${.apiVersion}/${.resource} from the apiRef result.
-# Supersedes the per-blueprint rancher-create/rancher-formdef.
+{{/* GENERIC blueprint create Form — ONE Form for ALL blueprints (replaces every */}}
+{{/* per-blueprint create form, e.g. the hand-authored rancher-create). */}}
+{{/* - apiRef → blueprint-formdef: returns the CRD's spec schema (with reserved-key identity */}}
+{{/* fields __composition_name__ + __composition_namespace__ prepended) + the discovered GVR */}}
+{{/* (apiVersion/kind/resource). The identity keys are underscore-fenced so they never collide */}}
+{{/* with a blueprint's own spec property (e.g. a workload blueprint's own `namespace`). */}}
+{{/* - schema ← schemaSpec: SchemaFields renders the instance Name, the (pinned) blueprint */}}
+{{/* Namespace, and the blueprint's own spec fields (incl. its own workload `namespace`). */}}
+{{/* - create target (resourcesRefsTemplate) is built from the discovered GVR — no hardcode. */}}
+{{/* - submit routes the user's name/namespace into metadata and the rest into spec. */}}
+{{/* page-blueprint-create points its child ref at THIS form (forms/blueprint-create) instead */}}
+{{/* of a per-blueprint form. VERIFIED end-to-end on kind-krateo-dash (after installing the */}}
+{{/* core-provider CRDs + a CompositionDefinition with populated status): the form renders the */}}
+{{/* discovered schema and a submit deploys the composition. Both prior unknowns resolved: */}}
+{{/* - snowplow's POST /call INFERS apiVersion/kind from the URL (resource+apiVersion query); */}}
+{{/* the body only needs metadata + spec, so action.payload doesn't template them. */}}
+{{/* - resourcesRefsTemplate resolves ${.apiVersion}/${.resource} from the apiRef result. */}}
+{{/* Supersedes the per-blueprint rancher-create/rancher-formdef. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -24,49 +24,49 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: blueprint-formdef
     namespace: {{ .Release.Namespace }}
-  # A6 §1.3: this form's apiRef (blueprint-formdef) reads the authenticated username SERVER-SIDE to
-  # scope the per-user draft key (__owner in initialValues). Under the cache-identity architecture
-  # the frontend stops volunteering identity in extras (capability flag api.SNOWPLOW_IDENTITY_INJECTION),
-  # so declare it here: snowplow injects the server-trusted username (JWT principal) into this
-  # widget's L1 key + resolve input — correct per-user drafts, spoof-proof (injection wins over any
-  # client-supplied ?extras.username). This is the ONE identity-declaring widget in the portal
-  # (the live survey's single server-side identity consumer). Enum-bounded to username (displayName
-  # foreclosed, D1). See snowplow docs/A6-chart-enablement-spec-2026-07-07.md §1.3.
+  {{/* A6 §1.3: this form's apiRef (blueprint-formdef) reads the authenticated username SERVER-SIDE to */}}
+  {{/* scope the per-user draft key (__owner in initialValues). Under the cache-identity architecture */}}
+  {{/* the frontend stops volunteering identity in extras (capability flag api.SNOWPLOW_IDENTITY_INJECTION), */}}
+  {{/* so declare it here: snowplow injects the server-trusted username (JWT principal) into this */}}
+  {{/* widget's L1 key + resolve input — correct per-user drafts, spoof-proof (injection wins over any */}}
+  {{/* client-supplied ?extras.username). This is the ONE identity-declaring widget in the portal */}}
+  {{/* (the live survey's single server-side identity consumer). Enum-bounded to username (displayName */}}
+  {{/* foreclosed, D1). See snowplow docs/A6-chart-enablement-spec-2026-07-07.md §1.3. */}}
   identityContext:
     - username
   widgetData:
     layout: vertical
-    # Real Configure→Review: the primary button validates and reveals an in-place
-    # read-only Review of the entered values; only the Review step's button creates.
+    {{/* Real Configure→Review: the primary button validates and reveals an in-place */}}
+    {{/* read-only Review of the entered values; only the Review step's button creates. */}}
     reviewBeforeSubmit: true
     submitActionId: submit
-    # Save draft: persists the CURRENT field values un-validated to the BROWSER (localStorage),
-    # so an incomplete form survives a reload with NO backend persistence. The Form keys the
-    # draft by __owner (the per-user/blueprint key seeded into initialValues but never
-    # rendered/validated) and resumes it on mount; the real submit (onFinish, registered fields
-    # only) stays clean. draftActionId only ENABLES the button now — no REST action backs it.
+    {{/* Save draft: persists the CURRENT field values un-validated to the BROWSER (localStorage), */}}
+    {{/* so an incomplete form survives a reload with NO backend persistence. The Form keys the */}}
+    {{/* draft by __owner (the per-user/blueprint key seeded into initialValues but never */}}
+    {{/* rendered/validated) and resumes it on mount; the real submit (onFinish, registered fields */}}
+    {{/* only) stays clean. draftActionId only ENABLES the button now — no REST action backs it. */}}
     draftActionId: save-draft
     schema: {}
     buttonConfig:
       primary:
-        # The Configure-step label is "Review →" (Form.tsx default) — the trailing arrow
-        # glyph is already the mockup's right-side affordance, so NO leading FA icon (it
-        # would double the arrow and sit on the wrong side).
+        {{/* The Configure-step label is "Review →" (Form.tsx default) — the trailing arrow */}}
+        {{/* glyph is already the mockup's right-side affordance, so NO leading FA icon (it */}}
+        {{/* would double the arrow and sit on the wrong side). */}}
         label: Create composition
       secondary:
         label: Cancel
-        # Cancel → back to the Blueprints page (navigate, not a form reset). This form is
-        # reached from a blueprint tile/detail (/blueprints/...), so /blueprints is the
-        # user's origin — /marketplace was a dead-end for that path.
+        {{/* Cancel → back to the Blueprints page (navigate, not a form reset). This form is */}}
+        {{/* reached from a blueprint tile/detail (/blueprints/...), so /blueprints is the */}}
+        {{/* user's origin — /marketplace was a dead-end for that path. */}}
         navigateTo: /blueprints
       draft:
         label: Save draft
-        # Disk on Save-draft (mockup `.actionbar` left).
+        {{/* Disk on Save-draft (mockup `.actionbar` left). */}}
         icon: fa-floppy-disk
     actions:
       rest:
@@ -75,29 +75,29 @@ spec:
           resourceRefId: create-composition
           headers:
             - 'Content-Type: application/json'
-          # Redirect to the NEW composition's DETAIL page (not the list). resolveJq sees the
-          # built request body as `.json`, which carries metadata.name + metadata.namespace
-          # (set by payloadToOverride below).
+          {{/* Redirect to the NEW composition's DETAIL page (not the list). resolveJq sees the */}}
+          {{/* built request body as `.json`, which carries metadata.name + metadata.namespace */}}
+          {{/* (set by payloadToOverride below). */}}
           onSuccessNavigateTo: '${ "/compositions/" + .json.metadata.namespace + "/" + .json.metadata.name }'
           successMessage: Composition created
-          # All from {json} (the form values) — the only context payloadToOverride jq sees
-          # (snowplow resolves this override jq against {json: customPayload}; extras/apiRef data
-          # are NOT visible here, which is why the blueprint namespace must arrive AS a form field).
-          # __owner is absent here (onFinish yields only registered fields), so it can't leak.
-          #
-          # metadata.name      ← __composition_name__       (user-entered instance name)
-          # metadata.namespace ← __composition_namespace__  (the BLUEPRINT namespace, pinned by the
-          #                      formdef's enum+default = .namespace route param). Because snowplow's
-          #                      POST /call derives the target namespace EXCLUSIVELY from the URL, and
-          #                      the frontend's updateNameNamespace rewrites that URL from body
-          #                      metadata.namespace, this SINGLE value is BOTH the CR's
-          #                      metadata.namespace AND the create POST-target namespace — they can
-          #                      never disagree. Result: the composition record lands in the blueprint
-          #                      namespace (e.g. krateo-system), matching the staged shape.
-          # spec               ← everything EXCEPT the two reserved identity keys. The blueprint's OWN
-          #                      spec fields — including a workload blueprint's own `namespace` (e.g.
-          #                      payments) — are PRESERVED verbatim; nothing real is del()'d. A simple
-          #                      blueprint (no own namespace) still creates: spec is just its own fields.
+          {{/* All from {json} (the form values) — the only context payloadToOverride jq sees */}}
+          {{/* (snowplow resolves this override jq against {json: customPayload}; extras/apiRef data */}}
+          {{/* are NOT visible here, which is why the blueprint namespace must arrive AS a form field). */}}
+          {{/* __owner is absent here (onFinish yields only registered fields), so it can't leak. */}}
+          {{/* */}}
+          {{/* metadata.name      ← __composition_name__       (user-entered instance name) */}}
+          {{/* metadata.namespace ← __composition_namespace__  (the BLUEPRINT namespace, pinned by the */}}
+          {{/* formdef's enum+default = .namespace route param). Because snowplow's */}}
+          {{/* POST /call derives the target namespace EXCLUSIVELY from the URL, and */}}
+          {{/* the frontend's updateNameNamespace rewrites that URL from body */}}
+          {{/* metadata.namespace, this SINGLE value is BOTH the CR's */}}
+          {{/* metadata.namespace AND the create POST-target namespace — they can */}}
+          {{/* never disagree. Result: the composition record lands in the blueprint */}}
+          {{/* namespace (e.g. krateo-system), matching the staged shape. */}}
+          {{/* spec               ← everything EXCEPT the two reserved identity keys. The blueprint's OWN */}}
+          {{/* spec fields — including a workload blueprint's own `namespace` (e.g. */}}
+          {{/* payments) — are PRESERVED verbatim; nothing real is del()'d. A simple */}}
+          {{/* blueprint (no own namespace) still creates: spec is just its own fields. */}}
           payloadToOverride:
             - { name: metadata.name,      value: '${ .json.__composition_name__ }' }
             - { name: metadata.namespace, value: '${ .json.__composition_namespace__ }' }
@@ -105,22 +105,22 @@ spec:
   widgetDataTemplate:
     - forPath: schema
       expression: '${ .schemaSpec }'
-    # Order-preserving schema (authoring order): the raw values.schema.json as a STRING; the
-    # Form prefers `stringSchema` over `schema` and JSON.parses it client-side (key insertion
-    # order survives), so fields render in the blueprint's authoring order, not the CRD's
-    # alphabetized map. null when the jsonschema CM is absent → Form falls back to `schema`.
+    {{/* Order-preserving schema (authoring order): the raw values.schema.json as a STRING; the */}}
+    {{/* Form prefers `stringSchema` over `schema` and JSON.parses it client-side (key insertion */}}
+    {{/* order survives), so fields render in the blueprint's authoring order, not the CRD's */}}
+    {{/* alphabetized map. null when the jsonschema CM is absent → Form falls back to `schema`. */}}
     - forPath: stringSchema
       expression: '${ .stringSchema }'
     - forPath: propertiesToHide
       expression: '${ .propertiesToHide }'
-    # Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these
-    # over schema defaults; __owner has no schema field so it stays unrendered.
+    {{/* Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these */}}
+    {{/* over schema defaults; __owner has no schema field so it stays unrendered. */}}
     - forPath: initialValues
       expression: '${ .initialValues }'
   resourcesRefs:
-    # No static resourcesRefs: the create POST target is built per-blueprint in
-    # resourcesRefsTemplate below, and the draft no longer writes anything (it lives in the
-    # browser's localStorage), so there is no draft ConfigMap ref here.
+    {{/* No static resourcesRefs: the create POST target is built per-blueprint in */}}
+    {{/* resourcesRefsTemplate below, and the draft no longer writes anything (it lives in the */}}
+    {{/* browser's localStorage), so there is no draft ConfigMap ref here. */}}
     items: []
   resourcesRefsTemplate:
     - template:

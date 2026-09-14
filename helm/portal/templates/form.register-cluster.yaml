@@ -1,20 +1,20 @@
-# Register-cluster Form (hub-and-spoke Phase 1, design §2.1) — POSTs a KubernetesTarget,
-# registering a spoke the portal (and CompositionDefinitions) can deploy to.
-#
-# KubernetesTarget is NAMESPACED (core.krateo.io/v1alpha1, since core-provider 2.8.0), so the
-# payload sets metadata.namespace normally — fixed to the release namespace (the hub namespace
-# where CompositionDefinitions and the demo spoke live; core-provider resolves a CD's
-# targetRef in the CD's OWN namespace, so target and CD must share a namespace). This is what
-# makes the write succeed through snowplow /call, which force-namespaces every write — a
-# cluster-scoped POST could never land. It references an EXISTING Secret holding the kubeconfig
-# (spec.kubeconfigRef.{name,namespace,key}) — per §2.1 we register-by-Secret-ref and never
-# accept raw kubeconfig text in the browser (the credential should be ESO-synced; the ops step
-# of creating that Secret is out of band).
-#
-# This is a HUB write (KubernetesTarget lives on the hub), so it uses the NORMAL /call path —
-# no per-request endpoint override (W1) is needed. Mirrors form.blueprint-install's
-# static-payload + payloadToOverride shape; the schema is authored INLINE (KubernetesTarget's
-# fields are few and known) so no CRD-fetch formdef RA is required.
+{{/* Register-cluster Form (hub-and-spoke Phase 1, design §2.1) — POSTs a KubernetesTarget, */}}
+{{/* registering a spoke the portal (and CompositionDefinitions) can deploy to. */}}
+{{/* */}}
+{{/* KubernetesTarget is NAMESPACED (core.krateo.io/v1alpha1, since core-provider 2.8.0), so the */}}
+{{/* payload sets metadata.namespace normally — fixed to the release namespace (the hub namespace */}}
+{{/* where CompositionDefinitions and the demo spoke live; core-provider resolves a CD's */}}
+{{/* targetRef in the CD's OWN namespace, so target and CD must share a namespace). This is what */}}
+{{/* makes the write succeed through snowplow /call, which force-namespaces every write — a */}}
+{{/* cluster-scoped POST could never land. It references an EXISTING Secret holding the kubeconfig */}}
+{{/* (spec.kubeconfigRef.{name,namespace,key}) — per §2.1 we register-by-Secret-ref and never */}}
+{{/* accept raw kubeconfig text in the browser (the credential should be ESO-synced; the ops step */}}
+{{/* of creating that Secret is out of band). */}}
+{{/* */}}
+{{/* This is a HUB write (KubernetesTarget lives on the hub), so it uses the NORMAL /call path — */}}
+{{/* no per-request endpoint override (W1) is needed. Mirrors form.blueprint-install's */}}
+{{/* static-payload + payloadToOverride shape; the schema is authored INLINE (KubernetesTarget's */}}
+{{/* fields are few and known) so no CRD-fetch formdef RA is required. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,10 +26,10 @@ spec:
   widgetData:
     layout: vertical
     submitActionId: submit
-    # Inline JSON schema — the fields the user fills to register a spoke. secretNamespace
-    # defaults to the release namespace (where ESO-synced kubeconfig Secrets typically live);
-    # secretKey defaults to "kubeconfig" (the conventional key). All required so the
-    # KubernetesTarget's kubeconfigRef is complete.
+    {{/* Inline JSON schema — the fields the user fills to register a spoke. secretNamespace */}}
+    {{/* defaults to the release namespace (where ESO-synced kubeconfig Secrets typically live); */}}
+    {{/* secretKey defaults to "kubeconfig" (the conventional key). All required so the */}}
+    {{/* KubernetesTarget's kubeconfigRef is complete. */}}
     schema:
       type: object
       required:
@@ -71,9 +71,9 @@ spec:
             - 'Content-Type: application/json'
           onSuccessNavigateTo: /clusters
           successMessage: Cluster registered
-          # Static body carries the GVK + metadata.namespace (fixed to the release namespace —
-          # the KubernetesTarget is namespaced); payloadToOverride fills metadata.name and
-          # spec.kubeconfigRef.{name,namespace,key} from the form fields.
+          {{/* Static body carries the GVK + metadata.namespace (fixed to the release namespace — */}}
+          {{/* the KubernetesTarget is namespaced); payloadToOverride fills metadata.name and */}}
+          {{/* spec.kubeconfigRef.{name,namespace,key} from the form fields. */}}
           payload:
             apiVersion: core.krateo.io/v1alpha1
             kind: KubernetesTarget
@@ -86,10 +86,10 @@ spec:
             - { name: spec.kubeconfigRef.key, value: '${ .json.secretKey }' }
   resourcesRefs:
     items:
-      # POST target — create a namespaced KubernetesTarget in the release namespace. snowplow
-      # infers apiVersion/kind from this ref; the body carries metadata.{name,namespace} + spec.
-      # The ref namespace + body metadata.namespace must agree with snowplow's force-namespaced
-      # /call write path.
+      {{/* POST target — create a namespaced KubernetesTarget in the release namespace. snowplow */}}
+      {{/* infers apiVersion/kind from this ref; the body carries metadata.{name,namespace} + spec. */}}
+      {{/* The ref namespace + body metadata.namespace must agree with snowplow's force-namespaced */}}
+      {{/* /call write path. */}}
       - id: create-target
         apiVersion: core.krateo.io/v1alpha1
         namespace: {{ .Release.Namespace }}

@@ -1,20 +1,20 @@
-# The component's pods — name / ready x/y / restarts / state / age / image, all real
-# values shaped by the component-detail RA. State shows the first waiting reason
-# (e.g. CrashLoopBackOff, ImagePullBackOff) when a container is stuck, else the pod
-# phase. State renders as a FILLED TAG (status-pill spec — no bare coloured status
-# text): Running/Completed/Succeeded → green, transitional (Pending/ContainerCreating/
-# PodInitializing) → orange, stuck (CrashLoopBackOff, ImagePullBackOff, …) → red; the
-# state word stays the truthful k8s value. Count cells still tint only when something
-# needs the eye (not-ready → crimson, restarts>0 → orange).
-# Rows deep-link to the observability log stream scoped to the pod (CTA audit #89 F8:
-# a pod row was a dead end — "which of these is spewing errors?" had no answer). The
-# hand-off is /observability?serviceName={name} where {name} is the raw pod name; obs-log-stream
-# RESOLVES that pod name to its owning OTel ServiceName server-side (the ServiceName whose
-# "<name>-" prefixes the pod name — e.g. pod snowplow-6dd6…-mgmqh → ServiceName "snowplow")
-# then exact-matches, scoping to EXACTLY that service and NOT its sibling *-controller/*-agent
-# services that merely share the leading token. (This exact resolution replaced an earlier
-# bidirectional substring match that could bleed siblings in.) Empty/absent name → the
-# Table's buildRowPath returns undefined, so the row is inert (no broken link).
+{{/* The component's pods — name / ready x/y / restarts / state / age / image, all real */}}
+{{/* values shaped by the component-detail RA. State shows the first waiting reason */}}
+{{/* (e.g. CrashLoopBackOff, ImagePullBackOff) when a container is stuck, else the pod */}}
+{{/* phase. State renders as a FILLED TAG (status-pill spec — no bare coloured status */}}
+{{/* text): Running/Completed/Succeeded → green, transitional (Pending/ContainerCreating/ */}}
+{{/* PodInitializing) → orange, stuck (CrashLoopBackOff, ImagePullBackOff, …) → red; the */}}
+{{/* state word stays the truthful k8s value. Count cells still tint only when something */}}
+{{/* needs the eye (not-ready → crimson, restarts>0 → orange). */}}
+{{/* Rows deep-link to the observability log stream scoped to the pod (CTA audit #89 F8: */}}
+{{/* a pod row was a dead end — "which of these is spewing errors?" had no answer). The */}}
+{{/* hand-off is /observability?serviceName={name} where {name} is the raw pod name; obs-log-stream */}}
+{{/* RESOLVES that pod name to its owning OTel ServiceName server-side (the ServiceName whose */}}
+{{/* "<name>-" prefixes the pod name — e.g. pod snowplow-6dd6…-mgmqh → ServiceName "snowplow") */}}
+{{/* then exact-matches, scoping to EXACTLY that service and NOT its sibling *-controller/*-agent */}}
+{{/* services that merely share the leading token. (This exact resolution replaced an earlier */}}
+{{/* bidirectional substring match that could bleed siblings in.) Empty/absent name → the */}}
+{{/* Table's buildRowPath returns undefined, so the row is inert (no broken link). */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -23,15 +23,15 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   widgetData:
     allowedResources: []
     bordered: false
     size: small
-    # Row → observability log stream, scoped to this pod's owning service (see header).
-    # &tab=Telemetry (feedback S): the Tabs widget defaults to the first tab (Reconciliation),
-    # so without this the svc-scoped log deep-link landed on Reconciliation instead of the logs.
+    {{/* Row → observability log stream, scoped to this pod's owning service (see header). */}}
+    {{/* &tab=Telemetry (feedback S): the Tabs widget defaults to the first tab (Reconciliation), */}}
+    {{/* so without this the svc-scoped log deep-link landed on Reconciliation instead of the logs. */}}
     rowNavigateTo: /observability?serviceName={name}&tab=Telemetry
     columns:
     - valueKey: name

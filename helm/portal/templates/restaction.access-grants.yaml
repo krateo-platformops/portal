@@ -1,18 +1,18 @@
-# Access persona managed grants (W3-2) — the Roles + RoleBindings the Access page
-# itself created, label-selected on krateo.io/managed-by=portal-access and
-# filtered server-side to this persona (krateo.io/subject label == the slugified
-# route username; the slug — lowercase, [a-z0-9-] — is the grant convention, see
-# form.access-grant). ADMIN read, per-user dispatch (no UAF): non-admins 403 →
-# continueOnError → empty grants, honest for a page only admins can act on.
-#
-# Emits:
-#   .grants     — table rows: one per RoleBinding, its Role's rules joined by
-#                 (namespace, roleRef.name) and summarized as a human string
-#   .current    — the managed pair in the ACTIVE ?ns scope (or null): the revoke
-#                 button's resourcesRefsTemplate resolves its two DELETE targets
-#                 from these LIVE object names (never re-derived client-side)
-#   .hasGrantInNs — drives the conditional revoke row (inert when absent)
-#   .username/.ns — echoed extras (grant-form initialValues + keying)
+{{/* Access persona managed grants (W3-2) — the Roles + RoleBindings the Access page */}}
+{{/* itself created, label-selected on krateo.io/managed-by=portal-access and */}}
+{{/* filtered server-side to this persona (krateo.io/subject label == the slugified */}}
+{{/* route username; the slug — lowercase, [a-z0-9-] — is the grant convention, see */}}
+{{/* form.access-grant). ADMIN read, per-user dispatch (no UAF): non-admins 403 → */}}
+{{/* continueOnError → empty grants, honest for a page only admins can act on. */}}
+{{/* */}}
+{{/* Emits: */}}
+{{/* .grants     — table rows: one per RoleBinding, its Role's rules joined by */}}
+{{/* (namespace, roleRef.name) and summarized as a human string */}}
+{{/* .current    — the managed pair in the ACTIVE ?ns scope (or null): the revoke */}}
+{{/* button's resourcesRefsTemplate resolves its two DELETE targets */}}
+{{/* from these LIVE object names (never re-derived client-side) */}}
+{{/* .hasGrantInNs — drives the conditional revoke row (inert when absent) */}}
+{{/* .username/.ns — echoed extras (grant-form initialValues + keying) */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -51,9 +51,9 @@ spec:
           | { name: (.metadata.name // ""),
               namespace: (.metadata.namespace // ""),
               rules: (.rules // []) } ]
-  # Join each binding to its Role's rules and summarize the rules server-side
-  # ("verb/verb on resource,resource (group)" per rule). The ACTIVE-namespace
-  # pair (.current) feeds the revoke button's DELETE refs.
+  {{/* Join each binding to its Role's rules and summarize the rules server-side */}}
+  {{/* ("verb/verb on resource,resource (group)" per rule). The ACTIVE-namespace */}}
+  {{/* pair (.current) feeds the revoke button's DELETE refs. */}}
   filter: >
     def slug: ascii_downcase | gsub("[^a-z0-9-]"; "-");
     ((.username // "") | slug) as $subject

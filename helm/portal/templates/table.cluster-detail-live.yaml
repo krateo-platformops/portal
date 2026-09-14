@@ -1,11 +1,11 @@
-# The spoke's LIVE resources — one row per composition CR / CompositionDefinition read
-# DIRECTLY from the spoke apiserver by the cluster-compositions RA (W3-3 read-back).
-# Columns mirror the RA row contract {kind, name, namespace, ready, synced, age}:
-# Ready/Synced are colored tag pills (labels + colors computed server-side — green
-# True / red False / gray unknown-no-status), Age renders the raw creationTimestamp
-# `relative` (house pattern, the raw value stays in the data). Zero rows render the
-# honest antd empty state under the status line's "No compositions deployed to this
-# spoke yet." sentence.
+{{/* The spoke's LIVE resources — one row per composition CR / CompositionDefinition read */}}
+{{/* DIRECTLY from the spoke apiserver by the cluster-compositions RA (W3-3 read-back). */}}
+{{/* Columns mirror the RA row contract {kind, name, namespace, ready, synced, age}: */}}
+{{/* Ready/Synced are colored tag pills (labels + colors computed server-side — green */}}
+{{/* True / red False / gray unknown-no-status), Age renders the raw creationTimestamp */}}
+{{/* `relative` (house pattern, the raw value stays in the data). Zero rows render the */}}
+{{/* honest antd empty state under the status line's "No compositions deployed to this */}}
+{{/* spoke yet." sentence. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,7 +14,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
   apiRef:
     name: cluster-compositions
@@ -38,8 +38,8 @@ spec:
       title: Age
     dataSource: []
   widgetDataTemplate:
-  # One row per spoke resource; every label/color is pre-computed by the RA's final
-  # filter — this template only maps row fields to cells.
+  {{/* One row per spoke resource; every label/color is pre-computed by the RA's final */}}
+  {{/* filter — this template only maps row fields to cells. */}}
   - forPath: dataSource
     expression: '${ [ .rows[]? | [ {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:(.kind // "")}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")}, {valueKey:"ready",kind:"tag",stringValue:(.readyLabel // "Unknown"),color:(.readyColor // "gray")}, {valueKey:"synced",kind:"tag",stringValue:(.syncedLabel // "Unknown"),color:(.syncedColor // "gray")}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.created // ""),format:"relative"} ] ] }'
   resourcesRefs:

@@ -1,12 +1,12 @@
-# Cluster registry table (hub-and-spoke Phase 1). Rows come from clusters-list `.list`
-# (one row per registered KubernetesTarget, with health rolled up from the blueprints that
-# target it). The Health column is a discrete colored `tag` pill — cluster connectivity is a
-# STATE (Healthy / Down / Unknown), not a progress-toward-target, so a Tag reads clearer than
-# the compositions-table reconciliation-rail bar (label + color derived server-side per row).
-# Everything else is a plain `jsonSchemaType` string cell (Last probe formatted `relative`).
-# Rows navigate to the per-cluster drill-down (/clusters/{name} -> page-cluster-detail:
-# identity + probe verdict + the targeting blueprints) -- the "Down" investigation path
-# the CTA audit called for (rowNavigateTo was parked until that page existed).
+{{/* Cluster registry table (hub-and-spoke Phase 1). Rows come from clusters-list `.list` */}}
+{{/* (one row per registered KubernetesTarget, with health rolled up from the blueprints that */}}
+{{/* target it). The Health column is a discrete colored `tag` pill — cluster connectivity is a */}}
+{{/* STATE (Healthy / Down / Unknown), not a progress-toward-target, so a Tag reads clearer than */}}
+{{/* the compositions-table reconciliation-rail bar (label + color derived server-side per row). */}}
+{{/* Everything else is a plain `jsonSchemaType` string cell (Last probe formatted `relative`). */}}
+{{/* Rows navigate to the per-cluster drill-down (/clusters/{name} -> page-cluster-detail: */}}
+{{/* identity + probe verdict + the targeting blueprints) -- the "Down" investigation path */}}
+{{/* the CTA audit called for (rowNavigateTo was parked until that page existed). */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -35,10 +35,10 @@ spec:
       title: Last Probe
     dataSource: []
   widgetDataTemplate:
-  # One row per KubernetesTarget. `health` is a colored `tag` pill: stringValue = the state
-  # word (Healthy / Down / Unknown, mapped from the rolled-up verdict), color = the rolled-up
-  # health color (green healthy / red failed / gray unknown). blueprints is the count of
-  # targeting CompositionDefinitions; lastProbe renders relative when a timestamp is present.
+  {{/* One row per KubernetesTarget. `health` is a colored `tag` pill: stringValue = the state */}}
+  {{/* word (Healthy / Down / Unknown, mapped from the rolled-up verdict), color = the rolled-up */}}
+  {{/* health color (green healthy / red failed / gray unknown). blueprints is the count of */}}
+  {{/* targeting CompositionDefinitions; lastProbe renders relative when a timestamp is present. */}}
   - forPath: dataSource
     expression: '${ [ .list[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"health",kind:"tag",stringValue:(if .health=="healthy" then "Healthy" elif .health=="failed" then "Down" else "Unknown" end),color:.healthColor}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "")}, {valueKey:"blueprints",kind:"jsonSchemaType",type:"string",stringValue:(.blueprintCount|tostring)}, {valueKey:"secret",kind:"jsonSchemaType",type:"string",stringValue:(.secretRef // "")}, {valueKey:"lastProbe",kind:"jsonSchemaType",type:"string",stringValue:(.lastProbe // ""),format:"relative"} ] ] }'
   apiRef:

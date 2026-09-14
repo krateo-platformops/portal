@@ -1,24 +1,24 @@
-# The /observability page header — title, subtitle and the optional console deep-link, in one CR.
-#
-# Replaces SIX: row.obs-header-row, flex.obs-header, flex.obs-header-actions,
-# paragraph.obs-eyebrow, paragraph.obs-title and paragraph.obs-subtitle. The Button stays — it
-# carries the action; PageHeader only places it.
-#
-# THE CONDITIONAL Row/Col GRID GOES WITH THEM, and on this page that grid was doing real work:
+{{/* The /observability page header — title, subtitle and the optional console deep-link, in one CR. */}}
+{{/* */}}
+{{/* Replaces SIX: row.obs-header-row, flex.obs-header, flex.obs-header-actions, */}}
+{{/* paragraph.obs-eyebrow, paragraph.obs-title and paragraph.obs-subtitle. The Button stays — it */}}
+{{/* carries the action; PageHeader only places it. */}}
+{{/* */}}
+{{/* THE CONDITIONAL Row/Col GRID GOES WITH THEM, and on this page that grid was doing real work: */}}
 # obs-header-row sized its title column `{{ if .Values.observabilityConsoleUrl }}16{{ else }}24{{ end }}`
-# so the header reflowed to full width when the deep-link was absent. That is a column split
-# recomputed from a values flag — two layouts to keep in step, and a wrong branch is invisible
-# until someone installs with the other setting. PageHeader right-aligns whatever actions it has
-# and fills the width when it has none, so the arithmetic disappears rather than moving.
-#
-# THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx already
-# returns null for `variant: eyebrow`, so "Platform · tenant …" has been rendering as nothing.
-#
-# The guard around the action is the SAME `.Values.observabilityConsoleUrl` condition that wraps
-# button.obs-console-link itself — that Button CR does not exist on installs without a console
-# URL, so referencing it unconditionally would leave a dangling resourceRefId, which renders as
-# silence (a Flex/Card drops a missing child with only a console message). X13 cannot catch this
-# one: both sides are behind the same helm conditional.
+{{/* so the header reflowed to full width when the deep-link was absent. That is a column split */}}
+{{/* recomputed from a values flag — two layouts to keep in step, and a wrong branch is invisible */}}
+{{/* until someone installs with the other setting. PageHeader right-aligns whatever actions it has */}}
+{{/* and fills the width when it has none, so the arithmetic disappears rather than moving. */}}
+{{/* */}}
+{{/* THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx already */}}
+{{/* returns null for `variant: eyebrow`, so "Platform · tenant …" has been rendering as nothing. */}}
+{{/* */}}
+{{/* The guard around the action is the SAME `.Values.observabilityConsoleUrl` condition that wraps */}}
+{{/* button.obs-console-link itself — that Button CR does not exist on installs without a console */}}
+{{/* URL, so referencing it unconditionally would leave a dangling resourceRefId, which renders as */}}
+{{/* silence (a Flex/Card drops a missing child with only a console message). X13 cannot catch this */}}
+{{/* one: both sides are behind the same helm conditional. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

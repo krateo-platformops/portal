@@ -1,20 +1,20 @@
-# #6 — Incidents on the composition-detail page. Lists the release-namespace
-# TroubleshootingReports (observability.krateo.io, written by krateo-alert-troubleshooter)
-# and keeps ONLY those whose analysis actually touched THIS composition: an
-# analyzedResources entry whose .gvr contains "composition" AND whose .name/.namespace
-# match the target (route params ride in as ?extras .name/.namespace, same mechanism as
-# composition-detail / composition-resources). All derivation is server-side (nothing
-# hardcoded); the list is exception-only (the rendering Listy hideWhenEmpty removes it
-# entirely for a healthy composition with no incidents).
-#
-# Emits { rows } where each row is:
-#   title          : the rootCause one-liner (honest fallback → the report CR name),
-#   lifecycle      : raw K8s-native lifecycle token (open / mitigated / resolved),
-#   lifecycleColor : open→red (failure) · mitigated→orange (transitional) · resolved→green
-#                    (calm terminal — matches the deployed incident-lifecycle Tag /
-#                    incident-detail RA convention; NOT cyan, which the design rules
-#                    reserve for brand/interactive and never status),
-#   route          : /incidents/<ns>/<name> deep-link to the incident detail page.
+{{/* #6 — Incidents on the composition-detail page. Lists the release-namespace */}}
+{{/* TroubleshootingReports (observability.krateo.io, written by krateo-alert-troubleshooter) */}}
+{{/* and keeps ONLY those whose analysis actually touched THIS composition: an */}}
+{{/* analyzedResources entry whose .gvr contains "composition" AND whose .name/.namespace */}}
+{{/* match the target (route params ride in as ?extras .name/.namespace, same mechanism as */}}
+{{/* composition-detail / composition-resources). All derivation is server-side (nothing */}}
+{{/* hardcoded); the list is exception-only (the rendering Listy hideWhenEmpty removes it */}}
+{{/* entirely for a healthy composition with no incidents). */}}
+{{/* */}}
+{{/* Emits { rows } where each row is: */}}
+{{/* title          : the rootCause one-liner (honest fallback → the report CR name), */}}
+{{/* lifecycle      : raw K8s-native lifecycle token (open / mitigated / resolved), */}}
+{{/* lifecycleColor : open→red (failure) · mitigated→orange (transitional) · resolved→green */}}
+{{/* (calm terminal — matches the deployed incident-lifecycle Tag / */}}
+{{/* incident-detail RA convention; NOT cyan, which the design rules */}}
+{{/* reserve for brand/interactive and never status), */}}
+{{/* route          : /incidents/<ns>/<name> deep-link to the incident detail page. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -29,9 +29,9 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: reportsError
-  # LITERAL block (|), not folded (>): a base-indent jq `#` comment would otherwise swallow
-  # the code folded after it onto one line (the composition-events filter shipped broken
-  # exactly this way).
+  {{/* LITERAL block (|), not folded (>): a base-indent jq `#` comment would otherwise swallow */}}
+  {{/* the code folded after it onto one line (the composition-events filter shipped broken */}}
+  {{/* exactly this way). */}}
   filter: |
     (.name // "") as $n
     | (.namespace // "") as $ns

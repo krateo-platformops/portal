@@ -1,9 +1,9 @@
-# Platform resource usage from ClickHouse (clickstack otel_metrics_gauge — k8s cluster/kubelet
-# receiver). Step `pods` = the top 25 pods by memory with their latest CPU (millicores) + memory
-# working-set (MiB); step `totals` = cluster-wide pod CPU cores + memory GiB + pod count. Both
-# take the LATEST gauge value per pod (argMax over TimeUnix, last 5 min) — a live snapshot, not a
-# window aggregate, so it MUST stay tightly time-bound (5m) against this 7M-row table. Exposes
-# {rows[], cpu, mem, pods}. External-fetch endpointRef, ClickHouse FORMAT JSON.
+{{/* Platform resource usage from ClickHouse (clickstack otel_metrics_gauge — k8s cluster/kubelet */}}
+{{/* receiver). Step `pods` = the top 25 pods by memory with their latest CPU (millicores) + memory */}}
+{{/* working-set (MiB); step `totals` = cluster-wide pod CPU cores + memory GiB + pod count. Both */}}
+{{/* take the LATEST gauge value per pod (argMax over TimeUnix, last 5 min) — a live snapshot, not a */}}
+{{/* window aggregate, so it MUST stay tightly time-bound (5m) against this 7M-row table. Exposes */}}
+{{/* {rows[], cpu, mem, pods}. External-fetch endpointRef, ClickHouse FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -33,7 +33,7 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: totalsError
-  # pods => {data:[{ns,pod,cpu_m,mem_mib}]}; totals => {data:[{cpu_cores,mem_gib,pods}]}.
+  {{/* pods => {data:[{ns,pod,cpu_m,mem_mib}]}; totals => {data:[{cpu_cores,mem_gib,pods}]}. */}}
   filter: >
     { rows: ((.pods.data) // []),
       cpu:  (((.totals.data) // [])[0].cpu_cores // 0),

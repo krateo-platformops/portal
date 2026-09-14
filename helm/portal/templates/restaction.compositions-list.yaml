@@ -7,23 +7,23 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-  # RBAC-native type discovery — list CompositionDefinitions (NOT CRDs), scoped by userAccessFilter.
-  #
-  # A no-userAccessFilter api step is dispatched AS THE CALLER (internal/dynamic/sa_client.go). The
-  # original shape listed /apis/apiextensions.k8s.io/v1/customresourcedefinitions cluster-wide → a
-  # narrowed-RBAC tenant (no cluster CRD-list grant) got empty discovery → the whole list came back
-  # blank for any non-admin (reproduced live).
-  #
-  # #72 / #70-migration SHAPE: list core.krateo.io CompositionDefinitions cluster-wide UNDER a
-  # userAccessFilter on `compositiondefinitions`. snowplow lists as its SA (which holds the cluster-
-  # wide grant), then REFILTERS to the CDs in namespaces where the CALLER can list them. So a tenant
-  # discovers types in EVERY namespace it is granted (krateo-system, krateo-blueprints per acmp#53,
-  # its own ns, …) — with NO hardcoded namespaces and NO tenant ClusterRole (the cluster read is the
-  # SA's; the tenant needs only its plain namespaced CD-list Roles). This SUPERSEDES the earlier
-  # namespaced-enumeration shape (crds=release-ns + crdsBlueprints=blueprint-ns union), which covered
-  # only two fixed namespaces. The `name: crds` key + {plural, version} output are UNCHANGED, so
-  # allCompositions's dependsOn/iterator + resourcesFrom are untouched; per-INSTANCE visibility stays
-  # gated by allCompositions' own userAccessFilter. See snowplow #118 (UAF cache/refilter fidelity).
+  {{/* RBAC-native type discovery — list CompositionDefinitions (NOT CRDs), scoped by userAccessFilter. */}}
+  {{/* */}}
+  {{/* A no-userAccessFilter api step is dispatched AS THE CALLER (internal/dynamic/sa_client.go). The */}}
+  {{/* original shape listed /apis/apiextensions.k8s.io/v1/customresourcedefinitions cluster-wide → a */}}
+  {{/* narrowed-RBAC tenant (no cluster CRD-list grant) got empty discovery → the whole list came back */}}
+  {{/* blank for any non-admin (reproduced live). */}}
+  {{/* */}}
+  {{/* #72 / #70-migration SHAPE: list core.krateo.io CompositionDefinitions cluster-wide UNDER a */}}
+  {{/* userAccessFilter on `compositiondefinitions`. snowplow lists as its SA (which holds the cluster- */}}
+  {{/* wide grant), then REFILTERS to the CDs in namespaces where the CALLER can list them. So a tenant */}}
+  {{/* discovers types in EVERY namespace it is granted (krateo-system, krateo-blueprints per acmp#53, */}}
+  {{/* its own ns, …) — with NO hardcoded namespaces and NO tenant ClusterRole (the cluster read is the */}}
+  {{/* SA's; the tenant needs only its plain namespaced CD-list Roles). This SUPERSEDES the earlier */}}
+  {{/* namespaced-enumeration shape (crds=release-ns + crdsBlueprints=blueprint-ns union), which covered */}}
+  {{/* only two fixed namespaces. The `name: crds` key + {plural, version} output are UNCHANGED, so */}}
+  {{/* allCompositions's dependsOn/iterator + resourcesFrom are untouched; per-INSTANCE visibility stays */}}
+  {{/* gated by allCompositions' own userAccessFilter. See snowplow #118 (UAF cache/refilter fidelity). */}}
   - name: crds
     path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
     verb: GET
@@ -36,19 +36,19 @@ spec:
     continueOnError: true
     errorKey: crdsError
   - name: allCompositions
-    # Phase 3' / portal-chart 0.30.177 — namespace-dim REMOVED from iterator.
-    #
-    # PRIOR SHAPE (portal-chart 0.30.176): iterator was the K×N (CRDs ×
-    # namespaces) cross-product emitted by compositions-get-ns-and-crd. The
-    # per-(CRD,ns) LIST then ran through snowplow's cluster_list collapse to
-    # a single cluster-scope LIST per CRD (Ship D.5 / 0.30.152).
-    #
-    # NEW SHAPE: iterator is just the K CRD entries. Each iteration hits the
-    # cluster-scope LIST endpoint /apis/composition.krateo.io/<version>/<plural>
-    # directly (no /namespaces/<ns>/ segment). The per-item UAF gates by
-    # .metadata.namespace, so narrow-RBAC users receive only items in
-    # namespaces where they hold the grant — byte-equivalent to today's
-    # runtime collapse + per-item refilter.
+    {{/* Phase 3' / portal-chart 0.30.177 — namespace-dim REMOVED from iterator. */}}
+    {{/* */}}
+    {{/* PRIOR SHAPE (portal-chart 0.30.176): iterator was the K×N (CRDs × */}}
+    {{/* namespaces) cross-product emitted by compositions-get-ns-and-crd. The */}}
+    {{/* per-(CRD,ns) LIST then ran through snowplow's cluster_list collapse to */}}
+    {{/* a single cluster-scope LIST per CRD (Ship D.5 / 0.30.152). */}}
+    {{/* */}}
+    {{/* NEW SHAPE: iterator is just the K CRD entries. Each iteration hits the */}}
+    {{/* cluster-scope LIST endpoint /apis/composition.krateo.io/<version>/<plural> */}}
+    {{/* directly (no /namespaces/<ns>/ segment). The per-item UAF gates by */}}
+    {{/* .metadata.namespace, so narrow-RBAC users receive only items in */}}
+    {{/* namespaces where they hold the grant — byte-equivalent to today's */}}
+    {{/* runtime collapse + per-item refilter. */}}
     dependsOn:
       name: crds
       iterator: ".crds"
@@ -64,19 +64,19 @@ spec:
     filter: >
       [.allCompositions.items[]?
        | {uid: .metadata.uid, name: .metadata.name, ns: .metadata.namespace, ts: .metadata.creationTimestamp, kind: .kind, av: .apiVersion, conditions: (.status.conditions // []), wh: .status.workloadHealthy, whMsg: (.status.healthMessage // ""), platform: ((((.metadata.labels // {})["krateo.io/composition-name"]) == "installer") or (((.metadata.labels // {})["krateo.io/composition-definition-name"]) == "installer"))}]
-  # Final shape. `list` stays the FULL (ns-scoped) set — the dashboard stat/donut/delta
-  # widgets share this RA and read `.list` for totals, so it must NOT be date/status
-  # filtered. The compositions PAGE reads `.filtered` (status + time-window applied) and
-  # `.counts` (per-status totals for the toolbar chips). All scope params come from the
-  # request `extras` (?status, ?range, ?from, ?to in the URL, read synchronously — same
-  # mechanism as dashboard-data's ?range). Each item gains a derived `.state`
-  # (healthy/pending/failed from the Ready condition) so filtering/counting is one pass.
-  # ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state
-  # OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the
-  # reconcile-breakdown drill-down; the other status values keep filtering on .state.
-  # The scope params (status/range/q/from/to/projects) are ECHOED back so the toolbar
-  # chip Listys (compositions-status-chips) can rebuild query-merged routes and their
-  # active flag server-side — chip navigateTo does not client-merge like Buttons did.
+  {{/* Final shape. `list` stays the FULL (ns-scoped) set — the dashboard stat/donut/delta */}}
+  {{/* widgets share this RA and read `.list` for totals, so it must NOT be date/status */}}
+  {{/* filtered. The compositions PAGE reads `.filtered` (status + time-window applied) and */}}
+  {{/* `.counts` (per-status totals for the toolbar chips). All scope params come from the */}}
+  {{/* request `extras` (?status, ?range, ?from, ?to in the URL, read synchronously — same */}}
+  {{/* mechanism as dashboard-data's ?range). Each item gains a derived `.state` */}}
+  {{/* (healthy/pending/failed from the Ready condition) so filtering/counting is one pass. */}}
+  {{/* ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state */}}
+  {{/* OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the */}}
+  {{/* reconcile-breakdown drill-down; the other status values keep filtering on .state. */}}
+  {{/* The scope params (status/range/q/from/to/projects) are ECHOED back so the toolbar */}}
+  {{/* chip Listys (compositions-status-chips) can rebuild query-merged routes and their */}}
+  {{/* active flag server-side — chip navigateTo does not client-merge like Buttons did. */}}
   filter: >
     (((.projects // "") | split(",") | map(select(. != ""))) as $projSel
      | ((.project // .namespace) // "") as $proj

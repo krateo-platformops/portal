@@ -1,17 +1,17 @@
-# Observability → Telemetry tab content (R2 #9). A Col wrapper — the Tabs allowedResources
-# enum has `cols`/`rows`/`paragraphs`/`listies` but not `flexes` — stacking the live-telemetry
-# section: the OTel → ClickHouse error digest, the chronological log stream and the cluster
-# resource-usage trend + snapshot.
-#
-# The Performance sub-group (reconcile-trace throughput/latency/percentiles/phases) is a
-# HONESTY-GUARDED opt-in: otel_traces + otel_metrics_histogram are emitted ONLY by the
-# composition-dynamic-controller, so on a cluster without the CDC tracing pipeline those tables
-# are permanently empty and the group would render fabricated zeros. Default HIDDEN — opt in
-# with `observability.reconcileTracing: true`. (Same guard as the pre-tabs page flow.)
-#
-# R2 #11: obs-svc-filter-note (a dismissible chip Listy) sits ABOVE the log stream, appearing
-# ONLY when a ?serviceName= scope is active — it names the filtered service and clears back to the
-# unscoped page. hideWhenEmpty keeps the healthy/default unfiltered state clean (exception-only).
+{{/* Observability → Telemetry tab content (R2 #9). A Col wrapper — the Tabs allowedResources */}}
+{{/* enum has `cols`/`rows`/`paragraphs`/`listies` but not `flexes` — stacking the live-telemetry */}}
+{{/* section: the OTel → ClickHouse error digest, the chronological log stream and the cluster */}}
+{{/* resource-usage trend + snapshot. */}}
+{{/* */}}
+{{/* The Performance sub-group (reconcile-trace throughput/latency/percentiles/phases) is a */}}
+{{/* HONESTY-GUARDED opt-in: otel_traces + otel_metrics_histogram are emitted ONLY by the */}}
+{{/* composition-dynamic-controller, so on a cluster without the CDC tracing pipeline those tables */}}
+{{/* are permanently empty and the group would render fabricated zeros. Default HIDDEN — opt in */}}
+{{/* with `observability.reconcileTracing: true`. (Same guard as the pre-tabs page flow.) */}}
+{{/* */}}
+{{/* R2 #11: obs-svc-filter-note (a dismissible chip Listy) sits ABOVE the log stream, appearing */}}
+{{/* ONLY when a ?serviceName= scope is active — it names the filtered service and clears back to the */}}
+{{/* unscoped page. hideWhenEmpty keeps the healthy/default unfiltered state clean (exception-only). */}}
 kind: Col
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -30,7 +30,7 @@ spec:
     - resourceRefId: obs-sec-logs-label
     - resourceRefId: obs-sec-logs-desc
     {{- if (.Values.observability | default dict).reconcileTracing }}
-    # — Performance — (reconcile-trace telemetry; opt-in, see header honesty guard).
+    {{/* — Performance — (reconcile-trace telemetry; opt-in, see header honesty guard). */}}
     - resourceRefId: obs-sec-performance-label
     - resourceRefId: obs-sec-performance-desc
     - resourceRefId: obs-telemetry-row
@@ -40,8 +40,8 @@ spec:
     {{- end }}
     - resourceRefId: obs-errors-row
     - resourceRefId: obs-svc-filter-note
-    # Row-limit selector ("extend the base set") — sits directly above the log-stream card so
-    # it reads as scoping THAT panel; drives the log-stream RA's ClickHouse LIMIT via ?limit=.
+    {{/* Row-limit selector ("extend the base set") — sits directly above the log-stream card so */}}
+    {{/* it reads as scoping THAT panel; drives the log-stream RA's ClickHouse LIMIT via ?limit=. */}}
     - resourceRefId: obs-limit-group
     - resourceRefId: obs-log-stream-row
     - resourceRefId: obs-resource-row

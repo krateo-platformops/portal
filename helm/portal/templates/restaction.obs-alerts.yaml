@@ -1,12 +1,12 @@
-# Lists the Krateo Alert CRs (observability.krateo.io) via the apiserver — same per-user path
-# pattern as compositions-list. Each Alert's live state lives in .status.state (OK / ALERT /
-# PENDING), mirrored from HyperDX by the session-driven reconciler in krateo-alert-troubleshooter.
-# Exposes {rows[], firing} for the status table + the "firing" headline.
-# Each row carries routeName/routeNs (the CR's metadata.name/namespace) — the /alerts table now
-# deep-links each row to /alerts/{namespace}/{name}, the per-alert detail page (item 25). It
-# still ALSO carries `ask` (the Autopilot seed for THIS alert, built server-side), but that seed
-# now rides the detail page's "Investigate with Autopilot" button rather than the row-click, so
-# the ask flow the row used to own isn't lost — just relocated one hop.
+{{/* Lists the Krateo Alert CRs (observability.krateo.io) via the apiserver — same per-user path */}}
+{{/* pattern as compositions-list. Each Alert's live state lives in .status.state (OK / ALERT / */}}
+{{/* PENDING), mirrored from HyperDX by the session-driven reconciler in krateo-alert-troubleshooter. */}}
+{{/* Exposes {rows[], firing} for the status table + the "firing" headline. */}}
+{{/* Each row carries routeName/routeNs (the CR's metadata.name/namespace) — the /alerts table now */}}
+{{/* deep-links each row to /alerts/{namespace}/{name}, the per-alert detail page (item 25). It */}}
+{{/* still ALSO carries `ask` (the Autopilot seed for THIS alert, built server-side), but that seed */}}
+{{/* now rides the detail page's "Investigate with Autopilot" button rather than the row-click, so */}}
+{{/* the ask flow the row used to own isn't lost — just relocated one hop. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -21,10 +21,10 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: alertsError
-    # The investigations these alerts produced. Read here rather than on the detail page because
-    # the LIST is where "did this alert ever actually do anything" goes unanswered: the table shows
-    # configuration (what it watches, its threshold) and never outcome. A report that reached
-    # phase=Ready having produced nothing is invisible from this page today.
+    {{/* The investigations these alerts produced. Read here rather than on the detail page because */}}
+    {{/* the LIST is where "did this alert ever actually do anything" goes unanswered: the table shows */}}
+    {{/* configuration (what it watches, its threshold) and never outcome. A report that reached */}}
+    {{/* phase=Ready having produced nothing is invisible from this page today. */}}
     - name: reports
       path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
       verb: GET

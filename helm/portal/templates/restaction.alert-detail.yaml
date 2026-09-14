@@ -1,23 +1,23 @@
-# Data source for ONE Alert CR — /alerts/{namespace}/{name} (route params ride in as
-# ?extras .name/.namespace, same mechanism as composition-detail / incident-detail).
-# Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly:
-#   alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in
-#             .spec (displayName / where / threshold+thresholdType / interval / message)
-#             and its live HyperDX-mirrored state in .status (state / phase / lastSyncedAt
-#             / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-troubleshooter.
-#   reports : the release-namespace TroubleshootingReports — used ONLY to find the incident
-#             whose spec.alertName NORMALIZED-matches this alert's displayName (the alert→
-#             incident back-link, item 22 alert-side; same normalization the incidents-list
-#             awaiting-strip uses: lowercased, alphanumerics only — a report keys its alert by
-#             the DISPLAY name which may carry an emoji, so a literal == never matched).
-# Everything is derived server-side (nothing-hardcoded):
-#   the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so
-#   the healthy quiet state OK reads green), the "above N" threshold prose, the compact
-#   relative lastSynced age (Descriptions has no format:relative → derived via `now`), the
-#   Autopilot seed sentence (the "Investigate with Autopilot" button on the detail page), and
-#   the HyperDX console deep-links (built only when the deployer set .Values.observabilityConsoleUrl
-#   AND the reconciler recorded the id — no default URL is invented, so the link is simply
-#   absent otherwise; same honesty as button.obs-console-link).
+{{/* Data source for ONE Alert CR — /alerts/{namespace}/{name} (route params ride in as */}}
+{{/* ?extras .name/.namespace, same mechanism as composition-detail / incident-detail). */}}
+{{/* Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly: */}}
+{{/* alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in */}}
+{{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
+{{/* and its live HyperDX-mirrored state in .status (state / phase / lastSyncedAt */}}
+{{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-troubleshooter. */}}
+{{/* reports : the release-namespace TroubleshootingReports — used ONLY to find the incident */}}
+{{/* whose spec.alertName NORMALIZED-matches this alert's displayName (the alert→ */}}
+{{/* incident back-link, item 22 alert-side; same normalization the incidents-list */}}
+{{/* awaiting-strip uses: lowercased, alphanumerics only — a report keys its alert by */}}
+{{/* the DISPLAY name which may carry an emoji, so a literal == never matched). */}}
+{{/* Everything is derived server-side (nothing-hardcoded): */}}
+{{/* the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so */}}
+{{/* the healthy quiet state OK reads green), the "above N" threshold prose, the compact */}}
+{{/* relative lastSynced age (Descriptions has no format:relative → derived via `now`), the */}}
+{{/* Autopilot seed sentence (the "Investigate with Autopilot" button on the detail page), and */}}
+{{/* the HyperDX console deep-links (built only when the deployer set .Values.observabilityConsoleUrl */}}
+{{/* AND the reconciler recorded the id — no default URL is invented, so the link is simply */}}
+{{/* absent otherwise; same honesty as button.obs-console-link). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -27,21 +27,21 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    # Both paths are `${ jq }` expressions over the ?extras (route params) — the ONLY templating
-    # snowplow applies to api[].path (same as composition-detail / resource-detail). It does NOT
-    # substitute `{name}`-style brace placeholders: the former literal `.../alerts/{name}` reached
-    # the apiserver verbatim (`alerts.observability.krateo.io "{name}" not found`), the read
-    # degraded via continueOnError and EVERY alert rendered the honest-empty branch below
-    # (Manifest "No data", State "Pending", stage errors on the title/tag/buttons).
-    # Namespace comes off the route too (.namespace); the release ns is only the fallback when
-    # the extras carry none — so nothing changes where the alert already lives there.
+    {{/* Both paths are `${ jq }` expressions over the ?extras (route params) — the ONLY templating */}}
+    {{/* snowplow applies to api[].path (same as composition-detail / resource-detail). It does NOT */}}
+    {{/* substitute `{name}`-style brace placeholders: the former literal `.../alerts/{name}` reached */}}
+    {{/* the apiserver verbatim (`alerts.observability.krateo.io "{name}" not found`), the read */}}
+    {{/* degraded via continueOnError and EVERY alert rendered the honest-empty branch below */}}
+    {{/* (Manifest "No data", State "Pending", stage errors on the title/tag/buttons). */}}
+    {{/* Namespace comes off the route too (.namespace); the release ns is only the fallback when */}}
+    {{/* the extras carry none — so nothing changes where the alert already lives there. */}}
     - name: alert
       path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/alerts/" + .name }
       verb: GET
       continueOnError: true
       errorKey: alertError
-    # The back-link lookup follows the alert's namespace as well (a report is keyed to the alert it
-    # investigates), release ns as the same fallback.
+    {{/* The back-link lookup follows the alert's namespace as well (a report is keyed to the alert it */}}
+    {{/* investigates), release ns as the same fallback. */}}
     - name: reports
       path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/troubleshootingreports" }
       verb: GET

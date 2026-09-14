@@ -1,15 +1,15 @@
-# /blueprint-builder deliverables — one row per Autopilot-authored blueprint, sourced
-# from the git PullRequest CRs to the blueprints repo (spec.repo == krateo-blueprints),
-# JOINED to (a) the registered CompositionDefinition — is the merged chart live yet? — and
-# (b) the blueprints helm index — is the chart published to the marketplace yet?
-# Cluster-native for the CR joins (no GitHub token/endpoint); the catalog step is an external
-# endpointRef fetch of the public helm index. continueOnError everywhere so a narrow-RBAC user
-# (or a missing index) degrades to a partial/empty table instead of a failed widget. The chart
-# name is derived server-side from the PR's `builder/<chart>` branch; the row's ns+chart drive
-# the table's rowNavigateTo into the blueprint detail page (the linkable deliverable), while the
-# PR number + html_url ride along so the table can surface the opened PR (a "#N" cell).
-#
-# NEEDS snowplow >= 1.4.0 for the external helm-index YAML fetch (external_fetch.go YAML->JSON).
+{{/* /blueprint-builder deliverables — one row per Autopilot-authored blueprint, sourced */}}
+{{/* from the git PullRequest CRs to the blueprints repo (spec.repo == krateo-blueprints), */}}
+{{/* JOINED to (a) the registered CompositionDefinition — is the merged chart live yet? — and */}}
+{{/* (b) the blueprints helm index — is the chart published to the marketplace yet? */}}
+{{/* Cluster-native for the CR joins (no GitHub token/endpoint); the catalog step is an external */}}
+{{/* endpointRef fetch of the public helm index. continueOnError everywhere so a narrow-RBAC user */}}
+{{/* (or a missing index) degrades to a partial/empty table instead of a failed widget. The chart */}}
+{{/* name is derived server-side from the PR's `builder/<chart>` branch; the row's ns+chart drive */}}
+{{/* the table's rowNavigateTo into the blueprint detail page (the linkable deliverable), while the */}}
+{{/* PR number + html_url ride along so the table can surface the opened PR (a "#N" cell). */}}
+{{/* */}}
+{{/* NEEDS snowplow >= 1.4.0 for the external helm-index YAML fetch (external_fetch.go YAML->JSON). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -19,10 +19,10 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # Builder pull requests to the blueprints repo. status.state (open/closed) + merged + number +
-    # html_url are written by the KOG github-provider after the PR lands; a just-created PR has
-    # none, so read every status field defensively. Filter to the blueprints repo here so the
-    # join below only ever considers blueprint deliverables.
+    {{/* Builder pull requests to the blueprints repo. status.state (open/closed) + merged + number + */}}
+    {{/* html_url are written by the KOG github-provider after the PR lands; a just-created PR has */}}
+    {{/* none, so read every status field defensively. Filter to the blueprints repo here so the */}}
+    {{/* join below only ever considers blueprint deliverables. */}}
     - name: prs
       path: /apis/github.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/pullrequests
       verb: GET
@@ -40,8 +40,8 @@ spec:
               merged: ((.status.merged) // false),
               url: ((.status.html_url) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
-    # The registered blueprints (CompositionDefinitions). The join key is metadata.name ==
-    # the PR's chart name (the builder names the branch, the chart and the CD identically).
+    {{/* The registered blueprints (CompositionDefinitions). The join key is metadata.name == */}}
+    {{/* the PR's chart name (the builder names the branch, the chart and the CD identically). */}}
     - name: cds
       path: /apis/core.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/compositiondefinitions
       verb: GET
@@ -55,10 +55,10 @@ spec:
               version: ((.spec.chart.version) // ""),
               ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
               syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")) } ]
-    # P1 — SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER): no PullRequest CR, the
-    # blueprint's held chart files ride git-provider LocalResources labelled krateo.io/builder:
-    # blueprint + krateo.io/publish: <name> (one per file). Grouped per publish in the final filter
-    # → a deliverable row alongside the PR rows. continueOnError → empty if git-provider/RBAC absent.
+    {{/* P1 — SCM-agnostic publish path (AUTOPILOT_PUBLISH_VIA_GIT_PROVIDER): no PullRequest CR, the */}}
+    {{/* blueprint's held chart files ride git-provider LocalResources labelled krateo.io/builder: */}}
+    {{/* blueprint + krateo.io/publish: <name> (one per file). Grouped per publish in the final filter */}}
+    {{/* → a deliverable row alongside the PR rows. continueOnError → empty if git-provider/RBAC absent. */}}
     - name: publishes
       path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
       verb: GET
@@ -73,17 +73,17 @@ spec:
               branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
               synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
               created: ((.metadata.creationTimestamp) // "") } ]
-    # The krateo-blueprints blueprints helm index — the marketplace catalog. Mirrors
-    # restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's
-    # `entries` map is keyed by chart NAME, so the marketplace-availability join is a simple
-    # membership test (does the index list this chart?) — projected to just the chart names here.
+    {{/* The krateo-blueprints blueprints helm index — the marketplace catalog. Mirrors */}}
+    {{/* restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's */}}
+    {{/* `entries` map is keyed by chart NAME, so the marketplace-availability join is a simple */}}
+    {{/* membership test (does the index list this chart?) — projected to just the chart names here. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
       filter: >
         [ (((.catalog // {}).entries) // {}) | keys[] ]
-  # Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/In review) + its
-  # chip colour, the marketplace-available chip, and the PR "#N" cell are all computed HERE,
-  # server-side. Rows are newest-first. (The Autopilot deep-link is no longer emitted here — the
-  # page's single "Ask Autopilot →" CTA is the one entry point; the redundant hint strip was removed.)
+  {{/* Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/In review) + its */}}
+  {{/* chip colour, the marketplace-available chip, and the PR "#N" cell are all computed HERE, */}}
+  {{/* server-side. Rows are newest-first. (The Autopilot deep-link is no longer emitted here — the */}}
+  {{/* page's single "Ask Autopilot →" CTA is the one entry point; the redundant hint strip was removed.) */}}
   filter: >
     (.cds // []) as $cds
     | ((.catalog // []) | map({key: ., value: true}) | from_entries) as $inCatalog

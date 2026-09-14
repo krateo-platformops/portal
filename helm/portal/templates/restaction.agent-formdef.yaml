@@ -1,115 +1,115 @@
-# Agent create-form schema source — the alert-formdef pattern (live CRD → form schema), with the
-# three departures the kagent Agent CRD forces. Consumed by form.agent-create.
-#
-# 1. SUBSET, NOT PASSTHROUGH — and the load-bearing reason is NOT size.
-#
-#    THE REQUIRED ARRAYS ARE EMPTY. On v1alpha2 the CRD declares `required` at exactly two places:
-#      top-level / spec / spec.declarative / spec.byo / tools[]  ->  NONE
-#      tools[].mcpServer -> ["name"]      tools[].agent -> ["name"]
+{{/* Agent create-form schema source — the alert-formdef pattern (live CRD → form schema), with the */}}
+{{/* three departures the kagent Agent CRD forces. Consumed by form.agent-create. */}}
+{{/* */}}
+{{/* 1. SUBSET, NOT PASSTHROUGH — and the load-bearing reason is NOT size. */}}
+{{/* */}}
+{{/* THE REQUIRED ARRAYS ARE EMPTY. On v1alpha2 the CRD declares `required` at exactly two places: */}}
+{{/* top-level / spec / spec.declarative / spec.byo / tools[]  ->  NONE */}}
+{{/* tools[].mcpServer -> ["name"]      tools[].agent -> ["name"] */}}
 #    Verified by dry-run: `spec: {declarative: {}}` is ACCEPTED and defaults to
 #    `{type: Declarative, declarative: {runtime: python}}` — an agent with no model, no prompt and
-#    no tools. Valid to the apiserver, inert in practice.
-#
-#    SchemaFields partitions the form into "required" and the Advanced collapse BY `schema.required`.
-#    So handing over the raw CRD node yields a form in which NOTHING is required and every control
-#    is optional — the user can submit the empty agent above. The required-ness does not exist in
-#    the CRD to be forwarded; it has to be AUTHORED here. That is the argument for projecting.
-#    => Do not "simplify" the hand-written `required:` below by sourcing it from the CRD. It is
-#       empty there, and doing so would silently make every field on this form optional.
-#
-#    Size is a real but secondary reason (the whole CRD object is 1.32 MB across both versions;
-#    the v1alpha2 spec schema alone is ~395 KB compact — 56 groups, ~114 renderable controls, and
-#    ~55 fields that fall back to a JSON textarea, max depth 6). Nesting is NOT a reason: the Form
-#    recurses to arbitrary depth (SchemaFields `isGroup` = object-with-properties), so depth was
-#    never the constraint. `spec.byo.deployment` alone carries a full PodSpec
-#    (affinity/tolerations/volumes/…); `declarative` carries a2aConfig, context, deployment, memory,
-#    promptTemplate, sandbox, skills.
-#
-#    This filter therefore SELECTS the properties by key — but takes each one's `type`, `enum`,
-#    `default` and (mostly) `description` from the LIVE CRD node, so the convention still holds:
-#    change the CRD's runtime enum and this form's Runtime picker changes with it. Only the SET of
-#    exposed keys, and the `required` list, are authored here.
-#
-# 2. NO `spec.type` PICKER — Declarative is pinned. `type: BYO` needs `spec.byo.deployment.image`
-#    (minLength 1); the two branches are a union the schema renderer cannot express (SchemaFields
-#    has no oneOf/if-then, so both branches render at once and both sets of fields are "required"),
-#    and a BYO Agent created without an image is admitted by the apiserver and then never Accepted.
-#    Offering a picker the form cannot back is the dead-UI failure, so it is not offered.
-#
-# 3. `tools[]` IS SYNTHESIZED, not rendered. The CRD node is an array of objects with a `type`
-#    discriminator and two sibling branches (mcpServer | agent) — SchemaFields renders any
-#    object/array without an items.enum as a raw JSON textarea. Instead this filter emits three
-#    CLOSED multi-selects (array + items.enum → antd multi-select) built from live cluster state:
-#      __tools__      "<server>/<tool>" over every RemoteMCPServer's status.discoveredTools
-#      __approvals__  the same list — the subset that must pause for human approval (HITL)
-#      __delegates__  Agent names this agent may hand work to
-#    form.agent-create's payloadToOverride jq folds them back into the real
-#    spec.declarative.tools[] shape (verified byte-for-byte against the live autopilot Agent).
-#
-#    PLATFORM FOLLOW-UP (not this slice): `controlFor` in ui/src/widgets/Form/SchemaFields.tsx sends
-#    ANY array that is neither items.enum nor items.type=string to JsonValueInput. An array-of-object
-#    REPEATER there would fix this for every Krateo form that has to describe a list of structured
-#    things — this one, and the ~55 textarea fallbacks in this CRD alone. Until then, flat closed
-#    selections folded in payloadToOverride is the only route that yields a usable control.
-#
-# NAMESPACE/REFERENCE SAFETY. kagent resolves `declarative.modelConfig` in the AGENT's OWN
-# namespace ("Must be in the same namespace as the Agent" — CRD), and the shipped Agent CRs
-# reference MCP servers and delegate agents by bare name with no namespace. A namespace picker and
-# a name picker that are chosen independently can therefore produce a dangling reference. So every
-# offered option is the INTERSECTION across the offered namespaces: the namespace enum keeps only
-# create-permitted namespaces that hold at least one ModelConfig, and the ModelConfig / server /
-# delegate enums keep only names present in ALL of those namespaces. Whatever pair the user picks
-# resolves. On a single-namespace install (every cluster we run) this is a no-op.
-#
-# ENFORCEMENT LIVES IN CEL, WHICH THE FORM CANNOT SEE. The apiserver applies 8 x-kubernetes-
-# validations rules the JSON Schema does not express, so a form that satisfies the schema can still
-# be rejected on apply. All 8, and how this slice stays on the right side of each:
-#
-#   spec: has(type) && type in (Declarative|BYO)          -> ENFORCED: `type: "Declarative"` is
-#   spec: Declarative => declarative; BYO => byo             emitted literally, `declarative` always.
-#   tools[]: type=McpServer <=> mcpServer  (both ways)    -> ENFORCED by construction: the submit jq
-#   tools[]: type=Agent     <=> agent      (both ways)       only ever emits matched type+branch pairs.
-#   tools[].mcpServer: requireApproval SUBSET-OF toolNames -> ENFORCED by intersection (see
-#                                                            form.agent-create). This is the one that
-#                                                            would actually bite: unticking a tool
-#                                                            while its approval entry stays set is a
-#                                                            server-side reject with no visible cause,
-#                                                            so the orphan is dropped at submit.
-#   declarative: systemMessage XOR systemMessageFrom      -> AVOIDED: systemMessageFrom not exposed.
-#   deployment: serviceAccountName XOR serviceAccountConfig -> AVOIDED: deployment not exposed.
-#   headersFrom[]: exactly one of value / valueFrom       -> AVOIDED: headersFrom not exposed.
-#   allowedNamespaces: from=Selector => selector          -> AVOIDED: relies on the CRD default Same.
-#
-# Anything added to this form later must be checked against that list first — the Form has no way to
-# express these, so the only options are enforce-in-jq or do-not-expose.
-#
-# CRD defaults relied on rather than re-specified: allowedNamespaces.from=Same,
-# compaction.compactionInterval=5, overlapSize=2. (`type` and `runtime` ARE specified: `type`
-# because a literal is clearer than a default at the one place the union is pinned, `runtime`
-# because it is a user-facing choice.)
-#
-# RBAC AND READ FAILURE ARE DIFFERENT THINGS, AND THE FORM SAYS WHICH. `crd` is a hard dependency —
-# no schema, no form, so it fails loudly. The four list steps carry continueOnError + an errorKey,
-# and the filter BRANCHES ON EVERY ONE of them (errText below). That matters because an empty enum
-# has three causes that look identical on the wire:
-#
-#   a. the step FAILED — CRD absent, apiserver 5xx, timeout. snowplow swallows it under
-#      continueOnError and writes the reason to the errorKey. `(<list> | length) > 0` cannot see
-#      this; `.modelsError != null` can. Every affected field description now names the failure and
-#      says the picker is empty because a READ FAILED — not because the cluster is empty.
-#   b. the caller cannot list the kind. A step WITH userAccessFilter lists as snowplow's own SA and
-#      then refilters to what the CALLER may read (snowplow internal/dynamic/sa_client.go), so a
-#      denied caller gets an EMPTY list and NO errorKey — the errorKey cannot distinguish this one.
-#      Every description is therefore worded "readable", never "exists": an empty picker is
-#      reported as nothing this caller can read, which is true under (b) and under (c).
-#   c. nothing of that kind exists.
-#
-# So: (a) is named explicitly with its error text, and (b)/(c) share one honest wording that claims
-# only what the read actually proves. Nothing here ever reports an absence it did not observe.
-#
-# The notice lives in the FIELD DESCRIPTIONS, not in a page-level banner, for two reasons: it lands
-# directly under the empty picker it explains, and a second widget with an apiRef to this action
-# would re-resolve the whole 1.32 MB Agent CRD read on a different L1 key.
+{{/* no tools. Valid to the apiserver, inert in practice. */}}
+{{/* */}}
+{{/* SchemaFields partitions the form into "required" and the Advanced collapse BY `schema.required`. */}}
+{{/* So handing over the raw CRD node yields a form in which NOTHING is required and every control */}}
+{{/* is optional — the user can submit the empty agent above. The required-ness does not exist in */}}
+{{/* the CRD to be forwarded; it has to be AUTHORED here. That is the argument for projecting. */}}
+{{/* => Do not "simplify" the hand-written `required:` below by sourcing it from the CRD. It is */}}
+{{/* empty there, and doing so would silently make every field on this form optional. */}}
+{{/* */}}
+{{/* Size is a real but secondary reason (the whole CRD object is 1.32 MB across both versions; */}}
+{{/* the v1alpha2 spec schema alone is ~395 KB compact — 56 groups, ~114 renderable controls, and */}}
+{{/* ~55 fields that fall back to a JSON textarea, max depth 6). Nesting is NOT a reason: the Form */}}
+{{/* recurses to arbitrary depth (SchemaFields `isGroup` = object-with-properties), so depth was */}}
+{{/* never the constraint. `spec.byo.deployment` alone carries a full PodSpec */}}
+{{/* (affinity/tolerations/volumes/…); `declarative` carries a2aConfig, context, deployment, memory, */}}
+{{/* promptTemplate, sandbox, skills. */}}
+{{/* */}}
+{{/* This filter therefore SELECTS the properties by key — but takes each one's `type`, `enum`, */}}
+{{/* `default` and (mostly) `description` from the LIVE CRD node, so the convention still holds: */}}
+{{/* change the CRD's runtime enum and this form's Runtime picker changes with it. Only the SET of */}}
+{{/* exposed keys, and the `required` list, are authored here. */}}
+{{/* */}}
+{{/* 2. NO `spec.type` PICKER — Declarative is pinned. `type: BYO` needs `spec.byo.deployment.image` */}}
+{{/* (minLength 1); the two branches are a union the schema renderer cannot express (SchemaFields */}}
+{{/* has no oneOf/if-then, so both branches render at once and both sets of fields are "required"), */}}
+{{/* and a BYO Agent created without an image is admitted by the apiserver and then never Accepted. */}}
+{{/* Offering a picker the form cannot back is the dead-UI failure, so it is not offered. */}}
+{{/* */}}
+{{/* 3. `tools[]` IS SYNTHESIZED, not rendered. The CRD node is an array of objects with a `type` */}}
+{{/* discriminator and two sibling branches (mcpServer | agent) — SchemaFields renders any */}}
+{{/* object/array without an items.enum as a raw JSON textarea. Instead this filter emits three */}}
+{{/* CLOSED multi-selects (array + items.enum → antd multi-select) built from live cluster state: */}}
+{{/* __tools__      "<server>/<tool>" over every RemoteMCPServer's status.discoveredTools */}}
+{{/* __approvals__  the same list — the subset that must pause for human approval (HITL) */}}
+{{/* __delegates__  Agent names this agent may hand work to */}}
+{{/* form.agent-create's payloadToOverride jq folds them back into the real */}}
+{{/* spec.declarative.tools[] shape (verified byte-for-byte against the live autopilot Agent). */}}
+{{/* */}}
+{{/* PLATFORM FOLLOW-UP (not this slice): `controlFor` in ui/src/widgets/Form/SchemaFields.tsx sends */}}
+{{/* ANY array that is neither items.enum nor items.type=string to JsonValueInput. An array-of-object */}}
+{{/* REPEATER there would fix this for every Krateo form that has to describe a list of structured */}}
+{{/* things — this one, and the ~55 textarea fallbacks in this CRD alone. Until then, flat closed */}}
+{{/* selections folded in payloadToOverride is the only route that yields a usable control. */}}
+{{/* */}}
+{{/* NAMESPACE/REFERENCE SAFETY. kagent resolves `declarative.modelConfig` in the AGENT's OWN */}}
+{{/* namespace ("Must be in the same namespace as the Agent" — CRD), and the shipped Agent CRs */}}
+{{/* reference MCP servers and delegate agents by bare name with no namespace. A namespace picker and */}}
+{{/* a name picker that are chosen independently can therefore produce a dangling reference. So every */}}
+{{/* offered option is the INTERSECTION across the offered namespaces: the namespace enum keeps only */}}
+{{/* create-permitted namespaces that hold at least one ModelConfig, and the ModelConfig / server / */}}
+{{/* delegate enums keep only names present in ALL of those namespaces. Whatever pair the user picks */}}
+{{/* resolves. On a single-namespace install (every cluster we run) this is a no-op. */}}
+{{/* */}}
+{{/* ENFORCEMENT LIVES IN CEL, WHICH THE FORM CANNOT SEE. The apiserver applies 8 x-kubernetes- */}}
+{{/* validations rules the JSON Schema does not express, so a form that satisfies the schema can still */}}
+{{/* be rejected on apply. All 8, and how this slice stays on the right side of each: */}}
+{{/* */}}
+{{/* spec: has(type) && type in (Declarative|BYO)          -> ENFORCED: `type: "Declarative"` is */}}
+{{/* spec: Declarative => declarative; BYO => byo             emitted literally, `declarative` always. */}}
+{{/* tools[]: type=McpServer <=> mcpServer  (both ways)    -> ENFORCED by construction: the submit jq */}}
+{{/* tools[]: type=Agent     <=> agent      (both ways)       only ever emits matched type+branch pairs. */}}
+{{/* tools[].mcpServer: requireApproval SUBSET-OF toolNames -> ENFORCED by intersection (see */}}
+{{/* form.agent-create). This is the one that */}}
+{{/* would actually bite: unticking a tool */}}
+{{/* while its approval entry stays set is a */}}
+{{/* server-side reject with no visible cause, */}}
+{{/* so the orphan is dropped at submit. */}}
+{{/* declarative: systemMessage XOR systemMessageFrom      -> AVOIDED: systemMessageFrom not exposed. */}}
+{{/* deployment: serviceAccountName XOR serviceAccountConfig -> AVOIDED: deployment not exposed. */}}
+{{/* headersFrom[]: exactly one of value / valueFrom       -> AVOIDED: headersFrom not exposed. */}}
+{{/* allowedNamespaces: from=Selector => selector          -> AVOIDED: relies on the CRD default Same. */}}
+{{/* */}}
+{{/* Anything added to this form later must be checked against that list first — the Form has no way to */}}
+{{/* express these, so the only options are enforce-in-jq or do-not-expose. */}}
+{{/* */}}
+{{/* CRD defaults relied on rather than re-specified: allowedNamespaces.from=Same, */}}
+{{/* compaction.compactionInterval=5, overlapSize=2. (`type` and `runtime` ARE specified: `type` */}}
+{{/* because a literal is clearer than a default at the one place the union is pinned, `runtime` */}}
+{{/* because it is a user-facing choice.) */}}
+{{/* */}}
+{{/* RBAC AND READ FAILURE ARE DIFFERENT THINGS, AND THE FORM SAYS WHICH. `crd` is a hard dependency — */}}
+{{/* no schema, no form, so it fails loudly. The four list steps carry continueOnError + an errorKey, */}}
+{{/* and the filter BRANCHES ON EVERY ONE of them (errText below). That matters because an empty enum */}}
+{{/* has three causes that look identical on the wire: */}}
+{{/* */}}
+{{/* a. the step FAILED — CRD absent, apiserver 5xx, timeout. snowplow swallows it under */}}
+{{/* continueOnError and writes the reason to the errorKey. `(<list> | length) > 0` cannot see */}}
+{{/* this; `.modelsError != null` can. Every affected field description now names the failure and */}}
+{{/* says the picker is empty because a READ FAILED — not because the cluster is empty. */}}
+{{/* b. the caller cannot list the kind. A step WITH userAccessFilter lists as snowplow's own SA and */}}
+{{/* then refilters to what the CALLER may read (snowplow internal/dynamic/sa_client.go), so a */}}
+{{/* denied caller gets an EMPTY list and NO errorKey — the errorKey cannot distinguish this one. */}}
+{{/* Every description is therefore worded "readable", never "exists": an empty picker is */}}
+{{/* reported as nothing this caller can read, which is true under (b) and under (c). */}}
+{{/* c. nothing of that kind exists. */}}
+{{/* */}}
+{{/* So: (a) is named explicitly with its error text, and (b)/(c) share one honest wording that claims */}}
+{{/* only what the read actually proves. Nothing here ever reports an absence it did not observe. */}}
+{{/* */}}
+{{/* The notice lives in the FIELD DESCRIPTIONS, not in a page-level banner, for two reasons: it lands */}}
+{{/* directly under the empty picker it explains, and a second widget with an apiRef to this action */}}
+{{/* would re-resolve the whole 1.32 MB Agent CRD read on a different L1 key. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -124,9 +124,9 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
-    # Model catalogue. `.spec.model` is carried into the field description so the picker shows what
-    # a config actually resolves to — gemini-pro and gemini-flash both point at gemini-3.8-flash
-    # today, and a bare config name would imply two models where there is one.
+    {{/* Model catalogue. `.spec.model` is carried into the field description so the picker shows what */}}
+    {{/* a config actually resolves to — gemini-pro and gemini-flash both point at gemini-3.8-flash */}}
+    {{/* today, and a bare config name would imply two models where there is one. */}}
     - name: models
       path: /apis/kagent.dev/v1alpha2/modelconfigs
       verb: GET
@@ -139,8 +139,8 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: modelsError
-    # Tool catalogue. remotemcpservers, NOT toolservers/mcpservers — those two CRDs hold zero
-    # objects on every cluster we run (see restaction.agents-list for the same note).
+    {{/* Tool catalogue. remotemcpservers, NOT toolservers/mcpservers — those two CRDs hold zero */}}
+    {{/* objects on every cluster we run (see restaction.agents-list for the same note). */}}
     - name: servers
       path: /apis/kagent.dev/v1alpha2/remotemcpservers
       verb: GET
@@ -153,7 +153,7 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: serversError
-    # Delegation targets.
+    {{/* Delegation targets. */}}
     - name: agents
       path: /apis/kagent.dev/v1alpha2/agents
       verb: GET
@@ -166,9 +166,9 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: agentsError
-    # Namespaces the user can `create` an Agent in — RBAC-filtered by snowplow's userAccessFilter
-    # (SSAR against the caller's bearer token), same create-permitted-picker pattern as
-    # alert-formdef. Never offers a namespace the create POST would 403 on.
+    {{/* Namespaces the user can `create` an Agent in — RBAC-filtered by snowplow's userAccessFilter */}}
+    {{/* (SSAR against the caller's bearer token), same create-permitted-picker pattern as */}}
+    {{/* alert-formdef. Never offers a namespace the create POST would 403 on. */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -184,33 +184,33 @@ spec:
       continueOnError: true
       errorKey: namespacesError
       filter: '[ (.namespaces.items // [])[] | .metadata.name ]'
-  # Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }.
-  #
-  # WHY THE SCHEMA IS CONCATENATED AS TEXT AND NEVER BUILT AS A jq OBJECT. Form.tsx prefers
-  # widgetData.stringSchema over widgetData.schema because JSON.parse preserves key insertion order
-  # while the `schema` object arrives from a Go map, alphabetised. That is true — but `tojson` DOES
-  # NOT BUY IT. snowplow pins `replace github.com/itchyny/gojq => github.com/braghettos/gojq
-  # v0.12.21`, whose encodeObject (encoder.go:180) sorts kvs by key, and tojson → funcToJSON →
-  # jsonMarshal reaches exactly that encoder (func.go:89/:834, encoder.go:31). Upstream itchyny
-  # v0.12.17 sorts identically; gojq's README says outright that it does not keep object key order
-  # and has no keys_unsorted. LOCAL jq (jqlang) DOES preserve insertion order, which is why
-  # `$schema | tojson` looked correct when tested at a shell and was wrong on the engine that runs
-  # it: executed under the pinned fork against live cluster data it emitted
-  #   __agent_name__, __agent_namespace__, __approvals__, __delegates__, __model_config__,
-  #   __tools__, description, runtime, systemMessage
-  # — alphabetical. SchemaFields.tsx:163-166 partitions by `required` and keeps schema order within
-  # each partition, so that put Model above "What it is for", and put the HITL picker and Delegate-to
-  # ABOVE the Tools list whose description says "the subset of the tools above" — asking for
-  # approvals before anything had been offered to approve.
-  #
-  # The fix is the same one restaction.blueprint-formdef uses when it string-splices a ConfigMap
-  # rather than parsing it: the ORDERED thing must never become a jq object. $props below is an
-  # ARRAY (gojq preserves array order), and the properties block is assembled by concatenating
-  # "key":<value> pairs. Only each property NODE goes through tojson, where key order is
-  # semantically irrelevant (type/title/description/enum/default/items are read by name).
-  #
-  # If you ever need to add a field: add it to $props at the position you want it rendered, and add
-  # its key to $required only if it must render above the "Advanced" collapse.
+  {{/* Returns { schemaString, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }. */}}
+  {{/* */}}
+  {{/* WHY THE SCHEMA IS CONCATENATED AS TEXT AND NEVER BUILT AS A jq OBJECT. Form.tsx prefers */}}
+  {{/* widgetData.stringSchema over widgetData.schema because JSON.parse preserves key insertion order */}}
+  {{/* while the `schema` object arrives from a Go map, alphabetised. That is true — but `tojson` DOES */}}
+  {{/* NOT BUY IT. snowplow pins `replace github.com/itchyny/gojq => github.com/braghettos/gojq */}}
+  {{/* v0.12.21`, whose encodeObject (encoder.go:180) sorts kvs by key, and tojson → funcToJSON → */}}
+  {{/* jsonMarshal reaches exactly that encoder (func.go:89/:834, encoder.go:31). Upstream itchyny */}}
+  {{/* v0.12.17 sorts identically; gojq's README says outright that it does not keep object key order */}}
+  {{/* and has no keys_unsorted. LOCAL jq (jqlang) DOES preserve insertion order, which is why */}}
+  {{/* `$schema | tojson` looked correct when tested at a shell and was wrong on the engine that runs */}}
+  {{/* it: executed under the pinned fork against live cluster data it emitted */}}
+  {{/* __agent_name__, __agent_namespace__, __approvals__, __delegates__, __model_config__, */}}
+  {{/* __tools__, description, runtime, systemMessage */}}
+  {{/* — alphabetical. SchemaFields.tsx:163-166 partitions by `required` and keeps schema order within */}}
+  {{/* each partition, so that put Model above "What it is for", and put the HITL picker and Delegate-to */}}
+  {{/* ABOVE the Tools list whose description says "the subset of the tools above" — asking for */}}
+  {{/* approvals before anything had been offered to approve. */}}
+  {{/* */}}
+  {{/* The fix is the same one restaction.blueprint-formdef uses when it string-splices a ConfigMap */}}
+  {{/* rather than parsing it: the ORDERED thing must never become a jq object. $props below is an */}}
+  {{/* ARRAY (gojq preserves array order), and the properties block is assembled by concatenating */}}
+  {{/* "key":<value> pairs. Only each property NODE goes through tojson, where key order is */}}
+  {{/* semantically irrelevant (type/title/description/enum/default/items are read by name). */}}
+  {{/* */}}
+  {{/* If you ever need to add a field: add it to $props at the position you want it rendered, and add */}}
+  {{/* its key to $required only if it must render above the "Advanced" collapse. */}}
   filter: |
     def commonNames($byNs; $nsList):
       if ($nsList | length) == 0 then []

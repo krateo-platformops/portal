@@ -1,14 +1,14 @@
-# Reconcile performance from ClickHouse — two complementary sources, each used where it's
-# most accurate:
-#   * step `pctl` (otel_traces): EXACT p50/p95/p99/avg of the reconcile span Duration. The
-#     OTel histograms exist but their buckets are coarse ([0,5,10,25,50...] SECONDS, ~94%
-#     of reconciles fall in the single 0-5s bucket) so trace-derived percentiles (per-span
-#     Duration) are far more precise than histogram interpolation would be.
-#   * step `phases` (otel_metrics_histogram): the per-PHASE mean latency (queue-wait / get /
-#     RBAC generate / RBAC apply). Sum/Count deltas are exact regardless of bucket coarseness,
-#     and traces can't sub-time the phases — so the histogram is the right source here.
-#     Windowed via per-series (instance+composition-gvr) max-min deltas, summed across series.
-# Exposes {p50,p95,p99,avg,n, phases[]}. External-fetch endpointRef, ClickHouse FORMAT JSON.
+{{/* Reconcile performance from ClickHouse — two complementary sources, each used where it's */}}
+{{/* most accurate: */}}
+{{/* * step `pctl` (otel_traces): EXACT p50/p95/p99/avg of the reconcile span Duration. The */}}
+{{/* OTel histograms exist but their buckets are coarse ([0,5,10,25,50...] SECONDS, ~94% */}}
+{{/* of reconciles fall in the single 0-5s bucket) so trace-derived percentiles (per-span */}}
+{{/* Duration) are far more precise than histogram interpolation would be. */}}
+{{/* * step `phases` (otel_metrics_histogram): the per-PHASE mean latency (queue-wait / get / */}}
+{{/* RBAC generate / RBAC apply). Sum/Count deltas are exact regardless of bucket coarseness, */}}
+{{/* and traces can't sub-time the phases — so the histogram is the right source here. */}}
+{{/* Windowed via per-series (instance+composition-gvr) max-min deltas, summed across series. */}}
+{{/* Exposes {p50,p95,p99,avg,n, phases[]}. External-fetch endpointRef, ClickHouse FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -38,7 +38,7 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: phasesError
-  # pctl => {data:[{p50_ms,p95_ms,p99_ms,avg_ms,n}]}; phases => {data:[{metric,mean_ms,samples}]}.
+  {{/* pctl => {data:[{p50_ms,p95_ms,p99_ms,avg_ms,n}]}; phases => {data:[{metric,mean_ms,samples}]}. */}}
   filter: >
     { p50: (((.pctl.data) // [])[0].p50_ms // 0),
       p95: (((.pctl.data) // [])[0].p95_ms // 0),

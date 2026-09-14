@@ -1,23 +1,23 @@
-# Compositions status filter chips (All / Healthy / Drift / Pending / Degraded / Failed) — ONE data-driven
-# Listy(chip) replacing the Helm-looped comp-status-btn-* Buttons (widget-sprawl collapse).
-# Status is URL state (?status=…): each chip navigates to /compositions?status=<k>, which the
-# frontend forwards into the request `extras` — compositions-list filters its `.filtered` set
-# server-side. The Failed-stat card's CTA lands here via ?status=failed. Drift is the ONE
-# railState-backed value (Ready+Unsynced — a healthy-state OVERLAY, so its count can overlap
-# Healthy's); its Button predecessor rendered on main but was never wired into the status
-# group — the data-driven row finally surfaces it.
-#
-# apiRef = compositions-list so each chip shows its live COUNT (the muted suffix) and reads
-# `.status` for its active flag. Counts come from the RA's `.counts`, computed over the
-# date-WINDOWED set BEFORE the status filter — so every chip shows the full per-status
-# breakdown within the active time range regardless of which status is selected, and the
-# counts shrink/grow with the range/from-to filters. ONE compositions-list resolution now
-# serves the whole set (was one per Button chip).
-#
-# Chip navigateTo bypasses the client-side same-path query merge the old Buttons used, so the
-# routes are merged SERVER-SIDE: the page's other filter params (?range, ?q, ?from, ?to,
-# ?projects — echoed by compositions-list) are re-emitted onto each chip's route
-# (@uri-encoded) — status still composes with the range chips, the search box and the picker.
+{{/* Compositions status filter chips (All / Healthy / Drift / Pending / Degraded / Failed) — ONE data-driven */}}
+{{/* Listy(chip) replacing the Helm-looped comp-status-btn-* Buttons (widget-sprawl collapse). */}}
+{{/* Status is URL state (?status=…): each chip navigates to /compositions?status=<k>, which the */}}
+{{/* frontend forwards into the request `extras` — compositions-list filters its `.filtered` set */}}
+{{/* server-side. The Failed-stat card's CTA lands here via ?status=failed. Drift is the ONE */}}
+{{/* railState-backed value (Ready+Unsynced — a healthy-state OVERLAY, so its count can overlap */}}
+{{/* Healthy's); its Button predecessor rendered on main but was never wired into the status */}}
+{{/* group — the data-driven row finally surfaces it. */}}
+{{/* */}}
+{{/* apiRef = compositions-list so each chip shows its live COUNT (the muted suffix) and reads */}}
+{{/* `.status` for its active flag. Counts come from the RA's `.counts`, computed over the */}}
+{{/* date-WINDOWED set BEFORE the status filter — so every chip shows the full per-status */}}
+{{/* breakdown within the active time range regardless of which status is selected, and the */}}
+{{/* counts shrink/grow with the range/from-to filters. ONE compositions-list resolution now */}}
+{{/* serves the whole set (was one per Button chip). */}}
+{{/* */}}
+{{/* Chip navigateTo bypasses the client-side same-path query merge the old Buttons used, so the */}}
+{{/* routes are merged SERVER-SIDE: the page's other filter params (?range, ?q, ?from, ?to, */}}
+{{/* ?projects — echoed by compositions-list) are re-emitted onto each chip's route */}}
+{{/* (@uri-encoded) — status still composes with the range chips, the search box and the picker. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,8 +26,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell — `status` drives
-  # the active flag, the windowing/search params drive the counts and the route carry.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `status` drives */}}
+  {{/* the active flag, the windowing/search params drive the counts and the route carry. */}}
   keyExtras: [from, projects, q, range, scope, status, to, namespace]
   apiRef:
     name: compositions-list

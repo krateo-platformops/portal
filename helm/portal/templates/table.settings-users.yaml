@@ -1,19 +1,19 @@
-# Settings → Users tab content — platform users from their authn clientconfig
-# Secret, via the RA's `.personas` (#88 §0.7: merged with the former Access tab
-# — same dataset, same drill-down, so one table replaces two). Username = secret
-# name minus the "-clientconfig" suffix; groups join the basic-strategy User CR
-# ("—" for OIDC/LDAP identities, unknowable from the cluster); "Certificate
-# expires" = creationTimestamp + authn's cert duration, computed server-side by
-# the RA (fromdateiso8601 + duration-seconds → todateiso8601); "Managed grants" =
-# count of portal-access RoleBindings for that persona. Empty on a cluster
-# without authn (no clientconfig Secrets).
-#
-# ACCEPTED APPROXIMATION (by design): creationTimestamp is the FIRST issuance —
-# authn updates the clientconfig Secret in place on re-login, so the timestamp
-# never moves. Thus "Certificate expires" under-reports for refreshed sessions
-# (an active user can read as already-expired). An exact value would require
-# authn to stamp notAfter per-login; deliberately not done — this lightweight
-# created+duration estimate is sufficient.
+{{/* Settings → Users tab content — platform users from their authn clientconfig */}}
+{{/* Secret, via the RA's `.personas` (#88 §0.7: merged with the former Access tab */}}
+{{/* — same dataset, same drill-down, so one table replaces two). Username = secret */}}
+{{/* name minus the "-clientconfig" suffix; groups join the basic-strategy User CR */}}
+{{/* ("—" for OIDC/LDAP identities, unknowable from the cluster); "Certificate */}}
+{{/* expires" = creationTimestamp + authn's cert duration, computed server-side by */}}
+{{/* the RA (fromdateiso8601 + duration-seconds → todateiso8601); "Managed grants" = */}}
+{{/* count of portal-access RoleBindings for that persona. Empty on a cluster */}}
+{{/* without authn (no clientconfig Secrets). */}}
+{{/* */}}
+{{/* ACCEPTED APPROXIMATION (by design): creationTimestamp is the FIRST issuance — */}}
+{{/* authn updates the clientconfig Secret in place on re-login, so the timestamp */}}
+{{/* never moves. Thus "Certificate expires" under-reports for refreshed sessions */}}
+{{/* (an active user can read as already-expired). An exact value would require */}}
+{{/* authn to stamp notAfter per-login; deliberately not done — this lightweight */}}
+{{/* created+duration estimate is sufficient. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,8 +26,8 @@ spec:
     allowedResources: []
     bordered: false
     size: middle
-    # Row click → the user's access-detail page (CTA-audit S1: the Users table was a
-    # dead-end — informational only, no drill-in). {user} = the username cell.
+    {{/* Row click → the user's access-detail page (CTA-audit S1: the Users table was a */}}
+    {{/* dead-end — informational only, no drill-in). {user} = the username cell. */}}
     rowNavigateTo: /settings/access/{user}
     columns:
     - valueKey: user

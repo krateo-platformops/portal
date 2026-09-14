@@ -1,55 +1,55 @@
-# The GATEWAY-SHAPED reads behind /agents: the exception roll-up at the top of the page, and the
-# seven-hop request walk at the bottom. ONE RESTAction for both, because both answer questions about
-# the same four kinds (Agent, RemoteMCPServer, HTTPRoute, AgentgatewayPolicy) and splitting them
-# would double the list calls on one page render for no gain.
-#
-# WHY THE ROLL-UP IS COMPUTED AND NOT WRITTEN DOWN. The obvious way to ship "things that deviate" is
-# a hand-written list — and it is the one way that is guaranteed to lie. Two of the six observations
-# this section was drafted from were ALREADY FALSE by the time it was implemented, verified on
-# krateo-057 on 2026-09-11: `krateo-blueprint-agent` had been given its subagent HTTPRoute, its
-# authz clause, its passthrough entry AND its resiliency-a2a targetRef, and
-# `krateo-chart-gate-mcp-server` had been given both a backend and a route. A frozen panel would
-# still be accusing both. Everything below is therefore a PREDICATE over live objects; when the
-# cluster is put right the line disappears on its own.
-#
-# EXCEPTION-ONLY. `attention` is "" when nothing matches, which renders nothing at all (an empty
-# Markdown is an empty div) — the same treatment paragraph.agents-servers-notice already uses on
-# this page. A healthy cluster gets no panel, no "0 issues" badge, no green tick.
-#
-# AND SILENCE IS NOT A CLEAN BILL OF HEALTH. Exception-only makes a failed read indistinguishable
-# from a healthy cluster, which is the one way this panel could still mislead. So every step is
-# continueOnError with an errorKey, all six errorKeys are CONSUMED, and a step that did not answer
-# adds its own bullet naming the kind it could not read. The panel appears for that alone.
-#
-# NOTHING IS MATCHED BY OBJECT NAME. A route is identified by what it points at (a Service that is
-# an Agent, an AgentgatewayBackend under /llm or /mcp) and a policy by the spec block it carries
-# (traffic.retry = a retry budget, backend.auth = token passthrough), never by the
-# `agentgateway-policies-` prefix its composition happens to render. Renaming the composition must
-# not silently empty this page.
-#
-# TWO OF THE SIX DRAFTED OBSERVATIONS ARE DELIBERATELY NOT BUILT:
-#
-#   * "tool servers that bypass the gateway" — restaction.agents-servers ALREADY computes this, per
-#     server, with a strictly stronger predicate (it resolves all three legal AgentgatewayBackend
-#     target shapes and refuses to assert "unrouted" when a label-selector target makes the routing
-#     unresolvable). A second, weaker copy here would be a second source of truth that can disagree
-#     with the badge 200px below it. The roll-up defers to the table.
-#   * "a bound tool the server does not serve" — computable, but NOT honest as a deviation. The
-#     check cannot tell a break from a design: `clickstack-agent` and `incident-agent` bind BOTH
-#     `run_select_query` and `run_query` on purpose, because mcp-clickhouse renamed the tool at
-#     0.5.0 and kagent keeps only the names the server actually serves — listing both is what makes
-#     the SQL tool survive either version. The four bench agents do the same thing at scale: they
-#     bind write tools the read-only snapshot deliberately does not serve. A predicate over
-#     status.discoveredTools would report all of that as deviation. The agents table carries the
-#     per-agent count, where it reads as a property of the agent rather than as an accusation.
-#
-# COST. The `pods` step lists every pod in the namespace (152 on krateo-057) for one fact:
-# restarts. A `?labelSelector=` cannot narrow it — the agent plane has no single shared label
-# (kagent agents carry part-of=kagent, itbench-snapshot carries part-of=agentiko-sre-eval,
-# clickhouse-mcp-server carries none) and pinning a list of label values would silently stop seeing
-# a tool server added later. So the step filter trims each pod to {name, workload label, restart
-# count} INSIDE snowplow, the same shape restaction.component-detail already uses, and the browser
-# never sees the 2 MB.
+{{/* The GATEWAY-SHAPED reads behind /agents: the exception roll-up at the top of the page, and the */}}
+{{/* seven-hop request walk at the bottom. ONE RESTAction for both, because both answer questions about */}}
+{{/* the same four kinds (Agent, RemoteMCPServer, HTTPRoute, AgentgatewayPolicy) and splitting them */}}
+{{/* would double the list calls on one page render for no gain. */}}
+{{/* */}}
+{{/* WHY THE ROLL-UP IS COMPUTED AND NOT WRITTEN DOWN. The obvious way to ship "things that deviate" is */}}
+{{/* a hand-written list — and it is the one way that is guaranteed to lie. Two of the six observations */}}
+{{/* this section was drafted from were ALREADY FALSE by the time it was implemented, verified on */}}
+{{/* krateo-057 on 2026-09-11: `krateo-blueprint-agent` had been given its subagent HTTPRoute, its */}}
+{{/* authz clause, its passthrough entry AND its resiliency-a2a targetRef, and */}}
+{{/* `krateo-chart-gate-mcp-server` had been given both a backend and a route. A frozen panel would */}}
+{{/* still be accusing both. Everything below is therefore a PREDICATE over live objects; when the */}}
+{{/* cluster is put right the line disappears on its own. */}}
+{{/* */}}
+{{/* EXCEPTION-ONLY. `attention` is "" when nothing matches, which renders nothing at all (an empty */}}
+{{/* Markdown is an empty div) — the same treatment paragraph.agents-servers-notice already uses on */}}
+{{/* this page. A healthy cluster gets no panel, no "0 issues" badge, no green tick. */}}
+{{/* */}}
+{{/* AND SILENCE IS NOT A CLEAN BILL OF HEALTH. Exception-only makes a failed read indistinguishable */}}
+{{/* from a healthy cluster, which is the one way this panel could still mislead. So every step is */}}
+{{/* continueOnError with an errorKey, all six errorKeys are CONSUMED, and a step that did not answer */}}
+{{/* adds its own bullet naming the kind it could not read. The panel appears for that alone. */}}
+{{/* */}}
+{{/* NOTHING IS MATCHED BY OBJECT NAME. A route is identified by what it points at (a Service that is */}}
+{{/* an Agent, an AgentgatewayBackend under /llm or /mcp) and a policy by the spec block it carries */}}
+{{/* (traffic.retry = a retry budget, backend.auth = token passthrough), never by the */}}
+{{/* `agentgateway-policies-` prefix its composition happens to render. Renaming the composition must */}}
+{{/* not silently empty this page. */}}
+{{/* */}}
+{{/* TWO OF THE SIX DRAFTED OBSERVATIONS ARE DELIBERATELY NOT BUILT: */}}
+{{/* */}}
+{{/* * "tool servers that bypass the gateway" — restaction.agents-servers ALREADY computes this, per */}}
+{{/* server, with a strictly stronger predicate (it resolves all three legal AgentgatewayBackend */}}
+{{/* target shapes and refuses to assert "unrouted" when a label-selector target makes the routing */}}
+{{/* unresolvable). A second, weaker copy here would be a second source of truth that can disagree */}}
+{{/* with the badge 200px below it. The roll-up defers to the table. */}}
+{{/* * "a bound tool the server does not serve" — computable, but NOT honest as a deviation. The */}}
+{{/* check cannot tell a break from a design: `clickstack-agent` and `incident-agent` bind BOTH */}}
+{{/* `run_select_query` and `run_query` on purpose, because mcp-clickhouse renamed the tool at */}}
+{{/* 0.5.0 and kagent keeps only the names the server actually serves — listing both is what makes */}}
+{{/* the SQL tool survive either version. The four bench agents do the same thing at scale: they */}}
+{{/* bind write tools the read-only snapshot deliberately does not serve. A predicate over */}}
+{{/* status.discoveredTools would report all of that as deviation. The agents table carries the */}}
+{{/* per-agent count, where it reads as a property of the agent rather than as an accusation. */}}
+{{/* */}}
+{{/* COST. The `pods` step lists every pod in the namespace (152 on krateo-057) for one fact: */}}
+{{/* restarts. A `?labelSelector=` cannot narrow it — the agent plane has no single shared label */}}
+{{/* (kagent agents carry part-of=kagent, itbench-snapshot carries part-of=agentiko-sre-eval, */}}
+{{/* clickhouse-mcp-server carries none) and pinning a list of label values would silently stop seeing */}}
+{{/* a tool server added later. So the step filter trims each pod to {name, workload label, restart */}}
+{{/* count} INSIDE snowplow, the same shape restaction.component-detail already uses, and the browser */}}
+{{/* never sees the 2 MB. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -79,10 +79,10 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: modelsError
-  # remotemcpservers, NOT toolservers/mcpservers — both those CRDs are installed and hold zero
-  # objects on every cluster we run (see restaction.agents-list). Needed here for two joins, not for
-  # a table: the Service host a server is reached on (which is what makes a restarting pod an
-  # AGENT-PLANE pod rather than any pod in the namespace) and which agents bind it.
+  {{/* remotemcpservers, NOT toolservers/mcpservers — both those CRDs are installed and hold zero */}}
+  {{/* objects on every cluster we run (see restaction.agents-list). Needed here for two joins, not for */}}
+  {{/* a table: the Service host a server is reached on (which is what makes a restarting pod an */}}
+  {{/* AGENT-PLANE pod rather than any pod in the namespace) and which agents bind it. */}}
   - name: servers
     path: /apis/kagent.dev/v1alpha2/remotemcpservers
     verb: GET
@@ -93,9 +93,9 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: serversError
-  # v1 is the storage version of httproutes on the cluster (v1beta1 is still served but is not the
-  # storage version); pin v1 so the paths we read are the canonical ones. Same pin as
-  # restaction.agents-policies.
+  {{/* v1 is the storage version of httproutes on the cluster (v1beta1 is still served but is not the */}}
+  {{/* storage version); pin v1 so the paths we read are the canonical ones. Same pin as */}}
+  {{/* restaction.agents-policies. */}}
   - name: routes
     path: /apis/gateway.networking.k8s.io/v1/httproutes
     verb: GET
@@ -116,8 +116,8 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: policiesError
-  # Trimmed to three fields IN snowplow (see COST above). The step filter replaces the step's whole
-  # result, so the global filter below sees `.pods` as a flat ARRAY, not `.pods.items`.
+  {{/* Trimmed to three fields IN snowplow (see COST above). The step filter replaces the step's whole */}}
+  {{/* result, so the global filter below sees `.pods` as a flat ARRAY, not `.pods.items`. */}}
   - name: pods
     path: /api/v1/namespaces/{{ .Release.Namespace }}/pods
     verb: GET

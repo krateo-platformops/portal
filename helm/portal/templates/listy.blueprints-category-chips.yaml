@@ -1,20 +1,20 @@
-# Blueprints category filter — ONE data-driven Listy(chip) replacing the Helm-looped
-# bp-cat-btn-* Buttons (widget-sprawl collapse). Mirrors the marketplace category-chip
-# mechanism (listy.marketplace-category-chips) but with the taxonomy the INSTALLED blueprints
-# actually carry: the krateo.io/tier set (platform / observability) plus the "blueprint"
-# fallback bucket, + "All". Each chip navigates to /blueprints?category=<k> (the `category`
-# extras the blueprints-cards RA reads to filter server-side); the active flag reads
-# `.category` straight from extras — the same value blueprints-cards echoes back as
-# `.selectedCategory` — so no apiRef (and no RA resolution) is needed for the chips themselves.
-# NOTE: the installed blueprints are krateo platform components categorized by tier, a
-# different taxonomy from the marketplace's index krateo.io/category (compute/network/...),
-# so the chip set differs by design — it matches the real data on each page.
-#
-# Chip navigateTo bypasses the client-side same-path query merge the old Buttons used, so the
-# routes are merged SERVER-SIDE: ?q (the page search) and ?projects (the shell scope selector)
-# are re-emitted onto each category chip's route from extras (@uri-encoded). The "All" chip
-# keeps the old Buttons' exact target — the BARE /blueprints path (which resets q/projects,
-# byte-for-byte the previous behavior: a bare same-path target skipped the client merge too).
+{{/* Blueprints category filter — ONE data-driven Listy(chip) replacing the Helm-looped */}}
+{{/* bp-cat-btn-* Buttons (widget-sprawl collapse). Mirrors the marketplace category-chip */}}
+{{/* mechanism (listy.marketplace-category-chips) but with the taxonomy the INSTALLED blueprints */}}
+{{/* actually carry: the krateo.io/tier set (platform / observability) plus the "blueprint" */}}
+{{/* fallback bucket, + "All". Each chip navigates to /blueprints?category=<k> (the `category` */}}
+{{/* extras the blueprints-cards RA reads to filter server-side); the active flag reads */}}
+{{/* `.category` straight from extras — the same value blueprints-cards echoes back as */}}
+{{/* `.selectedCategory` — so no apiRef (and no RA resolution) is needed for the chips themselves. */}}
+{{/* NOTE: the installed blueprints are krateo platform components categorized by tier, a */}}
+{{/* different taxonomy from the marketplace's index krateo.io/category (compute/network/...), */}}
+{{/* so the chip set differs by design — it matches the real data on each page. */}}
+{{/* */}}
+{{/* Chip navigateTo bypasses the client-side same-path query merge the old Buttons used, so the */}}
+{{/* routes are merged SERVER-SIDE: ?q (the page search) and ?projects (the shell scope selector) */}}
+{{/* are re-emitted onto each category chip's route from extras (@uri-encoded). The "All" chip */}}
+{{/* keeps the old Buttons' exact target — the BARE /blueprints path (which resets q/projects, */}}
+{{/* byte-for-byte the previous behavior: a bare same-path target skipped the client merge too). */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -23,8 +23,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell — `category` drives
-  # the active flag, `q`/`projects` are carried into the routes.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `category` drives */}}
+  {{/* the active flag, `q`/`projects` are carried into the routes. */}}
   keyExtras: [category, projects, q]
   widgetData:
     itemTemplate:
@@ -32,8 +32,8 @@ spec:
       primaryText: '{label}'
       navigateTo: '{route}'
     dataSource: []
-  # No apiRef — snowplow merges request extras into a no-apiRef widget's
-  # widgetDataTemplate data source.
+  {{/* No apiRef — snowplow merges request extras into a no-apiRef widget's */}}
+  {{/* widgetDataTemplate data source. */}}
   widgetDataTemplate:
     - forPath: dataSource
       expression: '${ ((.category // "all") | tostring) as $sel | ((.q // "") | tostring) as $q | ((.projects // "") | tostring) as $projects | ((if $q != "" then ("&q=" + ($q | @uri)) else "" end) + (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end)) as $carry | [{key: "all", label: "All"}, {key: "platform", label: "Platform"}, {key: "observability", label: "Observability"}, {key: "blueprint", label: "Blueprint"}] | map({label: .label, active: (.key == $sel), route: (if .key == "all" then "/blueprints" else ("/blueprints?category=" + .key + $carry) end)}) }'

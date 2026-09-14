@@ -1,80 +1,80 @@
-# The gateway topology behind /agents — "every hop crosses one gateway", derived, not asserted.
-#
-# WHAT THE PICTURE CLAIMS, AND WHAT PROVES IT. kagent points every agent's PROXY_URL at the internal
-# agentgateway, so A2A delegation, MCP tool calls and the model call all leave the pod towards the
-# same address and are told apart by an `x-kagent-host` header. PROXY_URL itself is a controller env
-# var this page cannot read — so the claim is NOT made from it. It is made from the routes: 23 of the
-# 26 HTTPRoutes attached to krateo-agent-gateway select their backend by an EXACT `x-kagent-host`
-# match, and the values are the in-cluster hosts a caller dials (`k8s-agent.krateo-system`,
-# `kagent-tools.krateo-system`). A gateway that routes on a header only the CLIENT sets is a gateway
-# the client's traffic arrives at. That is the whole derivation, and the subtitle says it in those
-# terms rather than restating the env var as if we had read it.
-#
-# THE HUB IS FOUND, NOT NAMED. Nothing here hard-codes "krateo-agent-gateway". A hub is any Gateway
-# that (a) some readable HTTPRoute names as a parentRef and (b) carries at least one x-kagent-host
-# match. Today that yields exactly one; a second mesh gateway would simply draw a second hub with its
-# own fan (verified by mutating the fixture: 2 hubs, 17 nodes, no orphan edges). A hub whose routes
-# we can see but whose Gateway OBJECT we cannot read is NOT drawn from the route alone — a node needs
-# a real uid and a real creationTimestamp, and the subtitle counts what was skipped.
-#
-# WHAT EARNS A NODE — the judgement, and why it is not the mockup's 27. The section exists to show a
-# SHAPE (many → one → a few); the tables above it already do inventory, so a node has to change the
-# shape to earn its place. That gives 16:
-#   * every platform Agent, individually (11). The fan-in IS the thesis, and this is the only place
-#     the per-agent reachability answer can live honestly — see the three-state rule below. Collapse
-#     them and the picture stops being a funnel and the honesty rule loses its home.
-#   * the 4 bench agents as ONE node. The bench profile is a second copy of the same topology against
-#     the same hub: four more nodes of pure redundancy, and four more rows of height in a widget that
-#     autoFits to its container (a taller graph renders SMALLER). Collapsing them is the single
-#     change that most improves legibility per fact lost.
-#   * the hub Gateway (1).
-#   * the busiest tool server on its own (1) and the remaining routed ones as ONE node. "Busiest" is
-#     a rule, not a favourite: max discoveredTools, ties broken by name. It resolves to
-#     kagent-tool-server with 124 of the cluster's 183 tools — losing it inside a group would hide
-#     most of the tool surface behind a count, while the other seven are interchangeable from the
-#     shape's point of view.
-#   * the model backend (1) — the third egress class named in the thesis.
-# NOT drawn, deliberately: the platform edge gateway and its 7 routes (a second, unrelated funnel —
-# browser to platform, not agent to mesh — and drawing it next to this one dilutes "ONE gateway"),
-# and a node for the a2a catch-all's Service `kagent-controller`. That last one is the honest
-# omission: this action does not list Services, so its uid, resourceVersion and creationTimestamp
-# would all have to be invented, and `date` is RENDERED (the node footer shows "N days" and an
-# absolute-date tooltip) — an invented one would read as fact and an empty one renders "NaN days".
-# The catch-all is named in the hub node's tooltip instead, where it is a route fact we did read.
-#
-# REAL vs SYNTHETIC — a reader will assume every node is a live object, so: 14 of the 16 ARE. Their
-# uid, resourceVersion and date are the object's own metadata, unmodified. The two collapsed group
-# nodes are NOT objects and say so in their `kind` ("Agent · collapsed group"). Their uid is a fixed
-# literal ("group:bench-agents", "group:mcp-tool-servers") — deterministic across renders, and
-# unmistakable for the UUID every real uid is; their `resourceVersion` is "" because they have none
-# and inventing one would be a lie about a field whose whole purpose is identity; their `date` is the
-# OLDEST member's real creationTimestamp (stated in the tooltip), because `date` must parse or the
-# node footer renders "NaN days".
-#
-# THE HONESTY RULE, which is why this action is five steps and not two. krateo-blueprint-agent sat
-# with no gateway route for a week while the mockup said so; the route now exists and this graph
-# renders it green off live data. The failure mode to avoid is the INVERSE: calling an agent
-# unrouted because we could not see its route. `$routesComplete` gates it — reachability is only
-# asserted when the HTTPRoute step SUCCEEDED *and* every hub listener takes routes from its own
-# namespace only (`allowedRoutes.namespaces.from == "Same"`, the Gateway API default). A hub that
-# accepted routes from other namespaces could have routes behind the caller's per-namespace refilter,
-# so every node goes gray "cannot tell" and says which of the two reasons applies. Three states, never
-# two: green = a named HTTPRoute matches this host, orange = the routes are fully readable and none
-# does, gray = we cannot tell and are not claiming otherwise.
-#
-# A HEALTHY NODE STILL CARRIES A STATUS ICON, against the usual exception-only rule, because the
-# widget forces the choice: FlowChartNodeElement renders `statusIcon || fallbackIcon` and the
-# fallback is a GRAY QUESTION MARK. Omitting the icon on a healthy agent would paint it with the
-# exact glyph this action reserves for "cannot tell" — so green-check-on-healthy is the quiet option,
-# not the noisy one.
-#
-# WHY FIVE INDEPENDENT LISTS AND NO dependsOn: the joins are all by value (route parentRef → Gateway,
-# route backendRef → AgentgatewayBackend, x-kagent-host → agent/server host), so the whole graph is
-# one pass over five cluster-scope lists in the global filter. No N+1, no ordering.
-#
-# HOSTS ARE NORMALISED BEFORE COMPARING, the same decomposition restaction.agents-servers uses:
-# <svc>, <svc>.<ns> and <svc>.<ns>.svc[.cluster.local] all reduce to "<svc>.<ns>". Comparing raw
-# strings would call kagent-tool-server unrouted the day someone writes its URL as an FQDN.
+{{/* The gateway topology behind /agents — "every hop crosses one gateway", derived, not asserted. */}}
+{{/* */}}
+{{/* WHAT THE PICTURE CLAIMS, AND WHAT PROVES IT. kagent points every agent's PROXY_URL at the internal */}}
+{{/* agentgateway, so A2A delegation, MCP tool calls and the model call all leave the pod towards the */}}
+{{/* same address and are told apart by an `x-kagent-host` header. PROXY_URL itself is a controller env */}}
+{{/* var this page cannot read — so the claim is NOT made from it. It is made from the routes: 23 of the */}}
+{{/* 26 HTTPRoutes attached to krateo-agent-gateway select their backend by an EXACT `x-kagent-host` */}}
+{{/* match, and the values are the in-cluster hosts a caller dials (`k8s-agent.krateo-system`, */}}
+{{/* `kagent-tools.krateo-system`). A gateway that routes on a header only the CLIENT sets is a gateway */}}
+{{/* the client's traffic arrives at. That is the whole derivation, and the subtitle says it in those */}}
+{{/* terms rather than restating the env var as if we had read it. */}}
+{{/* */}}
+{{/* THE HUB IS FOUND, NOT NAMED. Nothing here hard-codes "krateo-agent-gateway". A hub is any Gateway */}}
+{{/* that (a) some readable HTTPRoute names as a parentRef and (b) carries at least one x-kagent-host */}}
+{{/* match. Today that yields exactly one; a second mesh gateway would simply draw a second hub with its */}}
+{{/* own fan (verified by mutating the fixture: 2 hubs, 17 nodes, no orphan edges). A hub whose routes */}}
+{{/* we can see but whose Gateway OBJECT we cannot read is NOT drawn from the route alone — a node needs */}}
+{{/* a real uid and a real creationTimestamp, and the subtitle counts what was skipped. */}}
+{{/* */}}
+{{/* WHAT EARNS A NODE — the judgement, and why it is not the mockup's 27. The section exists to show a */}}
+{{/* SHAPE (many → one → a few); the tables above it already do inventory, so a node has to change the */}}
+{{/* shape to earn its place. That gives 16: */}}
+{{/* * every platform Agent, individually (11). The fan-in IS the thesis, and this is the only place */}}
+{{/* the per-agent reachability answer can live honestly — see the three-state rule below. Collapse */}}
+{{/* them and the picture stops being a funnel and the honesty rule loses its home. */}}
+{{/* * the 4 bench agents as ONE node. The bench profile is a second copy of the same topology against */}}
+{{/* the same hub: four more nodes of pure redundancy, and four more rows of height in a widget that */}}
+{{/* autoFits to its container (a taller graph renders SMALLER). Collapsing them is the single */}}
+{{/* change that most improves legibility per fact lost. */}}
+{{/* * the hub Gateway (1). */}}
+{{/* * the busiest tool server on its own (1) and the remaining routed ones as ONE node. "Busiest" is */}}
+{{/* a rule, not a favourite: max discoveredTools, ties broken by name. It resolves to */}}
+{{/* kagent-tool-server with 124 of the cluster's 183 tools — losing it inside a group would hide */}}
+{{/* most of the tool surface behind a count, while the other seven are interchangeable from the */}}
+{{/* shape's point of view. */}}
+{{/* * the model backend (1) — the third egress class named in the thesis. */}}
+{{/* NOT drawn, deliberately: the platform edge gateway and its 7 routes (a second, unrelated funnel — */}}
+{{/* browser to platform, not agent to mesh — and drawing it next to this one dilutes "ONE gateway"), */}}
+{{/* and a node for the a2a catch-all's Service `kagent-controller`. That last one is the honest */}}
+{{/* omission: this action does not list Services, so its uid, resourceVersion and creationTimestamp */}}
+{{/* would all have to be invented, and `date` is RENDERED (the node footer shows "N days" and an */}}
+{{/* absolute-date tooltip) — an invented one would read as fact and an empty one renders "NaN days". */}}
+{{/* The catch-all is named in the hub node's tooltip instead, where it is a route fact we did read. */}}
+{{/* */}}
+{{/* REAL vs SYNTHETIC — a reader will assume every node is a live object, so: 14 of the 16 ARE. Their */}}
+{{/* uid, resourceVersion and date are the object's own metadata, unmodified. The two collapsed group */}}
+{{/* nodes are NOT objects and say so in their `kind` ("Agent · collapsed group"). Their uid is a fixed */}}
+{{/* literal ("group:bench-agents", "group:mcp-tool-servers") — deterministic across renders, and */}}
+{{/* unmistakable for the UUID every real uid is; their `resourceVersion` is "" because they have none */}}
+{{/* and inventing one would be a lie about a field whose whole purpose is identity; their `date` is the */}}
+{{/* OLDEST member's real creationTimestamp (stated in the tooltip), because `date` must parse or the */}}
+{{/* node footer renders "NaN days". */}}
+{{/* */}}
+{{/* THE HONESTY RULE, which is why this action is five steps and not two. krateo-blueprint-agent sat */}}
+{{/* with no gateway route for a week while the mockup said so; the route now exists and this graph */}}
+{{/* renders it green off live data. The failure mode to avoid is the INVERSE: calling an agent */}}
+{{/* unrouted because we could not see its route. `$routesComplete` gates it — reachability is only */}}
+{{/* asserted when the HTTPRoute step SUCCEEDED *and* every hub listener takes routes from its own */}}
+{{/* namespace only (`allowedRoutes.namespaces.from == "Same"`, the Gateway API default). A hub that */}}
+{{/* accepted routes from other namespaces could have routes behind the caller's per-namespace refilter, */}}
+{{/* so every node goes gray "cannot tell" and says which of the two reasons applies. Three states, never */}}
+{{/* two: green = a named HTTPRoute matches this host, orange = the routes are fully readable and none */}}
+{{/* does, gray = we cannot tell and are not claiming otherwise. */}}
+{{/* */}}
+{{/* A HEALTHY NODE STILL CARRIES A STATUS ICON, against the usual exception-only rule, because the */}}
+{{/* widget forces the choice: FlowChartNodeElement renders `statusIcon || fallbackIcon` and the */}}
+{{/* fallback is a GRAY QUESTION MARK. Omitting the icon on a healthy agent would paint it with the */}}
+{{/* exact glyph this action reserves for "cannot tell" — so green-check-on-healthy is the quiet option, */}}
+{{/* not the noisy one. */}}
+{{/* */}}
+{{/* WHY FIVE INDEPENDENT LISTS AND NO dependsOn: the joins are all by value (route parentRef → Gateway, */}}
+{{/* route backendRef → AgentgatewayBackend, x-kagent-host → agent/server host), so the whole graph is */}}
+{{/* one pass over five cluster-scope lists in the global filter. No N+1, no ordering. */}}
+{{/* */}}
+{{/* HOSTS ARE NORMALISED BEFORE COMPARING, the same decomposition restaction.agents-servers uses: */}}
+{{/* <svc>, <svc>.<ns> and <svc>.<ns>.svc[.cluster.local] all reduce to "<svc>.<ns>". Comparing raw */}}
+{{/* strings would call kagent-tool-server unrouted the day someone writes its URL as an FQDN. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -94,8 +94,8 @@ spec:
       namespaceFrom: .metadata.namespace
     continueOnError: true
     errorKey: agentsError
-  # v1 is the storage version of gateways/httproutes on the cluster (v1beta1 is still served but is
-  # not storage) — same pin as restaction.agents-policies, so both read the canonical paths.
+  {{/* v1 is the storage version of gateways/httproutes on the cluster (v1beta1 is still served but is */}}
+  {{/* not storage) — same pin as restaction.agents-policies, so both read the canonical paths. */}}
   - name: gateways
     path: /apis/gateway.networking.k8s.io/v1/gateways
     verb: GET

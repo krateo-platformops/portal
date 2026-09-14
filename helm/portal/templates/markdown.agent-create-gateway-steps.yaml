@@ -1,49 +1,49 @@
-# The exact values change the warning above refers to, copyable in one click (allowCopy).
-#
-# Both keys were read off the live cluster, not invented:
-#   - agentgateway-policies spec.extraSubAgents  → one HTTPRoute
-#     (agentgateway-policies-subagent-<name>), two AgentgatewayPolicy Allow clauses (the
-#     agent-card GET and the authenticated x-kagent-host route) and one backend passthrough entry.
-#
-#     NOT a resiliency-a2a targetRef — an earlier draft of this file claimed one. Verified on the
-#     live cluster: agentgateway-policies-resiliency-a2a targets the 11 chart-default `subAgents`
-#     only, while all 4 current `extraSubAgents` (the -bench agents) appear in
-#     agentgateway-policies-passthrough but NOT in resiliency-a2a. So an extraSubAgent is reachable
-#     but has no A2A retry budget — it is partial registration, not full. agentgateway-policies
-#     PR #50 fixes this; once the deployed chart carries that fix, an extraSubAgent gets the
-#     resiliency targetRef too and this becomes five artifacts. Check which behaviour a cluster has
-#     with the resiliency command below rather than assuming.
-#   - krateo-autopilot spec.extraAgents → appends to the orchestrator Agent's
-#     spec.declarative.tools[] as a type:Agent entry. The orchestrator does NOT discover agents;
-#     its delegate list is an explicit array, so an agent that is gateway-reachable but not listed
-#     here is reachable and never reached.
-# Both surface as componentValues on the Installer CR, which is where the change has to be made on
-# an installer-managed cluster (and, durably, in the installer chart's own values).
-#
-# extraSubAgents, NOT subAgents — and the reason CHANGED under this page, so the old one is no
-# longer the one to quote. `subAgents` used to be the agentgateway-policies chart's hand-kept
-# default; since installer e779002 (in 0.3.172, the deployed tag) the Installer DERIVES it from
-# every feature-enabled `agent: true` component pin, exactly so the krateo-blueprint-agent drift
-# cannot recur. Setting it by hand now REPLACES that derived fleet, which de-registers every agent
-# not repeated in your list. `extraSubAgents` is the additive key the chart concats on top and is
-# untouched by the derivation — verified live: the four -bench agents reach the cluster only through
-# it, and each has its subagent HTTPRoute, its two Allow clauses and its passthrough target.
-#
-# THE extraAgents HALF DOES NOT WORK FOR AN AGENT CREATED HERE, and the snippet used to say it did.
-# chart/templates/compositions.yaml filters an EXPLICIT extraAgents list to entries whose `name` is
+{{/* The exact values change the warning above refers to, copyable in one click (allowCopy). */}}
+{{/* */}}
+{{/* Both keys were read off the live cluster, not invented: */}}
+{{/* - agentgateway-policies spec.extraSubAgents  → one HTTPRoute */}}
+{{/* (agentgateway-policies-subagent-<name>), two AgentgatewayPolicy Allow clauses (the */}}
+{{/* agent-card GET and the authenticated x-kagent-host route) and one backend passthrough entry. */}}
+{{/* */}}
+{{/* NOT a resiliency-a2a targetRef — an earlier draft of this file claimed one. Verified on the */}}
+{{/* live cluster: agentgateway-policies-resiliency-a2a targets the 11 chart-default `subAgents` */}}
+{{/* only, while all 4 current `extraSubAgents` (the -bench agents) appear in */}}
+{{/* agentgateway-policies-passthrough but NOT in resiliency-a2a. So an extraSubAgent is reachable */}}
+{{/* but has no A2A retry budget — it is partial registration, not full. agentgateway-policies */}}
+{{/* PR #50 fixes this; once the deployed chart carries that fix, an extraSubAgent gets the */}}
+{{/* resiliency targetRef too and this becomes five artifacts. Check which behaviour a cluster has */}}
+{{/* with the resiliency command below rather than assuming. */}}
+{{/* - krateo-autopilot spec.extraAgents → appends to the orchestrator Agent's */}}
+{{/* spec.declarative.tools[] as a type:Agent entry. The orchestrator does NOT discover agents; */}}
+{{/* its delegate list is an explicit array, so an agent that is gateway-reachable but not listed */}}
+{{/* here is reachable and never reached. */}}
+{{/* Both surface as componentValues on the Installer CR, which is where the change has to be made on */}}
+{{/* an installer-managed cluster (and, durably, in the installer chart's own values). */}}
+{{/* */}}
+{{/* extraSubAgents, NOT subAgents — and the reason CHANGED under this page, so the old one is no */}}
+{{/* longer the one to quote. `subAgents` used to be the agentgateway-policies chart's hand-kept */}}
+{{/* default; since installer e779002 (in 0.3.172, the deployed tag) the Installer DERIVES it from */}}
+{{/* every feature-enabled `agent: true` component pin, exactly so the krateo-blueprint-agent drift */}}
+{{/* cannot recur. Setting it by hand now REPLACES that derived fleet, which de-registers every agent */}}
+{{/* not repeated in your list. `extraSubAgents` is the additive key the chart concats on top and is */}}
+{{/* untouched by the derivation — verified live: the four -bench agents reach the cluster only through */}}
+{{/* it, and each has its subagent HTTPRoute, its two Allow clauses and its passthrough target. */}}
+{{/* */}}
+{{/* THE extraAgents HALF DOES NOT WORK FOR AN AGENT CREATED HERE, and the snippet used to say it did. */}}
+{{/* chart/templates/compositions.yaml filters an EXPLICIT extraAgents list to entries whose `name` is */}}
 # a feature-enabled COMPONENT (`{{ `{{- if hasKey $enabled $ea.name }}` }}`) before writing it to the
-# krateo-autopilot composition; a name that is not a component pin is dropped without a word. An
-# agent spawned from this form is not a component pin, so the entry silently evaporates on the next
-# reconcile — and patching the krateo-autopilot composition directly does not survive either, since
-# the installer sets spec.extraAgents unconditionally for the orchestrator. So orchestrator
-# delegation to a non-component agent is not expressible on an installer-managed cluster today.
-# Saying that plainly is better than printing YAML that quietly does nothing. Gateway REACHABILITY
-# is unaffected: extraSubAgents is concatenated, not filtered, so the agent is callable by anything
-# that addresses it directly — it is only autopilot's delegate list that cannot name it.
-#
-# NOTE the NetworkPolicy is NOT part of this: agentgateway-policies-kagent-agents selects pods by
-# app.kubernetes.io/part-of=kagent, so a new agent is inside containment automatically. That makes
-# the un-registered state worse, not better — containment applies, the route does not.
+{{/* krateo-autopilot composition; a name that is not a component pin is dropped without a word. An */}}
+{{/* agent spawned from this form is not a component pin, so the entry silently evaporates on the next */}}
+{{/* reconcile — and patching the krateo-autopilot composition directly does not survive either, since */}}
+{{/* the installer sets spec.extraAgents unconditionally for the orchestrator. So orchestrator */}}
+{{/* delegation to a non-component agent is not expressible on an installer-managed cluster today. */}}
+{{/* Saying that plainly is better than printing YAML that quietly does nothing. Gateway REACHABILITY */}}
+{{/* is unaffected: extraSubAgents is concatenated, not filtered, so the agent is callable by anything */}}
+{{/* that addresses it directly — it is only autopilot's delegate list that cannot name it. */}}
+{{/* */}}
+{{/* NOTE the NetworkPolicy is NOT part of this: agentgateway-policies-kagent-agents selects pods by */}}
+{{/* app.kubernetes.io/part-of=kagent, so a new agent is inside containment automatically. That makes */}}
+{{/* the un-registered state worse, not better — containment applies, the route does not. */}}
 kind: Markdown
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

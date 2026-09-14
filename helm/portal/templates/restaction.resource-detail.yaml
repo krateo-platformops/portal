@@ -1,14 +1,14 @@
-# Generic resource-view data source (IA F5-full) — resolves ANY Kubernetes object by its
-# GVR + name, from ?extras .group/.version/.plural/.namespace/.name (route
-# /resources/{namespace}/{group}/{version}/{plural}/{name}). This is the last-mile drill target
-# for every kind: composition composed-children, incident analyzedResources, etc.
-#
-# SCOPE IS DISCOVERED STRUCTURALLY (not guessed, not a route sentinel): step `disco` reads the
-# apiserver's APIResourceList for the group/version, and the `object` step branches on that
-# resource's `namespaced` flag — so a cluster-scoped kind (ClusterRole, CRD, Namespace) is
-# fetched at the cluster path and a namespaced one under its namespace, whatever the route
-# carried. Core group (empty/"core") lives at /api/<version>; every other group at
-# /apis/<group>/<version>. Returns raw, server-shaped data; each detail widget slices its own view.
+{{/* Generic resource-view data source (IA F5-full) — resolves ANY Kubernetes object by its */}}
+{{/* GVR + name, from ?extras .group/.version/.plural/.namespace/.name (route */}}
+{{/* /resources/{namespace}/{group}/{version}/{plural}/{name}). This is the last-mile drill target */}}
+{{/* for every kind: composition composed-children, incident analyzedResources, etc. */}}
+{{/* */}}
+{{/* SCOPE IS DISCOVERED STRUCTURALLY (not guessed, not a route sentinel): step `disco` reads the */}}
+{{/* apiserver's APIResourceList for the group/version, and the `object` step branches on that */}}
+{{/* resource's `namespaced` flag — so a cluster-scoped kind (ClusterRole, CRD, Namespace) is */}}
+{{/* fetched at the cluster path and a namespaced one under its namespace, whatever the route */}}
+{{/* carried. Core group (empty/"core") lives at /api/<version>; every other group at */}}
+{{/* /apis/<group>/<version>. Returns raw, server-shaped data; each detail widget slices its own view. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -18,8 +18,8 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # 1) Discovery — the APIResourceList for this group/version (carries each resource's
-    #    `namespaced` flag + `kind`). No per-step filter: keep the raw list under .disco.
+    {{/* 1) Discovery — the APIResourceList for this group/version (carries each resource's */}}
+    {{/* `namespaced` flag + `kind`). No per-step filter: keep the raw list under .disco. */}}
     - name: disco
       path: ${ (.group // "") as $g | (.version // "v1") as $v | (if ($g == "" or $g == "core") then ("/api/" + $v) else ("/apis/" + $g + "/" + $v) end) }
       verb: GET
@@ -27,8 +27,8 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: discoError
-    # 2) The object — path built from the DISCOVERED namespaced flag + the route's ns/name.
-    #    namespaced ⇒ under /namespaces/<ns>/ ; cluster-scoped ⇒ the cluster path (ns ignored).
+    {{/* 2) The object — path built from the DISCOVERED namespaced flag + the route's ns/name. */}}
+    {{/* namespaced ⇒ under /namespaces/<ns>/ ; cluster-scoped ⇒ the cluster path (ns ignored). */}}
     - name: object
       path: >
         ${ (.group // "") as $g | (.version // "v1") as $v | (.plural // "") as $pl
@@ -44,10 +44,10 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: objectError
-  # Shape the fetched object. kind comes from discovery (authoritative), object.kind as fallback.
-  # Conditions degrade gracefully (kinds with none → empty list → the conditions card hides).
-  # manifestJson = the whole object (managedFields + last-applied stripped) as a JSON string —
-  # the YamlViewer widget renders JSON → YAML.
+  {{/* Shape the fetched object. kind comes from discovery (authoritative), object.kind as fallback. */}}
+  {{/* Conditions degrade gracefully (kinds with none → empty list → the conditions card hides). */}}
+  {{/* manifestJson = the whole object (managedFields + last-applied stripped) as a JSON string — */}}
+  {{/* the YamlViewer widget renders JSON → YAML. */}}
   filter: >
     (.object // {}) as $o
     | (.group // "") as $g

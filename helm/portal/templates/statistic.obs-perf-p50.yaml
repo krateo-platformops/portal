@@ -1,9 +1,9 @@
-# GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps
-# both the items entry and the resourcesRefs entry that reach this CR. Without the guard here
-# the CR rendered, applied and reconciled on every install while nothing could ever reach it.
+{{/* GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps */}}
+{{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
+{{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-# Reconcile latency p50 (median) — EXACT, from the reconcile span Duration (otel_traces)
-# via obs-reconcile-perf. Cyan = the healthy/typical case.
+{{/* Reconcile latency p50 (median) — EXACT, from the reconcile span Duration (otel_traces) */}}
+{{/* via obs-reconcile-perf. Cyan = the healthy/typical case. */}}
 kind: Statistic
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,7 +13,7 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
     title: Reconcile p50
@@ -21,7 +21,7 @@ spec:
     suffix: ' ms'
     valueStyle:
       color: var(--cyan-color)
-  # HONESTY (IA obs-deepdive): em-dash, not "0 ms", when zero reconcile spans in range.
+  {{/* HONESTY (IA obs-deepdive): em-dash, not "0 ms", when zero reconcile spans in range. */}}
   widgetDataTemplate:
   - forPath: value
     expression: '${ if (.n // 0) == 0 then "—" else (.p50 // 0) end }'

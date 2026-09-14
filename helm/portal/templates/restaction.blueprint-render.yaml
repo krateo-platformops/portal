@@ -1,33 +1,33 @@
-# blueprint-render — the server-side helm-render seam for the Autopilot `previewBlueprint`
-# verb. The render service (helm-render-service) is ClusterIP-only and MUST NOT be exposed
-# to the browser, so the SPA no longer POSTs it directly (the old RENDER_API_BASE_URL path).
-# Instead the frontend fetches THIS RESTAction like any widget — GET /call?resource=restactions
-# &name=blueprint-render&extras=<json> with the user's Bearer — and snowplow calls the render
-# service in-cluster via endpointRef, exactly the way restaction.upgrade-impact reaches /diff.
-#
-# INPUT (all via ?extras=<json>, forwarded by snowplow into the jq dict):
-#   EXACTLY ONE chart source —
-#     .chart        : { url, version?, repo? }         (remote mode: OCI / https .tgz / helm repo)
-#     .rawTemplates : { "<path>": "<content>", ... }   (inline-draft mode, the FE-B1 builder path)
-#   .values         : object (optional; the render values, defaults to {})
-#   .releaseName    : string (optional; a synthetic release name for the dry run)
-#   .namespace      : string (optional; the render namespace)
-# EXACTLY-ONE-OF is enforced client-side (parseBlueprintPreviewArgs) AND, defensively, here:
-# when both or neither source is present the filter emits {error} content (never a step call
-# with an ambiguous body).
-#
-# OUTPUT (the compact contract the drawer already consumes — mirrors HelmRenderResult):
-#   { objects: [ { apiVersion, kind, name, namespace, yaml } ],
-#     valuesSchema?: <the chart's values.schema.json, verbatim>,
-#     error?: <render-failure string — a bad chart is DATA, shown in the drawer> }
-#
-# HONESTY / error model: the render service answers 200 + {error} for a chart that fails to
-# fetch or render (data, not a step error), and continueOnError catches transport-level
-# failures — either way the filter emits {error} + an empty objects list, so the drawer shows
-# the string instead of the preview silently vanishing. Endpoint: the helm-render-endpoint
-# Secret (server-url = http://helm-render-service.krateo-system.svc:8080), shipped by the
-# helm-render-service chart with snowplowEndpoint.enabled=true — the SAME endpoint
-# restaction.upgrade-impact uses for /diff (here we POST /render).
+{{/* blueprint-render — the server-side helm-render seam for the Autopilot `previewBlueprint` */}}
+{{/* verb. The render service (helm-render-service) is ClusterIP-only and MUST NOT be exposed */}}
+{{/* to the browser, so the SPA no longer POSTs it directly (the old RENDER_API_BASE_URL path). */}}
+{{/* Instead the frontend fetches THIS RESTAction like any widget — GET /call?resource=restactions */}}
+{{/* &name=blueprint-render&extras=<json> with the user's Bearer — and snowplow calls the render */}}
+{{/* service in-cluster via endpointRef, exactly the way restaction.upgrade-impact reaches /diff. */}}
+{{/* */}}
+{{/* INPUT (all via ?extras=<json>, forwarded by snowplow into the jq dict): */}}
+{{/* EXACTLY ONE chart source — */}}
+{{/* .chart        : { url, version?, repo? }         (remote mode: OCI / https .tgz / helm repo) */}}
+{{/* .rawTemplates : { "<path>": "<content>", ... }   (inline-draft mode, the FE-B1 builder path) */}}
+{{/* .values         : object (optional; the render values, defaults to {}) */}}
+{{/* .releaseName    : string (optional; a synthetic release name for the dry run) */}}
+{{/* .namespace      : string (optional; the render namespace) */}}
+{{/* EXACTLY-ONE-OF is enforced client-side (parseBlueprintPreviewArgs) AND, defensively, here: */}}
+{{/* when both or neither source is present the filter emits {error} content (never a step call */}}
+{{/* with an ambiguous body). */}}
+{{/* */}}
+{{/* OUTPUT (the compact contract the drawer already consumes — mirrors HelmRenderResult): */}}
+{{/* { objects: [ { apiVersion, kind, name, namespace, yaml } ], */}}
+{{/* valuesSchema?: <the chart's values.schema.json, verbatim>, */}}
+{{/* error?: <render-failure string — a bad chart is DATA, shown in the drawer> } */}}
+{{/* */}}
+{{/* HONESTY / error model: the render service answers 200 + {error} for a chart that fails to */}}
+{{/* fetch or render (data, not a step error), and continueOnError catches transport-level */}}
+{{/* failures — either way the filter emits {error} + an empty objects list, so the drawer shows */}}
+{{/* the string instead of the preview silently vanishing. Endpoint: the helm-render-endpoint */}}
+{{/* Secret (server-url = http://helm-render-service.krateo-system.svc:8080), shipped by the */}}
+{{/* helm-render-service chart with snowplowEndpoint.enabled=true — the SAME endpoint */}}
+{{/* restaction.upgrade-impact uses for /diff (here we POST /render). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -37,13 +37,13 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # ONE POST /render renders the caller's chart source against the caller's values and
-    # returns the rendered child objects (+ the chart's values.schema.json when present).
-    # The body is jq-built from ?extras: the render service's exactly-one-of contract
-    # (chart{...} XOR rawTemplates) is honoured — `rawTemplates` is sent only when it is a
-    # non-empty object AND `chart` is absent; otherwise `chart` (url [+ repo] [+ version]).
-    # `repo` and `version` ride only when non-empty (an empty repo would break the
-    # repo-base-URL path; an empty version lets the service pick the latest/tag).
+    {{/* ONE POST /render renders the caller's chart source against the caller's values and */}}
+    {{/* returns the rendered child objects (+ the chart's values.schema.json when present). */}}
+    {{/* The body is jq-built from ?extras: the render service's exactly-one-of contract */}}
+    {{/* (chart{...} XOR rawTemplates) is honoured — `rawTemplates` is sent only when it is a */}}
+    {{/* non-empty object AND `chart` is absent; otherwise `chart` (url [+ repo] [+ version]). */}}
+    {{/* `repo` and `version` ride only when non-empty (an empty repo would break the */}}
+    {{/* repo-base-URL path; an empty version lets the service pick the latest/tag). */}}
     - name: render
       endpointRef:
         name: helm-render-endpoint
@@ -70,12 +70,12 @@ spec:
               + (if (.releaseName // "") != "" then { releaseName: .releaseName } else {} end)
               + (if (.namespace // "") != "" then { namespace: .namespace } else {} end))
            | tojson }
-  # Shape the raw /render result into the drawer contract. Guards, in order:
-  #   1. exactly-one-of source: both or neither → an {error} explaining the bad request
-  #      (matches the client guard; nothing was rendered because the payload was empty {}).
-  #   2. a service {error} (200-with-error, a bad chart) or a transport failure (renderError)
-  #      → surface that string; objects = [].
-  #   3. success → the normalized objects list (+ valuesSchema when the chart carried one).
+  {{/* Shape the raw /render result into the drawer contract. Guards, in order: */}}
+  {{/* 1. exactly-one-of source: both or neither → an {error} explaining the bad request */}}
+  {{/* (matches the client guard; nothing was rendered because the payload was empty {}). */}}
+  {{/* 2. a service {error} (200-with-error, a bad chart) or a transport failure (renderError) */}}
+  {{/* → surface that string; objects = []. */}}
+  {{/* 3. success → the normalized objects list (+ valuesSchema when the chart carried one). */}}
   filter: |
     (.chart // null) as $chart
     | (.rawTemplates // null) as $raw

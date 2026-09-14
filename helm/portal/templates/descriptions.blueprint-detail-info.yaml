@@ -1,6 +1,6 @@
-# Blueprint info rows (chart / installed version / latest version / status / synced / created),
-# shaped server-side by the blueprint-detail RA. Hosted inside card-blueprint-detail-info (the
-# Flex allowedResources enum has no `descriptions`, so it must be nested in a Card).
+{{/* Blueprint info rows (chart / installed version / latest version / status / synced / created), */}}
+{{/* shaped server-side by the blueprint-detail RA. Hosted inside card-blueprint-detail-info (the */}}
+{{/* Flex allowedResources enum has no `descriptions`, so it must be nested in a Card). */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,7 +9,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
     name: blueprint-detail
@@ -19,10 +19,10 @@ spec:
     bordered: true
     size: small
     items: []
-  # Ready/Synced arrive as raw condition strings ("True"/"False"/"Unknown") — mapped to human
-  # words here (never leak a bare boolean into prose UI). Created arrives as raw ISO — rendered
-  # as the same compact relative age the compositions table uses (Descriptions items have no
-  # `format: relative`, so the age is derived server-side via `now`; date fallback past ~60d).
+  {{/* Ready/Synced arrive as raw condition strings ("True"/"False"/"Unknown") — mapped to human */}}
+  {{/* words here (never leak a bare boolean into prose UI). Created arrives as raw ISO — rendered */}}
+  {{/* as the same compact relative age the compositions table uses (Descriptions items have no */}}
+  {{/* `format: relative`, so the age is derived server-side via `now`; date fallback past ~60d). */}}
   widgetDataTemplate:
     - forPath: items
       expression: '${ def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end; [ { label: "Chart", value: (.chart // "") }, { label: "Installed version", value: (.currentVersion // "") }, { label: "Latest version", value: (.latestVersion // "") }, { label: "Ready", value: (.ready // "Unknown") }, { label: "Synced", value: (.synced // "Unknown") }, { label: "Created", value: ((.created // "") | rel) } ] }'

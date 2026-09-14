@@ -6,23 +6,23 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  # F6 (snowplow#130): extras keys that partition this widget's cache cell.
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, q, scope, status]
   widgetData:
     title: Failed
     value: 0
     valueStyle:
       color: var(--error-color)
-    # live-refresh: watch the composition kinds in the data (computed, not hardcoded)
+    {{/* live-refresh: watch the composition kinds in the data (computed, not hardcoded) */}}
     watch: []
   widgetDataTemplate:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
   - forPath: value
-    # Count the RA's projection-aware `.state == "failed"` (Ready=False OR workloadHealthy=false),
-    # NOT a re-derived Ready==False — else a composition that is Ready=True but whose managed
-    # workload is unhealthy (apiRef status-projection) is missed here while the reconciliation rail
-    # counts it (railState=failed), so the FAILED stat and the rail disagreed (2 vs 3).
+    {{/* Count the RA's projection-aware `.state == "failed"` (Ready=False OR workloadHealthy=false), */}}
+    {{/* NOT a re-derived Ready==False — else a composition that is Ready=True but whose managed */}}
+    {{/* workload is unhealthy (apiRef status-projection) is missed here while the reconciliation rail */}}
+    {{/* counts it (railState=failed), so the FAILED stat and the rail disagreed (2 vs 3). */}}
     expression: ${ [.list[] | select(.state == "failed")] | length }
   apiRef:
     name: compositions-list

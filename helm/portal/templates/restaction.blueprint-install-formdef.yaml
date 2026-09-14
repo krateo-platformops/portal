@@ -1,10 +1,10 @@
-# Install-form schema source — renders the CompositionDefinition CRD's spec (the FULL spec)
-# as the form schema, so "installing a blueprint" = filling a CompositionDefinition. The
-# blueprint `name` arrives via ?extras (route /marketplace/{name}/install). Pre-fills
-# chart.{url,repo,version} by looking the blueprint up in the helm index (needs
-# snowplow >= 1.4.0 for the external YAML fetch). Prepends a synthetic `name` (the
-# CompositionDefinition metadata.name; namespace is fixed to the release ns by the form).
-# Returns { schemaSpec, initialValues, apiVersion/kind/resource } — mirrors blueprint-formdef.
+{{/* Install-form schema source — renders the CompositionDefinition CRD's spec (the FULL spec) */}}
+{{/* as the form schema, so "installing a blueprint" = filling a CompositionDefinition. The */}}
+{{/* blueprint `name` arrives via ?extras (route /marketplace/{name}/install). Pre-fills */}}
+{{/* chart.{url,repo,version} by looking the blueprint up in the helm index (needs */}}
+{{/* snowplow >= 1.4.0 for the external YAML fetch). Prepends a synthetic `name` (the */}}
+{{/* CompositionDefinition metadata.name; namespace is fixed to the release ns by the form). */}}
+{{/* Returns { schemaSpec, initialValues, apiVersion/kind/resource } — mirrors blueprint-formdef. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -14,24 +14,24 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    # The CompositionDefinition CRD — its openAPIV3Schema.properties.spec IS the form schema.
+    {{/* The CompositionDefinition CRD — its openAPIV3Schema.properties.spec IS the form schema. */}}
     - name: crd
       path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/compositiondefinitions.core.krateo.io
       verb: GET
       headers:
         - 'Accept: application/json'
-    # The helm indexes — used only to pre-fill chart.{url,repo,version} for the selected item.
-    # The marketplace lists items from TWO helm-repo indexes: /charts/blueprints
-    # (CompositionDefinition blueprints) AND /charts/operators (Kubernetes operators, e.g.
-    # the ACK ec2-chart). Both must be fetched here or an OPERATOR name (not present in the
-    # blueprints index) resolves to an empty $entry → empty url/version → the empty-prune in
-    # form.blueprint-install leaves spec.chart={repo:"<name>"}, which the CD CRD rejects
-    # (chart.url is REQUIRED) → the install silently produces NO CompositionDefinition. Mirror
-    # the two-index fetch of restaction.blueprints-catalog so the pre-fill covers both sources.
+    {{/* The helm indexes — used only to pre-fill chart.{url,repo,version} for the selected item. */}}
+    {{/* The marketplace lists items from TWO helm-repo indexes: /charts/blueprints */}}
+    {{/* (CompositionDefinition blueprints) AND /charts/operators (Kubernetes operators, e.g. */}}
+    {{/* the ACK ec2-chart). Both must be fetched here or an OPERATOR name (not present in the */}}
+    {{/* blueprints index) resolves to an empty $entry → empty url/version → the empty-prune in */}}
+    {{/* form.blueprint-install leaves spec.chart={repo:"<name>"}, which the CD CRD rejects */}}
+    {{/* (chart.url is REQUIRED) → the install silently produces NO CompositionDefinition. Mirror */}}
+    {{/* the two-index fetch of restaction.blueprints-catalog so the pre-fill covers both sources. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
-    # Namespaces the user may create CompositionDefinitions in → the Namespace select's enum
-    # (UAF SubjectAccessReview, mirrors blueprint-formdef).
+    {{/* Namespaces the user may create CompositionDefinitions in → the Namespace select's enum */}}
+    {{/* (UAF SubjectAccessReview, mirrors blueprint-formdef). */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -43,14 +43,14 @@ spec:
         resource: compositiondefinitions
         namespaceFrom: .metadata.name
       filter: "[.namespaces.items[] | .metadata.name]"
-    # Registered spokes (hub-and-spoke P2): their names become the enum for the deploy.targetRef.name
-    # field, so the installer PICKS a registered KubernetesTarget instead of typing it — the blueprint
-    # then deploys its compositions on that spoke. continueOnError + list-UAF: no grant / no spokes →
-    # the field stays a plain string and, left empty, the empty-prune drops deploy → deploys on the hub.
-    # KubernetesTarget is namespaced; the cluster-scope collection endpoint returns targets across all
-    # namespaces the caller may see (per-item UAF gates them). NOTE: targetRef resolves same-namespace,
-    # so a picked target must live in the namespace this CompositionDefinition is created in (the release
-    # namespace) — a follow-up can scope the enum to that namespace once the picker carries it.
+    {{/* Registered spokes (hub-and-spoke P2): their names become the enum for the deploy.targetRef.name */}}
+    {{/* field, so the installer PICKS a registered KubernetesTarget instead of typing it — the blueprint */}}
+    {{/* then deploys its compositions on that spoke. continueOnError + list-UAF: no grant / no spokes → */}}
+    {{/* the field stays a plain string and, left empty, the empty-prune drops deploy → deploys on the hub. */}}
+    {{/* KubernetesTarget is namespaced; the cluster-scope collection endpoint returns targets across all */}}
+    {{/* namespaces the caller may see (per-item UAF gates them). NOTE: targetRef resolves same-namespace, */}}
+    {{/* so a picked target must live in the namespace this CompositionDefinition is created in (the release */}}
+    {{/* namespace) — a follow-up can scope the enum to that namespace once the picker carries it. */}}
     - name: targets
       path: /apis/core.krateo.io/v1alpha1/kubernetestargets
       verb: GET
