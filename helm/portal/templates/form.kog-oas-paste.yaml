@@ -1,0 +1,71 @@
+{{/* KOG builder, step 1 of 3 — the user hands the platform their OpenAPI document. */}}
+{{/* */}}
+{{/* It lands as a ConfigMap, POSTed by the USER through this control under their own RBAC. That is */}}
+{{/* the whole trick: nothing server-side ever dereferences a user-supplied URL (which would be an */}}
+{{/* SSRF primitive), and the bytes arrive exactly as they do when someone pastes a spec into the */}}
+{{/* Autopilot rail. Step 2 (restaction.kog-oas-operations) then reads it from the apiserver — the */}}
+{{/* one host a RESTAction may always read. */}}
+{{/* */}}
+{{/* The `openapi` field is declared `type: object` with NO `properties` on purpose: Form's */}}
+{{/* SchemaFields renders that node as a monospace TextArea that parses JSON as you type and shows */}}
+{{/* an error status on malformed input (SchemaFields.tsx JsonValueInput). A `type: string` field */}}
+{{/* would render a single-line Input — unusable for a spec. */}}
+{{/* */}}
+{{/* LIMITATION, stated rather than discovered: JSON only. A YAML OpenAPI document must be converted */}}
+{{/* first. The control validates JSON client-side, so a YAML paste fails visibly here rather than */}}
+{{/* silently producing an unparseable ConfigMap. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: kog-oas-paste
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    layout: vertical
+    submitActionId: submit
+    schema:
+      type: object
+      required:
+        - __oas_name__
+        - openapi
+      properties:
+        __oas_name__:
+          type: string
+          title: Name for this API
+          description: 'Lower-case letters, digits and dashes. Identifies the stored document, e.g. `petstore`.'
+          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+        openapi:
+          type: object
+          title: OpenAPI document (JSON)
+          description: Paste the full specification. It is validated as you type and stored as a ConfigMap you own.
+    buttonConfig:
+      primary:
+        label: Store document
+      secondary:
+        label: Cancel
+        navigateTo: /kog-builder
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-oas-cm
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: OpenAPI document stored
+          {{/* Straight to step 2 with the stored name in the URL — the picker reads ?oas= */}}
+          onSuccessNavigateTo: '${ "/kog-builder?oas=" + .json.metadata.name }'
+          {{/* `openapi` arrives as a PARSED object (JsonValueInput); `tojson` puts it back to the */}}
+          {{/* string a ConfigMap value must be. The two reserved keys never reach `data`. */}}
+          payloadToOverride:
+            - { name: metadata.name,      value: '${ .json.__oas_name__ }' }
+            - { name: metadata.namespace, value: '{{ .Release.Namespace }}' }
+            - { name: data,               value: '${ { "openapi.json": (.json.openapi | tojson) } }' }
+  resourcesRefs:
+    items:
+      - id: create-oas-cm
+        apiVersion: v1
+        resource: configmaps
+        namespace: {{ .Release.Namespace }}
+        verb: POST

@@ -1,0 +1,115 @@
+{{/* KOG builder, step 3 of 3 — turn a stored OpenAPI document into a published RestDefinition. */}}
+{{/* */}}
+{{/* SHAPE, and why it is not one row per verb. `verbsDescription[].action` is a CLOSED ENUM — */}}
+{{/* create | update | get | delete | findby — a CRUD ROLE, not the operationId. method and path come */}}
+{{/* straight from the OAS (mechanical); which role an operation PLAYS is a judgement the document */}}
+{{/* does not carry: POST /widgets is usually `create`, POST /widgets/search is `findby`. So the form */}}
+{{/* must reproduce the mechanical half and EXPOSE the judgement half. */}}
+{{/* */}}
+{{/* The obvious shape — a repeatable row of {operation, action} — is an array of objects, which */}}
+{{/* Form's SchemaFields renders as a raw JSON textarea (controlFor falls through to JsonValueInput; */}}
+{{/* there is no Form.List). So it is inverted: one closed multi-select PER ACTION, which */}}
+{{/* SchemaFields does render (`type: array` + `items.enum`). "Which operations create?" is also a */}}
+{{/* clearer question than a dropdown per row. */}}
+{{/* */}}
+{{/* The operation list is templated from restaction.kog-oas-operations, so the enum is the user's */}}
+{{/* own document. Values are "METHOD /path" — getOptionsFromEnum sets label = value, so the value */}}
+{{/* must read well AND be parseable; the submit splits on the first space. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: kog-restdef
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [oas]
+  apiRef:
+    name: kog-oas-operations
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    layout: vertical
+    reviewBeforeSubmit: true
+    submitActionId: submit
+    schema: {}
+    buttonConfig:
+      primary:
+        label: Publish controller
+      secondary:
+        label: Cancel
+        navigateTo: /kog-builder
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-builder-publish
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: Controller published — a change request is open
+          {{/* One BuilderPublish carrying ONE file. The composition renders a git-provider */}}
+          {{/* LocalResource per file and commits the bytes verbatim onto builder/<name>. */}}
+          payloadToOverride:
+            - { name: metadata.name,      value: '${ "kog-" + .json.__kind__ | ascii_downcase }' }
+            - { name: metadata.namespace, value: '{{ .Release.Namespace }}' }
+            - name: spec
+              {{/* Reassemble verbsDescription from the five per-action multi-selects, then render */}}
+              {{/* the CR as YAML by hand. tojson would be valid YAML but the published artifact */}}
+              {{/* should read as though a person wrote it. */}}
+              value: >
+                ${ .json as $f
+                 | ([ "create","update","get","delete","findby" ] | map(. as $a
+                     | ($f[$a] // []) | map({ action: $a,
+                                              method: (. | split(" ")[0]),
+                                              path:   (. | sub("^[A-Z]+ "; "")) })) | add // [])
+                   as $verbs
+                 | { name: ("kog-" + ($f.__kind__ | ascii_downcase)),
+                     builder: "controller",
+                     branch: ("builder/kog-" + ($f.__kind__ | ascii_downcase)),
+                     target: { namespace: "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/krateo-oas")) | first }}",
+                               name: "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/krateo-oas")) | last }}",
+                               base: "main" },
+                     files: [ { path: ("resources/" + ($f.__kind__ | ascii_downcase) + ".yaml"),
+                                content: (
+                                  "apiVersion: ogen.krateo.io/v1alpha1\nkind: RestDefinition\nmetadata:\n  name: "
+                                  + ($f.__kind__ | ascii_downcase)
+                                  + "\nspec:\n  oasPath: " + $f.__oas_path__
+                                  + "\n  resourceGroup: " + $f.__resource_group__
+                                  + "\n  resource:\n    kind: " + $f.__kind__
+                                  + "\n    verbsDescription:\n"
+                                  + ($verbs | map("      - action: " + .action
+                                                  + "\n        method: " + .method
+                                                  + "\n        path: " + .path + "\n") | join("")) ) } ] } }
+  widgetDataTemplate:
+    {{/* The enum on every action field is the user's own operation list. */}}
+    - forPath: schema
+      expression: >
+        ${ [ (.operations // [])[] | .id ] as $ops
+         | { type: "object",
+             required: ["__kind__","__resource_group__","__oas_path__"],
+             properties: {
+               __kind__:           { type: "string", title: "Resource kind",
+                                     description: "CamelCase, e.g. Widget — becomes the generated CRD's kind.",
+                                     pattern: "^[A-Z][A-Za-z0-9]*$" },
+               __resource_group__: { type: "string", title: "API group",
+                                     description: "e.g. demo.krateo.io — the group the generated CRD is served under.",
+                                     pattern: "^[a-z0-9.-]+$" },
+               __oas_path__:       { type: "string", title: "OpenAPI document URL",
+                                     description: "Where oasgen-provider fetches the spec at reconcile time. The portal never fetches it." },
+               create:  { type: "array", title: "Operations that CREATE",  items: { enum: $ops } },
+               get:     { type: "array", title: "Operations that GET",     items: { enum: $ops } },
+               update:  { type: "array", title: "Operations that UPDATE",  items: { enum: $ops } },
+               delete:  { type: "array", title: "Operations that DELETE",  items: { enum: $ops } },
+               findby:  { type: "array", title: "Operations that FIND BY", items: { enum: $ops } } } } }
+    - forPath: initialValues
+      expression: '${ { __oas_path__: ((.servers // [])[0] // "") } }'
+  resourcesRefs:
+    {{/* The POST target is built from the DISCOVERED GVR, never a literal: the BuilderPublish CRD's
+         served version tracks the portal chart version, so a literal would break on every release. */}}
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: create-builder-publish
+        apiVersion: '${ .bpApiVersion }'
+        resource: '${ .bpResource }'
+        namespace: {{ .Release.Namespace }}
+        verb: POST

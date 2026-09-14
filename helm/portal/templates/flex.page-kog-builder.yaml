@@ -22,12 +22,22 @@ spec:
     - pageheaders
     - flexes
     - tables
+    - cards
     vertical: true
     gap: middle
     items:
     - resourceRefId: kog-builder-page-header
     {{/* #84 §0.1: CTA rides in a right-aligned wrapper Flex (was a bare left-aligned button). */}}
     - resourceRefId: kog-builder-ask-cta
+    {{/* CHART-K2, delivered: the authoring flow now lives ON THE PAGE, not only in the rail. Two
+         steps — store the OpenAPI document (as a ConfigMap the user POSTs themselves), then define
+         the controller from the operations parsed out of it. Built entirely from widgets, so the
+         authoring knowledge ships in this chart rather than in frontend code.
+
+         This is also what makes A1 satisfiable for KOG: Autopilot must DRIVE a control, never write
+         a RestDefinition directly, so the control has to exist before the agent can comply. */}}
+    - resourceRefId: kog-author-paste
+    - resourceRefId: kog-author-define
     {{/* The PR-published deliverables (KOG API mappings opened via a gated pull request), JOINED */}}
     {{/* to their generated RestDefinition Ready status — the blueprint-builder-parity surface */}}
     {{/* (issue #30). Above the raw restdef registry: the deliverables are the "what did I ship?" */}}
@@ -48,6 +58,18 @@ spec:
       name: kog-builder-ask-cta
       namespace: {{ .Release.Namespace }}
       resource: flexes
+      verb: GET
+    - id: kog-author-paste
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: kog-author-paste
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: kog-author-define
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: kog-author-define
+      namespace: {{ .Release.Namespace }}
+      resource: cards
       verb: GET
     - id: kog-deliverables
       apiVersion: widgets.templates.krateo.io/v1beta1
