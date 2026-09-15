@@ -1,0 +1,53 @@
+{{/* B8 — declared component pins, beneath the runtime table on the same tab. */}}
+{{/* */}}
+{{/* obs-components (above this one) answers "what is running"; this answers "what does the */}}
+{{/* platform declare". Reading them together is how an operator spots a stalled component */}}
+{{/* migration — the declared pin advances while the running image stays put, which is otherwise */}}
+{{/* invisible from the portal and has cost real debugging time more than once. */}}
+{{/* */}}
+{{/* Deliberately read-only: there is no pin-change action here. The durable pin lives in the */}}
+{{/* installer chart's component-pins.yaml and moves by change request + release; a portal patch */}}
+{{/* of the Installer claim is re-rendered away by the umbrella. See design/07-ui-parity-programme.md. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: platform-pins
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: middle
+    {{/* No rowNavigateTo: a pin row is a declaration, not an object with a detail page. The
+         runtime table above it is the one that drills into /observability/components/{name},
+         and only components with a Deployment have one — half the rows here (CRD charts,
+         registerOnly entries) do not. */}}
+    columns:
+    - valueKey: name
+      title: Component
+    - valueKey: version
+      title: Pinned version
+    - valueKey: tier
+      title: Tier
+    - valueKey: feature
+      title: Feature
+    - valueKey: tuned
+      title: Custom values
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    {{/* .rows is already shaped and sorted by the RA (tier, then name) — the shaping is done
+         server-side so this template only re-keys it into the Table's cell form. */}}
+    expression: >
+      ${ [ .rows[] | [ {valueKey:"name",    kind:"jsonSchemaType",type:"string",stringValue:.name},
+                       {valueKey:"version", kind:"jsonSchemaType",type:"string",stringValue:.version},
+                       {valueKey:"tier",    kind:"jsonSchemaType",type:"string",stringValue:.tier},
+                       {valueKey:"feature", kind:"jsonSchemaType",type:"string",stringValue:.feature},
+                       {valueKey:"tuned",   kind:"jsonSchemaType",type:"string",stringValue:.tuned} ] ] }
+  apiRef:
+    name: platform-pins
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

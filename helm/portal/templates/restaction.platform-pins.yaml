@@ -1,0 +1,74 @@
+{{/* B8 — the platform's DECLARED component pins, read from the Installer composition claim. */}}
+{{/* */}}
+{{/* Pairs with obs-components on the same tab, which lists what is RUNNING (Deployment image + */}}
+{{/* ready count). This lists what the platform DECLARES. The gap between the two is the whole */}}
+{{/* point: a stalled component migration leaves the declared pin advanced while the running */}}
+{{/* image stays put, and today that is invisible from the portal. */}}
+{{/* */}}
+{{/* This replaces the READ half of installer-agent's helm tooling (helm_list_releases / */}}
+{{/* helm_get_release against the platform charts). The WRITE half is deliberately NOT a form — */}}
+{{/* see the note in design/07-ui-parity-programme.md: a pin change is a git release process */}}
+{{/* against chart/files/component-pins.yaml, and a patch to this claim does not survive the */}}
+{{/* umbrella re-render. A button that silently reverts is worse than no button. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: platform-pins
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* The Installer CR's served version encodes the installer's OWN chart version
+         (composition.krateo.io/v0-3-199), so it changes on every installer release. Resolve the
+         GVR from the CompositionDefinition's status the same way page-composable resolves
+         BuilderPublish — a literal version here would break on the next installer bump. */}}
+    - name: cd
+      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/compositiondefinitions/installer
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: cdError
+      {{/* Yields at most ONE element, so the dependent step fires once. Guarded the way
+           composition-editdef guards its discovery step: a 404 or an odd body must produce []
+           (empty table) rather than a "Cannot index" crash surfacing as "couldn't reach the
+           server". */}}
+      filter: >
+        [ (.cd // {} | if type == "object" then . else null end)
+          | select(. != null)
+          | select((try (.status.apiVersion != null and .status.resource != null) catch false))
+          | { version: ((.status.apiVersion | split("/")[1]) // ""),
+              plural:  .status.resource } ]
+    - name: installer
+      dependsOn:
+        name: cd
+        iterator: .cd
+      path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/{{ .Release.Namespace }}/" + .plural + "/installer" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: installerError
+  {{/* Literal block: the filter carries # comments, which folding would join onto one line and
+       comment out the rest of the program. */}}
+  filter: |
+    # .installer is the single claim object (the dependent step returns it unwrapped).
+    (.installer // {} | if type == "object" then . else {} end) as $i
+    | ($i.spec.components // []) as $c
+    | ($i.spec.componentValues // {} | if type == "object" then . else {} end) as $v
+    | { present: (($c | type) == "array" and ($c | length) > 0),
+        rows: [ $c[]?
+                # Bind the name BEFORE the object literal: inside `$v | has(...)` the `.` is $v,
+                # so a bare `.name` there reads componentValues.name — a different object — and
+                # errors outright on a null key. Caught against the live CR.
+                | (.name // "") as $n
+                | { name: $n,
+                    chart: (.chart // ""),
+                    version: (.version // ""),
+                    tier: (.tier // ""),
+                    feature: (.feature // ""),
+                    # Components carrying per-install value overrides are the riskier pins to
+                    # move: the new chart may not accept the old keys.
+                    tuned: (if ($v | has($n)) then "yes" else "" end) } ]
+              | sort_by(.tier + "/" + .name) }
