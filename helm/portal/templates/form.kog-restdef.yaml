@@ -78,7 +78,20 @@ spec:
                                   + "\n    verbsDescription:\n"
                                   + ($verbs | map("      - action: " + .action
                                                   + "\n        method: " + .method
-                                                  + "\n        path: " + .path + "\n") | join("")) ) } ] } }
+                                                  + "\n        path: " + .path + "\n") | join("")) ) } ] }
+                 {{/* `source` is OPTIONAL, and the key is OMITTED rather than sent empty. A
+                      `source: null` would fail the CRD outright (the property is type: object), and
+                      a `source: {url: ""}` would render a Repo CR pointing nowhere — so it is merged
+                      in only when a template URL was actually typed. The seed lands on the BASE
+                      branch (the composition's own default for source.intoBranch), which is what
+                      keeps the change-request diff to the authored file rather than
+                      template-plus-file. */}}
+                 | . + (if (($f.__source_url__ // "") | length) > 0
+                        then { source: ({ url: $f.__source_url__,
+                                          branch: ($f.__source_branch__ // "main") }
+                                        + (if (($f.__source_path__ // "") | length) > 0
+                                           then { path: $f.__source_path__ } else {} end)) }
+                        else {} end) }
   widgetDataTemplate:
     {{/* The enum on every action field is the user's own operation list. */}}
     - forPath: schema
@@ -105,6 +118,13 @@ spec:
                                      description: "The branch the change request is cut from. Defaults to main." },
                __target_branch__:  { type: "string", title: "Branch to commit onto",
                                      description: "Defaults to builder/kog-<kind>." },
+               __source_url__:     { type: "string", title: "Scaffold from (optional)",
+                                     description: "Clone URL of a template repository to seed the target from BEFORE the generated file is committed — e.g. https://github.com/org/template.git. Leave empty unless you are publishing into a repository that does not exist yet and want it scaffolded.",
+                                     pattern: "^$|^https?://.+" },
+               __source_branch__:  { type: "string", title: "Template branch",
+                                     description: "Branch in the template repository to copy from. Defaults to main. Ignored when no template is given." },
+               __source_path__:    { type: "string", title: "Template subdirectory",
+                                     description: "Copy only this subdirectory of the template. Empty copies the whole repository. Ignored when no template is given." },
                create:  { type: "array", title: "Operations that CREATE",  items: { enum: $ops } },
                get:     { type: "array", title: "Operations that GET",     items: { enum: $ops } },
                update:  { type: "array", title: "Operations that UPDATE",  items: { enum: $ops } },
