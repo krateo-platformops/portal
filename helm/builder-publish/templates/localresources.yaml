@@ -73,7 +73,7 @@
 {{- end -}}
 {{- $ns := .Release.Namespace -}}
 {{- $url := printf "%s://%s/%s/%s.git" ($git.scheme | default "https") $git.host $t.namespace $t.repo -}}
-{{- range $i, $f := .Values.files }}
+{{- range $i, $f := (include "builder-publish.files" $ | fromYamlArray) }}
 ---
 # LocalResource fileName is a BASENAME (CRD pattern forbids slashes); the directory rides in
 # toRepo.path. base/dir split the held file path.

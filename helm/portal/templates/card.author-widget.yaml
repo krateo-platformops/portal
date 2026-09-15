@@ -1,0 +1,28 @@
+{{/* B5 — author a new widget, on the Portal Builder page beside Compose a page. */}}
+{{/* Ordered BEFORE the composer: you author a widget, then place it. compose-page's options are */}}
+{{/* the widget CRs that already exist, so without this card that list could only ever grow by a */}}
+{{/* chart edit — see form.author-widget. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: author-widget-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Author a widget
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - forms
+    items:
+    - resourceRefId: author-widget
+  resourcesRefs:
+    items:
+    - id: author-widget
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: author-widget
+      namespace: {{ .Release.Namespace }}
+      resource: forms
+      verb: GET

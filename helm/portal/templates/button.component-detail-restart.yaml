@@ -1,0 +1,66 @@
+{{/* B6 — restart a control-plane Deployment from the UI. */}}
+{{/* */}}
+{{/* Restarting a workload was a thing only the agent could do: k8s-agent held k8s_rollout, the */}}
+{{/* portal had no control, and the UI-parity decision removed that tool. This is the half of */}}
+{{/* the trade that gives the capability back to a person. */}}
+{{/* */}}
+{{/* Mechanism is exactly `kubectl rollout restart`: patch a timestamp into the POD TEMPLATE's */}}
+{{/* annotations, which changes the pod-template hash and makes the Deployment controller roll */}}
+{{/* replacements. Nothing restarts pods directly. */}}
+{{/* */}}
+{{/* The timestamp is the widget's RESOLUTION time, not click time — a widget payload is data, */}}
+{{/* and there is no client-side clock in it. That is sufficient: the annotation only has to */}}
+{{/* DIFFER from the current value to trigger a roll, and the widget refetches after the action */}}
+{{/* (invalidateQueries on the widgets key), so a second click carries a fresh timestamp. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: component-detail-restart
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: component-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Restart
+    icon: fa-rotate
+    type: default
+    size: middle
+    clickActionId: restart
+    actions:
+      rest:
+        - id: restart
+          type: rest
+          resourceRefId: restart-deployment
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          {{/* A rolling restart of a control-plane component is disruptive enough to deserve the
+               blast-radius dialog rather than a bare click. requireConfirmation is forced for
+               mutating verbs anyway; saying so here keeps the intent readable. */}}
+          requireConfirmation: true
+          successMessage: Rollout restarted — replacement pods are starting
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: actions
+      expression: >
+        ${ { rest: [ { id: "restart", type: "rest", resourceRefId: "restart-deployment",
+                       headers: ["Content-Type: application/merge-patch+json"],
+                       requireConfirmation: true,
+                       successMessage: "Rollout restarted — replacement pods are starting",
+                       payload: { spec: { template: { metadata: { annotations: {
+                         "kubectl.kubernetes.io/restartedAt": (now | todate) } } } } },
+                       loading: { display: true } } ] } }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: restart-deployment
+        apiVersion: apps/v1
+        resource: deployments
+        name: '${ .name }'
+        namespace: {{ .Release.Namespace }}
+        verb: PATCH

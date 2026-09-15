@@ -26,11 +26,23 @@ spec:
     allowedResources:
       - pageheaders
       - rows
+      {{/* B6: the day-2 action cluster (scale, restart). */}}
+      - flexes
     items:
       - resourceRefId: component-detail-page-header
+      {{/* Directly under the header, above the detail grid — a reader decides whether to ACT
+           before they finish reading the diagnostics, and the composition detail page puts its
+           action cluster in the same place. */}}
+      - resourceRefId: component-detail-actions
       - resourceRefId: component-detail-grid
   resourcesRefs:
     items:
+      - id: component-detail-actions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-actions
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
       - id: component-detail-page-header
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: component-detail-page-header

@@ -1,0 +1,40 @@
+{{/* B6 — the day-2 action cluster for a control-plane component. */}}
+{{/* A Flex so the two controls sit on one line under the page header, the same shape the */}}
+{{/* composition detail page uses for its Sync/Pause/Edit cluster. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: component-detail-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  widgetData:
+    allowedResources:
+      - buttons
+      - forms
+    vertical: false
+    gap: small
+    {{/* `justify`, not `alignment`. The Flex CRD accepts align / allowedResources / gap / items /
+         justify / vertical / wrap and nothing else — `alignment` was pruned by the apiserver and
+         silently ignored, so the intended left alignment was never actually expressed. On a
+         horizontal Flex the main axis is the row, so left-packing is justify: flex-start. */}}
+    justify: flex-start
+    items:
+      - resourceRefId: component-detail-scale
+      - resourceRefId: component-detail-restart
+  resourcesRefs:
+    items:
+      - id: component-detail-scale
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-scale
+        namespace: {{ .Release.Namespace }}
+        resource: forms
+        verb: GET
+      - id: component-detail-restart
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-restart
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET

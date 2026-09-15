@@ -1,0 +1,141 @@
+{{/* B9 — create a Krateo portal user. */}}
+{{/* */}}
+{{/* Settings → Users listed accounts but could not create one, so user provisioning was a */}}
+{{/* kubectl step: a `kubernetes.io/basic-auth` Secret plus a User CR pointing at it. Both are */}}
+{{/* namespaced, so both are writable through /call — this is the residual `applyResourceSet` */}}
+{{/* reach that core-provider-agent / authn-agent held, expressed as a form. */}}
+{{/* */}}
+{{/* GROUPS IS THE DANGEROUS FIELD, and the reason this is an enum rather than free text. */}}
+{{/* Verified on krateo-057: ClusterRoleBinding/cluster-admin-binding-krateo-system binds */}}
+{{/* Group/admins — as its ONLY subject — to ClusterRole/cluster-admin. So an account built by */}}
+{{/* copying the shape of the existing `admin` User (which carries groups: ["admins"]) silently */}}
+{{/* becomes a full cluster administrator. A free-text field would make that a typo away; the */}}
+{{/* enum names the consequence on the option itself and defaults to no group at all. */}}
+{{/* */}}
+{{/* Not agent-submittable. Autopilot may draft a user into this form; a human presses Create. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: settings-user-create
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    layout: vertical
+    {{/* Review before submit: this form grants access, and the review step is where a human sees
+         the group they are about to hand out before it is handed out. */}}
+    reviewBeforeSubmit: true
+    submitActionId: submit
+    buttonConfig:
+      primary:
+        label: Create user
+      secondary:
+        label: Cancel
+        navigateTo: /settings
+    schema:
+      type: object
+      required: [username, displayName, password]
+      properties:
+        username:
+          type: string
+          title: Username
+          description: "Lower-case, dashes. Becomes the login name, the User resource name, and the <username>-password Secret."
+          pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        displayName:
+          type: string
+          title: Display name
+          description: "Shown in the portal header and on the Users list."
+        password:
+          type: string
+          title: Password
+          description: "Stored in a kubernetes.io/basic-auth Secret alongside the username. Give the person a way to change it; the portal has no self-service password reset."
+        avatarURL:
+          type: string
+          title: Avatar URL
+          description: "Optional. Any URL; leave blank for the generated default."
+        group:
+          type: string
+          title: Group
+          {{/* Each option states its actual effect, traced to a live ClusterRoleBinding. */}}
+          description: "Least privilege by default. Neither named option is read-only: 'devs' can CREATE compositions in demo-system, and 'admins' grants FULL CLUSTER ADMINISTRATOR rights (Group/admins is bound to ClusterRole/cluster-admin). Pick 'admins' only for someone who should administer the whole cluster."
+          {{/* Each option states its REAL effect, traced to a live binding — a review found the
+               'devs' label understated it. Group/devs is bound to
+               Role/devs-create-get-list-any-composition-in-demo-namespace, whose rule is
+               apiGroups [composition.krateo.io] resources [*] verbs [create, get, list]: devs can
+               CREATE compositions, not merely read. Verified on krateo-057 with
+               `kubectl auth can-i create <plural>.composition.krateo.io --as-group=devs
+               -n demo-system` => yes. Probing `compositions.composition.krateo.io` returns NO and
+               is misleading — compositions are per-blueprint plurals, not one kind; that is how
+               the understatement survived the first check.
+               The leading token before the space is what gets submitted (see spec.groups below),
+               so every label must still begin with the bare group name. */}}
+          enum:
+            - "none — portal access only, no cluster permissions"
+            - "devs — can CREATE compositions in demo-system; reads namespaces, CRDs and widgets"
+            - "admins — FULL cluster administrator (ClusterRole/cluster-admin)"
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-secret
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: User created — they can sign in with the username and password you set
+          errorMessage: "Create failed — a 409 means that username is already taken; pick another"
+          loading:
+            display: true
+          ops:
+            {{/* Secret FIRST. The User's passwordRef must resolve to something, and
+                 stop-on-first-error means a failed Secret dispatches no User — better a
+                 stranded Secret than a User that can never authenticate. */}}
+            - resourceRefId: create-secret
+              payload:
+                apiVersion: v1
+                kind: Secret
+                type: kubernetes.io/basic-auth
+              payloadToOverride:
+                - { name: metadata.name,      value: '${ .json.username + "-password" }' }
+                - { name: metadata.namespace, value: '{{ .Release.Namespace }}' }
+                - { name: metadata.labels,    value: '${ {"krateo.io/managed-by":"portal-users"} }' }
+                {{/* stringData, not data: the apiserver base64-encodes it, so nothing here has
+                     to encode a password client-side. Both keys are set because the basic-auth
+                     type carries username alongside password. */}}
+                - name: stringData
+                  value: '${ { username: .json.username, password: .json.password } }'
+            - resourceRefId: create-user
+              payload:
+                apiVersion: basic.authn.krateo.io/v1alpha1
+                kind: User
+              payloadToOverride:
+                - { name: metadata.name,      value: '${ .json.username }' }
+                - { name: metadata.namespace, value: '{{ .Release.Namespace }}' }
+                - { name: metadata.labels,    value: '${ {"krateo.io/managed-by":"portal-users"} }' }
+                - { name: spec.displayName,   value: '${ .json.displayName }' }
+                {{/* avatarURL is REQUIRED by the CRD (presence only, any string), so an empty
+                     field must still send something rather than omitting the key and 422-ing. */}}
+                - name: spec.avatarURL
+                  value: '${ if ((.json.avatarURL // "") | length) > 0 then .json.avatarURL else "https://www.gravatar.com/avatar/?d=mp" end }'
+                - name: spec.passwordRef
+                  value: '${ { name: (.json.username + "-password"), namespace: "{{ .Release.Namespace }}", key: "password" } }'
+                {{/* groups is OPTIONAL and omitted entirely for the default choice — an empty
+                     array would still be a groups claim; absent is what yields a null claim and
+                     `kubectl auth can-i` = no. Only the leading token of the enum label is
+                     sent, so the explanatory text never reaches the CR. */}}
+                - name: spec.groups
+                  value: '${ ((.json.group // "none") | split(" ")[0]) as $g | if $g == "none" or $g == "" then null else [$g] end }'
+  widgetDataTemplate:
+    - forPath: initialValues
+      expression: '${ { group: "none — portal access only, no cluster permissions" } }'
+  resourcesRefs:
+    items:
+      - id: create-secret
+        apiVersion: v1
+        resource: secrets
+        namespace: {{ .Release.Namespace }}
+        verb: POST
+      - id: create-user
+        apiVersion: basic.authn.krateo.io/v1alpha1
+        resource: users
+        namespace: {{ .Release.Namespace }}
+        verb: POST
