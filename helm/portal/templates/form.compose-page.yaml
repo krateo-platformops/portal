@@ -71,7 +71,20 @@ spec:
                                        + "\n      name: " + $p[1]
                                        + "\n      namespace: {{ "{{ .Release.Namespace }}" }}"
                                        + "\n      resource: " + $p[0]
-                                       + "\n      verb: GET\n") | join("") ) ) } ] } }
+                                       + "\n      verb: GET\n") | join("") ) ) } ] }
+                 {{/* `source` is OPTIONAL, and the key is OMITTED rather than sent empty. A
+                      `source: null` would fail the CRD outright (the property is type: object), and
+                      a `source: {url: ""}` would render a Repo CR pointing nowhere — so it is merged
+                      in only when a template URL was actually typed. The seed lands on the BASE
+                      branch (the composition's own default for source.intoBranch), which is what
+                      keeps the change-request diff to the authored page rather than
+                      template-plus-page. */}}
+                 | . + (if (($f.__source_url__ // "") | length) > 0
+                        then { source: ({ url: $f.__source_url__,
+                                          branch: ($f.__source_branch__ // "main") }
+                                        + (if (($f.__source_path__ // "") | length) > 0
+                                           then { path: $f.__source_path__ } else {} end)) }
+                        else {} end) }
   widgetDataTemplate:
     - forPath: schema
       expression: >
@@ -94,7 +107,14 @@ spec:
                __target_base__:   { type: "string", title: "Base branch",
                                     description: "The branch the change request is cut from. Defaults to main." },
                __target_branch__: { type: "string", title: "Branch to commit onto",
-                                    description: "Defaults to builder/page-<slug>." } } } }
+                                    description: "Defaults to builder/page-<slug>." },
+               __source_url__:    { type: "string", title: "Scaffold from (optional)",
+                                    description: "Clone URL of a template repository to seed the target from BEFORE the page is committed. Leave empty unless you are publishing into a repository that does not exist yet and want it scaffolded.",
+                                    pattern: "^$|^https?://.+" },
+               __source_branch__: { type: "string", title: "Template branch",
+                                    description: "Branch in the template repository to copy from. Defaults to main. Ignored when no template is given." },
+               __source_path__:   { type: "string", title: "Template subdirectory",
+                                    description: "Copy only this subdirectory of the template. Empty copies the whole repository. Ignored when no template is given." } } } }
     - forPath: initialValues
       {{/* Prefilled from the install's configured page repo, but EDITABLE — the target is a
            per-publish decision, and repository.create defaults true. */}}
