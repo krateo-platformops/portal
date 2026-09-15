@@ -1,16 +1,21 @@
 {{/* The published-API-mappings registry — ONE row per Autopilot-authored KOG deliverable, off */}}
 {{/* kog-deliverables. Mirrors the blueprint-builder deliverables table. Columns: RestDefinition */}}
 {{/* (name) / Pull request title / Generated kind (GVK) / Ready chip (Ready=green, Failed=red, */}}
-{{/* Pending/In review=orange) / PR # / Published age. Rows are INERT — no rowNavigateTo: a */}}
-{{/* RestDefinition's GENERATED kind has no single instance to land on, and no per-kind resources */}}
-{{/* LIST route exists (only /resources/{ns}/{group}/{version}/{plural}/{name} for one object), so */}}
-{{/* a clean row action isn't expressible; the raw restdef-registry table below carries the same */}}
-{{/* Ready info, and the PR is openable on /portal-builder (its Listy passes a full html_url). */}}
+{{/* Pending/In review=orange) / PR # / Published age. */}}
 {{/* */}}
-{{/* WHY the PR is a plain "#N" TEXT cell (issue #30, same as the blueprint deliverables): a Table */}}
-{{/* has NO per-cell href, and its whole-row rowNavigateTo runs encodeURIComponent (Table.tsx), */}}
-{{/* which mangles a full https:// URL. The url rides as a hidden cell (page context / agent */}}
-{{/* grounding), just not clickable here. */}}
+{{/* ROWS ARE NO LONGER INERT. Two things changed under the old rationale, which said a Table has no */}}
+{{/* per-cell href and its rowNavigateTo runs encodeURIComponent, mangling a full https:// URL. */}}
+{{/* (1) Table.tsx:35,45 special-cases a WHOLE-placeholder template: `{url}` alone passes the cell */}}
+{{/* through verbatim, unencoded — so an external URL is expressible now. (2) Until */}}
+{{/* builder-publish 1.8.21 the claim path opened no PullRequest, so `url` was always "" and there */}}
+{{/* was nothing to land on anyway; the composition now opens the change request itself and its CR */}}
+{{/* carries status.html_url. The other half of the old rationale still stands and is why the */}}
+{{/* destination is the CHANGE REQUEST rather than a resource: a RestDefinition's GENERATED kind has */}}
+{{/* no single instance to land on, and no per-kind LIST route exists. */}}
+{{/* */}}
+{{/* A row whose publish has no PR — pullRequest.create off, or an install below */}}
+{{/* github-provider-kog 0.3.0 where the chart's CRD guard renders none — resolves `url` to "" and */}}
+{{/* Table.tsx:41-47 drops the handlers, leaving that row inert exactly as before. No dead cursor. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,6 +26,9 @@ metadata:
 spec:
   widgetData:
     allowedResources: []
+    {{/* Whole-placeholder → the value is used verbatim (Table.tsx:35,45), which is what lets a full
+         https:// change-request URL survive. Rows with no PR yet resolve to "" and stay inert. */}}
+    rowNavigateTo: '{url}'
     bordered: false
     size: small
     pagination:
