@@ -66,7 +66,7 @@
 {{- else -}}
 {{/* Gate: every file must already be committed on the head branch. */}}
 {{- $gate := true -}}
-{{- range $i, $f := .Values.files -}}
+{{- range $i, $f := (include "builder-publish.files" $ | fromYamlArray) -}}
 {{- $lrName := printf "%s-%03d" $.Values.name (int $i) | trunc 63 | trimSuffix "-" -}}
 {{- $lr := lookup "git.krateo.io/v1alpha1" "LocalResource" $ns $lrName -}}
 {{- if not (and $lr (dig "status" "targetCommitId" "" $lr)) -}}{{- $gate = false -}}{{- end -}}
@@ -115,7 +115,7 @@ spec:
   head: {{ .Values.branch | quote }}
   base: {{ $base | quote }}
   title: {{ $title | quote }}
-  body: {{ $pr.body | default (printf "Authored in the Krateo portal (%s builder) and published as %d file(s) by the `%s` BuilderPublish claim." .Values.builder (len .Values.files) .Values.name) | quote }}
+  body: {{ $pr.body | default (printf "Authored in the Krateo portal (%s builder) and published as %d file(s) by the `%s` BuilderPublish claim." .Values.builder (len (include "builder-publish.files" $ | fromYamlArray)) .Values.name) | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

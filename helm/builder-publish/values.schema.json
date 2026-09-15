@@ -1,21 +1,20 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema",
   "title": "BuilderPublish",
-  "description": "One Autopilot builder publish. The frontend emits this (gated); the composition creates the destination repository, optionally seeds it from a source repository, renders one git-provider LocalResource per file (committing the held bytes verbatim to a builder/<slug> branch on any SCM), and opens the change request. PER-PUBLISH fields (name/builder/branch/target/files/source) come from the claim; git/credentials/repository/pullRequest are INSTALL-LEVEL defaults (values.yaml) — the claim never carries a secret.",
+  "description": "One Autopilot builder publish. The frontend emits this (gated); the composition creates the destination repository, optionally seeds it from a source repository, renders one git-provider LocalResource per file (committing the held bytes verbatim to a builder/<slug> branch on any SCM), and opens the change request. PER-PUBLISH fields (name/builder/branch/target/files/source) come from the claim; git/credentials/repository/pullRequest are INSTALL-LEVEL defaults (values.yaml) \u2014 the claim never carries a secret.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "name",
     "builder",
     "branch",
-    "target",
-    "files"
+    "target"
   ],
   "properties": {
     "global": {
       "type": "object",
       "title": "Global values",
-      "description": "Helm global values passthrough. core-provider injects `global` into every composition's values before chart-inspector validates the render, so a root schema with additionalProperties:false MUST allow it — otherwise chart-inspector 500s and the composition never renders its LocalResource (issue #126). Every composition chart ships this."
+      "description": "Helm global values passthrough. core-provider injects `global` into every composition's values before chart-inspector validates the render, so a root schema with additionalProperties:false MUST allow it \u2014 otherwise chart-inspector 500s and the composition never renders its LocalResource (issue #126). Every composition chart ships this."
     },
     "name": {
       "type": "string",
@@ -61,7 +60,7 @@
     "files": {
       "type": "array",
       "minItems": 1,
-      "description": "The held files — each becomes one LocalResource (verbatim, at path).",
+      "description": "The held files \u2014 each becomes one LocalResource (verbatim, at path).",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -76,7 +75,7 @@
           },
           "content": {
             "type": "string",
-            "description": "Exact file bytes — committed verbatim."
+            "description": "Exact file bytes \u2014 committed verbatim."
           }
         }
       }
@@ -149,7 +148,7 @@
           "type": "string",
           "minLength": 1,
           "default": "x-access-token",
-          "description": "Username for basic auth. Not a credential — GitHub authenticates on the token in the password position and ignores this value; it only has to be non-empty. Rendered into a chart-owned Secret (templates/username-secret.yaml). Ignored when usernameRef is set."
+          "description": "Username for basic auth. Not a credential \u2014 GitHub authenticates on the token in the password position and ignores this value; it only has to be non-empty. Rendered into a chart-owned Secret (templates/username-secret.yaml). Ignored when usernameRef is set."
         },
         "usernameRef": {
           "type": "object",
@@ -217,7 +216,7 @@
         },
         "intoBranch": {
           "type": "string",
-          "description": "Branch in the DESTINATION to seed. Defaults to target.base — seeding the base keeps the change-request diff to the authored files alone; point this at the builder branch to put the scaffold under review too."
+          "description": "Branch in the DESTINATION to seed. Defaults to target.base \u2014 seeding the base keeps the change-request diff to the authored files alone; point this at the builder branch to put the scaffold under review too."
         },
         "krateoIgnorePath": {
           "type": "string",
@@ -244,6 +243,26 @@
           "description": "Defaults to a line naming the builder, the file count and the claim."
         }
       }
+    },
+    "filesBundle": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The held files as a MAP of in-repo path to file contents \u2014 the shape a human can author in the portal, since the Form widget renders a property-less object as a JSON textarea. Equivalent to `files`; give one or the other. The composition emits the same LocalResource set, ordered by path."
     }
-  }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "files"
+      ]
+    },
+    {
+      "required": [
+        "filesBundle"
+      ]
+    }
+  ]
 }
