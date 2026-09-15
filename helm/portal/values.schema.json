@@ -2,6 +2,33 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": true,
   "properties": {
+    "acceptance": {
+      "description": "Acceptance-test scaffolding. Off everywhere except a bench cluster running the snowplow live-refresh acceptance harness. Separate from observability.snowplowSli because they answer different questions: that one is a dashboard an operator may want, this is test scaffolding nobody else should carry.",
+      "title": "acceptance",
+      "type": "object",
+      "properties": {
+        "s6Probe": {
+          "default": false,
+          "description": "Add a route-only (label-less) /s6-probe nav entry whose content resolves by the page:<slug> convention to flexes/page-s6-probe \u2014 a page CR the harness creates and deletes per run. Needed because a page root alone does not serve a route, and the SPA only arms a widget it actually renders: without it the harness can create a widget, delete it, observe nothing and report a clean pass, having proved only that it never armed. Nothing renders in the sidebar; with no harness the route resolves to a page that does not exist.",
+          "title": "s6Probe",
+          "type": "boolean"
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "The agent control plane ships as the separate portal-agents chart.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the Agents sidebar entry and its /agents routes. Set true ONLY when portal-agents is installed: a nav ref whose target is missing stays visible and 404s."
+        }
+      },
+      "default": {
+        "enabled": false
+      }
+    },
     "enableAdminUser": {
       "default": true,
       "description": "Enable admin user (basic authentication) with cluster-admin permissions",
@@ -19,6 +46,24 @@
       "description": "enabling the demo creates the demo-system namespace, deploys two Route resources within it, and grants permissions to the cyberjoker user if that user is enabled",
       "title": "enableDemoSystemNamespace",
       "type": "boolean"
+    },
+    "marketplace": {
+      "type": "object",
+      "description": "Where the portal reads the blueprint/operator marketplace catalog. configmap (default) = the in-cluster ConfigMap the krateo-marketplace-catalog composition renders; external = the legacy blueprints-endpoint Helm-repo (one-release fallback).",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "configmap",
+            "external"
+          ],
+          "default": "configmap"
+        },
+        "configMapName": {
+          "type": "string",
+          "default": "blueprints-catalog-index"
+        }
+      }
     },
     "observabilityConsoleUrl": {
       "default": "",
@@ -73,38 +118,6 @@
           "title": "admin",
           "type": "string"
         }
-      }
-    },
-    "marketplace": {
-      "type": "object",
-      "description": "Where the portal reads the blueprint/operator marketplace catalog. configmap (default) = the in-cluster ConfigMap the krateo-marketplace-catalog composition renders; external = the legacy blueprints-endpoint Helm-repo (one-release fallback).",
-      "properties": {
-        "source": {
-          "type": "string",
-          "enum": [
-            "configmap",
-            "external"
-          ],
-          "default": "configmap"
-        },
-        "configMapName": {
-          "type": "string",
-          "default": "blueprints-catalog-index"
-        }
-      }
-    },
-    "agents": {
-      "type": "object",
-      "description": "The agent control plane ships as the separate portal-agents chart.",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the Agents sidebar entry and its /agents routes. Set true ONLY when portal-agents is installed: a nav ref whose target is missing stays visible and 404s."
-        }
-      },
-      "default": {
-        "enabled": false
       }
     }
   },

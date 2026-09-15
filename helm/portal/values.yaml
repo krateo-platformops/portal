@@ -94,3 +94,14 @@ marketplace:
 # nav ref whose target is missing stays visible and 404s rather than hiding itself.
 agents:
   enabled: false
+
+# S6 ACCEPTANCE PROBE — off everywhere except a bench cluster running the snowplow live-refresh
+# acceptance harness. Adds ONE route-only (label-less) nav entry, /s6-probe, whose content resolves
+# by the page:<slug> convention to flexes/page-s6-probe — a page CR the harness creates and deletes
+# per run. Nothing renders in the sidebar and no page ships with this; without the harness the route
+# simply resolves to a page that does not exist.
+#
+# It is separate from observability.snowplowSli (which shows the SLI dashboard) because they answer
+# different questions: that one is a dashboard an operator may want, this one is test scaffolding.
+acceptance:
+  s6Probe: false
