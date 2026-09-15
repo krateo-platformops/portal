@@ -27,7 +27,13 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    rowNavigateTo: /blueprints/{ns}/{chart}
+    {{/* Was the fixed path /blueprints/{ns}/{chart} — a DEAD LINK for every row still in review,
+         because a blueprint has no detail page until its CompositionDefinition exists, and those
+         are precisely the rows that now carry a change request. The RA resolves the destination
+         per row instead (registered → the blueprint page, else the PR, else nothing), and this
+         whole-placeholder form passes it through verbatim (Table.tsx:35,45) so an external
+         https:// URL survives. An unresolved row stays inert. */}}
+    rowNavigateTo: '{rowHref}'
     pagination:
       defaultPageSize: 15
     columns:
@@ -48,7 +54,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "In review"),color:(.statusColor // "orange")}, (if (.marketLabel // "") != "" then {valueKey:"market",kind:"tag",stringValue:.marketLabel,color:(.marketColor // "green")} else {valueKey:"market",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"#8c8c8c"} end), {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "In review"),color:(.statusColor // "orange")}, (if (.marketLabel // "") != "" then {valueKey:"market",kind:"tag",stringValue:.marketLabel,color:(.marketColor // "green")} else {valueKey:"market",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"#8c8c8c"} end), {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")}, {valueKey:"rowHref",kind:"jsonSchemaType",type:"string",stringValue:(.rowHref // "")} ] ] }'
   apiRef:
     name: blueprint-builder-deliverables
     namespace: {{ .Release.Namespace }}

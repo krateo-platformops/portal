@@ -29,7 +29,7 @@ spec:
     {{/* written by the KOG github-provider after the PR lands; a just-created PR has none, so read */}}
     {{/* defensively. */}}
     - name: prs
-      path: /apis/github.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/pullrequests
+      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ .Release.Namespace }}/pullrequests
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -37,8 +37,9 @@ spec:
       errorKey: prsError
       filter: >
         [ (.prs.items // [])[]
-          | select(((.spec.repo) // "") == "krateo-oas")
-          | { restdef: (((.spec.head) // "") | sub("^builder/"; "")),
+          | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+              repo: ((.spec.repo) // ""),
+              restdef: (((.spec.head) // "") | sub("^builder/"; "")),
               title: ((.spec.title) // ""),
               number: ((.status.number) // 0),
               state: ((.status.state) // "pending"),
@@ -90,6 +91,12 @@ spec:
           | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
               branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
               synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
+              # The final filter has always branched on syncReason == "ReconcileError" — and this step
+              # never selected it, so `$failed` was unconditionally false and a publish that died hours
+              # ago rendered as the orange present participle forever. That is the exact defect the
+              # comments further down this file complain about; it was in the step, not the ladder.
+              syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
+              syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
               created: ((.metadata.creationTimestamp) // "") } ]
   {{/* Join PRs → RestDefinitions. The generated GVK + Ready verdict chip (Ready=green, */}}
   {{/* Failed=red, Pending=orange) are computed HERE, server-side. Rows are newest-first. The PR */}}
@@ -98,7 +105,9 @@ spec:
   {{/* /api-builder?ask= Autopilot deep-link seeding the paste-an-OpenAPI flow. */}}
   filter: >
     (.restdefs // []) as $rds
-    | ([ (.prs // [])[]
+    | (.prs // []) as $prs
+    | ([ $prs[]
+         | select(((.publish) // "") == "" and ((.repo) // "") == "krateo-oas")
          | . as $pr
          | ( [ $rds[] | select(.name == $pr.restdef) ] | first ) as $rd
          | ($rd.ready // "") as $rs
@@ -121,10 +130,17 @@ spec:
          | ($rd.ready // "") as $rs
          | (all(.[]; .synced == "True")) as $pushed
          | (any(.[]; .syncReason == "ReconcileError")) as $failed
+         | ( [ $prs[] | select(((.publish) // "") == ($p0.publish // "")) ] | first ) as $pr
          | { restdef: $kind,
-             title: "",
-             pr: ($p0.branch // ""),
-             url: "",
+             title: (($pr.title) // ""),
+             # Before builder-publish 1.8.21 a claim publish opened no PR at all, so this column
+             # could only ever show the branch and the row had nowhere to link. The composition
+             # now opens the change request itself and its CR carries status.html_url, so the row
+             # points at the actual PR. The branch stays as the fallback: pullRequest.create can be
+             # off, and on an install without github-provider-kog >= 0.3.0 the chart's CRD guard
+             # deliberately renders no PullRequest at all.
+             pr: (if (($pr.number) // 0) > 0 then ("#" + ($pr.number | tostring)) else ($p0.branch // "") end),
+             url: (($pr.url) // ""),
              gvk: (if ($rd != null and (($rd.genKind // "") != ""))
                    then ($rd.genKind + " · " + ($rd.genApiVersion // "")) else "—" end),
                      # "Pushing" was a PORTAL-INVENTED present participle for a state that had already stopped:
