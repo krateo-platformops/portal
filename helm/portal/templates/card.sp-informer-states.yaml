@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-informer-states
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Informer states
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: sp-informer-states-group
+  resourcesRefs:
+    items:
+      - id: sp-informer-states-group
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-informer-states-group
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
+{{- end }}

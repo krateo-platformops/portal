@@ -1,0 +1,46 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Dirty-marks issued and dependency records held. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-dep-marks
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "dirty_mark_total": cyan
+      "records": teal
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 160
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.stat|tostring), v: (.v|tonumber) } ] }'
+  apiRef:
+    name: sp-dep-marks
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

@@ -1,0 +1,41 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Stat tiles for Informer states — laid out side by side. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-informer-states-group
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - statistics
+    vertical: false
+    gap: small
+    justify: space-between
+    items:
+    - resourceRefId: sp-informer-states-servable
+    - resourceRefId: sp-informer-states-synced
+    - resourceRefId: sp-informer-states-watchbroken
+  resourcesRefs:
+    items:
+      - id: sp-informer-states-servable
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-informer-states-servable
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+      - id: sp-informer-states-synced
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-informer-states-synced
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+      - id: sp-informer-states-watchbroken
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-informer-states-watchbroken
+        namespace: {{ .Release.Namespace }}
+        resource: statistics
+        verb: GET
+{{- end }}

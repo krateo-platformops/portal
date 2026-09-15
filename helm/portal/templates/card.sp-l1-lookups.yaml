@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-l1-lookups
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: L1 dispatch lookups
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: sp-l1-lookups
+  resourcesRefs:
+    items:
+      - id: sp-l1-lookups
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-l1-lookups
+        namespace: {{ .Release.Namespace }}
+        resource: linecharts
+        verb: GET
+{{- end }}

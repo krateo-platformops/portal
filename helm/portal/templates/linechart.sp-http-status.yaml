@@ -1,0 +1,49 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Responses per bucket by status code. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-http-status
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "200": green
+      "400": orange
+      "401": gold
+      "404": magenta
+      "500": red
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 160
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.code|tostring), v: (.d|tonumber) } ] }'
+  apiRef:
+    name: sp-http-status
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

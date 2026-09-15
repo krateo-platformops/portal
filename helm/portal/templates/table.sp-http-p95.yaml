@@ -1,0 +1,31 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* p95 request duration per route over the window, from the cumulative histogram (last − first). /refreshes excluded. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-http-p95
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: route
+      title: Route
+    - valueKey: p95_s
+      title: p95 (s)
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | { route: (.route|tostring), p95_s: (.p95_s|tostring) } ] }'
+  apiRef:
+    name: sp-http-p95
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

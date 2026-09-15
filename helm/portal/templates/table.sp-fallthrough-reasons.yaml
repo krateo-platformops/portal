@@ -1,0 +1,31 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Top fall-through reasons over the window, as the increase between the first and last sample. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-fallthrough-reasons
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: reason
+      title: Reason
+    - valueKey: increase
+      title: Increase
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | { reason: (.reason|tostring), increase: (.increase|tostring) } ] }'
+  apiRef:
+    name: sp-fallthrough-reasons
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

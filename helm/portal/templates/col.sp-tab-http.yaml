@@ -1,0 +1,59 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* Snowplow SLI — "HTTP & logs" tab. Panels are Cards, one per query; see portal#201. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-tab-http
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: sp-card-http-p95
+    - resourceRefId: sp-card-http-mean
+    - resourceRefId: sp-card-http-status
+    - resourceRefId: sp-card-log-levels
+    - resourceRefId: sp-card-pod-uptime
+    - resourceRefId: sp-card-build-version
+  resourcesRefs:
+    items:
+      - id: sp-card-http-p95
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-http-p95
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-http-mean
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-http-mean
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-http-status
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-http-status
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-log-levels
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-log-levels
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-pod-uptime
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-pod-uptime
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+      - id: sp-card-build-version
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-card-build-version
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET
+{{- end }}

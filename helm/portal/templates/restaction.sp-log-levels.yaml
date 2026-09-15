@@ -1,0 +1,24 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* VERIFIED against live ClickHouse on krateo-057 before it was written — see portal#201. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: sp-log-levels
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: q
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | (if $r=="1h" then "2%20MINUTE" elif $r=="24h" then "1%20HOUR" elif $r=="7d" then "6%20HOUR" else "1%20HOUR" end) as $bk | "/?query=" + "SELECT%20toUnixTimestamp%28toStartOfInterval%28TimestampTime%2C%20INTERVAL%20" + $bk + "%29%29%20AS%20t%2C%20upper%28JSONExtractString%28Body%2C%27level%27%29%29%20AS%20level%2C%20count%28%29%20AS%20n%20FROM%20otel_logs%20WHERE%20ServiceName%3D%27snowplow%27%20AND%20TimestampTime%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20AND%20upper%28JSONExtractString%28Body%2C%27level%27%29%29%20IN%20%28%27ERROR%27%2C%27WARN%27%29%20GROUP%20BY%20t%2C%20level%20ORDER%20BY%20t" + "%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: qError
+  filter: >
+    { rows: ((.q.data) // []), failed: ((.qError // null) != null) }
+{{- end }}

@@ -1,0 +1,25 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-informer-states-watchbroken
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [range]
+  apiRef:
+    name: sp-informer-states
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Watches broken
+    value: 0
+  widgetDataTemplate:
+  - forPath: value
+    expression: '${ ([ (.rows // [])[] | select(.state=="watch_broken") | (.latest|tonumber) ] | first // 0) }'
+  - forPath: color
+    expression: '${ if ((([ (.rows // [])[] | select(.state=="watch_broken") | (.latest|tonumber) ] | first // 0)) > 0) then "red" else "gray" end }'
+  resourcesRefs:
+    items: []
+{{- end }}

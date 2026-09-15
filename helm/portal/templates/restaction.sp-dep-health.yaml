@@ -1,0 +1,24 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* VERIFIED against live ClickHouse on krateo-057 before it was written — see portal#201. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: sp-dep-health
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: q
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | (if $r=="1h" then "2%20MINUTE" elif $r=="24h" then "1%20HOUR" elif $r=="7d" then "6%20HOUR" else "1%20HOUR" end) as $bk | "/?query=" + "SELECT%20Attributes%5B%27stat%27%5D%20AS%20stat%2C%20argMax%28Value%2C%20TimeUnix%29%20AS%20latest%20FROM%20otel_metrics_gauge%20WHERE%20ServiceName%3D%27snowplow%27%20AND%20MetricName%3D%27snowplow_deps%27%20AND%20Attributes%5B%27stat%27%5D%20IN%20%28%27delete_worker_panics_total%27%2C%27delete_queue_full_total%27%2C%27dropped_cap%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20stat%20ORDER%20BY%20stat" + "%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: qError
+  filter: >
+    { rows: ((.q.data) // []), failed: ((.qError // null) != null) }
+{{- end }}

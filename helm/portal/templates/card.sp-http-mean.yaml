@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-http-mean
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Mean request duration
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: sp-http-mean
+  resourcesRefs:
+    items:
+      - id: sp-http-mean
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-http-mean
+        namespace: {{ .Release.Namespace }}
+        resource: linecharts
+        verb: GET
+{{- end }}

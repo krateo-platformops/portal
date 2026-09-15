@@ -1,0 +1,26 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-card-fallthrough-reasons
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Top fall-through reasons
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - tables
+    items:
+    - resourceRefId: sp-fallthrough-reasons
+  resourcesRefs:
+    items:
+      - id: sp-fallthrough-reasons
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-fallthrough-reasons
+        namespace: {{ .Release.Namespace }}
+        resource: tables
+        verb: GET
+{{- end }}

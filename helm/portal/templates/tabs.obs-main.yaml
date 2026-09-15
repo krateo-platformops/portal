@@ -33,6 +33,20 @@ spec:
         resourceRefId: obs-tab-telemetry
       - label: Components
         resourceRefId: obs-tab-components
+      {{/* Snowplow SLI tabs (portal#201). Every panel is a ClickHouse query over the OTel tables,
+           filtered to ServiceName='snowplow'. Guarded so an install without the snowplow metrics
+           pipeline does not render six tabs of empty charts — an empty panel reads as a broken
+           panel, which is worse than an absent one. */}}
+      {{- if (.Values.observability | default dict).snowplowSli }}
+      - label: SP · Cache
+        resourceRefId: sp-tab-cache
+      - label: SP · Invalidation
+        resourceRefId: sp-tab-invalidation
+      - label: SP · Informers
+        resourceRefId: sp-tab-informers
+      - label: SP · HTTP & logs
+        resourceRefId: sp-tab-http
+      {{- end }}
   resourcesRefs:
     items:
       - id: obs-tab-reconciliation
@@ -53,3 +67,32 @@ spec:
         namespace: {{ .Release.Namespace }}
         resource: cols
         verb: GET
+      {{/* Guarded in LOCKSTEP with the items entries above — a ref whose items entry is absent is
+           dead weight in the record, and an items entry whose ref is absent is X4's dangling-ref
+           case. Both halves move together or neither does. */}}
+      {{- if (.Values.observability | default dict).snowplowSli }}
+      - id: sp-tab-cache
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-cache
+        namespace: {{ .Release.Namespace }}
+        resource: cols
+        verb: GET
+      - id: sp-tab-invalidation
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-invalidation
+        namespace: {{ .Release.Namespace }}
+        resource: cols
+        verb: GET
+      - id: sp-tab-informers
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-informers
+        namespace: {{ .Release.Namespace }}
+        resource: cols
+        verb: GET
+      - id: sp-tab-http
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-http
+        namespace: {{ .Release.Namespace }}
+        resource: cols
+        verb: GET
+      {{- end }}
