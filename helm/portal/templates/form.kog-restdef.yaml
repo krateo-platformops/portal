@@ -64,10 +64,10 @@ spec:
                    as $verbs
                  | { name: ("kog-" + ($f.__kind__ | ascii_downcase)),
                      builder: "controller",
-                     branch: ("builder/kog-" + ($f.__kind__ | ascii_downcase)),
-                     target: { namespace: "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/krateo-oas")) | first }}",
-                               repo: "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/krateo-oas")) | last }}",
-                               base: "main" },
+                     branch: ($f.__target_branch__ // ("builder/kog-" + ($f.__kind__ | ascii_downcase))),
+                     target: { namespace: $f.__target_org__,
+                               repo: $f.__target_repo__,
+                               base: ($f.__target_base__ // "main") },
                      files: [ { path: ("resources/" + ($f.__kind__ | ascii_downcase) + ".yaml"),
                                 content: (
                                   "apiVersion: ogen.krateo.io/v1alpha1\nkind: RestDefinition\nmetadata:\n  name: "
@@ -85,7 +85,7 @@ spec:
       expression: >
         ${ [ (.operations // [])[] | .id ] as $ops
          | { type: "object",
-             required: ["__kind__","__resource_group__","__oas_path__"],
+             required: ["__kind__","__resource_group__","__oas_path__","__target_org__","__target_repo__"],
              properties: {
                __kind__:           { type: "string", title: "Resource kind",
                                      description: "CamelCase, e.g. Widget — becomes the generated CRD's kind.",
@@ -95,13 +95,30 @@ spec:
                                      pattern: "^[a-z0-9.-]+$" },
                __oas_path__:       { type: "string", title: "OpenAPI document URL",
                                      description: "Where oasgen-provider fetches the spec at reconcile time. The portal never fetches it." },
+               __target_org__:     { type: "string", title: "Target org",
+                                     description: "GitHub org (GitLab group, Bitbucket workspace) the change request is opened in.",
+                                     pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+               __target_repo__:    { type: "string", title: "Target repository",
+                                     description: "Created automatically if it does not exist yet." ,
+                                     pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+               __target_base__:    { type: "string", title: "Base branch",
+                                     description: "The branch the change request is cut from. Defaults to main." },
+               __target_branch__:  { type: "string", title: "Branch to commit onto",
+                                     description: "Defaults to builder/kog-<kind>." },
                create:  { type: "array", title: "Operations that CREATE",  items: { enum: $ops } },
                get:     { type: "array", title: "Operations that GET",     items: { enum: $ops } },
                update:  { type: "array", title: "Operations that UPDATE",  items: { enum: $ops } },
                delete:  { type: "array", title: "Operations that DELETE",  items: { enum: $ops } },
                findby:  { type: "array", title: "Operations that FIND BY", items: { enum: $ops } } } } }
     - forPath: initialValues
-      expression: '${ { __oas_path__: ((.servers // [])[0] // "") } }'
+      {{/* Prefilled from the install's configured KOG registry, but EDITABLE — the target is a
+           per-publish decision, and repository.create defaults true so a new repo is made if the
+           one named here does not exist. */}}
+      expression: >
+        ${ { __oas_path__: ((.servers // [])[0] // ""),
+             __target_org__:  "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/krateo-oas")) | first }}",
+             __target_repo__: "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/krateo-oas")) | last }}",
+             __target_base__: "main" } }
   resourcesRefs:
     {{/* The POST target is built from the DISCOVERED GVR, never a literal: the BuilderPublish CRD's
          served version tracks the portal chart version, so a literal would break on every release. */}}
