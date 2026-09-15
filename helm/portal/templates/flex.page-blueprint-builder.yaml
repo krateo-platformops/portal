@@ -17,12 +17,18 @@ spec:
     - pageheaders
     - flexes
     - tables
+    {{/* B4: the authoring card. Without this the Flex refuses to mount it. */}}
+    - cards
     vertical: true
     gap: middle
     items:
     - resourceRefId: blueprint-builder-page-header
     {{/* #84 §0.1: CTA rides in a right-aligned wrapper Flex (was a bare left-aligned button). */}}
     - resourceRefId: blueprint-builder-ask-cta
+    {{/* B4: authoring on the page. Placed ABOVE the deliverables table for the same reason the
+         KOG builder places its author cards above its registry — the table answers "what did I
+         ship?", so it belongs after the thing that ships. */}}
+    - resourceRefId: author-blueprint-card
     - resourceRefId: blueprint-builder-deliverables
   resourcesRefs:
     items:
@@ -37,6 +43,12 @@ spec:
       name: blueprint-builder-ask-cta
       namespace: {{ .Release.Namespace }}
       resource: flexes
+      verb: GET
+    - id: author-blueprint-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: author-blueprint-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
       verb: GET
     - id: blueprint-builder-deliverables
       apiVersion: widgets.templates.krateo.io/v1beta1
