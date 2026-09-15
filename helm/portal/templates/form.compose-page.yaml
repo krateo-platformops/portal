@@ -51,10 +51,10 @@ spec:
                  | ($f.widgets // []) as $sel
                  | { name: ("page-" + $f.__slug__),
                      builder: "page",
-                     branch: ("builder/page-" + $f.__slug__),
-                     target: { namespace: "{{ (splitList "/" (((.Values.pageBuilder | default dict).repo) | default "krateo-platformops/portal")) | first }}",
-                               repo: "{{ (splitList "/" (((.Values.pageBuilder | default dict).repo) | default "krateo-platformops/portal")) | last }}",
-                               base: "main" },
+                     branch: ($f.__target_branch__ // ("builder/page-" + $f.__slug__)),
+                     target: { namespace: $f.__target_org__,
+                               repo: $f.__target_repo__,
+                               base: ($f.__target_base__ // "main") },
                      files: [ { path: ("helm/portal/templates/flex.page-" + $f.__slug__ + ".yaml"),
                                 content: (
                                   "kind: Flex\napiVersion: widgets.templates.krateo.io/v1beta1\nmetadata:\n  name: page-"
@@ -77,14 +77,31 @@ spec:
       expression: >
         ${ [ (.widgets // [])[] | .id ] as $opts
          | { type: "object",
-             required: ["__slug__","widgets"],
+             required: ["__slug__","widgets","__target_org__","__target_repo__"],
              properties: {
                __slug__: { type: "string", title: "Page slug",
                            description: "Lower-case, dashes. The page becomes /<slug> and the CR page-<slug>.",
                            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
                widgets:  { type: "array", title: "Widgets on this page",
                            description: "Existing widgets, in the order they should appear. Each one is already wired to its own data.",
-                           items: { enum: $opts } } } } }
+                           items: { enum: $opts } },
+               __target_org__:    { type: "string", title: "Target org",
+                                    description: "GitHub org (GitLab group, Bitbucket workspace) the change request is opened in.",
+                                    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+               __target_repo__:   { type: "string", title: "Target repository",
+                                    description: "Created automatically if it does not exist yet.",
+                                    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+               __target_base__:   { type: "string", title: "Base branch",
+                                    description: "The branch the change request is cut from. Defaults to main." },
+               __target_branch__: { type: "string", title: "Branch to commit onto",
+                                    description: "Defaults to builder/page-<slug>." } } } }
+    - forPath: initialValues
+      {{/* Prefilled from the install's configured page repo, but EDITABLE — the target is a
+           per-publish decision, and repository.create defaults true. */}}
+      expression: >
+        ${ { __target_org__:  "{{ (splitList "/" (((.Values.pageBuilder | default dict).repo) | default "krateo-platformops/portal")) | first }}",
+             __target_repo__: "{{ (splitList "/" (((.Values.pageBuilder | default dict).repo) | default "krateo-platformops/portal")) | last }}",
+             __target_base__: "main" } }
   resourcesRefs:
     items: []
   resourcesRefsTemplate:
