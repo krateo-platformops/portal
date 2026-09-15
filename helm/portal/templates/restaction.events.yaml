@@ -8,9 +8,18 @@
 {{/* Per-row deep-link: sse-proxy (>= 1.1.0) stamps `compositionId` on every event (from the */}}
 {{/* LogAttributes['krateo.io/composition-id'] label — the same field composition-events scopes */}}
 {{/* by). The crds→comps walk below (mirrors composition-events' crds→found) resolves that id */}}
-{{/* back to the composition's {ns,name} SERVER-SIDE, and each event gains `route` */}}
-{{/* ("/compositions/<ns>/<name>", or "" when the event carries no resolvable composition tag — */}}
-{{/* those rows stay inert in the activity lists; nothing is fabricated). */}}
+{{/* back to the composition's {ns,name} SERVER-SIDE. */}}
+{{/* */}}
+{{/* Feedback: the row DISPLAYS its involvedObject (Kind/Name) and then navigated somewhere */}}
+{{/* else — the owning composition — so clicking a blueprint's event landed on a composition */}}
+{{/* page, and an event with no composition tag did nothing at all. The route is now resolved */}}
+{{/* from the object the row is actually about, falling back to the composition: */}}
+{{/*   CompositionDefinition → /blueprints/<ns>/<name>   (the object's OWN detail page) */}}
+{{/*   anything with a resolvable compositionId → /compositions/<ns>/<name>   (its owner) */}}
+{{/*   otherwise → ""  (inert; ListView only marks a row clickable when navigateTo is set, so */}}
+{{/*                    an unroutable row is visibly inert rather than a dead click) */}}
+{{/* Kinds with no detail page in the portal stay inert deliberately — inventing a route to a */}}
+{{/* page that does not exist trades a dead click for a 404, which is worse. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -60,6 +69,12 @@ spec:
         | reverse
         | .[0:50]
         | map(. + { route: ( ($byCid[(.compositionId // "")] // null) as $c
-                             | if $c != null then ("/compositions/" + $c.ns + "/" + $c.name) else "" end ) })
+                             | (.involvedObject.kind // "") as $k
+                             | (.involvedObject.name // "") as $n
+                             | (.involvedObject.namespace // "") as $ons
+                             | if $k == "CompositionDefinition" and $n != "" and $ons != ""
+                               then ("/blueprints/" + $ons + "/" + $n)
+                               elif $c != null then ("/compositions/" + $c.ns + "/" + $c.name)
+                               else "" end ) })
       )
     }
