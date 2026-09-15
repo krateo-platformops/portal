@@ -147,8 +147,18 @@ spec:
                      # no such phase exists on a RestDefinition or a CompositionDefinition, and the branch fired
                      # whenever the LocalResources were not all Synced. A orange "Pushing" on a publish that died
                      # 30 hours ago reads "come back later", forever.
+                     # "In review" USED TO come from $pushed alone — all files committed — which claimed
+                     # a review nobody had opened. #206 bound $pr here and fixed exactly this ladder in the
+                     # blueprint RA, then left this one reading the old way: $pr is bound two lines up and
+                     # feeds the pr/url/title cells, while the status ignored it. Post-1.8.22 that is
+                     # accidentally right on the happy path and still wrong on the two no-PR configurations
+                     # this same file documents above — pullRequest.create off, and an install below
+                     # github-provider-kog 0.3.0 where the chart's CRD guard renders no PullRequest at all.
+                     # A review is real when its CR exists, and only then; a branch without one is "Pushed".
              ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed"
-                     elif $rd != null then "Pending" elif $pushed then "In review"
+                     elif $rd != null then "Pending"
+                     elif ($pr != null and (($pr.number) // 0) > 0) then "In review"
+                     elif $pushed then "Pushed"
                      elif $failed then "Publish failed" else "Publishing" end),
              readyColor: (if $rs == "True" then "green" elif ($rs == "False" or $failed) then "red"
                           else "orange" end),
