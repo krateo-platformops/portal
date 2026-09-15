@@ -1,0 +1,37 @@
+{{/* Add-user page — the route /settings/users/new renders here (page-<slug> convention). */}}
+{{/* Hosts the settings-user-create Form, which creates the basic-auth Secret and the User CR */}}
+{{/* as one gated set. Mirrors flex.page-clusters-register. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-settings-user-create
+  {{/* Admin tier, matching page-settings (this is a /settings sub-route) and page-alert-create.
+       The refs below stay in the release namespace, where the widgets themselves live. */}}
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+      - pageheaders
+      - forms
+    vertical: true
+    {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
+    gap: middle
+    items:
+      - resourceRefId: settings-user-create-page-header
+      - resourceRefId: settings-user-create-form
+  resourcesRefs:
+    items:
+      - id: settings-user-create-page-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: settings-user-create-page-header
+        namespace: {{ .Release.Namespace }}
+        resource: pageheaders
+        verb: GET
+      - id: settings-user-create-form
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: settings-user-create
+        namespace: {{ .Release.Namespace }}
+        resource: forms
+        verb: GET
