@@ -60,10 +60,18 @@ spec:
                 ${ .json as $f
                  | { name: ("blueprint-" + $f.__name__),
                      builder: "blueprint",
-                     branch: ($f.__target_branch__ // ("builder/" + $f.__name__)),
+                     branch: (if (($f.__target_branch__ // "") | length) > 0
+                              then $f.__target_branch__ else ("builder/" + $f.__name__) end),
+                     {{/* LENGTH-checked, not `//`: jq's alternative operator only fires on
+                          null/false, and this field's own schema admits the EMPTY STRING
+                          (pattern "^$|…") while its description promises "Defaults to the
+                          blueprint name". A user who clears the box therefore submitted "" and
+                          published to a repository with no name. Same reason for base/branch. */}}
                      target: { namespace: $f.__target_org__,
-                               repo: ($f.__target_repo__ // $f.__name__),
-                               base: ($f.__target_base__ // "main") },
+                               repo: (if (($f.__target_repo__ // "") | length) > 0
+                                      then $f.__target_repo__ else $f.__name__ end),
+                               base: (if (($f.__target_base__ // "") | length) > 0
+                                      then $f.__target_base__ else "main" end) },
                      filesBundle: $f.filesBundle }
                  {{/* `source` is OMITTED rather than sent empty, exactly as in compose-page: a
                       null fails the CRD (the property is type: object) and an empty url renders a

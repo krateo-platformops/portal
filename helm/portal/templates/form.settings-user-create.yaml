@@ -58,11 +58,22 @@ spec:
           type: string
           title: Group
           {{/* Each option states its actual effect, traced to a live ClusterRoleBinding. */}}
-          description: "Least privilege by default. 'admins' grants FULL CLUSTER ADMINISTRATOR rights — Group/admins is bound to ClusterRole/cluster-admin — so pick it only for someone who should administer the whole cluster."
+          description: "Least privilege by default. Neither named option is read-only: 'devs' can CREATE compositions in demo-system, and 'admins' grants FULL CLUSTER ADMINISTRATOR rights (Group/admins is bound to ClusterRole/cluster-admin). Pick 'admins' only for someone who should administer the whole cluster."
+          {{/* Each option states its REAL effect, traced to a live binding — a review found the
+               'devs' label understated it. Group/devs is bound to
+               Role/devs-create-get-list-any-composition-in-demo-namespace, whose rule is
+               apiGroups [composition.krateo.io] resources [*] verbs [create, get, list]: devs can
+               CREATE compositions, not merely read. Verified on krateo-057 with
+               `kubectl auth can-i create <plural>.composition.krateo.io --as-group=devs
+               -n demo-system` => yes. Probing `compositions.composition.krateo.io` returns NO and
+               is misleading — compositions are per-blueprint plurals, not one kind; that is how
+               the understatement survived the first check.
+               The leading token before the space is what gets submitted (see spec.groups below),
+               so every label must still begin with the bare group name. */}}
           enum:
             - "none — portal access only, no cluster permissions"
-            - "devs — may list namespaces and read CRDs"
-            - "admins — FULL cluster administrator"
+            - "devs — can CREATE compositions in demo-system; reads namespaces, CRDs and widgets"
+            - "admins — FULL cluster administrator (ClusterRole/cluster-admin)"
     actions:
       rest:
         - id: submit
