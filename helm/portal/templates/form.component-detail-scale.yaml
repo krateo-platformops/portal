@@ -1,0 +1,67 @@
+{{/* B6 — scale a control-plane Deployment from the UI. */}}
+{{/* */}}
+{{/* Scaling was agent-only: k8s-agent held k8s_scale, the portal had no control, and the */}}
+{{/* UI-parity decision removed that tool. This gives it back to a person. */}}
+{{/* */}}
+{{/* A Form rather than +/- buttons on purpose. Scaling to zero and scaling to twelve are the */}}
+{{/* same gesture with very different consequences, and a typed value that passes through the */}}
+{{/* review step and the blast-radius dialog is reviewable in a way an increment is not. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: component-detail-scale
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: component-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    layout: inline
+    submitActionId: scale
+    schema: {}
+    buttonConfig:
+      primary:
+        label: Scale
+    actions:
+      rest:
+        - id: scale
+          type: rest
+          resourceRefId: scale-deployment
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          requireConfirmation: true
+          successMessage: Replica count updated
+          payloadToOverride:
+            {{/* The Form submits {replicas: N}; the apiserver wants it under spec. Sent as a
+                 merge patch so nothing else in the spec is touched. */}}
+            - name: spec
+              value: '${ { replicas: (.json.replicas | tonumber) } }'
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: schema
+      {{/* maximum is a guard rail, not a policy: a fat-fingered 500 on a control-plane component
+           is a cluster event, and nothing in this page needs to express it. */}}
+      expression: >
+        ${ { type: "object",
+             required: ["replicas"],
+             properties: {
+               replicas: { type: "integer", title: "Replicas", minimum: 0, maximum: 20,
+                           description: "0 stops the component. The rollout is immediate." } } } }
+    - forPath: initialValues
+      {{/* Seeded with what it is NOW, so the form opens showing the truth rather than a blank
+           box the user has to fill from memory. */}}
+      expression: '${ { replicas: (.dep.replicas // 0) } }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: scale-deployment
+        apiVersion: apps/v1
+        resource: deployments
+        name: '${ .name }'
+        namespace: {{ .Release.Namespace }}
+        verb: PATCH
