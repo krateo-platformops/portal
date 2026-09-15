@@ -20,9 +20,19 @@ spec:
     - valueKey: increase
       title: Increase
     dataSource: []
+  {{/* Audit fix: this emitted PLAIN OBJECTS ({reason, increase}) but the Table CRD's */}}
+  {{/* dataSource is an array of ROWS, each row an array of CELL objects — the shape every */}}
+  {{/* other table in this chart uses (see table.access-preview). snowplow rejected it with */}}
+  {{/* "dataSource[0] in body must be of type array" and the card rendered as a red "Error */}}
+  {{/* while rendering widget" result. It failed whenever the RA returned a row, which it */}}
+  {{/* does — so the panel was an error card exactly when it had something to show. */}}
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | { reason: (.reason|tostring), increase: (.increase|tostring) } ] }'
+    expression: >
+      ${ [ (.rows // [])[] | [
+           {valueKey:"reason",kind:"jsonSchemaType",type:"string",stringValue:(.reason // "" | tostring)},
+           {valueKey:"increase",kind:"jsonSchemaType",type:"string",stringValue:(.increase // 0 | tostring)}
+         ] ] }
   apiRef:
     name: sp-fallthrough-reasons
     namespace: {{ .Release.Namespace }}

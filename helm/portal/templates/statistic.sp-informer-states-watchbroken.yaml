@@ -15,11 +15,19 @@ spec:
   widgetData:
     title: Watches broken
     value: 0
+    valueStyle:
+      color: var(--gray-color)
   widgetDataTemplate:
   - forPath: value
     expression: '${ ([ (.rows // [])[] | select(.state=="watch_broken") | (.latest|tonumber) ] | first // 0) }'
-  - forPath: color
-    expression: '${ if ((([ (.rows // [])[] | select(.state=="watch_broken") | (.latest|tonumber) ] | first // 0)) > 0) then "red" else "gray" end }'
+  {{/* Audit fix: this template wrote forPath `color`, which the Statistic CRD forbids — its */}}
+  {{/* only colour slot is `valueStyle.color` — so snowplow rejected the widget on EVERY */}}
+  {{/* request with "\".color in body is a forbidden property\"" and the card rendered as a red */}}
+  {{/* "Error while rendering widget" result. Data-independent: it never worked. */}}
+  {{/* The value is a theme var rather than a bare CSS name, matching every other Statistic in */}}
+  {{/* this chart (stat-failed, obs-perf-*), so it follows light/dark like its siblings. */}}
+  - forPath: valueStyle.color
+    expression: '${ if ((([ (.rows // [])[] | select(.state=="watch_broken") | (.latest|tonumber) ] | first // 0)) > 0) then "var(--error-color)" else "var(--gray-color)" end }'
   resourcesRefs:
     items: []
 {{- end }}
