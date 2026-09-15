@@ -2,12 +2,15 @@ apiVersion: v2
 name: builder-publish
 description: >-
   Krateo composition for Autopilot builder publishing (page / blueprint / controller). A
-  BuilderPublish claim commits the builder's held files verbatim to a builder/<slug> branch on
-  ANY SCM, via git-provider LocalResources — no PR/MR is created (the UI opens one via a
-  host-aware deep link). It also CREATES the destination repository, so a brand-new blueprint no
-  longer needs one made by hand. Requires git-provider (git.krateo.io) >= appVersion 0.10.0, the
-  release that ships the LocalResource CRD (chart git-provider >= 0.14.0 in krateo-platformops);
-  and, unless repository.create=false, github-provider-kog, which owns github.krateo.io/Repository.
+  BuilderPublish claim CREATES the destination repository, optionally SEEDS it from a source
+  repository (a git-provider Repo, for scaffolding a new repo from a template), commits the
+  builder's held files verbatim to a builder/<slug> branch on ANY SCM via git-provider
+  LocalResources, and OPENS the change request — the whole publish as one declarative act, each
+  step gated on live evidence that the one before it landed. Requires git-provider (git.krateo.io)
+  >= appVersion 0.10.0, the release that ships the LocalResource and Repo CRDs (chart git-provider
+  >= 0.14.0 in krateo-platformops); and, unless repository.create and pullRequest.create are both
+  false, github-provider-kog, which owns github.krateo.io/Repository (any version) and
+  github.krateo.io/PullRequest (>= 0.3.0).
 type: application
 version: CHART_VERSION
 appVersion: CHART_VERSION

@@ -1,0 +1,138 @@
+{{/*
+  builder-publish — SEED THE DESTINATION FROM A SOURCE REPOSITORY (optional).
+
+  The chain this chart renders is: Repository (create it) -> Repo (seed it from a template) ->
+  LocalResource per file (add the authored bytes on the builder branch) -> PullRequest (open the
+  change request). This template is the second step, and it renders ONLY when `.Values.source.url`
+  is set. Without a source the chart behaves exactly as it did before: an auto-init'd repository
+  with a README, and the held files committed onto a branch cut from it.
+
+  WHY A DIFFERENT KIND. `LocalResource` carries file bytes the portal holds (`fromResource.
+  fromString`); it has no notion of a source repository. Copying one repo into another is the
+  sibling kind `Repo` (`git.krateo.io`), whose `fromRepo`/`toRepo` pair is exactly this operation —
+  and which additionally renders `{{ "{{ .key }}" }}` placeholders through `configMapKeyRef` and
+  honours a `.krateoignore`. Same provider, same credentials, same SCM-blindness.
+
+  WHICH BRANCH IT SEEDS. `source.intoBranch`, defaulting to `target.base`. Seeding the BASE is what
+  makes the pull request readable: the template lands on main, the builder branch is cut from it,
+  and the PR diff is the authored blueprint alone rather than the template plus the blueprint. Point
+  `intoBranch` at the builder branch instead if you want the scaffold to be part of the review.
+
+  ADDITIVE, ONE-SHOT. `override: false` leaves anything already in the destination alone — notably
+  the auto-init README — and `enableUpdate: false` means a later commit in the source does not
+  rewrite the destination. A publish is a single act, not a subscription.
+
+  READINESS GATE. Same shape and same reasoning as localresources.yaml: when this chart also
+  creates the destination repository, the copy must not start before that repository exists and has
+  a default branch. There is no ordering primitive on `Repo` either, so the gate is Helm `lookup`
+  over live cluster state plus the fact that composition-dynamic-controller re-renders on every
+  reconcile. With `repository.create=false` the gate is skipped — the operator has asserted the
+  destination is pre-provisioned.
+*/}}
+{{- $src := .Values.source | default dict -}}
+{{- if $src.url }}
+{{- $t := .Values.target -}}
+{{- $git := .Values.git | default dict -}}
+{{- $cred := .Values.credentials | default dict -}}
+{{- $ns := .Release.Namespace -}}
+{{- $authMethod := $cred.authMethod | default "basic" -}}
+{{/* Same fail-loudly guard as localresources.yaml: an empty username is accepted by git-provider
+     and rejected by the git server at push time, hours later, on a stuck CR. */}}
+{{- if and (eq $authMethod "basic") (not $cred.usernameRef) (not $cred.username) -}}
+{{- fail "builder-publish: credentials.authMethod is 'basic' but neither credentials.username nor credentials.usernameRef is set — the source copy would fail with an empty username" -}}
+{{- end -}}
+{{/*
+  AUTH VOCABULARY — THE TWO KINDS DO NOT AGREE, AND ONLY ONE OF THEM ENFORCES IT.
+
+  `Repo` constrains authMethod to an enum: generic | bearer | cookiefile, default generic, where
+  `generic` is the secretRef + usernameRef pair this chart calls `basic`. `LocalResource` declares
+  NO enum on the same field, so the literal "basic" the install-level credentials carry is accepted
+  there purely because nothing validates it.
+
+  So the value that works for the file commits is REJECTED OUTRIGHT by the Repo CRD:
+    spec.fromRepo.authMethod: Unsupported value: "basic": supported values: "generic","bearer","cookiefile"
+
+  Translate rather than propagate. `basic` becomes `generic` for this kind only; bearer and
+  cookiefile mean the same thing on both and pass through. The install keeps one credentials block
+  and does not have to know which kind reads it — which is the whole point of the block.
+*/}}
+{{- $repoAuth := $authMethod -}}
+{{- if eq $repoAuth "basic" -}}{{- $repoAuth = "generic" -}}{{- end -}}
+{{- $gate := true -}}
+{{- if .Values.repository.create -}}
+{{- $gate = false -}}
+{{- $rname := printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-" -}}
+{{- $r := lookup "github.krateo.io/v2022-11-28" "Repository" $ns $rname -}}
+{{- if $r -}}{{- if dig "status" "default_branch" "" $r -}}{{- $gate = true -}}{{- end -}}{{- end -}}
+{{- end -}}
+{{- if $gate -}}
+{{- $into := $src.intoBranch | default $t.base | default "main" -}}
+{{- $url := printf "%s://%s/%s/%s.git" ($git.scheme | default "https") $git.host $t.namespace $t.repo -}}
+{{- $secretNs := $cred.secretRef.namespace | default $ns -}}
+{{- $secretKey := $cred.secretRef.key | default "token" -}}
+---
+apiVersion: git.krateo.io/v1alpha1
+kind: Repo
+metadata:
+  name: {{ printf "%s-source" .Values.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    krateo.io/builder: {{ .Values.builder }}
+    krateo.io/publish: {{ .Values.name }}
+spec:
+  fromRepo:
+    url: {{ $src.url | quote }}
+    branch: {{ $src.branch | default "main" | quote }}
+    {{- with $src.path }}
+    path: {{ . | quote }}            # subdirectory of the source to copy; whole repo if unset
+    {{- end }}
+    {{- with $src.krateoIgnorePath }}
+    krateoIgnorePath: {{ . | quote }}
+    {{- end }}
+    {{/* The source is read with the SAME install credentials as the destination. A public
+         template still needs a secretRef — the field is required by the CRD — and the token is
+         simply unused for an anonymous clone. */}}
+    authMethod: {{ $repoAuth | quote }}
+    secretRef:
+      name: {{ $cred.secretRef.name | quote }}
+      namespace: {{ $secretNs | quote }}
+      key: {{ $secretKey | quote }}
+    {{- if $cred.usernameRef }}
+    usernameRef:
+      name: {{ $cred.usernameRef.name | quote }}
+      namespace: {{ $cred.usernameRef.namespace | default $ns | quote }}
+      key: {{ $cred.usernameRef.key | default "username" | quote }}
+    {{- else if eq $repoAuth "generic" }}
+    usernameRef:
+      name: {{ printf "%s-git-username" .Values.name | trunc 63 | trimSuffix "-" | quote }}
+      namespace: {{ $ns | quote }}
+      key: "username"
+    {{- end }}
+  toRepo:
+    url: {{ $url | quote }}
+    branch: {{ $into | quote }}
+    {{- if ne $into ($t.base | default "main") }}
+    {{/* Seeding a branch that is not the base: cut it from the base rather than orphaning it. */}}
+    cloneFromBranch: {{ $t.base | default "main" | quote }}
+    {{- end }}
+    authMethod: {{ $repoAuth | quote }}
+    secretRef:
+      name: {{ $cred.secretRef.name | quote }}
+      namespace: {{ $secretNs | quote }}
+      key: {{ $secretKey | quote }}
+    {{- if $cred.usernameRef }}
+    usernameRef:
+      name: {{ $cred.usernameRef.name | quote }}
+      namespace: {{ $cred.usernameRef.namespace | default $ns | quote }}
+      key: {{ $cred.usernameRef.key | default "username" | quote }}
+    {{- else if eq $repoAuth "generic" }}
+    usernameRef:
+      name: {{ printf "%s-git-username" .Values.name | trunc 63 | trimSuffix "-" | quote }}
+      namespace: {{ $ns | quote }}
+      key: "username"
+    {{- end }}
+  override: false        # additive — never clobbers what is already in the destination
+  enableUpdate: false    # one-shot: a later commit in the source does not rewrite the destination
+  insecure: {{ $git.insecure | default false }}
+{{- end }}
+{{- end }}

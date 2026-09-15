@@ -12,6 +12,18 @@ files:                 # [{ path, content }] — each becomes one LocalResource
     content: |
       # placeholder — overridden by the BuilderPublish claim
 
+# OPTIONAL SOURCE REPOSITORY — when `url` is set the destination is SEEDED from it (a git-provider
+# Repo, fromRepo -> toRepo) before the held files are committed. Use it to scaffold a brand-new
+# repository from a template. Leave `url` empty and the chart behaves exactly as it did before: an
+# auto-init'd repo with a README, and the held files on a branch cut from it.
+source:
+  url: ""              # e.g. https://github.com/krateo-blueprints/blueprint-template.git
+  branch: main         # branch in the SOURCE to copy from
+  path: ""             # subdirectory of the source; whole repository if empty
+  intoBranch: ""       # branch in the DESTINATION to seed; defaults to target.base — seeding the
+                       # base is what keeps the pull request diff to the authored files alone
+  krateoIgnorePath: "" # path to a .krateoignore in the source; provider default if empty
+
 # INSTALL-LEVEL — the real per-install defaults (set once; override via the CompositionDefinition or
 # the installer). The claim never carries these, so a git token never rides in a per-publish CR.
 git:
@@ -35,6 +47,14 @@ repository:
   # commits have nothing to clone from and the whole publish fails.
   autoInit: true
   description: "Created by Krateo"
+# THE CHANGE REQUEST — opened by the composition once every file is committed, instead of being
+# left to a human clicking the portal's deep link. Requires github-provider-kog >= 0.3.0, the
+# release that restores the PullRequest kind natively; set create=false on older installs.
+pullRequest:
+  create: true
+  title: ""            # defaults to "feat(<builder>): <name>"
+  body: ""             # defaults to a line naming the builder, the file count and the claim
+
 credentials:
   # basic (token as password, username alongside) | bearer | cookiefile.
   #

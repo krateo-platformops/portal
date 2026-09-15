@@ -1,0 +1,121 @@
+{{/*
+  builder-publish — OPEN THE CHANGE REQUEST.
+
+  The last step of the chain: Repository -> Repo (optional source seed) -> LocalResource per file ->
+  PullRequest. Before this template existed the chart stopped at the pushed branch and the portal
+  opened the PR through a host-aware deep link a human had to click ("Option A"). That link is still
+  correct and still rendered by the frontend; what changes here is that the PR can now be part of
+  the same declarative act as the commits, so a publish is complete when the composition is.
+
+  REQUIRES github-provider-kog >= 0.3.0 — the release that restores the PullRequest kind natively.
+  Older installs have no github.krateo.io/PullRequest CRD; set pullRequest.create=false there and
+  keep using the deep link.
+
+  SCM DISPATCH, AND WHY THIS ONE IS NOT SCM-BLIND. The commits are scm-blind because git-provider
+  speaks plain git. A change request is not git — it is a REST API per forge — so it needs a
+  per-SCM kind, exactly like repository.yaml. Only github is implemented, and an unsupported value
+  FAILS THE RENDER rather than skipping: a publish that silently never opens its PR is the failure
+  this template exists to remove.
+
+  READINESS GATE. The PR cannot be opened before the head branch has commits — GitHub answers 422
+  ("No commits between main and builder/x") and, worse, the CR would then sit in that error while
+  the branch fills up behind it. So the gate is every LocalResource this publish renders reporting a
+  `status.targetCommitId`. Same mechanism as the other two gates in this chart: Helm `lookup` over
+  live cluster state, re-evaluated because composition-dynamic-controller re-renders on every
+  reconcile. `targetCommitId` is used rather than the Ready condition because it is the direct
+  evidence of the thing the PR needs — a commit on the branch.
+
+  IDEMPOTENT BY CONSTRUCTION. PullRequest is level-based like Repository: Observe reads
+  status.number and only creates when the PR is absent. Re-rendering does not open a second PR.
+*/}}
+{{- $pr := .Values.pullRequest | default dict -}}
+{{- if $pr.create }}
+{{- $t := .Values.target -}}
+{{- $git := .Values.git | default dict -}}
+{{- $scm := $git.scm | default "github" -}}
+{{- if ne $scm "github" -}}
+{{- fail (printf "builder-publish: git.scm=%q has no change-request provider. Only \"github\" is implemented (github.krateo.io/PullRequest, from github-provider-kog >= 0.3.0). Either install a provider for %q and add its kind here, or set pullRequest.create=false and open the change request from the portal's deep link." $scm $scm) -}}
+{{- end -}}
+{{- $base := $t.base | default "main" -}}
+{{- if eq .Values.branch $base -}}
+{{- fail (printf "builder-publish: branch and target.base are both %q — a pull request needs two different branches. Give the publish its own branch (e.g. builder/%s), or set pullRequest.create=false." $base .Values.name) -}}
+{{- end -}}
+{{- $cred := .Values.credentials -}}
+{{- $ns := .Release.Namespace -}}
+{{/*
+  CRD-PRESENCE GUARD — and why THIS case may degrade while the SCM case may not.
+
+  `pullRequest.create` defaults true, but github.krateo.io/PullRequest only exists from
+  github-provider-kog 0.3.0. On an install still on 0.2.x the CR would reference a kind the API
+  server does not serve, and the composition fails its render with "no matches for kind
+  PullRequest" — taking the file commits down with it. A publish that used to work would stop
+  working on a chart upgrade alone.
+
+  Skipping is safe here in a way it is NOT in repository.yaml or in the SCM dispatch above. Those
+  skip into a broken state: no repository means the clone fails, and an SCM with no provider means
+  the publish silently never opens its change request with nothing else to fall back on. Skipping
+  THIS renders the exact behaviour the chart had before the template existed — the branch is
+  pushed, and the portal's host-aware deep link opens the PR with one human click. A working older
+  path, not a broken newer one.
+
+  When the provider is upgraded the gate opens by itself on the next reconcile, because
+  composition-dynamic-controller re-renders every time. Nothing needs re-publishing.
+*/}}
+{{- if not (lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "pullrequests.github.krateo.io") -}}
+{{- $gate := false -}}
+{{- else -}}
+{{/* Gate: every file must already be committed on the head branch. */}}
+{{- $gate := true -}}
+{{- range $i, $f := .Values.files -}}
+{{- $lrName := printf "%s-%03d" $.Values.name (int $i) | trunc 63 | trimSuffix "-" -}}
+{{- $lr := lookup "git.krateo.io/v1alpha1" "LocalResource" $ns $lrName -}}
+{{- if not (and $lr (dig "status" "targetCommitId" "" $lr)) -}}{{- $gate = false -}}{{- end -}}
+{{- end -}}
+{{- if $gate -}}
+{{- $name := printf "%s-pr" .Values.name | trunc 63 | trimSuffix "-" -}}
+{{- $title := $pr.title | default (printf "feat(%s): %s" .Values.builder .Values.name) -}}
+---
+# The auth kind oasgen-provider generates per resource kind, from the SAME secret git-provider uses
+# for the commits — one token drives the whole chain and no extra operator wiring is needed.
+apiVersion: github.krateo.io/v1alpha1
+kind: PullRequestConfiguration
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    krateo.io/builder: {{ .Values.builder }}
+    krateo.io/publish: {{ .Values.name }}
+spec:
+  authentication:
+    bearer:
+      tokenRef:
+        name: {{ $cred.secretRef.name | quote }}
+        namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
+        key: {{ $cred.secretRef.key | default "token" | quote }}
+---
+# v2022-11-28, not v1alpha1 — oasgen-provider derives a RESOURCE kind's CRD version from its
+# OpenAPI document's info.version, which for GitHub is the dated API version. The Configuration
+# kind above is different: oasgen fixes those at v1alpha1. Same rule as repository.yaml, and the
+# same failure mode if it drifts: a wrong version does not error, the CR simply never applies.
+apiVersion: github.krateo.io/v2022-11-28
+kind: PullRequest
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    krateo.io/builder: {{ .Values.builder }}
+    krateo.io/publish: {{ .Values.name }}
+spec:
+  configurationRef:
+    name: {{ $name }}
+  owner: {{ $t.namespace | quote }}    # same org the LocalResource URL is built from
+  repo: {{ $t.repo | quote }}
+  # Same-repo PR, so `head` is the bare branch name. (The kind also accepts the "owner:branch" form
+  # for a fork; its responseTransform normalizes GitHub's reply to whichever form the spec uses.)
+  head: {{ .Values.branch | quote }}
+  base: {{ $base | quote }}
+  title: {{ $title | quote }}
+  body: {{ $pr.body | default (printf "Authored in the Krateo portal (%s builder) and published as %d file(s) by the `%s` BuilderPublish claim." .Values.builder (len .Values.files) .Values.name) | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

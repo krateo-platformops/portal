@@ -41,6 +41,23 @@
 {{- $r := lookup "github.krateo.io/v2022-11-28" "Repository" .Release.Namespace $rname -}}
 {{- if $r -}}{{- if dig "status" "default_branch" "" $r -}}{{- $gate = true -}}{{- end -}}{{- end -}}
 {{- end -}}
+{{/*
+  SECOND GATE — the optional source seed (templates/repo.yaml). When the destination is being
+  populated from a template repository, the held files must not be committed until that copy has
+  landed. Both write to the same repository, and the builder branch is cut from the base the seed
+  is still filling: publish first and the branch is cut from a base without the template, so the
+  pull request diff carries the whole scaffold instead of the authored blueprint alone.
+
+  Same mechanism as the gate above — `lookup` on live state, re-evaluated every reconcile — keyed
+  on the Repo's own `status.targetCommitId`, which is the direct evidence that the copy committed.
+  No source configured: nothing to wait for, and this gate is skipped entirely.
+*/}}
+{{- $src := .Values.source | default dict -}}
+{{- if $src.url -}}
+{{- $sname := printf "%s-source" .Values.name | trunc 63 | trimSuffix "-" -}}
+{{- $sr := lookup "git.krateo.io/v1alpha1" "Repo" .Release.Namespace $sname -}}
+{{- if not (and $sr (dig "status" "targetCommitId" "" $sr)) -}}{{- $gate = false -}}{{- end -}}
+{{- end -}}
 {{- if $gate -}}
 {{- $git := .Values.git | default dict -}}
 {{- $cred := .Values.credentials | default dict -}}
