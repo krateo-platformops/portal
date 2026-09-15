@@ -1,0 +1,59 @@
+{{/* CHART-K2 — the KOG authoring flow, on the page rather than only in the rail. */}}
+{{/* */}}
+{{/* Two cards, in order: store the document, then define the controller from it. They are widgets, */}}
+{{/* not frontend code, so the authoring knowledge ships in the chart and changes without an image. */}}
+{{/* Autopilot reaches them the same way a person does — by driving the controls (A1) — rather than */}}
+{{/* writing a RestDefinition itself. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: kog-author-paste
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: 1 · Store an OpenAPI document
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - forms
+    items:
+    - resourceRefId: kog-oas-paste
+  resourcesRefs:
+    items:
+    - id: kog-oas-paste
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: kog-oas-paste
+      namespace: {{ .Release.Namespace }}
+      resource: forms
+      verb: GET
+---
+{{/* Step 2 reads ?oas=<configmap name>, written by step 1's onSuccessNavigateTo. With no document */}}
+{{/* selected the RESTAction returns available:false and the operation enums are empty — the form */}}
+{{/* renders, but with nothing to pick, which is the honest state rather than a hidden card. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: kog-author-define
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [oas]
+  widgetData:
+    title: 2 · Define the controller
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - forms
+    items:
+    - resourceRefId: kog-restdef
+  resourcesRefs:
+    items:
+    - id: kog-restdef
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: kog-restdef
+      namespace: {{ .Release.Namespace }}
+      resource: forms
+      verb: GET

@@ -1,0 +1,59 @@
+{{/* KOG builder, step 2 of 3 — read an OpenAPI document the USER has already put in a ConfigMap and */}}
+{{/* walk `.paths` into a verb list. */}}
+{{/* */}}
+{{/* WHY A CONFIGMAP AND NOT A URL. A RESTAction api-step has exactly two possible hosts: the */}}
+{{/* apiserver (endpointRef nil) or an Endpoint Secret an operator registered. A URL a user typed */}}
+{{/* into a form is neither, and making the server dereference one would be an SSRF primitive. So */}}
+{{/* the bytes arrive the same way they reach Autopilot today — the USER supplies them (step 1 POSTs */}}
+{{/* the ConfigMap under their own RBAC) and the server only ever reads its own apiserver. */}}
+{{/* */}}
+{{/* `fromjson` on a document with nested numbers used to PANIC snowplow (plumbing jqutil had no */}}
+{{/* case json.Number → socket closed, browser "Failed to fetch"). Fixed in snowplow 1.11.1; */}}
+{{/* verified live on 1.12.5 against an OAS carrying `maximum: 32767`, the original offender. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: kog-oas-operations
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6: the ConfigMap name partitions this widget's cache cell. */}}
+  api:
+    - name: cm
+      path: ${ "/api/v1/namespaces/" + (.ns // "{{ .Release.Namespace }}") + "/configmaps/" + (.oas // "") }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: cmError
+    {{/* The BuilderPublish CRD is CDC-generated and its served version TRACKS THE PORTAL CHART
+         (today composition.krateo.io/v1-8-20 — literally chart 1.8.20). Hardcoding it would break
+         on the next portal release, so it is discovered here from the CompositionDefinition's own
+         status, which is how the frontend resolves it too (builderPublishGvr.ts). */}}
+    - name: bp
+      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/compositiondefinitions/builder-publish
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: bpError
+  filter: >
+    (.cm.data."openapi.json" // "") as $raw
+    | (if $raw == "" then null else (try ($raw | fromjson) catch null) end) as $oas
+    | { bpApiVersion: (.bp.status.apiVersion // ""),
+        bpResource:   (.bp.status.resource // "builderpublishes"),
+        available: ($oas != null),
+        parseFailed: ($raw != "" and $oas == null),
+        title: ($oas.info.title // "—"),
+        apiVersion: ($oas.info.version // "—"),
+        servers: [ ($oas.servers // [])[] | .url ],
+        operations: [ ($oas.paths // {}) | to_entries[] as $p
+                      | $p.value | to_entries[]
+                      | select(.key | test("^(get|post|put|patch|delete)$"))
+                      | { id: ((.key | ascii_upcase) + " " + $p.key),
+                          path: $p.key,
+                          method: (.key | ascii_upcase),
+                          action: (.value.operationId // .key),
+                          summary: (.value.summary // .value.description // "") } ]
+          | sort_by(.path, .method) }
