@@ -172,6 +172,29 @@ spec:
       {{/* DISCOVERS namespaced vs cluster-scoped from the apiserver, so the {namespace} segment is */}}
       {{/* a filler for cluster-scoped kinds (pass "cluster"). group "core" → the core API group. */}}
       - { order: 960, path: "/resources/{namespace}/{group}/{version}/{plural}/{name}", page: resource-detail }
+      {{/* ── S6 acceptance probe ──────────────────────────────────────────────────────── */}}
+      {{/* A route-only entry (no label, so it never renders in the sidebar) that exists ONLY so the */}}
+      {{/* snowplow live-refresh acceptance harness has somewhere to render a widget it can arm. */}}
+      {{/* */}}
+      {{/* WHY IT HAS TO BE HERE AT ALL. A page root Flex alone does not serve a route: routes are */}}
+      {{/* built from nav items carrying a `path`, and the catch-all renders nothing when the path is */}}
+      {{/* not in the nav-derived table. And the SPA only arms a widget it actually RENDERS, with all */}}
+      {{/* of apiVersion+resource+name present (refreshSse.ts buildRefreshCoords). So without a route */}}
+      {{/* the harness can create a widget, delete it, observe nothing, and report a clean pass — */}}
+      {{/* proving only that it never armed. */}}
+      {{/* */}}
+      {{/* WHY IT IS PERMANENT AND THE PAGE IS NOT. `page:` resolves flexes/page-<slug> at NAVIGATION */}}
+      {{/* time, not from resourcesRefs, so this single static entry serves a page CR that does not */}}
+      {{/* exist yet. The harness creates page-s6-probe + one child widget per run and deletes both; */}}
+      {{/* nothing here is touched. The alternative — writing a nav item per run — would mutate this */}}
+      {{/* shared object on every run, leave it edited after a crash, and collide between runs. */}}
+      {{/* */}}
+      {{/* WHY IT IS GATED. sidebar-nav ships to every install. A permanent unexplained route in every */}}
+      {{/* customer's portal to serve a test on one bench cluster is not a trade worth making, so this */}}
+      {{/* follows the observability.snowplowSli precedent: present only where it is switched on. */}}
+      {{- if (.Values.acceptance | default dict).s6Probe }}
+      - { order: 970, path: /s6-probe, page: s6-probe }
+      {{- end }}
       {{/* (The /kog-builder route is now the visible "API Builder" nav entry above, order 23. */}}
       {{/* Autopilot still deep-links here after a gated publish / from the empty-state ?ask= CTA.) */}}
       {{/* Builder-published pages (#106) — each Autopilot-authored page drops a nav fragment at */}}
