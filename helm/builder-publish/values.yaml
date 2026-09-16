@@ -62,6 +62,16 @@ repository:
 # left to a human clicking the portal's deep link. Requires github-provider-kog >= 0.3.0, the
 # release that restores the PullRequest kind natively; set create=false on older installs.
 pullRequest:
+  # The auth kind the PullRequest authenticates with. INSTALL-LEVEL and referenced, never rendered
+  # here — identical reasoning to repository.configurationRef: it carries only a tokenRef to the
+  # install's git secret, every publish minted a byte-identical copy, and a copy inside a publish's
+  # own release dies with that publish (core-provider#108).
+  #
+  # Same NAME as the repository configuration, deliberately: they are different KINDS, so one name
+  # can serve both and there is one thing to provision rather than two to keep in step.
+  configurationRef:
+    name: github-blueprints-config
+    namespace: ""
   create: true
   title: ""            # defaults to "feat(<builder>): <name>"
   body: ""             # defaults to a line naming the builder, the file count and the claim
