@@ -113,3 +113,16 @@ agents:
 # different questions: that one is a dashboard an operator may want, this one is test scaffolding.
 acceptance:
   s6Probe: false
+
+# --- KOG (Controller Builder) publish target -------------------------------
+# ONE declaration of the repo the KOG builder opens PRs against. It is consumed twice — the
+# create-form's __target_org__/__target_repo__ seeds, and restaction.kog-deliverables' filter, which
+# discriminates KOG PRs from blueprint PRs by repo name — and those two MUST agree or the builder
+# publishes into a repo whose deliverables never appear.
+#
+# Keep it in step with the frontend chart's config.AUTOPILOT_KOG_BUILDER_REPO, which is what the
+# frontend actually targets. The three drifted once already: krateo-oas was renamed to oas, the
+# frontend kept the old name, GitHub answered the API call with a 301, and github-provider-kog died
+# on "unexpected status: 307" — fine in a browser, fatal to a machine client.
+kogBuilder:
+  repo: krateo-platformops/oas

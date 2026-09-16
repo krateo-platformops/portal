@@ -9,9 +9,17 @@
 {{/* branch; the PR number + html_url ride along so the table can surface the opened PR ("#N"). */}}
 {{/* */}}
 {{/* NOTE — PR TARGET CONVENTION (issue #30): the frontend KOG builder's PR-based publish */}}
-{{/* (kogPublish.ts, frontend >= 1.3.77) opens PRs against repo `krateo-oas` on a `builder/<kind>` */}}
-{{/* head branch (same branch convention the blueprint builder uses; the REPO is the discriminator). */}}
-{{/* So this RA filters on `spec.repo == "krateo-oas"` (NOT a branch prefix — both builders use */}}
+{{/* (kogPublish.ts) opens PRs against the KOG repo on a `builder/<kind>` head branch (same branch */}}
+{{/* convention the blueprint builder uses; the REPO is the discriminator). */}}
+{{/* */}}
+{{/* THE REPO NAME IS A VALUE, NOT A LITERAL, and that is load-bearing. It was written out here AND */}}
+{{/* in form.kog-restdef.yaml AND in the frontend chart's AUTOPILOT_KOG_BUILDER_REPO — three copies */}}
+{{/* of one fact. When krateo-oas was renamed to oas, the frontend kept targeting the old name, */}}
+{{/* GitHub 301'd the API call, and github-provider-kog died on the redirect with */}}
+{{/* "update failed: unexpected status: 307" — a rename that is invisible in a browser and fatal to */}}
+{{/* a machine client. publish-pet has been wedged on exactly that since 2026-09-10. Deriving the */}}
+{{/* discriminator from `kogBuilder.repo` means this filter and the publish target cannot disagree. */}}
+{{/* So this RA filters on `spec.repo == <kogBuilder.repo basename>` (NOT a branch prefix — both builders use */}}
 {{/* `builder/`), and derives the RestDefinition name from the `builder/<kind>` branch. A blueprint */}}
 {{/* PR (repo krateo-blueprints) can never leak in. Until a KOG PR is opened this RA returns zero */}}
 {{/* rows and the page still shows the live restdef table. */}}
@@ -24,7 +32,7 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    {{/* KOG builder pull requests: repo `krateo-oas` (the discriminator — the frontend targets it), */}}
+    {{/* KOG builder pull requests: repo = kogBuilder.repo (the discriminator — the frontend targets it), */}}
     {{/* head branch `builder/<kind>`. status.state (open/closed) + merged + number + html_url are */}}
     {{/* written by the KOG github-provider after the PR lands; a just-created PR has none, so read */}}
     {{/* defensively. */}}
@@ -107,7 +115,7 @@ spec:
     (.restdefs // []) as $rds
     | (.prs // []) as $prs
     | ([ $prs[]
-         | select(((.publish) // "") == "" and ((.repo) // "") == "krateo-oas")
+         | select(((.publish) // "") == "" and ((.repo) // "") == "{{ (splitList "/" (((.Values.kogBuilder | default dict).repo) | default "krateo-platformops/oas")) | last }}")
          | . as $pr
          | ( [ $rds[] | select(.name == $pr.restdef) ] | first ) as $rd
          | ($rd.ready // "") as $rs
