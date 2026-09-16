@@ -30,15 +30,29 @@ spec:
       subPrimaryTextMono: true
       secondaryText: '{category}'
       secondaryTextAsTag: true
-      {{/* #2: surface the real registration age (creationTimestamp, already carried as `created` */}}
-      {{/* for the sort) as a subtle relative-time chip on the right of the row, next to the */}}
-      {{/* category tag. The List `relative` format reformats the WHOLE slot at render time */}}
-      {{/* (live, not fetch-stale), so the slot must be the bare ISO timestamp — no "registered" */}}
-      {{/* literal prefix (it would break Date parsing and fall through as raw text). Empty when a */}}
-      {{/* blueprint has no creationTimestamp (interpolate → "" → the slot renders nothing). */}}
-      subSecondaryText: '{created}'
-      formats:
-        subSecondaryText: relative
+      {{/* Feedback: the row showed the AGE only ("3 days ago"), and the question a reader */}}
+      {{/* actually has is WHEN the blueprint became available — the age alone cannot answer */}}
+      {{/* "was that before or after the incident?". Both now ride in one slot as */}}
+      {{/* "2026-09-12 · 3d". */}}
+      {{/* */}}
+      {{/* The `relative` FORMAT is gone deliberately, and it is a real trade rather than an */}}
+      {{/* oversight: that format reformats the WHOLE slot at render time (live, not */}}
+      {{/* fetch-stale), so it cannot coexist with any other text in the same slot — a */}}
+      {{/* composed string falls through Date parsing and renders raw. The four row slots are */}}
+      {{/* all taken (name / version / category tag / this one) and `description` renders only */}}
+      {{/* in the CARD variant, not in rows, so there is nowhere else to put the second value. */}}
+      {{/* Composing server-side costs live ticking; on a dashboard that refetches, a day-grain */}}
+      {{/* age does not tick meaningfully anyway. */}}
+      {{/* */}}
+      {{/* The age falls back to HOURS below a day. Flooring elapsed-seconds/86400 renders */}}
+      {{/* anything under 24h as "today", so a blueprint registered 22 hours ago — yesterday, */}}
+      {{/* to the reader — claimed to be today's. */}}
+      {{/* */}}
+      {{/* The date format is %Y-%m-%d and NOT "%d %b %Y" on purpose: strftime's %b is LOCALE */}}
+      {{/* dependent, and this string is built server-side — the same expression rendered */}}
+      {{/* "12 Set 2026" under an Italian locale during testing. An ISO-shaped date cannot */}}
+      {{/* drift with the server's locale and sorts correctly if anyone ever reads the column. */}}
+      subSecondaryText: '{registered}'
       navigateTo: '/blueprints/{namespace}/{name}'
   {{/* D3: sort by creationTimestamp DESC → the genuinely most-recently-registered 5 (honest */}}
   {{/* "Recent blueprints"), not the alphabetical first-5 that blueprints-cards' name-sort gave. */}}
@@ -46,6 +60,6 @@ spec:
   {{/* tag. version (.spec.chart.version) + namespace ride along for the badge + row navigateTo. */}}
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ [ .cards[]? | { name: .metadata.name, namespace: .metadata.namespace, version: (.version // ""), category: (if ((.tags // []) | length) > 0 then (.tags | join(" · ")) else "blueprint" end), created: (.metadata.creationTimestamp // "") } ] | sort_by(.created) | reverse | .[0:5] }'
+      expression: '${ (now) as $now | [ .cards[]? | (.metadata.creationTimestamp // "") as $c | { name: .metadata.name, namespace: .metadata.namespace, version: (.version // ""), category: (if ((.tags // []) | length) > 0 then (.tags | join(" · ")) else "blueprint" end), created: $c, registered: (if $c == "" then "" else (($c | fromdateiso8601) as $t | ($c | fromdateiso8601 | strftime("%Y-%m-%d")) + " · " + (($now - $t) as $age | if $age < 3600 then "<1h" elif $age < 86400 then ((($age / 3600) | floor | tostring) + "h") else ((($age / 86400) | floor | tostring) + "d") end)) end) } ] | sort_by(.created) | reverse | .[0:5] }'
   resourcesRefs:
     items: []
