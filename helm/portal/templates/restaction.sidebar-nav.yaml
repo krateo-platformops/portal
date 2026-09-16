@@ -1,0 +1,65 @@
+{{/*
+  THE SIDEBAR, ASSEMBLED FROM WHAT IS INSTALLED.
+
+  Until now the nav was two static sources, and neither survived a second portal chart: items
+  written out in menu.sidebar-nav.yaml, plus a BUILD-TIME `.Files.Glob` over nav fragments inside
+  THIS chart. A page shipped by another chart could never contribute an entry, which is why
+  portal-agents needs a `.Values.agents.enabled` flag in the BASE chart — a flag a human keeps in
+  step with what is actually installed, and which shows an entry that 404s when they do not.
+
+  This lists page roots and lets each one declare its own entry through `krateo.io/nav-*`
+  annotations. Install a page chart and its entries appear; uninstall it and they are gone. No edit
+  to this chart, no flag.
+
+  ONE STEP PER TIER, NOT A CLUSTER-WIDE LIST. A cluster-scoped list would 403 for any user without
+  cluster-wide read on flexes — the namespace-scoped tenant persona this portal ships is exactly
+  that — and a 403 here means a portal with NO NAVIGATION AT ALL, not a shorter sidebar. Namespaced
+  steps degrade the way the RBAC model intends: a user sees the tiers they can read. `continueOnError`
+  is what makes that degradation partial rather than total.
+
+  The steps carry no endpointRef, so snowplow resolves each against the CALLER's own
+  `<user>-clientconfig` — the list is exactly what this user may read, and the nav adds no
+  authorisation surface of its own.
+*/}}
+{{- $ns := .Release.Namespace -}}
+{{- $tiers := list (include "portal.tierNamespace" (dict "ctx" . "tier" "common"))
+                   (include "portal.tierNamespace" (dict "ctx" . "tier" "tenant"))
+                   (include "portal.tierNamespace" (dict "ctx" . "tier" "admin")) | uniq -}}
+kind: RESTAction
+apiVersion: templates.krateo.io/v1
+metadata:
+  name: sidebar-nav
+  namespace: {{ $ns }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+{{- range $i, $tierNs := $tiers }}
+    - name: tier{{ $i }}
+      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ $tierNs }}/flexes
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      {{/* A tier this user cannot read must cost them the pages in it, not the whole sidebar. */}}
+      continueOnError: true
+      errorKey: tier{{ $i }}Error
+{{- end }}
+  filter: >
+    [ ({{ range $i, $t := $tiers }}{{ if $i }}, {{ end }}(.tier{{ $i }}.items // []){{ end }} )
+      | .[]
+      | (.metadata.annotations // {}) as $a
+      | select($a["krateo.io/nav-path"] != null and $a["krateo.io/nav-path"] != "")
+      | (.metadata.name | sub("^page-"; "")) as $slug
+      | (($a["krateo.io/nav-order"] // "100") | tonumber) as $ord
+      | ( { path: $a["krateo.io/nav-path"], page: $slug, order: $ord }
+          + (if $a["krateo.io/nav-label"] then { label: $a["krateo.io/nav-label"] } else {} end)
+          + (if $a["krateo.io/nav-icon"]  then { icon:  $a["krateo.io/nav-icon"]  } else {} end)
+          + (if $a["krateo.io/nav-group"] then { group: $a["krateo.io/nav-group"] } else {} end) ),
+        ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
+          | { path: ., page: $slug, order: $ord } )
+    ] as $entries
+    | ( [ $entries[] | select(.label != null and .group != null) ]
+        | group_by(.group) | map({ group: .[0].group, min: (map(.order) | min) })
+        | sort_by(.min) | .[1:]
+        | map({ type: "divider", order: (.min - 1) }) ) as $dividers
+    | { items: ( ($entries | map(del(.group)) | unique) + $dividers | sort_by(.order) ) }
