@@ -39,6 +39,17 @@ git:
 # DESTINATION REPOSITORY — created by this composition, so a brand-new blueprint no longer needs a
 # repo someone made by hand first. Requires github-provider-kog (it owns github.krateo.io/Repository).
 repository:
+  # The auth kind the Repository authenticates with. INSTALL-LEVEL and referenced, never rendered
+  # here: it carries nothing per-publish (only a tokenRef to the install's git secret), and when the
+  # chart rendered its own copy per publish, deleting a claim removed the configuration that the
+  # Repository's OWN delete handler resolves — "delete failed: repositoryconfigurations.github.krateo.io
+  # \"...\" not found" — so the finalizer never cleared and the Repository was stranded. Four on
+  # krateo-057 have been stuck that way since 2026-09-10 (core-provider#108).
+  #
+  # Provision it once, alongside github-provider-kog. Leave namespace empty for the release namespace.
+  configurationRef:
+    name: github-blueprints-config
+    namespace: ""
   # false = the destination is pre-provisioned; render only the file commits, exactly as this chart
   # did before. Use it on installs that create repositories out of band.
   create: true

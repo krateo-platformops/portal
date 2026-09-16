@@ -17,6 +17,13 @@
 
   REQUIRES github-provider-kog to be installed (it owns github.krateo.io). That is a deliberate
   install-time dependency: see the chart description.
+
+  THE AUTH KIND IS INSTALL-LEVEL, NOT PER PUBLISH. This chart used to render its own
+  RepositoryConfiguration alongside each Repository. Both then lived in the same per-publish Helm
+  release, so deleting a claim removed the configuration that the Repository's own delete handler
+  resolves -- `delete failed: repositoryconfigurations.github.krateo.io "X" not found` -- and the
+  finalizer never cleared. It carries nothing per-publish: only a tokenRef to the install's secret.
+  So it is referenced, never rendered (core-provider#108).
 */}}
 {{- if .Values.repository.create }}
 {{- $git := .Values.git | default dict -}}
@@ -28,24 +35,20 @@
 {{- $cred := .Values.credentials -}}
 {{- $ns := .Release.Namespace -}}
 {{- $repo := printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-" -}}
----
-# The auth kind oasgen-provider generates per resource kind. Rendered here from the SAME secret
-# git-provider uses, so one token drives both halves and no operator wiring is needed.
-apiVersion: github.krateo.io/v1alpha1
-kind: RepositoryConfiguration
-metadata:
-  name: {{ $repo }}
-  namespace: {{ $ns }}
-  labels:
-    krateo.io/builder: {{ .Values.builder }}
-    krateo.io/publish: {{ .Values.name }}
-spec:
-  authentication:
-    bearer:
-      tokenRef:
-        name: {{ $cred.secretRef.name | quote }}
-        namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
-        key: {{ $cred.secretRef.key | default "token" | quote }}
+{{- $cfgName := .Values.repository.configurationRef.name -}}
+{{- $cfgNs := .Values.repository.configurationRef.namespace | default "" -}}
+{{- if not $cfgName -}}
+{{- fail "builder-publish: repository.configurationRef.name is required — the Repository needs an INSTALL-LEVEL RepositoryConfiguration (default: github-blueprints-config) that outlives any one publish." -}}
+{{- end -}}
+{{/*
+  Fail NOW if the referenced configuration is absent. Without it the Repository is created and then
+  cannot authenticate, which surfaces as a clone failure on the LocalResources much later. A nil
+  lookup is NOT an error — that is equally what `helm template` with no cluster returns.
+*/}}
+{{- $cfg := lookup "github.krateo.io/v1alpha1" "RepositoryConfiguration" (default $ns $cfgNs) $cfgName -}}
+{{- if and (not $cfg) (lookup "v1" "Namespace" "" (default $ns $cfgNs)) -}}
+{{- fail (printf "builder-publish: RepositoryConfiguration %s/%s does not exist. It is install-level and must be provisioned once, outside any publish." (default $ns $cfgNs) $cfgName) -}}
+{{- end -}}
 ---
 # VERSION IS NOT v1alpha1, AND NOT ARBITRARY. oasgen-provider derives a RESOURCE kind's CRD
 # version from its OpenAPI document's `info.version`, which for GitHub is the dated API version
@@ -64,7 +67,10 @@ metadata:
     krateo.io/publish: {{ .Values.name }}
 spec:
   configurationRef:
-    name: {{ $repo }}
+    name: {{ $cfgName | quote }}
+    {{- with $cfgNs }}
+    namespace: {{ . | quote }}
+    {{- end }}
   org: {{ $t.namespace | quote }}      # same field the LocalResource URL is built from
   name: {{ $t.repo | quote }}
   private: {{ .Values.repository.private }}
