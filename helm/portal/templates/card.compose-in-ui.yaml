@@ -1,0 +1,41 @@
+{{/* THE ENTRY POINT TO THE COMPOSER, and the reason it exists as a card rather than a link.
+
+     /portal-builder/compose is a frontend ROUTE, not a widget CR, so nothing in the chart
+     referenced it and nothing in the sidebar reached it: the surface built so a person could
+     author a page was discoverable only by typing the URL. A capability nobody can find is not
+     a capability, and the parity rule (05-agent-parity A1) turns on exactly that distinction.
+
+     A clickable Card, matching card.activity-card: `clickActionId` + `widgetActions.navigate`.
+     A Card REQUIRES `items`, so the copy rides in a Paragraph child rather than the title. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compose-in-ui-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Compose a page in the UI
+    titleVariant: eyebrow
+    variant: outlined
+    icon:
+      name: fa-table-cells-large
+    clickActionId: open-composer
+    widgetActions:
+      navigate:
+        - id: open-composer
+          type: navigate
+          path: /portal-builder/compose
+    allowedResources:
+    - paragraphs
+    items:
+    - resourceRefId: compose-in-ui-body
+  resourcesRefs:
+    items:
+    - id: compose-in-ui-body
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compose-in-ui-body
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
