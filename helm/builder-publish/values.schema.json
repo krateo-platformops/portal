@@ -144,12 +144,6 @@
             }
           }
         },
-        "username": {
-          "type": "string",
-          "minLength": 1,
-          "default": "x-access-token",
-          "description": "Username for basic auth. Not a credential \u2014 GitHub authenticates on the token in the password position and ignores this value; it only has to be non-empty. Rendered into a chart-owned Secret (templates/username-secret.yaml). Ignored when usernameRef is set."
-        },
         "usernameRef": {
           "type": "object",
           "additionalProperties": false,
@@ -167,7 +161,8 @@
               "type": "string",
               "default": "username"
             }
-          }
+          },
+          "description": "INSTALL-LEVEL Secret holding the basic-auth username \u2014 referenced by every publish and owned by none of them. Required when authMethod is 'basic'. Not a credential: GitHub authenticates on the token and ignores this value, which only has to be non-empty. It must NOT be rendered per publish \u2014 a Secret inside a publish's own release is destroyed with that publish and strands the children that need it in order to finalize."
         }
       }
     },

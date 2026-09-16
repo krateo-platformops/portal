@@ -73,9 +73,20 @@ credentials:
     name: git-provider-credentials   # the install's git-token secret (namespace = release ns)
     key: token
   # THE USERNAME IS NOT A SECRET. GitHub authenticates on the token in the password position and
-  # does not use this value — it only has to be present and non-empty. So the chart renders its own
-  # one-key Secret for it (templates/username-secret.yaml) rather than requiring whoever provisions
-  # `git-provider-credentials` to add a key to it. Set `usernameRef` below to override that and
-  # point at an existing secret instead (self-hosted git / gitea, where the username IS meaningful).
-  username: x-access-token
-  # usernameRef: { name: git-provider-credentials, key: username }
+  # does not use this value — it only has to be present and non-empty (conventionally
+  # `x-access-token`). It lives in a Secret at all only because git-provider's `usernameRef` is a
+  # SecretKeySelector with no field for a literal.
+  #
+  # IT MUST OUTLIVE ANY ONE PUBLISH. The chart used to render it per publish
+  # (templates/username-secret.yaml, now deleted), which put it inside each publish's own Helm
+  # release. Deleting a claim then destroyed the Secret that claim's own children still needed IN
+  # ORDER TO FINISH DELETING — a LocalResource must connect before it can finalize, connecting
+  # needs this username, and the finalizer never cleared. Four publishes on krateo-057 were
+  # stranded that way for six days, reconcile-erroring the whole time (core-provider#108).
+  #
+  # So it is install-level now, in the SAME Secret as the token: whoever provisions
+  # `git-provider-credentials` adds a `username` key beside `token`. One Secret, both halves of
+  # basic auth, owned by the install and by no publish.
+  usernameRef:
+    name: git-provider-credentials
+    key: username
