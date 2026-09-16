@@ -27,6 +27,26 @@
   means "files is set" cannot distinguish a caller from the chart's own default. Rather than guess
   at that, the rule is stated: if you send a bundle, the bundle is what publishes.
 
+  NOR IS IT EXPRESSIBLE IN THE SCHEMA, which is where it used to live and what broke this chart.
+  values.schema.json carried `anyOf: [{required:[files]},{required:[filesBundle]}]` — correct JSON
+  Schema, and fatal to CRD generation: core-provider copies `type` and
+  `x-kubernetes-preserve-unknown-fields` into each anyOf branch, and Kubernetes forbids both inside
+  a branch of a STRUCTURAL schema:
+
+    spec.validation.openAPIV3Schema.properties[spec].anyOf[0].type:
+      Forbidden: must be empty to be structural
+
+  The CompositionDefinition therefore sat Ready=False / Synced=False and the served CRD stayed on
+  the PREVIOUS chart version — which has no `filesBundle` at all, so a structural CRD silently
+  PRUNED it off every claim that sent one. The human authoring form submits exactly that field, so
+  its publishes committed nothing and opened empty change requests.
+
+  The either/or is now unenforced by construction, and that is survivable because neither real
+  caller can hit it: the rail always sends `files` (buildClaimPublish), the form always sends
+  `filesBundle`, and `files` carries `minItems: 1` so an explicitly-empty array is already refused.
+  A claim setting NEITHER inherits the placeholder above and opens a one-README change request —
+  visible and harmless, where the alternative was a chart that cannot generate a CRD at all.
+
   Order is deterministic (sortAlpha), so re-publishing the same bundle produces the same
   LocalResource indices instead of reshuffling them into a confusing diff.
 */}}
