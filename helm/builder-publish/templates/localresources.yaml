@@ -117,10 +117,32 @@ spec:
         namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
         key: {{ $cred.secretRef.key | default "token" | quote }}
       {{- if $cred.usernameRef }}
-      usernameRef:            # install keeps the username in its own secret
-        name: {{ $cred.usernameRef.name | quote }}
-        namespace: {{ $cred.usernameRef.namespace | default $ns | quote }}
-        key: {{ $cred.usernameRef.key | default "username" | quote }}
+      {{/* toRepo IS IMMUTABLE. git-provider rejects any update to it —
+             "spec: Invalid value: toRepo is immutable once set" — so whatever this rendered the
+             first time is what this LocalResource keeps for life.
+
+             1.8.28 moved the username out of a per-publish Secret and into the install-level one.
+             For a publish CREATED under <=1.8.27 that is a change to an immutable field, and the
+             upgrade fails permanently: all four publishes on krateo-057 went Ready=False/Synced=False
+             the moment builder-publish reached 1.8.28, and no amount of reconciling can move them.
+
+             So DO NOT RE-RENDER IT. Read back what the live object already has and emit that
+             verbatim; only a LocalResource that does not exist yet gets the install-level ref. A nil
+             lookup means either a new instance or `helm template` with no cluster, and both want the
+             new value. This makes the upgrade a no-op for existing publishes instead of a wedge. */}}
+      {{- $liveRef := "" }}
+      {{- $liveNs := "" }}
+      {{- $liveKey := "" }}
+      {{- $live := lookup "git.krateo.io/v1alpha1" "LocalResource" $ns (printf "%s-%03d" $.Values.name (int $i) | trunc 63 | trimSuffix "-") }}
+      {{- if $live }}
+      {{- $liveRef = dig "spec" "toRepo" "credentials" "usernameRef" "name" "" $live }}
+      {{- $liveNs = dig "spec" "toRepo" "credentials" "usernameRef" "namespace" "" $live }}
+      {{- $liveKey = dig "spec" "toRepo" "credentials" "usernameRef" "key" "" $live }}
+      {{- end }}
+      usernameRef:            # install-level secret, or whatever an existing object already froze
+        name: {{ $liveRef | default $cred.usernameRef.name | quote }}
+        namespace: {{ $liveNs | default ($cred.usernameRef.namespace | default $ns) | quote }}
+        key: {{ $liveKey | default ($cred.usernameRef.key | default "username") | quote }}
             {{- end }}
   override: false        # additive — only this file; leaves the rest of the repo intact
   syncEnabled: false     # one-shot: a publish is a single commit; source is then immutable
