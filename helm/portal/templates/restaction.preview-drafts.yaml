@@ -1,0 +1,40 @@
+{{/* IN-FLIGHT PREVIEWS — the drafts a person has previewed but not yet published. */}}
+{{/* */}}
+{{/* A live preview applies its widget CRs to the preview sandbox and renders them with the real */}}
+{{/* server. Those CRs are NOT scratch: they are unfinished work. Until this existed they were */}}
+{{/* invisible — the only way back to a draft was to ask Autopilot to build it again, and a closed */}}
+{{/* tab lost it silently. Worse, the chart shipped an hourly janitor that DELETED them after a TTL, */}}
+{{/* so a page someone was midway through composing could disappear while they were at lunch. */}}
+{{/* */}}
+{{/* Listing them turns the sandbox from a hidden scratch area into the drafts drawer it always was: */}}
+{{/* the table's rowNavigateTo carries the slug back to the builder, which reopens the live preview */}}
+{{/* on the draft that is already there. */}}
+{{/* */}}
+{{/* SCOPE: page ROOTS only (flexes named page-*). The child widgets of a draft are rows nobody */}}
+{{/* wants to see — the root IS the page identity, the same identity previewPageV2 mounts and the */}}
+{{/* publish gate keys on. continueOnError so an absent/RBAC-denied sandbox yields an empty table */}}
+{{/* rather than an errored page. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: preview-drafts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: drafts
+      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ .Values.previewSandbox.namespace }}/flexes
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: draftsError
+  filter: >
+    { items: [ ((.drafts.items // [])[]
+        | select((.metadata.labels["krateo.io/purpose"] // "") == "preview-draft")
+        | select((.metadata.name // "") | startswith("page-"))
+        | { slug: ((.metadata.name) | sub("^page-"; "")),
+            name: (.metadata.name),
+            created: (.metadata.creationTimestamp // ""),
+            widgets: (((.spec.resourcesRefs.items) // []) | length) }) ] }

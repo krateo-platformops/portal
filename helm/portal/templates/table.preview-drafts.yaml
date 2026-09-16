@@ -1,0 +1,29 @@
+{{/* The in-flight previews table. Row click resumes the draft — see restaction.preview-drafts. */}}
+{{/* Every {placeholder} in rowNavigateTo resolves to a cell on the row (design-lint P10): `slug`. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: Table
+metadata:
+  name: preview-drafts
+  namespace: {{ .Release.Namespace }}
+spec:
+  apiRef:
+    name: preview-drafts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    prefix: IN PROGRESS
+    title: Drafts you have previewed
+    description: Previews are kept, not discarded. Pick one up where you left it — closing the tab does not lose it.
+    allowedResources: []
+    rowNavigateTo: "/portal-builder?resume={slug}"
+    columns:
+      - valueKey: slug
+        title: Page
+      - valueKey: widgets
+        title: Widgets
+      - valueKey: created
+        title: Started
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ [ (.items // [])[] | [ {valueKey:"slug",kind:"jsonSchemaType",type:"string",stringValue:(.slug // "")}, {valueKey:"widgets",kind:"jsonSchemaType",type:"string",stringValue:((.widgets // 0) | tostring)}, {valueKey:"created",kind:"jsonSchemaType",type:"string",stringValue:(.created // ""),format:"relative"} ] ] }'
+  resourcesRefs:
+    items: []
