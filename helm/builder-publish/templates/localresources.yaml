@@ -80,6 +80,9 @@
 {{- if $cred.usernameRef -}}
 {{- $uns := $cred.usernameRef.namespace | default .Release.Namespace -}}
 {{- $ukey := $cred.usernameRef.key | default "username" -}}
+{{/* Validates the install-level ref. The FROZEN ref, when one is emitted, is checked at its own
+     use site above — checking $cred.usernameRef.name there would validate a Secret the render does
+     not use, which is how portal#223 passed preflight while emitting a dangling reference. */}}
 {{- $us := lookup "v1" "Secret" $uns $cred.usernameRef.name -}}
 {{- if and $us (not (dig "data" $ukey "" $us)) -}}
 {{- fail (printf "builder-publish: Secret %s/%s has no %q key — every publish would push an empty username and be rejected by the git server." $uns $cred.usernameRef.name $ukey) -}}
@@ -138,6 +141,35 @@ spec:
       {{- $liveRef = dig "spec" "toRepo" "credentials" "usernameRef" "name" "" $live }}
       {{- $liveNs = dig "spec" "toRepo" "credentials" "usernameRef" "namespace" "" $live }}
       {{- $liveKey = dig "spec" "toRepo" "credentials" "usernameRef" "key" "" $live }}
+      {{- end }}
+      {{/* A FROZEN REF MUST STILL RESOLVE. portal#223: freezing <name>-git-username while the same
+             upgrade stopped rendering it left the LocalResource pinned to a deleted Secret — a
+             pointer that looks fine and resolves to nothing. username-secret.yaml now keeps that
+             Secret alive for exactly as long as a LocalResource names it, so the freeze stays
+             valid; this check is the belt to that braces. If the frozen target is genuinely gone
+             (an install that pruned it before upgrading), fall back to the install-level ref and
+             let git-provider's immutability error name the problem loudly, rather than pushing an
+             empty username that the git server rejects hours later on a stuck resource.
+
+             THE BELT MUST NOT POLICE THE BRACES. `lookup` reads the PRE-UPGRADE snapshot, so on the
+             very upgrade that restores the Secret, username-secret.yaml has not applied yet and the
+             frozen target reads as absent. Acting on that would clear the freeze and rewrite an
+             IMMUTABLE toRepo field on every pre-1.8.29 publish — reintroducing the #221 wedge as
+             the fix for its own sequel, which is precisely the failure #223 already is. So the
+             shim's own Secret is exempt: username-secret.yaml renders it under exactly the
+             condition evaluated here (a live LocalResource naming it), and the two templates must
+             agree on one predicate rather than each deciding separately. A ref that is NOT the
+             shim's is still policed, because nothing in this chart guarantees it. */}}
+      {{- if $liveRef }}
+      {{- $frozenNs := $liveNs | default $ns }}
+      {{- $shimName := printf "%s-git-username" $.Values.name | trunc 63 | trimSuffix "-" }}
+      {{- if not (and (eq $liveRef $shimName) (eq $frozenNs $ns)) }}
+      {{- if not (lookup "v1" "Secret" $frozenNs $liveRef) }}
+      {{- if lookup "v1" "Namespace" "" $frozenNs }}
+      {{- $liveRef = "" }}{{- $liveNs = "" }}{{- $liveKey = "" }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
       {{- end }}
       usernameRef:            # install-level secret, or whatever an existing object already froze
         name: {{ $liveRef | default $cred.usernameRef.name | quote }}
