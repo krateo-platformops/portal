@@ -89,9 +89,17 @@ marketplace:
   # @schema
   configMapName: blueprints-catalog-index
 
-# Set true ONLY when the portal-agents chart is installed alongside this one. See
-# menu.sidebar-nav.yaml: the sidebar entry and the five /agents routes are gated on it, because a
-# nav ref whose target is missing stays visible and 404s rather than hiding itself.
+# NO LONGER READ BY ANYTHING — kept so installs that set it do not fail schema validation.
+#
+# It existed because the sidebar was static: a nav entry for a page in the portal-agents chart had
+# to be gated on whether that chart was installed, since a ref whose target is missing stays
+# visible and 404s rather than hiding itself. A human kept this flag in step with reality, and it
+# was wrong whenever they did not.
+#
+# The sidebar is now assembled from the page roots the cluster actually has
+# (restaction.sidebar-nav), so the agents entries appear exactly when portal-agents is installed
+# and vanish when it is not. The flag has nothing left to gate. Removing the key outright would
+# fail any install that still passes it, so it goes in a later major.
 agents:
   enabled: false
 
