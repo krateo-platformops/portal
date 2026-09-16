@@ -68,8 +68,22 @@
   the git server then rejects at push time — a failure that surfaces hours later on a stuck
   LocalResource instead of here.
 */}}
-{{- if and (eq $authMethod "basic") (not $cred.usernameRef) (not $cred.username) -}}
-{{- fail "builder-publish: credentials.authMethod is 'basic' but neither credentials.username nor credentials.usernameRef is set — the push would fail with an empty username" -}}
+{{- if and (eq $authMethod "basic") (not $cred.usernameRef) -}}
+{{- fail "builder-publish: credentials.authMethod is 'basic' but credentials.usernameRef is not set. The username must live in an INSTALL-LEVEL Secret that outlives any one publish — add a `username` key to the Secret that already holds the token (default: git-provider-credentials) and point credentials.usernameRef at it." -}}
+{{- end -}}
+{{/*
+  Fail NOW if the referenced Secret exists but has no username key. git-provider's GetSecret
+  returns "" for a missing key with NO error, so the push goes out with an empty username and
+  the git server rejects it — surfacing hours later on a stuck LocalResource instead of here.
+  A nil lookup is NOT an error: it also means `helm template` with no cluster.
+*/}}
+{{- if $cred.usernameRef -}}
+{{- $uns := $cred.usernameRef.namespace | default .Release.Namespace -}}
+{{- $ukey := $cred.usernameRef.key | default "username" -}}
+{{- $us := lookup "v1" "Secret" $uns $cred.usernameRef.name -}}
+{{- if and $us (not (dig "data" $ukey "" $us)) -}}
+{{- fail (printf "builder-publish: Secret %s/%s has no %q key — every publish would push an empty username and be rejected by the git server." $uns $cred.usernameRef.name $ukey) -}}
+{{- end -}}
 {{- end -}}
 {{- $ns := .Release.Namespace -}}
 {{- $url := printf "%s://%s/%s/%s.git" ($git.scheme | default "https") $git.host $t.namespace $t.repo -}}
@@ -107,12 +121,7 @@ spec:
         name: {{ $cred.usernameRef.name | quote }}
         namespace: {{ $cred.usernameRef.namespace | default $ns | quote }}
         key: {{ $cred.usernameRef.key | default "username" | quote }}
-      {{- else if eq $authMethod "basic" }}
-      usernameRef:            # the Secret this chart renders — see templates/username-secret.yaml
-        name: {{ printf "%s-git-username" $.Values.name | trunc 63 | trimSuffix "-" | quote }}
-        namespace: {{ $ns | quote }}
-        key: "username"
-      {{- end }}
+            {{- end }}
   override: false        # additive — only this file; leaves the rest of the repo intact
   syncEnabled: false     # one-shot: a publish is a single commit; source is then immutable
   createCommitMessage: {{ printf "feat(%s): add %s" $.Values.builder $f.path | quote }}

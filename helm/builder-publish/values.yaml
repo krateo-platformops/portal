@@ -39,6 +39,17 @@ git:
 # DESTINATION REPOSITORY — created by this composition, so a brand-new blueprint no longer needs a
 # repo someone made by hand first. Requires github-provider-kog (it owns github.krateo.io/Repository).
 repository:
+  # The auth kind the Repository authenticates with. INSTALL-LEVEL and referenced, never rendered
+  # here: it carries nothing per-publish (only a tokenRef to the install's git secret), and when the
+  # chart rendered its own copy per publish, deleting a claim removed the configuration that the
+  # Repository's OWN delete handler resolves — "delete failed: repositoryconfigurations.github.krateo.io
+  # \"...\" not found" — so the finalizer never cleared and the Repository was stranded. Four on
+  # krateo-057 have been stuck that way since 2026-09-10 (core-provider#108).
+  #
+  # Provision it once, alongside github-provider-kog. Leave namespace empty for the release namespace.
+  configurationRef:
+    name: github-blueprints-config
+    namespace: ""
   # false = the destination is pre-provisioned; render only the file commits, exactly as this chart
   # did before. Use it on installs that create repositories out of band.
   create: true
@@ -51,6 +62,16 @@ repository:
 # left to a human clicking the portal's deep link. Requires github-provider-kog >= 0.3.0, the
 # release that restores the PullRequest kind natively; set create=false on older installs.
 pullRequest:
+  # The auth kind the PullRequest authenticates with. INSTALL-LEVEL and referenced, never rendered
+  # here — identical reasoning to repository.configurationRef: it carries only a tokenRef to the
+  # install's git secret, every publish minted a byte-identical copy, and a copy inside a publish's
+  # own release dies with that publish (core-provider#108).
+  #
+  # Same NAME as the repository configuration, deliberately: they are different KINDS, so one name
+  # can serve both and there is one thing to provision rather than two to keep in step.
+  configurationRef:
+    name: github-blueprints-config
+    namespace: ""
   create: true
   title: ""            # defaults to "feat(<builder>): <name>"
   body: ""             # defaults to a line naming the builder, the file count and the claim
@@ -73,9 +94,20 @@ credentials:
     name: git-provider-credentials   # the install's git-token secret (namespace = release ns)
     key: token
   # THE USERNAME IS NOT A SECRET. GitHub authenticates on the token in the password position and
-  # does not use this value — it only has to be present and non-empty. So the chart renders its own
-  # one-key Secret for it (templates/username-secret.yaml) rather than requiring whoever provisions
-  # `git-provider-credentials` to add a key to it. Set `usernameRef` below to override that and
-  # point at an existing secret instead (self-hosted git / gitea, where the username IS meaningful).
-  username: x-access-token
-  # usernameRef: { name: git-provider-credentials, key: username }
+  # does not use this value — it only has to be present and non-empty (conventionally
+  # `x-access-token`). It lives in a Secret at all only because git-provider's `usernameRef` is a
+  # SecretKeySelector with no field for a literal.
+  #
+  # IT MUST OUTLIVE ANY ONE PUBLISH. The chart used to render it per publish
+  # (templates/username-secret.yaml, now deleted), which put it inside each publish's own Helm
+  # release. Deleting a claim then destroyed the Secret that claim's own children still needed IN
+  # ORDER TO FINISH DELETING — a LocalResource must connect before it can finalize, connecting
+  # needs this username, and the finalizer never cleared. Four publishes on krateo-057 were
+  # stranded that way for six days, reconcile-erroring the whole time (core-provider#108).
+  #
+  # So it is install-level now, in the SAME Secret as the token: whoever provisions
+  # `git-provider-credentials` adds a `username` key beside `token`. One Secret, both halves of
+  # basic auth, owned by the install and by no publish.
+  usernameRef:
+    name: git-provider-credentials
+    key: username

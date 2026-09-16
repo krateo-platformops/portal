@@ -42,6 +42,20 @@
 {{- end -}}
 {{- $cred := .Values.credentials -}}
 {{- $ns := .Release.Namespace -}}
+{{- $prCfgName := $pr.configurationRef.name -}}
+{{- $prCfgNs := $pr.configurationRef.namespace | default "" -}}
+{{- if not $prCfgName -}}
+{{- fail "builder-publish: pullRequest.configurationRef.name is required — the PullRequest needs an INSTALL-LEVEL PullRequestConfiguration (default: github-blueprints-config) that outlives any one publish." -}}
+{{- end -}}
+{{/*
+  Fail NOW if it is absent: without it the PullRequest cannot authenticate and simply never opens,
+  after every file has already been committed — the publish looks done and has no change request.
+  A nil lookup is NOT an error; that is also `helm template` with no cluster.
+*/}}
+{{- $prCfg := lookup "github.krateo.io/v1alpha1" "PullRequestConfiguration" (default $ns $prCfgNs) $prCfgName -}}
+{{- if and (not $prCfg) (lookup "v1" "Namespace" "" (default $ns $prCfgNs)) -}}
+{{- fail (printf "builder-publish: PullRequestConfiguration %s/%s does not exist. It is install-level and must be provisioned once, outside any publish." (default $ns $prCfgNs) $prCfgName) -}}
+{{- end -}}
 {{/*
   CRD-PRESENCE GUARD — and why THIS case may degrade while the SCM case may not.
 
@@ -60,6 +74,12 @@
 
   When the provider is upgraded the gate opens by itself on the next reconcile, because
   composition-dynamic-controller re-renders every time. Nothing needs re-publishing.
+
+  THE AUTH KIND IS INSTALL-LEVEL, NOT PER PUBLISH -- same as repository.yaml. This chart used to
+  render its own PullRequestConfiguration beside each PullRequest, so both lived in one per-publish
+  release and deleting the claim removed the configuration the PullRequest depends on. It carries
+  nothing per-publish: only a tokenRef to the install's secret. Referenced, never rendered
+  (core-provider#108).
 */}}
 {{- if not (lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "pullrequests.github.krateo.io") -}}
 {{- $gate := false -}}
@@ -75,24 +95,6 @@
 {{- $name := printf "%s-pr" .Values.name | trunc 63 | trimSuffix "-" -}}
 {{- $title := $pr.title | default (printf "feat(%s): %s" .Values.builder .Values.name) -}}
 ---
-# The auth kind oasgen-provider generates per resource kind, from the SAME secret git-provider uses
-# for the commits — one token drives the whole chain and no extra operator wiring is needed.
-apiVersion: github.krateo.io/v1alpha1
-kind: PullRequestConfiguration
-metadata:
-  name: {{ $name }}
-  namespace: {{ $ns }}
-  labels:
-    krateo.io/builder: {{ .Values.builder }}
-    krateo.io/publish: {{ .Values.name }}
-spec:
-  authentication:
-    bearer:
-      tokenRef:
-        name: {{ $cred.secretRef.name | quote }}
-        namespace: {{ $cred.secretRef.namespace | default $ns | quote }}
-        key: {{ $cred.secretRef.key | default "token" | quote }}
----
 # v2022-11-28, not v1alpha1 — oasgen-provider derives a RESOURCE kind's CRD version from its
 # OpenAPI document's info.version, which for GitHub is the dated API version. The Configuration
 # kind above is different: oasgen fixes those at v1alpha1. Same rule as repository.yaml, and the
@@ -107,7 +109,10 @@ metadata:
     krateo.io/publish: {{ .Values.name }}
 spec:
   configurationRef:
-    name: {{ $name }}
+    name: {{ $prCfgName | quote }}
+    {{- with $prCfgNs }}
+    namespace: {{ . | quote }}
+    {{- end }}
   owner: {{ $t.namespace | quote }}    # same org the LocalResource URL is built from
   repo: {{ $t.repo | quote }}
   # Same-repo PR, so `head` is the bare branch name. (The kind also accepts the "owner:branch" form
