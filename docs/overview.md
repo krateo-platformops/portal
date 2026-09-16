@@ -66,10 +66,12 @@ Visible nav at 1.6.0: Dashboard, Compositions, Blueprints, Marketplace ·
 Observability, Incidents, Alerts · Portal Builder, Blueprint Builder, API Builder ·
 Settings, Clusters.
 
-**Extension without editing the Menu**: the Menu globs
-`files/nav-fragments/*.yaml` and appends each fragment's `item` to its route table —
-an Autopilot-authored page ships its own sidebar entry in its publish PR
-([nav-fragments README](../helm/portal/files/nav-fragments/README.md)).
+**Extension without editing the Menu**: the Menu carries no hand-written items at all. Its entries
+are computed by `restaction.sidebar-nav` from the `krateo.io/nav-*` annotations on the page roots
+the cluster actually has, so a page declares its own sidebar entry and installing the chart that
+ships it is what puts the entry there. A page set in a SEPARATE chart therefore reaches the sidebar
+without this chart knowing it exists — which a build-time glob over this chart's own files could
+never do.
 
 ## RBAC tiers: page visibility by namespace placement
 
