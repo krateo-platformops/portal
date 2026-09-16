@@ -7,7 +7,9 @@
   portal-agents needs a `.Values.agents.enabled` flag in the BASE chart — a flag a human keeps in
   step with what is actually installed, and which shows an entry that 404s when they do not.
 
-  This lists page roots and lets each one declare its own entry through `krateo.io/nav-*`.
+  This lists page roots and lets each one declare its own entry through `krateo.io/nav-*`
+  annotations. Install a page chart and its entries appear; uninstall it and they are gone. No edit
+  to this chart, no flag.
 
   IT ALSO EMITS `refs`, AND THAT IS LOAD-BEARING TWICE. `$roots` is bound BEFORE the slug and alias
   fan-out, so refs are one-per-page-root: an alias cannot produce a duplicate, and a synthesised
@@ -20,9 +22,7 @@
   annotation migration has been every item, so every user sees every entry regardless of what they
   can open (krateo-platformops/frontend#284). The three changes are inseparable — a resourceRefId
   with no matching ref hides the entry, so shipping it without the refs array blanks the sidebar for
-  everyone
-  annotations. Install a page chart and its entries appear; uninstall it and they are gone. No edit
-  to this chart, no flag.
+  everyone.
 
   ONE STEP PER TIER, NOT A CLUSTER-WIDE LIST. A cluster-scoped list would 403 for any user without
   cluster-wide read on flexes — the namespace-scoped tenant persona this portal ships is exactly
