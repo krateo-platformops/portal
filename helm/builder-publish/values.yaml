@@ -53,7 +53,22 @@ repository:
   # false = the destination is pre-provisioned; render only the file commits, exactly as this chart
   # did before. Use it on installs that create repositories out of band.
   create: true
-  private: true
+  # PUBLIC, because a private repository publishes a chart NOBODY ELSE CAN INSTALL.
+  #
+  # A GHCR package inherits the visibility of the repository that published it, and there is no API
+  # to change it afterwards — PATCH /orgs/{org}/packages/container/{pkg}/visibility and
+  # PATCH .../{pkg} both return 404. The correlation is visible in krateo-blueprints today:
+  # krateo-zendesk-kog (private repo) -> private package; krateo-openstack-blueprint (public repo)
+  # -> public charts/aodh.
+  #
+  # So with `private: true` a publish succeeded end to end — repo created, files committed, change
+  # request opened, chart packaged and pushed on tag — and then the artifact failed at install with
+  # `unauthorized` for everyone outside the org. That silently breaks the whole point of publishing:
+  # author a blueprint, register it, someone ELSE installs it from the marketplace.
+  #
+  # Only affects repositories this chart CREATES from now on. Existing ones keep their visibility;
+  # GHCR packages already published stay private until changed in the package settings by hand.
+  private: false
   # Do NOT set false. Without an initial commit the repo has no default branch, so the file
   # commits have nothing to clone from and the whole publish fails.
   autoInit: true
