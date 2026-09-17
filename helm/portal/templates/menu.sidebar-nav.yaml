@@ -40,5 +40,28 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: '${ .items }'
+  {{/* THE GATED EDGE. resourcesRefsTemplate output lands in status.resourcesRefs.items[], which is
+       where snowplow re-derives `allowed` PER IDENTITY and where the prewarm walker descends. The
+       RESTAction emits one `refs` entry per page root (bound before the alias fan-out, so no
+       duplicates and no ref-less rows).
+
+       Until this existed the menu declared no refs at all, so every nav item reached the frontend
+       with no resourceRefId, navModel.isNavEntryAllowed fail-opened on all of them, and the sidebar
+       showed every page to every user (krateo-platformops/frontend#284). It also left the prewarm
+       reaching the app-shell and nothing else, since a refs-following walk had no page edge to
+       follow.
+
+       NOTE FOR ANYONE VERIFYING THIS: status.resourcesRefs is resolved request-time into the
+       response and is NEVER written back to the CR. `kubectl get menus sidebar-nav -o yaml` will
+       show an empty resourcesRefs and that is correct, not evidence this is broken. */}}
+  resourcesRefsTemplate:
+    - iterator: ${ .refs }
+      template:
+        id: ${ .id }
+        name: ${ .name }
+        namespace: ${ .namespace }
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        resource: flexes
+        verb: GET
   resourcesRefs:
     items: []

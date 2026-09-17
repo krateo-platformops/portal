@@ -11,6 +11,19 @@
   annotations. Install a page chart and its entries appear; uninstall it and they are gone. No edit
   to this chart, no flag.
 
+  IT ALSO EMITS `refs`, AND THAT IS LOAD-BEARING TWICE. `$roots` is bound BEFORE the slug and alias
+  fan-out, so refs are one-per-page-root: an alias cannot produce a duplicate, and a synthesised
+  divider cannot produce a ref-less entry. menu.sidebar-nav feeds it to resourcesRefsTemplate, which
+  lands in status.resourcesRefs.items[] — the edge snowplow re-derives `allowed` on per identity,
+  and the edge the prewarm walker follows.
+
+  Every entry now carries `resourceRefId` too. Without it the frontend's nav gate is UNREACHABLE:
+  navModel.isNavEntryAllowed fail-opens for any item with no resourceRefId, which since the
+  annotation migration has been every item, so every user sees every entry regardless of what they
+  can open (krateo-platformops/frontend#284). The three changes are inseparable — a resourceRefId
+  with no matching ref hides the entry, so shipping it without the refs array blanks the sidebar for
+  everyone.
+
   ONE STEP PER TIER, NOT A CLUSTER-WIDE LIST. A cluster-scoped list would 403 for any user without
   cluster-wide read on flexes — the namespace-scoped tenant persona this portal ships is exactly
   that — and a 403 here means a portal with NO NAVIGATION AT ALL, not a shorter sidebar. Namespaced
@@ -47,19 +60,23 @@ spec:
   filter: >
     [ ({{ range $i, $t := $tiers }}{{ if $i }}, {{ end }}(.tier{{ $i }}.items // []){{ end }} )
       | .[]
+      | select(((.metadata.annotations // {})["krateo.io/nav-path"] // "") != "")
+    ] as $roots
+    | ( [ $roots[]
       | (.metadata.annotations // {}) as $a
-      | select($a["krateo.io/nav-path"] != null and $a["krateo.io/nav-path"] != "")
+      | (.metadata.name) as $root
       | (.metadata.name | sub("^page-"; "")) as $slug
       | (($a["krateo.io/nav-order"] // "100") | tonumber) as $ord
-      | ( { path: $a["krateo.io/nav-path"], page: $slug, order: $ord }
+      | ( { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, resourceRefId: $root }
           + (if $a["krateo.io/nav-label"] then { label: $a["krateo.io/nav-label"] } else {} end)
           + (if $a["krateo.io/nav-icon"]  then { icon:  $a["krateo.io/nav-icon"]  } else {} end)
           + (if $a["krateo.io/nav-group"] then { group: $a["krateo.io/nav-group"] } else {} end) ),
         ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
-          | { path: ., page: $slug, order: $ord } )
-    ] as $entries
+          | { path: ., page: $slug, order: $ord, resourceRefId: $root } )
+    ] ) as $entries
     | ( [ $entries[] | select(.label != null and .group != null) ]
         | group_by(.group) | map({ group: .[0].group, min: (map(.order) | min) })
         | sort_by(.min) | .[1:]
         | map({ type: "divider", order: (.min - 1) }) ) as $dividers
-    | { items: ( ($entries | map(del(.group)) | unique) + $dividers | sort_by(.order) ) }
+    | { items: ( ($entries | map(del(.group)) | unique) + $dividers | sort_by(.order) ),
+        refs:  ( [ $roots[] | { id: .metadata.name, name: .metadata.name, namespace: .metadata.namespace } ] | unique ) }
