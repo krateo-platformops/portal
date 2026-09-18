@@ -1,0 +1,25 @@
+{{/* Token usage panel. Titled here rather than in the table so the pane reads as a section. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: Card
+metadata:
+  name: agents-token-usage
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Token usage by consumer
+    subtitle: Last 24 hours, from the gateway's own LLM spans. "Cached" is input served from the provider's context cache — it is already counted in Input.
+    variant: outlined
+    allowedResources:
+    - tables
+    items:
+    - resourceRefId: agents-token-usage-table
+  resourcesRefs:
+    items:
+    - id: agents-token-usage-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-usage
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

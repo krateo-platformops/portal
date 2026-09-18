@@ -1,0 +1,23 @@
+{{/* Tab pane: Token usage — who is spending the model budget, on which model. */}}
+{{/* A Col because the Tabs enum carries `cols` and not `cards`; Col declares what it holds. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: Col
+metadata:
+  name: agents-tab-usage
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: agents-token-usage-card
+  resourcesRefs:
+    items:
+    - id: agents-token-usage-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-usage
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET

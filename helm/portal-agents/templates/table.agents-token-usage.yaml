@@ -1,0 +1,36 @@
+{{/* Token usage per consumer and model. Every cell is pre-formatted by the RESTAction — see there */}}
+{{/* for why the numbers are separated server-side and why `cached` gets its own column. */}}
+{{/* */}}
+{{/* fitContent: FALSE for the same reason as the servers matrix — eleven columns of digits shrunk */}}
+{{/* to the container become "288,09..." which is worse than a scrollbar: a truncated token count */}}
+{{/* is not merely hard to read, it is misleading about an order of magnitude. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: Table
+metadata:
+  name: agents-token-usage
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: false
+    pagination:
+      defaultPageSize: 25
+      hideOnSinglePage: true
+    columns:
+    - valueKey: consumer
+      title: Consumer
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: columns
+    expression: '${ [ {valueKey:"consumer",title:"Consumer"}, {valueKey:"team",title:"Team"}, {valueKey:"model",title:"Model"}, {valueKey:"provider",title:"Provider"}, {valueKey:"calls",title:"Calls"}, {valueKey:"inputTokens",title:"Input"}, {valueKey:"cachedTokens",title:"Cached"}, {valueKey:"cachePct",title:"Cached %"}, {valueKey:"outputTokens",title:"Output"}, {valueKey:"reasoningTokens",title:"Reasoning"}, {valueKey:"ttft",title:"Avg first token"}, {valueKey:"errors",title:"Errors"} ] }'
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"consumer",kind:"jsonSchemaType",type:"string",stringValue:.consumer}, {valueKey:"team",kind:"jsonSchemaType",type:"string",stringValue:.team}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:.model}, {valueKey:"provider",kind:"jsonSchemaType",type:"string",stringValue:.provider}, {valueKey:"calls",kind:"jsonSchemaType",type:"string",stringValue:.calls}, {valueKey:"inputTokens",kind:"jsonSchemaType",type:"string",stringValue:.inputTokens}, {valueKey:"cachedTokens",kind:"jsonSchemaType",type:"string",stringValue:.cachedTokens}, {valueKey:"cachePct",kind:"jsonSchemaType",type:"string",stringValue:.cachePct}, {valueKey:"outputTokens",kind:"jsonSchemaType",type:"string",stringValue:.outputTokens}, {valueKey:"reasoningTokens",kind:"jsonSchemaType",type:"string",stringValue:.reasoningTokens}, {valueKey:"ttft",kind:"jsonSchemaType",type:"string",stringValue:.ttft}, {valueKey:"errors",kind:"jsonSchemaType",type:"string",stringValue:.errors} ] ] }'
+  apiRef:
+    name: agents-token-usage
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

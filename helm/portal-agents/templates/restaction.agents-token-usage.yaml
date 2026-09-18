@@ -1,0 +1,74 @@
+{{/* Token usage per CONSUMER, from the agentgateway's own LLM spans (clickstack otel_traces). */}}
+{{/* */}}
+{{/* WHO IS CONSUMING comes from `jwt.sub` on the span, with `team` beside it — the gateway stamps */}}
+{{/* both on every /llm call it proxies. That matters because the token counts do NOT live on the */}}
+{{/* per-agent A2A route: they are recorded on the LLM EGRESS leg, and the trace carries only that */}}
+{{/* leg plus the upstream provider call. Correlating a token count back to an agent through the */}}
+{{/* trace is therefore impossible today; `jwt.sub` is what makes this table possible at all, and it */}}
+{{/* is the identity the call was authorised as rather than an inferred one. */}}
+{{/* */}}
+{{/* CACHED INPUT IS THE NUMBER THAT SURPRISES PEOPLE. On a live cluster 77% of one consumer's */}}
+{{/* input tokens were cache reads, so a raw `input_tokens` column invites a reader to multiply by */}}
+{{/* the full input price and conclude something untrue. Cached is carried as its own column with */}}
+{{/* the share beside it. */}}
+{{/* */}}
+{{/* Numbers are formatted HERE, not in the widget: these run to nine figures and an unseparated */}}
+{{/* 288095391 cannot be read at a glance. Server-side derivation is also the house rule. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-token-usage
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: usage
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20consumer%2C%20SpanAttributes%5B%27team%27%5D%20AS%20team%2C%20SpanAttributes%5B%27gen_ai.request.model%27%5D%20AS%20model%2C%20SpanAttributes%5B%27gen_ai.provider.name%27%5D%20AS%20provider%2C%20count%28%29%20AS%20calls%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%20AS%20input_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%20AS%20output_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.reasoning_tokens%27%5D%29%29%20AS%20reasoning_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20AS%20cached_input_tokens%2C%20round%28100%20%2A%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20%2F%20nullIf%28sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%2C%200%29%2C%201%29%20AS%20cache_pct%2C%20round%28avg%28toFloat64OrZero%28SpanAttributes%5B%27agw.ai.time_to_first_token%27%5D%29%29%2C%202%29%20AS%20avg_ttft_s%2C%20countIf%28SpanAttributes%5B%27http.status%27%5D%20%21%3D%20%27200%27%29%20AS%20errors%20FROM%20otel_traces%20WHERE%20has%28mapKeys%28SpanAttributes%29%2C%20%27gen_ai.usage.input_tokens%27%29%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20consumer%2C%20team%2C%20model%2C%20provider%20ORDER%20BY%20input_tokens%20DESC%20LIMIT%2050%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: usageError
+  {{/* ClickHouse FORMAT JSON => {meta, data:[...], rows}. Rows are pre-formatted for display and */}}
+  {{/* the raw sums are kept alongside, so a later chart does not have to re-parse a string. */}}
+  filter: |
+    def commas: tostring
+      | if (length <= 3) then .
+        else ((.[0:(length%3)]) as $h
+              | ([$h] + [range(length%3; length; 3) as $i | .[$i:$i+3]])
+              | map(select(. != "")) | join(","))
+        end;
+    def num: if . == null then 0 else (tonumber? // 0) end;
+    ((.usage.data) // []) as $rows
+    | { rows: [ $rows[]
+        | (.input_tokens | num) as $in
+        | (.cached_input_tokens | num) as $cached
+        | {
+            consumer: (if (.consumer // "") == "" then "unattributed" else .consumer end),
+            team: (if (.team // "") == "" then "—" else .team end),
+            model: (.model // "—"),
+            provider: (.provider // "—"),
+            calls: (.calls | num | commas),
+            inputTokens: ($in | commas),
+            cachedTokens: ($cached | commas),
+            cachePct: (if (.cache_pct // null) == null then "—" else ((.cache_pct | tostring) + "%") end),
+            outputTokens: (.output_tokens | num | commas),
+            reasoningTokens: (.reasoning_tokens | num | commas),
+            ttft: (if (.avg_ttft_s // null) == null then "—" else ((.avg_ttft_s | tostring) + "s") end),
+            errors: (.errors | num | commas),
+            rawInput: $in, rawOutput: (.output_tokens | num)
+          } ],
+        {{/* COERCE BEFORE SUMMING. ClickHouse emits UInt64 as JSON STRINGS to keep 64-bit */}}
+        {{/* precision, so `add` over the raw values CONCATENATES them — the first version of this */}}
+        {{/* filter reported 16,734,148,059,305,228 input tokens for two rows that sum to 226 */}}
+        {{/* million, and it looked like a plausible total rather than an obvious bug. */}}
+        totals: {
+          consumers: ($rows | length),
+          inputTokens: ([ $rows[] | (.input_tokens | num) ] | add // 0 | commas),
+          outputTokens: ([ $rows[] | (.output_tokens | num) ] | add // 0 | commas),
+          calls: ([ $rows[] | (.calls | num) ] | add // 0 | commas)
+        } }
