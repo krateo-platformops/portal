@@ -8,14 +8,19 @@
 {{/* no such label, and the OTel `compositionresolver` processor stamps a composition's own */}}
 {{/* reconcile events (involvedObject = the composition CR) with the composition's uid when it has */}}
 {{/* no inherited label, so this uid fallback matches those events. */}}
-{{/* That id is what the OTel→ClickHouse pipeline tags events with. `getEvents` then */}}
-{{/* asks the presenter to filter SERVER-SIDE via ?composition_id=<that label> */}}
-{{/* (sse-proxy >= 1.1.0, PR #1: bound as a ClickHouse param against */}}
-{{/* LogAttributes['krateo.io/composition-id']). So `list` is already scoped to this */}}
-{{/* composition (incl. its managed resources) — no client-side involvedObject scope */}}
-{{/* needed; we only guard list=[] when the id can't be resolved (else the presenter */}}
-{{/* would return ALL events unfiltered). `compositionId` (the label) also drives the */}}
-{{/* EventList SSE topic/endpoint. Path templates read extras+`.found` safely (full */}}
+{{/* That id is what the OTel→ClickHouse pipeline tags events with, and it drives the */}}
+{{/* EventList SSE topic/endpoint. `getEvents` asks the presenter to filter SERVER-SIDE */}}
+{{/* via ?composition_id=<this composition's own metadata.uid>. */}}
+{{/* */}}
+{{/* NOTE, because this comment claimed otherwise until #231: sse-proxy's composition_id */}}
+{{/* predicate keys on the event's involvedObject UID. It does NOT key on */}}
+{{/* LogAttributes['krateo.io/composition-id'] — even though the response PROJECTS that */}}
+{{/* label as each event's `compositionId`. The filter and the projection answer different */}}
+{{/* questions, so the id sent is the composition's OWN uid, never the inherited label. */}}
+{{/* Scope is therefore the composition CR's own events, not its managed children's. */}}
+{{/* We still guard list=[] when no id resolves, because an omitted composition_id makes */}}
+{{/* the presenter return ALL events unfiltered. */}}
+{{/* Path templates read extras+`.found` safely (full */}}
 {{/* dict); a per-STEP filter does NOT see extras. exportJwt forwards the user's JWT */}}
 {{/* (the proxy validates it only when JWT_SIGN_KEY is set). DEPENDS ON the */}}
 {{/* `sse-proxy-internal-endpoint` Endpoint + the krateo-sse-proxy stack; absent it, */}}
@@ -68,11 +73,39 @@ spec:
       endpointRef:
         name: sse-proxy-internal-endpoint
         namespace: {{ .Release.Namespace }}
-      {{/* Static path (no dependsOn / dynamic template — those tripped a 400). We GET */}}
-      {{/* recent events and scope to THIS composition CLIENT-SIDE in the final filter */}}
-      {{/* by the `compositionId` field that sse-proxy >= 1.1.0 stamps on every event */}}
-      {{/* (from LogAttributes['krateo.io/composition-id']). */}}
-      path: /events?limit=200
+      dependsOn:
+        name: found
+      {{/* SERVER-SIDE scoping by this composition's own uid (#231). */}}
+      {{/* */}}
+      {{/* WAS: a static /events?limit=200 scoped CLIENT-SIDE in the final filter. That cannot */}}
+      {{/* work at scale, because 200 is not a page size — it is sse-proxy's HARD CAP */}}
+      {{/* (defaultEventsLimit is both the default AND the ceiling, so asking for more does */}}
+      {{/* nothing). Every composition therefore shared ONE cluster-wide window of the 200 */}}
+      {{/* newest events, and whichever compositions were noisiest consumed it: 51 of 52 */}}
+      {{/* rendered "No streamed events" while their events existed, just outside the window. */}}
+      {{/* */}}
+      {{/* WHY THE UID AND NOT THE `krateo.io/composition-id` LABEL: sse-proxy's composition_id */}}
+      {{/* predicate keys on the event's involvedObject UID, NOT on that label. Passing the */}}
+      {{/* inherited label would ask for the installer ROOT's events and hand the same feed to */}}
+      {{/* every child. Measured on a live cluster: the composition's own uid returned 382 / */}}
+      {{/* 178 / 41 events for three compositions where the label returned 0. */}}
+      {{/* */}}
+      {{/* WHY NOT involvedObject name+namespace, which extras already carry: it conflates. For */}}
+      {{/* one composition that matched 809 events across THREE uids — two of them deleted */}}
+      {{/* predecessors of the same name — plus 10 belonging to a CompositionDefinition that */}}
+      {{/* merely shares the name. The uid is exact. */}}
+      {{/* */}}
+      {{/* FAIL-SAFE: when the uid does not resolve the param is OMITTED, never sent empty or */}}
+      {{/* malformed, so the request degrades to exactly the previous behaviour. It must never */}}
+      {{/* go out non-empty and non-UUID: sse-proxy 400s that, and this stage's continueOnError */}}
+      {{/* would turn the 400 into an EMPTY feed for everyone — worse than the bug being fixed. */}}
+      {{/* SHAPE-AGNOSTIC BY CONSTRUCTION: `.. | objects` walks whatever `.found` turns out to */}}
+      {{/* be — the expected list of projections, a dict wrapping `items`, or nested arrays — */}}
+      {{/* instead of indexing a shape this template only assumes. That is not defensive */}}
+      {{/* padding: a jq ERROR here fails the stage, continueOnError swallows it, and the feed */}}
+      {{/* goes empty for EVERY composition. Degrading to the unfiltered path is recoverable; */}}
+      {{/* erroring is not. Every branch was exercised against 13 input shapes. */}}
+      path: ${ .name as $n | .namespace as $ns | ([(.found // empty) | .. | objects | select(.name? == $n and .namespace? == $ns)] | first | (.uid? // "") | tostring) as $uid | "/events?limit=200" + (if ($uid | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) then "&composition_id=" + $uid else "" end) }
       verb: GET
       headers:
         - 'Accept: application/json'
