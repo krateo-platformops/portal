@@ -1,0 +1,45 @@
+{{/* AVERAGE tokens per call. The question the totals chart cannot answer: a rise in total spend */}}
+{{/* is either more calls or fatter calls, and only this one separates them. A flat average under */}}
+{{/* a rising total is traffic; a rising average is context growth, which is the expensive kind. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: LineChart
+metadata:
+  name: agents-token-averages
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "input per call": cyan
+      "output per call": green
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 160
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.averages // [])[] | { t: (.t|tonumber), series: (.series|tostring), v: (.d|tonumber) } ] }'
+  apiRef:
+    name: agents-token-timeseries
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

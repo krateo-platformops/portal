@@ -1,0 +1,50 @@
+{{/* Total tokens per bucket. Charted APART from the per-call averages because the two differ by */}}
+{{/* two orders of magnitude on real data — sharing a linear axis would flatten the averages onto */}}
+{{/* zero, which reads as "no usage" rather than "wrong axis". */}}
+{{/* */}}
+{{/* `cached` is drawn alongside `input` rather than under it: it is a SUBSET of input, not an */}}
+{{/* addition, so the gap between the two lines is the part actually billed at full rate. Output */}}
+{{/* sits far below both and that is the truth of this workload, not a rendering fault. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: LineChart
+metadata:
+  name: agents-token-totals
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      "input": cyan
+      "cached": gold
+      "output": green
+    shapeField: smooth
+    area: false
+    legend: true
+    height: 160
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ [ (.totals // [])[] | { t: (.t|tonumber), series: (.series|tostring), v: (.d|tonumber) } ] }'
+  apiRef:
+    name: agents-token-timeseries
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

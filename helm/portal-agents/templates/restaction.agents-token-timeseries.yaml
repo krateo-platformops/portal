@@ -1,0 +1,48 @@
+{{/* Token usage OVER TIME — totals and per-call averages, from the same gateway LLM spans as */}}
+{{/* the breakdown table (see restaction.agents-token-usage for where `jwt.sub` comes from). */}}
+{{/* */}}
+{{/* TWO SERIES SETS, NOT ONE, and they are deliberately charted separately. Totals and averages */}}
+{{/* differ by two orders of magnitude on real data (13.8M vs 126K in one hour), so plotting them */}}
+{{/* on a shared linear axis flattens the averages onto the zero line — present, unreadable, and */}}
+{{/* worse than absent because it looks like "no usage" rather than "wrong axis". */}}
+{{/* */}}
+{{/* The bucket follows the range, as every other chart RESTAction here does: a 2-minute bucket */}}
+{{/* over 7 days would be 5,040 points for a 160px-high chart. */}}
+{{/* */}}
+{{/* COERCE BEFORE ARITHMETIC. ClickHouse returns the sums as JSON STRINGS (UInt64, to keep 64-bit */}}
+{{/* precision) and the rounded averages as numbers — so the same response carries both shapes, and */}}
+{{/* a chart that fed the strings straight through would plot them lexically. The breakdown table */}}
+{{/* was bitten by exactly this: `add` over the raw values concatenated them. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-token-timeseries
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: series
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | (if $r=="1h" then "2%20MINUTE" elif $r=="6h" then "15%20MINUTE" elif $r=="7d" then "6%20HOUR" else "1%20HOUR" end) as $bk | "/?query=SELECT%20toUnixTimestamp%28toStartOfInterval%28Timestamp%2C%20INTERVAL%20" + $bk + "%29%29%20AS%20t%2C%20count%28%29%20AS%20calls%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%20AS%20input_total%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%20AS%20output_total%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20AS%20cached_total%2C%20round%28avg%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%2C%200%29%20AS%20input_avg%2C%20round%28avg%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%2C%200%29%20AS%20output_avg%20FROM%20otel_traces%20WHERE%20has%28mapKeys%28SpanAttributes%29%2C%20%27gen_ai.usage.input_tokens%27%29%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20t%20ORDER%20BY%20t%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: seriesError
+  {{/* Wide rows in, LONG format out — one {t, series, d} per point, which is the shape the */}}
+  {{/* LineChart's colorField reads. Split into two arrays rather than one with a name prefix, so */}}
+  {{/* each chart selects a set instead of parsing strings. */}}
+  filter: |
+    def num: if . == null then 0 else (tonumber? // 0) end;
+    ((.series.data) // []) as $b
+    | { totals: [ $b[] | (.t | num) as $t
+          | ( {t: $t, series: "input", d: (.input_total | num)},
+              {t: $t, series: "cached", d: (.cached_total | num)},
+              {t: $t, series: "output", d: (.output_total | num)} ) ],
+        averages: [ $b[] | (.t | num) as $t
+          | ( {t: $t, series: "input per call", d: (.input_avg | num)},
+              {t: $t, series: "output per call", d: (.output_avg | num)} ) ],
+        buckets: ($b | length) }
