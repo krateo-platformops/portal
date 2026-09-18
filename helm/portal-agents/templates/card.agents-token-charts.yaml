@@ -1,0 +1,37 @@
+{{/* The two token charts in one panel: totals above, per-call averages below. */}}
+{{/* Together they answer a question neither answers alone — whether a rise in spend is more calls */}}
+{{/* or fatter calls. */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: Card
+metadata:
+  name: agents-token-charts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* `tooltip`, not `subtitle` — the Card CRD has no subtitle field and the widget schemas are */}}
+  {{/* STRICT, so a subtitle key is rejected at apply with "unknown field". helm template does not */}}
+  {{/* catch it; a server dry-run does. */}}
+  widgetData:
+    title: Tokens over time
+    tooltip: Totals above, average per call below — charted separately because they differ by orders of magnitude. "Cached" is a subset of input, so the gap between those lines is what is billed at full rate.
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: agents-token-totals
+    - resourceRefId: agents-token-averages
+  resourcesRefs:
+    items:
+    - id: agents-token-totals
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-totals
+      namespace: {{ .Release.Namespace }}
+      resource: linecharts
+      verb: GET
+    - id: agents-token-averages
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-averages
+      namespace: {{ .Release.Namespace }}
+      resource: linecharts
+      verb: GET

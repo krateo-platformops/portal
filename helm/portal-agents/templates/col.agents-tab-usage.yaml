@@ -1,4 +1,6 @@
-{{/* Tab pane: Token usage — who is spending the model budget, on which model. */}}
+{{/* Tab pane: Token usage — the trend first, then who is spending it and on which model. */}}
+{{/* Charts above the table on purpose: "is this going up" is the question people arrive with, and */}}
+{{/* the breakdown is what they read once the shape has told them whether to care. */}}
 {{/* A Col because the Tabs enum carries `cols` and not `cards`; Col declares what it holds. */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Col
@@ -12,9 +14,16 @@ spec:
     allowedResources:
     - cards
     items:
+    - resourceRefId: agents-token-charts-card
     - resourceRefId: agents-token-usage-card
   resourcesRefs:
     items:
+    - id: agents-token-charts-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-charts
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
     - id: agents-token-usage-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-token-usage
