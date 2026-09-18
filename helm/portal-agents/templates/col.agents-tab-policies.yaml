@@ -1,0 +1,38 @@
+{{/* Tab pane: Policies — what the gateway enforces on every request. */}}
+{{/* */}}
+{{/* SAME OBJECT AS /agents/policies, not a copy. This references the very `agents-policies-groups` */}}
+{{/* flex that page renders, so the role taxonomy, the classifier and the per-role cards have ONE */}}
+{{/* definition. A second copy would be two things to keep in step, and the _agents-policies.tpl */}}
+{{/* header already names that drift as the failure mode this page has to avoid: a role card with no */}}
+{{/* jq branch renders empty, a jq role with no card renders policies that exist but are never shown. */}}
+{{/* */}}
+{{/* The standalone page STAYS. Its nav-path (/agents/policies) is a live deep link — the policy */}}
+{{/* create flow returns to it — and a tab is a different affordance from a URL someone can send. */}}
+{{/* What this adds is discovery: the policies were only reachable by knowing the page existed. */}}
+{{/* */}}
+{{/* A Col, not a Flex, and that is forced rather than stylistic: the Tabs allowedResources enum */}}
+{{/* carries `cols` but NOT `flexes`, so a Flex cannot be a tab pane. Col DOES allow `flexes`, so */}}
+{{/* this is the one-level wrapper that lets the existing section render unchanged inside a tab. */}}
+{{/* The page header is deliberately NOT pulled in: the tab sits under the agents page header and */}}
+{{/* a second one inside a pane reads as a nested page. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-tab-policies
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: agents-policies-groups
+  resourcesRefs:
+    items:
+    - id: agents-policies-groups
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-groups
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

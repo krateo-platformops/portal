@@ -7,8 +7,9 @@
 {{/* see col.agents-tab-*. */}}
 {{/* */}}
 {{/* Tab ORDER follows the reading order the page already had: what exists, how it is wired, what */}}
-{{/* it may call, what one request does. The inventory stays first because it is the answer most */}}
-{{/* visits want. */}}
+{{/* it may call, what is ENFORCED on the call, what one request does. The inventory stays first */}}
+{{/* because it is the answer most visits want; Policies sits next to Tool servers because the two */}}
+{{/* answer the same question from opposite sides — what may be called, and under what rules. */}}
 kind: Tabs
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -27,6 +28,8 @@ spec:
       resourceRefId: agents-tab-topology
     - label: Tool servers
       resourceRefId: agents-tab-servers
+    - label: Policies
+      resourceRefId: agents-tab-policies
     - label: Request flow
       resourceRefId: agents-tab-flow
   resourcesRefs:
@@ -46,6 +49,12 @@ spec:
     - id: agents-tab-servers
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-tab-servers
+      namespace: {{ .Release.Namespace }}
+      resource: cols
+      verb: GET
+    - id: agents-tab-policies
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-tab-policies
       namespace: {{ .Release.Namespace }}
       resource: cols
       verb: GET
