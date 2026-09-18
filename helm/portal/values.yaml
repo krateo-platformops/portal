@@ -120,3 +120,43 @@ acceptance:
 # to list in-flight drafts on the Portal Builder page so a person can resume one.
 previewSandbox:
   namespace: krateo-preview
+
+# --- SRE / MSP alert catalogue -----------------------------------------------
+# The Kubernetes checks an operator is expected to have — crash loops, OOM kills, unschedulable
+# pods, node pressure, failing probes, stuck volumes, dead telemetry — shipped as Alert CRs so a
+# fresh install is not silent. See templates/alerts.catalogue.yaml for the full list, the observed
+# baseline behind each threshold, and the three rules that decide whether an Alert can fire at all.
+#
+# OFF BY DEFAULT ON PURPOSE. Two reasons, both about not surprising a deployer:
+#   - it needs alerts.observability.krateo.io, which only exists where the observability component
+#     is installed; templating these without the CRD fails the install
+#   - every firing alert starts a model-driven RCA and opens a TroubleshootingReport (one per
+#     alert, 1:1), so switching this on has a running cost that should be chosen, not inherited.
+alerts:
+  # @schema
+  # description: Ship the SRE alert catalogue. Requires the observability component (the Alert CRD). Each firing alert starts a model-driven RCA and opens a TroubleshootingReport, so this has a running cost — off by default so a deployer opts in deliberately.
+  # type: boolean
+  # default: false
+  # @schema
+  enabled: false
+
+  # @schema
+  # description: Also ship the extended tier — catch-all and baseline-relative alerts (warning-event bursts, authorization-failure bursts, upstream timeouts, Krateo external-resource failures). These have a non-zero steady rate on a busy cluster and their thresholds mean "far above normal", so they need retuning per cluster; the core tier is the set that should be quiet when nothing is wrong.
+  # type: boolean
+  # default: false
+  # @schema
+  extended: false
+
+  # @schema
+  # description: Catalogue entries to skip, by name (e.g. [loadbalancer-failure]). Lets a deployer drop an alert that does not apply — a cluster with no LoadBalancers, no preemptible nodes, no persistent volumes — without forking the chart.
+  # type: array
+  # default: []
+  # @schema
+  disabled: []
+
+  # @schema
+  # description: Per-alert threshold overrides keyed by catalogue name (e.g. {probe-failing 20}). Thresholds are the one field that always needs retuning, because the right number depends on a baseline only the target cluster knows; the shipped defaults come from a real cluster and are a starting point, not a claim about yours.
+  # type: object
+  # default: {}
+  # @schema
+  thresholds: {}

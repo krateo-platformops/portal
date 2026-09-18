@@ -9,7 +9,7 @@
       "properties": {
         "s6Probe": {
           "default": false,
-          "description": "Add a route-only (label-less) /s6-probe nav entry whose content resolves by the page:<slug> convention to flexes/page-s6-probe \u2014 a page CR the harness creates and deletes per run. Needed because a page root alone does not serve a route, and the SPA only arms a widget it actually renders: without it the harness can create a widget, delete it, observe nothing and report a clean pass, having proved only that it never armed. Nothing renders in the sidebar; with no harness the route resolves to a page that does not exist.",
+          "description": "Add a route-only (label-less) /s6-probe nav entry whose content resolves by the page:<slug> convention to flexes/page-s6-probe — a page CR the harness creates and deletes per run. Needed because a page root alone does not serve a route, and the SPA only arms a widget it actually renders: without it the harness can create a widget, delete it, observe nothing and report a clean pass, having proved only that it never armed. Nothing renders in the sidebar; with no harness the route resolves to a page that does not exist.",
           "title": "s6Probe",
           "type": "boolean"
         }
@@ -67,13 +67,13 @@
     },
     "observabilityConsoleUrl": {
       "default": "",
-      "description": "Optional URL of the external observability console (e.g. the clickstack/HyperDX UI). When set, a \"View in console\" link appears on the /observability page and opens it in a new tab; empty hides the link. No default target is invented \u2014 a deployer must point this at their own console.",
+      "description": "Optional URL of the external observability console (e.g. the clickstack/HyperDX UI). When set, a \"View in console\" link appears on the /observability page and opens it in a new tab; empty hides the link. No default target is invented — a deployer must point this at their own console.",
       "title": "observabilityConsoleUrl",
       "type": "string"
     },
     "spokeReadbackCluster": {
       "default": "krateo-spoke-demo",
-      "description": "W3-3 spoke read-back binding \u2014 the ONE registered spoke cluster whose /clusters/{name} detail page shows LIVE compositions read directly from the spoke apiserver (restaction cluster-compositions). snowplow endpointRef references are static (not jq-templated), so the read-back is bound per-install; generating a per-spoke RESTAction + endpoint Secret pair at registration time is the follow-up that removes this value.",
+      "description": "W3-3 spoke read-back binding — the ONE registered spoke cluster whose /clusters/{name} detail page shows LIVE compositions read directly from the spoke apiserver (restaction cluster-compositions). snowplow endpointRef references are static (not jq-templated), so the read-back is bound per-install; generating a per-spoke RESTAction + endpoint Secret pair at registration time is the follow-up that removes this value.",
       "title": "spokeReadbackCluster",
       "type": "string"
     },
@@ -85,13 +85,13 @@
     },
     "spokeReadbackEndpointSecret": {
       "default": "krateo-spoke-demo-endpoint",
-      "description": "Name of the DERIVED endpoint Secret for the spoke read-back \u2014 snowplow endpoint shape {server-url, token, insecure, certificate-authority-data}, derived from the registered spoke's kubeconfig Secret (NOT the kubeconfig Secret itself, which snowplow cannot consume). The server-url deliberately carries the /apis suffix; see restaction.cluster-compositions.yaml for why.",
+      "description": "Name of the DERIVED endpoint Secret for the spoke read-back — snowplow endpoint shape {server-url, token, insecure, certificate-authority-data}, derived from the registered spoke's kubeconfig Secret (NOT the kubeconfig Secret itself, which snowplow cannot consume). The server-url deliberately carries the /apis suffix; see restaction.cluster-compositions.yaml for why.",
       "title": "spokeReadbackEndpointSecret",
       "type": "string"
     },
     "tenant": {
       "default": "krateo-enterprise",
-      "description": "Display name of the platform tenant \u2014 shown in the sider tenant chip and the page eyebrows (dashboard greeting, compositions, observability). A deployer-set label, not derived data; defaults to krateo-enterprise.",
+      "description": "Display name of the platform tenant — shown in the sider tenant chip and the page eyebrows (dashboard greeting, compositions, observability). A deployer-set label, not derived data; defaults to krateo-enterprise.",
       "title": "tenant",
       "type": "string"
     },
@@ -123,12 +123,45 @@
     "previewSandbox": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Where the Autopilot live preview applies its draft widget CRs. MUST match the frontend chart's previewSandbox, which OWNS the namespace, its quota and its RBAC \u2014 this chart only reads it, to list in-flight drafts on the Portal Builder page so a person can resume one.",
+      "description": "Where the Autopilot live preview applies its draft widget CRs. MUST match the frontend chart's previewSandbox, which OWNS the namespace, its quota and its RBAC — this chart only reads it, to list in-flight drafts on the Portal Builder page so a person can resume one.",
       "properties": {
         "namespace": {
           "type": "string",
           "default": "krateo-preview",
           "description": "Namespace holding preview drafts. Read-only from this chart."
+        }
+      }
+    },
+    "alerts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "SRE/MSP alert catalogue — the Kubernetes checks an operator is expected to have (crash loops, OOM kills, unschedulable pods, node pressure, failing probes, stuck volumes, dead telemetry), shipped as Alert CRs so a fresh install is not silent. Requires the observability component, which owns the Alert CRD. Saturation checks (CPU/memory/disk/PV percentages, certificate days remaining) are deliberately absent: the Alert CRD counts rows in a logs source and cannot address a metric, so they are blocked on alert-troubleshooter#34.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ship the catalogue. Off by default: it needs the Alert CRD, and every firing alert starts a model-driven RCA and opens a TroubleshootingReport (one per alert), so it carries a running cost a deployer should choose rather than inherit."
+        },
+        "extended": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also ship the extended tier: catch-all and baseline-relative alerts whose thresholds mean 'far above normal' rather than 'anything at all', and which need retuning per cluster. The core tier is the set that should stay quiet when nothing is wrong."
+        },
+        "disabled": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Catalogue entries to skip, by name — lets a deployer drop an alert that does not apply (no LoadBalancers, no preemptible nodes, no persistent volumes) without forking the chart."
+        },
+        "thresholds": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Per-alert threshold overrides keyed by catalogue name. The shipped defaults come from a real cluster's measured baseline and are a starting point, not a claim about yours."
         }
       }
     }

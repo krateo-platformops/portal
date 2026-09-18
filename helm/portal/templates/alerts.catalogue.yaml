@@ -1,0 +1,236 @@
+{{- if .Values.alerts.enabled }}
+{{/*
+THE SRE / MSP ALERT CATALOGUE — the checks an operator running someone else's Kubernetes cluster
+is expected to have, shipped as Alert CRs so a fresh install is not silent by default.
+
+Every `where` in this file was RUN against default.otel_logs on a live cluster (krateo-057) before
+it was written here, and the count it returned is recorded beside it. A zero is not a defect: it
+means that failure mode did not occur in the sample window, which is the healthy state for most of
+this list. What a recorded count buys is the distinction between "quiet because nothing is wrong"
+and "quiet because the filter can never match" — and the second is not hypothetical, see below.
+
+━━ THREE RULES THAT DECIDE WHETHER AN ALERT CAN EVER FIRE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. `spec.where` is ClickHouse SQL, NOT Lucene — whatever the CRD's own field description says.
+   The reconciler renders the filter twice: translated into `SELECT countIf(...)`, and verbatim
+   into the query's WHERE clause. A Lucene filter survives the first and breaks the second, so the
+   alert never evaluates and sits at OK forever. Verified directly:
+       WHERE (Body:"MemoryPressure" OR Body:"DiskPressure")
+       → Code: 62. DB::Exception: Syntax error ... (SYNTAX_ERROR)
+   This is not a theoretical risk. Five of the ten alerts previously hand-applied to krateo-057
+   were written in Lucene — following the CRD's documented example — and every one of them was
+   incapable of firing. See the `where` description on alerts.observability.krateo.io, which still
+   reads "Lucene filter ... e.g. 'SeverityText:error OR SeverityText:warn'": both halves of that
+   sentence are wrong, and it is the reason the dead alerts were written that way.
+
+2. NEVER filter on SeverityText. This OTel pipeline leaves it empty on every row, so any severity
+   predicate counts zero forever. Measured over 24h on krateo-057:
+       sev_nonempty = 0     sev_empty = 8,140,061     total = 8,140,061
+   Filter on Body, or on the event's own JSON.
+
+3. A LOG alert must exclude the observability stack; an EVENT alert need not. HyperDX writes the
+   query it is running into its own container logs, so a log alert that searches for a word will
+   find the line in which the platform echoed that very word and diagnose itself. Container logs
+   carry telemetry.source = '' and events carry 'k8s-events', so scoping to events is a structural
+   guard, and scoping to logs requires the explicit ServiceName exclusion in portal.alertWhereLogs.
+
+━━ WHAT THIS CATALOGUE DELIBERATELY DOES NOT COVER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Saturation — CPU, memory, disk and PV utilisation, node capacity, API-server latency, certificate
+expiry by DATE rather than by log line. Those are the other half of any real MSP runbook and they
+are all METRIC thresholds. The Alert CRD counts rows in a logs source and has no way to address a
+metric, so none of them can be expressed here today; writing them as log searches would produce
+exactly the silent, always-OK alerts rule 1 is about. They are blocked on the Metric CRD +
+metricRef design (krateo-platformops/alert-troubleshooter#34) and belong in this file the day it
+lands, not before.
+
+━━ COST ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Each firing alert starts a model-driven RCA and opens a TroubleshootingReport — one per alert, 1:1
+(observed on krateo-057: 3 alerts in ALERT state, exactly 3 reports). AlertTroubleshooter's
+reportCooldown (1800s) bounds re-runs per alert, not the fan-out across alerts. That is why the
+whole catalogue is opt-in: turning it on has a running cost, and a deployer should choose it.
+NAMES ARE PREFIXED `sre-` ON PURPOSE. Alerts are a shared namespace: the observability component
+ships its own, and operators hand-apply others. Helm refuses to adopt a resource it does not
+already own, so a catalogue entry that happened to reuse an existing name would not merely be
+confusing — it would fail the portal upgrade outright with an ownership error. The prefix makes
+that class of collision impossible, and matches the catalogue label these all carry.
+*/}}
+{{- $ns := .Release.Namespace }}
+{{- $ev := include "portal.alertWhereEvents" . }}
+{{- $lg := include "portal.alertWhereLogs" . }}
+
+{{/*
+THRESHOLD CALIBRATION — the non-zero defaults are not round numbers picked by feel. Each was
+checked against the share of 15-minute windows it would have been ALERTing in over 7 days on
+krateo-057 (673 windows), because a threshold that fires constantly trains people to ignore it and
+one that never fires is the same as having no alert:
+
+    probe-failing            > 5    →  2.8% of windows
+    volume-attach-failure    > 3    →  0.6%
+    krateo-provider-...      > 10   →  1.6%
+    telemetry-pipeline-...   < 100  →  0.0%   (floor observed: 67,081 rows per window)
+
+Where a measurement contradicted the number, the number changed: loadbalancer-failure was drafted
+at 5 and measured at max 3 per window with a mean of 2.98 — it would have fired in 0% of windows
+while a LoadBalancer delete was failing continuously, hiding a leaking cloud resource. It ships at
+0, which is the honest reading of "any LoadBalancer reconcile failure is worth a look".
+
+A threshold of 0 with thresholdType `above` means strictly greater, so it fires on the first
+matching row. On a cluster with a genuine ongoing fault, such an alert STAYS in ALERT until the
+fault is fixed. That is the intended behaviour, not a misconfiguration.
+*/}}
+{{- $catalogue := list
+
+  (dict "name" "sre-pod-crashloop" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Pod crash-looping"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') = 'BackOff' AND positionCaseInsensitive(JSONExtractString(Body, 'object', 'message'), 'restarting failed container') > 0" $ev)
+   "message" "A container is exiting and kubelet is backing off restarting it. Check the container's own last log lines for why it exits — the event says only that it did.")
+
+  (dict "name" "sre-pod-oomkilled" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Pod killed for memory"
+   "where" (printf "%s AND (JSONExtractString(Body, 'object', 'reason') = 'OOMKilling' OR positionCaseInsensitive(JSONExtractString(Body, 'object', 'message'), 'oomkill') > 0)" $ev)
+   "message" "A container was killed for exceeding its memory limit. A runtime OOM kill writes no application log line — the evidence is in the pod's status.containerStatuses[].lastState.terminated, which the investigation reads.")
+
+  (dict "name" "sre-image-pull-failure" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Image pull failing"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('Failed', 'ErrImagePull', 'ImagePullBackOff') AND positionCaseInsensitive(JSONExtractString(Body, 'object', 'message'), 'pull image') > 0" $ev)
+   "message" "A pod cannot pull its image: the tag may not exist, or the registry rejected the credentials. Usually a bad deploy or an expired pull secret.")
+
+  (dict "name" "sre-pod-unschedulable" "tier" "core" "interval" "15m" "threshold" 0
+   "title" "Pod cannot be scheduled"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') = 'FailedScheduling'" $ev)
+   "message" "The scheduler cannot place a pod — no node satisfies its requests, affinity, taints or topology constraints. Often the first visible symptom of a cluster that has run out of room.")
+
+  (dict "name" "sre-pod-evicted" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Pod evicted"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('Evicted', 'EvictionThresholdMet')" $ev)
+   "message" "The kubelet evicted a pod to reclaim a starved node resource. Treat as a NODE problem first: the evicted pod is usually the victim, not the cause.")
+
+  (dict "name" "sre-pod-sandbox-failure" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Pod sandbox / lifecycle failure"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('FailedCreatePodSandBox', 'FailedKillPod', 'FailedSync')" $ev)
+   "message" "The container runtime could not create or tear down a pod sandbox. Typically CNI, containerd or a node-level fault rather than anything wrong with the workload."
+   )
+
+  (dict "name" "sre-probe-failing" "tier" "core" "interval" "15m" "threshold" 5
+   "title" "Readiness or liveness probe failing"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') = 'Unhealthy'" $ev)
+   "message" "Probes are failing repeatedly. A failing liveness probe restarts the container; a failing readiness probe silently removes it from its Service's endpoints, which looks like partial outage rather than an outage.")
+
+  (dict "name" "sre-job-failed" "tier" "core" "interval" "15m" "threshold" 0
+   "title" "Job or CronJob failed"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('BackoffLimitExceeded', 'JobFailed', 'FailedCreate')" $ev)
+   "message" "A Job exhausted its backoffLimit or could not create its pods. Scheduled work is silently not happening — backups and reconciliation jobs fail this way for weeks unnoticed.")
+
+  (dict "name" "sre-volume-attach-failure" "tier" "core" "interval" "15m" "threshold" 3
+   "title" "Volume mount or attach failing"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('FailedMount', 'FailedAttachVolume')" $ev)
+   "message" "A pod cannot mount or attach its volume. Common causes: the PV is still attached to another node, a missing Secret or ConfigMap named as a volume, or a CSI driver that is down.")
+
+  (dict "name" "sre-pvc-provisioning-failure" "tier" "core" "interval" "15m" "threshold" 0
+   "title" "PersistentVolume provisioning failed"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('ProvisioningFailed', 'FailedBinding')" $ev)
+   "message" "A PersistentVolumeClaim cannot be satisfied — no matching PV, a storage class that does not exist, or a quota refusal from the storage backend.")
+
+  (dict "name" "sre-node-not-ready" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Node not ready"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('NodeNotReady', 'NodeNotSchedulable', 'Rebooted')" $ev)
+   "message" "A node stopped reporting ready, was cordoned, or rebooted. Everything it was running is being rescheduled — expect correlated workload alerts and treat this one as the cause.")
+
+  (dict "name" "sre-node-resource-pressure" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Node under resource pressure"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('NodeHasDiskPressure', 'NodeHasInsufficientMemory', 'NodeHasInsufficientPID', 'FreeDiskSpaceFailed', 'ImageGCFailed')" $ev)
+   "message" "A node is short of disk, memory or PIDs. Evictions follow if it is not relieved. NOTE: this catches the kubelet's pressure TRANSITIONS, not a utilisation percentage — a true saturation threshold needs the metric support this catalogue's header describes.")
+
+  (dict "name" "sre-node-preempted" "tier" "core" "interval" "5m" "threshold" 0
+   "title" "Node preempted or scheduled for termination"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('Preempting', 'Preempted', 'TerminationScheduled')" $ev)
+   "message" "A spot/preemptible node is being reclaimed by the cloud provider. Expected on preemptible pools — alarming on a pool that is supposed to be on-demand, which is exactly the misconfiguration worth catching.")
+
+  (dict "name" "sre-loadbalancer-failure" "tier" "core" "interval" "15m" "threshold" 0
+   "title" "LoadBalancer reconciliation failing"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('SyncLoadBalancerFailed', 'CreatingLoadBalancerFailed', 'DeleteLoadBalancerFailed')" $ev)
+   "message" "The cloud controller cannot create, update or delete a LoadBalancer. A failing DELETE is the expensive one — it leaks a billed cloud resource that no longer appears in the cluster.")
+
+  (dict "name" "sre-telemetry-pipeline-stalled" "tier" "core" "interval" "15m" "threshold" 100 "thresholdType" "below"
+   "title" "Telemetry pipeline stalled"
+   "where" ""
+   "message" "Almost no logs reached the store in the last window. This is a DEAD-MAN'S SWITCH: it fires on the ABSENCE of data, which is the one failure every other alert here is blind to — a broken collector makes the whole catalogue go quiet and look healthy."
+   )
+
+  (dict "name" "sre-krateo-composition-reconcile-error" "tier" "core" "interval" "15m" "threshold" 2
+   "title" "Krateo — composition reconcile errors"
+   "where" (printf "(positionCaseInsensitive(Body, 'Reconciler error') > 0 OR JSONExtractString(Body, 'object', 'reason') = 'CannotObserveExternalResource') AND %s" $lg)
+   "message" "Compositions are failing to reconcile. The composition may still report Ready — Ready means the chart rendered and applied, not that its children are healthy — so trust this over the status pill.")
+
+  (dict "name" "sre-krateo-provider-connection-failure" "tier" "core" "interval" "15m" "threshold" 10
+   "title" "Krateo — provider cannot reach its target"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') = 'CannotConnectToProvider'" $ev)
+   "message" "A Krateo provider cannot reach the system it manages — expired credentials, a rotated token, or the endpoint being unreachable. Everything that provider manages is frozen while this lasts.")
+
+  (dict "name" "sre-app-panic" "tier" "core" "interval" "15m" "threshold" 0
+   "title" "Application panic or unhandled traceback"
+   "where" (printf "%s AND (position(Body, 'panic: ') > 0 OR position(Body, 'Traceback (most recent call last)') > 0 OR position(Body, 'Unhandled exception') > 0)" $lg)
+   "message" "A process crashed on an unhandled error. Distinct from the crash-loop alert: this catches the FIRST crash and names the failing code, before kubelet backoff makes it visible as a restart loop.")
+
+  (dict "name" "sre-app-out-of-memory" "tier" "core" "interval" "15m" "threshold" 0
+   "title" "Out-of-memory reported by an application"
+   "where" (printf "%s AND (positionCaseInsensitive(Body, 'out of memory') > 0 OR position(Body, 'OutOfMemoryError') > 0 OR positionCaseInsensitive(Body, 'cannot allocate memory') > 0)" $lg)
+   "message" "A runtime reported memory exhaustion itself — a JVM heap error, a Go allocation failure, a malloc refusal. Complements the OOMKilled alert, which only sees kills the KERNEL performed.")
+
+  (dict "name" "sre-certificate-expiry-warning" "tier" "core" "interval" "1h" "threshold" 0
+   "title" "Certificate expiry or TLS verification failure"
+   "where" (printf "%s AND ((positionCaseInsensitive(Body, 'certificate') > 0 AND (positionCaseInsensitive(Body, 'expir') > 0 OR positionCaseInsensitive(Body, 'has expired') > 0)) OR positionCaseInsensitive(Body, 'x509: certificate') > 0)" $lg)
+   "message" "Something reported an expiring, expired or unverifiable certificate. Caught from LOG LINES, so it fires when a client already failed — expiry measured in days remaining needs the metric support described in this file's header.")
+
+  (dict "name" "sre-rbac-denied-burst" "tier" "extended" "interval" "15m" "threshold" 20
+   "title" "Authorization failures elevated"
+   "where" (printf "%s AND (positionCaseInsensitive(Body, 'is forbidden: user') > 0 OR positionCaseInsensitive(Body, 'permission denied') > 0 OR position(Body, 'AccessDenied') > 0)" $lg)
+   "message" "A burst of authorization refusals. Either a ServiceAccount lost a binding it needs — a controller silently stops working this way — or something is probing for access it should not have.")
+
+  (dict "name" "sre-upstream-timeouts" "tier" "extended" "interval" "15m" "threshold" 50
+   "title" "Upstream timeouts elevated"
+   "where" (printf "%s AND (position(Body, 'context deadline exceeded') > 0 OR positionCaseInsensitive(Body, 'i/o timeout') > 0 OR positionCaseInsensitive(Body, 'connection refused') > 0)" $lg)
+   "message" "Calls between services are timing out or being refused. Baseline-relative by nature: a healthy cluster has a non-zero rate, so retune the threshold to this cluster rather than trusting the default.")
+
+  (dict "name" "sre-volume-resize-issue" "tier" "extended" "interval" "1h" "threshold" 0
+   "title" "Volume resize pending or failed"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') IN ('FileSystemResizeRequired', 'VolumeResizeFailed', 'ExternalExpanding')" $ev)
+   "message" "A volume expansion is stuck or needs a pod restart to complete the filesystem resize. Usually benign, occasionally the reason a disk-full condition never actually clears.")
+
+  (dict "name" "sre-krateo-external-resource-failure" "tier" "extended" "interval" "15m" "threshold" 200
+   "title" "Krateo — external resource operations failing"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'reason') LIKE 'Cannot%%ExternalResource'" $ev)
+   "message" "Providers are failing to observe, create, update or delete the resources they manage. DELIBERATELY BLUNT and extended-tier: on a busy platform this reason has a high steady baseline, so the default threshold means `far above normal`, not `any failure`. Retune it to this cluster's own baseline.")
+
+  (dict "name" "sre-kubernetes-warning-burst" "tier" "extended" "interval" "15m" "threshold" 100
+   "title" "Kubernetes warning events elevated"
+   "where" (printf "%s AND JSONExtractString(Body, 'object', 'type') = 'Warning'" $ev)
+   "message" "A catch-all safety net: warning events across the cluster are far above normal. It names nothing specific by design — it exists to catch the failure modes this catalogue does NOT have a named alert for, which is the whole point of having one.")
+
+}}
+
+{{- range $entry := $catalogue }}
+{{- if include "portal.alertEnabled" (dict "ctx" $ "entry" $entry) }}
+---
+apiVersion: observability.krateo.io/v1alpha1
+kind: Alert
+metadata:
+  name: {{ $entry.name }}
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/part-of: krateo-portal
+    observability.krateo.io/catalogue: sre
+    observability.krateo.io/tier: {{ $entry.tier }}
+spec:
+  displayName: {{ $entry.title | quote }}
+  where: {{ $entry.where | quote }}
+  interval: {{ $entry.interval | quote }}
+  threshold: {{ include "portal.alertThreshold" (dict "ctx" $ "entry" $entry) }}
+  thresholdType: {{ default "above" $entry.thresholdType }}
+  message: {{ $entry.message | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
