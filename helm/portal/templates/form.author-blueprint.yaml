@@ -23,7 +23,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* Same RA as compose-page: it resolves the BuilderPublish GVR at serve time, so the form
+  {{/* Uses restaction.page-composable: it resolves the BuilderPublish GVR at serve time, so the form
        does not hardcode a served version that a composition bump would invalidate. */}}
   apiRef:
     name: page-composable
@@ -73,7 +73,7 @@ spec:
                                base: (if (($f.__target_base__ // "") | length) > 0
                                       then $f.__target_base__ else "main" end) },
                      filesBundle: $f.filesBundle }
-                 {{/* `source` is OMITTED rather than sent empty, exactly as in compose-page: a
+                 {{/* `source` is OMITTED rather than sent empty: a
                       null fails the CRD (the property is type: object) and an empty url renders a
                       Repo CR pointing nowhere. Merged in only when a template URL was typed. */}}
                  | . + (if (($f.__source_url__ // "") | length) > 0
