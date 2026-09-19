@@ -29,16 +29,22 @@ spec:
     items:
     - resourceRefId: portal-builder-page-header
     - resourceRefId: portal-builder-ask-cta
-    {{/* CHART-P2: composing a page is now a control on this page, not only a rail conversation —
-         which is what lets Autopilot DRIVE it (A1) instead of writing widget CRs itself. */}}
-    {{/* The composer FIRST: it is the path that can build a real page — nesting, layout, and a
-         table bound to live data — where the two forms below can only emit a flat page of
-         existing widgets with static data. The forms stay because they still work and because
-         retiring a working surface is its own decision, not a side effect of adding a better one. */}}
+    {{/* ONE WAY TO BUILD, and this is it. The page used to offer three tiles that looked alike:
+         the composer, plus `author-widget` and `compose-page` — two Forms. They were kept on the
+         grounds that retiring a working surface is its own decision rather than a side effect of
+         adding a better one. This IS that decision.
+
+         What the Forms could produce was the problem. A Form cannot express a tree and
+         `SchemaFields` has no repeatable-row control, so both could only emit a FLAT page of
+         widgets with STATIC widgetData — no Rows, Cols or Tabs, no `apiRef`, no
+         `widgetDataTemplate`. That is half the corpus: 212 of 425 shipped widget templates compute
+         their data server-side. restaction.page-composable predicted the outcome in its own header
+         — "an editor that authors NEW widgets from static widgetData can only produce the trivial
+         ones — it would look finished and ship pages nobody wants."
+
+         Three peer-looking tiles with no hint which one disappoints is worse than one that works.
+         The composer does nesting, layout and live data binding, so it is now the only path. */}}
     - resourceRefId: compose-in-ui-card
-    {{/* Author first, then compose: the composer can only place widgets that exist. */}}
-    - resourceRefId: author-widget-card
-    - resourceRefId: compose-page-card
     - resourceRefId: preview-drafts
     - resourceRefId: builder-prs
   resourcesRefs:
@@ -58,18 +64,6 @@ spec:
     - id: compose-in-ui-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: compose-in-ui-card
-      namespace: {{ .Release.Namespace }}
-      resource: cards
-      verb: GET
-    - id: author-widget-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: author-widget-card
-      namespace: {{ .Release.Namespace }}
-      resource: cards
-      verb: GET
-    - id: compose-page-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compose-page-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
