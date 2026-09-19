@@ -73,7 +73,11 @@ spec:
     {{- end }}
   org: {{ $t.namespace | quote }}      # same field the LocalResource URL is built from
   name: {{ $t.repo | quote }}
-  private: {{ .Values.repository.private }}
+  # PER-CLAIM WINS, install default is the fallback. `target.visibility` is what the publish form
+  # asks the person; `repository.private` is what a claim that says nothing gets. Compared against
+  # the string rather than coerced, so an empty/absent value falls through to the default instead of
+  # reading as false — which would silently make every visibility-less publish public.
+  private: {{ if .Values.target.visibility }}{{ eq .Values.target.visibility "private" }}{{ else }}{{ .Values.repository.private }}{{ end }}
   # LOAD-BEARING, do not default this to false. A repository created without an initial commit has
   # no default branch, so `cloneFromBranch` in localresources.yaml has nothing to clone and every
   # file in the publish fails. It is also what makes the readiness gate below meaningful: the gate
