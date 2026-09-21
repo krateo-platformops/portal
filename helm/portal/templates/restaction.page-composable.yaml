@@ -18,15 +18,20 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-{{- range $kind := list "cards" "tables" "listies" "linecharts" "statistics" "paragraphs" "markdowns" }}
-    - name: {{ $kind }}
-      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ $.Release.Namespace }}/{{ $kind }}
-      verb: GET
-      headers:
-        - 'Accept: application/json'
-      continueOnError: true
-      errorKey: {{ $kind }}Error
-{{- end }}
+    {{/* IT NO LONGER LISTS WIDGETS. Seven collection GETs used to run here on every serve, one per
+         hand-written kind, to give the page composer's palette its placeable widgets. That list was
+         the problem rather than the mechanism: forty-four widget kinds exist, this named seven, and
+         the two artifacts failed silently apart — a kind missing from this file was simply absent
+         from the palette, with no error anywhere in the UI.
+
+         frontend 1.6.35 reads snowplow's `/list?category=widgets` instead, which discovers the GVRs
+         server-side and lists each under the CALLER'S own client. Every widget CRD declares
+         `categories: [widgets, krateo]`, so one request returns everything the user may see with no
+         hand-maintained list on either side.
+
+         THE RESTACTION STAYS, because it has a second consumer that has nothing to do with widgets:
+         form.author-blueprint resolves the BuilderPublish GVR through it. Deleting the object would
+         have broken that form — which is why this removes the seven steps and keeps the one. */}}
     {{/* The page-root Flex is published as a widget CR too, so the composer needs the same
          BuilderPublish GVR the KOG builder discovers — and for the same reason: the CRD's served
          version tracks the portal chart version, so a literal would break on the next release. */}}
@@ -39,12 +44,4 @@ spec:
       errorKey: bpError
   filter: >
     { bpApiVersion: (.bp.status.apiVersion // ""),
-      bpResource:   (.bp.status.resource // "builderpublishes"),
-      widgets: ( [ ({ cards: "cards", tables: "tables", listies: "listies",
-                      linecharts: "linecharts", statistics: "statistics",
-                      paragraphs: "paragraphs", markdowns: "markdowns" }
-                    | to_entries[]) as $k
-                  | ((.[$k.key].items // [])[] | { id: ($k.value + "/" + .metadata.name),
-                                                   name: .metadata.name,
-                                                   resource: $k.value }) ]
-                | sort_by(.id) ) }
+      bpResource:   (.bp.status.resource // "builderpublishes") }
