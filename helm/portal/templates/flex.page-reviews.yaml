@@ -1,0 +1,47 @@
+{{/* Convention page root for /reviews — the nightly platform review's output. */}}
+{{/* */}}
+{{/* THIS PAGE IS THE DELIVERY SURFACE, NOT A DASHBOARD. The review opens pull requests across */}}
+{{/* several repositories; without one place that lists them, the proposals scatter and rot unread, */}}
+{{/* and a review loop nobody reads is a review loop that has quietly stopped mattering. Everything */}}
+{{/* here is a suggestion — the page applies nothing and offers no approve action in this release, */}}
+{{/* deliberately: approving from the portal would mean the portal holding pull-request merge */}}
+{{/* authority, which is a far larger grant than rendering, and it deserves its own decision. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-reviews
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/nav-group": "Observability"
+    "krateo.io/nav-icon": "fa-clipboard-check"
+    "krateo.io/nav-label": "Platform review"
+    "krateo.io/nav-order": "14"
+    "krateo.io/nav-path": "/reviews"
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - flexes
+    - tables
+    - listies
+    - rows
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: reviews-page-header
+    - resourceRefId: platform-proposals
+  resourcesRefs:
+    items:
+    - id: reviews-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-page-header
+      namespace: {{ .Release.Namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: platform-proposals
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: platform-proposals
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
