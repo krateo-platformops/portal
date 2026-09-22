@@ -19,16 +19,16 @@ spec:
   widgetData:
     {{/* #84: the CTA rides in a right-aligned wrapper Flex (§0.1) and the PR feed is a Table */}}
     {{/* (§0.2, was a Listy) — so the page renders flexes (header + cta wrapper) and tables (builder-prs). */}}
+    {{/* `flexes` and `tables` go with the children that used them: the ask-CTA wrapper Flex is */}}
+    {{/* retired (PageHeader right-aligns its own action) and both Tables now live inside Cards, */}}
+    {{/* because a Table cannot render a heading of its own. */}}
     allowedResources:
     - pageheaders
-    - flexes
-    - tables
     - cards
     vertical: true
     gap: middle
     items:
     - resourceRefId: portal-builder-page-header
-    - resourceRefId: portal-builder-ask-cta
     {{/* ONE WAY TO BUILD, and this is it. The page used to offer three tiles that looked alike:
          the composer, plus `author-widget` and `compose-page` — two Forms. They were kept on the
          grounds that retiring a working surface is its own decision rather than a side effect of
@@ -44,9 +44,9 @@ spec:
 
          Three peer-looking tiles with no hint which one disappoints is worse than one that works.
          The composer does nesting, layout and live data binding, so it is now the only path. */}}
-    - resourceRefId: compose-in-ui-card
-    - resourceRefId: preview-drafts
-    - resourceRefId: builder-prs
+    - resourceRefId: how-a-page-gets-built-card
+    - resourceRefId: your-drafts-card
+    - resourceRefId: builder-change-requests-card
   resourcesRefs:
     items:
     - id: portal-builder-page-header
@@ -55,27 +55,21 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
       verb: GET
-    - id: portal-builder-ask-cta
+    - id: how-a-page-gets-built-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: portal-builder-ask-cta
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
-      verb: GET
-    - id: compose-in-ui-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compose-in-ui-card
+      name: how-a-page-gets-built-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
-    - id: preview-drafts
+    - id: your-drafts-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: preview-drafts
+      name: your-drafts-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET
-    - id: builder-prs
+    - id: builder-change-requests-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: builder-prs
+      name: builder-change-requests-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET

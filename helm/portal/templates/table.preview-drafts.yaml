@@ -10,18 +10,30 @@ spec:
     name: preview-drafts
     namespace: {{ .Release.Namespace }}
   widgetData:
-    prefix: IN PROGRESS
-    title: Drafts you have previewed
-    description: Previews are kept, not discarded. Pick one up where you left it — closing the tab does not lose it.
+    {{/* NO title, description OR prefix HERE, and their absence is the fix rather than a loss. */}}
+    {{/* The Table CRD declares ten widgetData properties — allowedResources, bordered, columns, */}}
+    {{/* dataSource, fitContent, pagination, prefix, rowNavigateTo, size, watch — with no */}}
+    {{/* preserve-unknown, so `title` and `description` were PRUNED by the apiserver and never */}}
+    {{/* reached a browser. The section rendered as a bare grid reading "proof-a 3 4h": telemetry, */}}
+    {{/* to anyone who had not written it. They live in card.your-drafts now, where they render. */}}
+    {{/*                                                                                          */}}
+    {{/* `prefix` was not a label either: Table passes it to getFilteredData, which looks for a */}}
+    {{/* registered Filters widget named "IN PROGRESS", finds none, and returns the rows */}}
+    {{/* unchanged. Inert, and it read like a heading in the source. */}}
     allowedResources: []
-    rowNavigateTo: "/portal-builder?resume={slug}"
+    {{/* NO rowNavigateTo. It pointed at ?resume={slug}, and nothing consumes that param — */}}
+    {{/* resumePreviewDraft.ts is imported by no one, so the click navigated the page to itself */}}
+    {{/* and opened nothing. Even wired, the destination was wrong twice: on this route the */}}
+    {{/* payload opens the Autopilot drawer rather than the composer, and it carries no `files`, */}}
+    {{/* so a resumed draft would render live and be uneditable and unpublishable. A row that */}}
+    {{/* silently does nothing is worse than a row that is plainly a list; the Card says so. */}}
     columns:
       - valueKey: slug
         title: Page
       - valueKey: widgets
         title: Widgets
       - valueKey: created
-        title: Started
+        title: Last previewed
   widgetDataTemplate:
     - forPath: dataSource
       expression: '${ [ (.items // [])[] | [ {valueKey:"slug",kind:"jsonSchemaType",type:"string",stringValue:(.slug // "")}, {valueKey:"widgets",kind:"jsonSchemaType",type:"string",stringValue:((.widgets // 0) | tostring)}, {valueKey:"created",kind:"jsonSchemaType",type:"string",stringValue:(.created // ""),format:"relative"} ] ] }'

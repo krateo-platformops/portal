@@ -1,0 +1,35 @@
+{{/* A Table cannot render a heading — the CRD has no title field and Listy's header/footer have */}}
+{{/* no equivalent here — so a Table that needs to say what it is must be wrapped. That is the   */}}
+{{/* whole reason this Card exists; it is structure, not decoration.                             */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: builder-change-requests-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Change requests from the builders
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - paragraphs
+      - tables
+    items:
+      - resourceRefId: builder-change-requests-note
+      - resourceRefId: builder-prs
+  resourcesRefs:
+    items:
+      - id: builder-change-requests-note
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: builder-change-requests-note
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: builder-prs
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: builder-prs
+        namespace: {{ .Release.Namespace }}
+        resource: tables
+        verb: GET

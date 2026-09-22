@@ -1,0 +1,36 @@
+{{/* The frame the Steps live in. A Card, because a Steps has no heading of its own and a section */}}
+{{/* without one is a section a reader has to infer. Its extra slot carries the SECONDARY route — */}}
+{{/* see button.portal-builder-ask: Autopilot is an entrance to this same composer, not a rival   */}}
+{{/* door, so it sits inside the explanation of what the composer does rather than beside it.     */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: how-a-page-gets-built-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: How a page gets built
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: portal-builder-ask
+    allowedResources:
+      - steps
+      - buttons
+    items:
+      - resourceRefId: how-a-page-gets-built
+  resourcesRefs:
+    items:
+      - id: how-a-page-gets-built
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: how-a-page-gets-built
+        namespace: {{ .Release.Namespace }}
+        resource: steps
+        verb: GET
+      - id: portal-builder-ask
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: portal-builder-ask
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
