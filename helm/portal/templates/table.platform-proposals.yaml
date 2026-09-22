@@ -1,0 +1,52 @@
+{{/* The nightly review's proposals, from restaction.platform-reviews. */}}
+{{/* */}}
+{{/* EVIDENCE SITS NEXT TO CONFIDENCE ON PURPOSE. Every row here was written by a model, so the */}}
+{{/* confidence word is the least trustworthy thing on it — it is the model's own claim about its own */}}
+{{/* work. The observation count is not: it comes from the queries the service ran. Putting them side */}}
+{{/* by side lets a reader see "high, 1 observation" for what it is, and that pairing is the entire */}}
+{{/* reason this is a table rather than a list of titles. */}}
+{{/* */}}
+{{/* Sorted undecided-first, then by weight of evidence — the ordering a triager actually wants, */}}
+{{/* rather than newest-first which buries a well-grounded proposal under last night's noise. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: platform-proposals
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 10
+    columns:
+    - valueKey: kind
+      title: Kind
+    - valueKey: title
+      title: Proposal
+      minWidth: 320
+    - valueKey: evidence
+      title: Evidence
+      minWidth: 130
+    - valueKey: confidence
+      title: Confidence
+      minWidth: 110
+    - valueKey: phase
+      title: Status
+      minWidth: 110
+    - valueKey: repo
+      title: Target
+      minWidth: 200
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"kind",kind:"tag",stringValue:(.kind // "-"),color:((.kind // "") | if . == "Alert" then "red" elif . == "Widget" then "blue" elif . == "Prompt" then "purple" elif . == "Policy" then "orange" else "gray" end)}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"evidence",kind:"jsonSchemaType",type:"string",stringValue:(((.evidence // 0)|tostring) + " src · " + ((.observed // 0)|tostring) + " seen"),color:(if (.observed // 0) < 2 then "#d4380d" else "#8c8c8c" end)}, {valueKey:"confidence",kind:"tag",stringValue:(.confidence // "low"),color:((.confidence // "low") | if . == "high" then "green" elif . == "medium" then "blue" else "gray" end)}, {valueKey:"phase",kind:"tag",stringValue:(.phase // "Proposed"),color:((.phase // "Proposed") | if . == "Merged" then "green" elif . == "Rejected" then "gray" elif . == "PrOpen" then "blue" elif . == "Failed" then "red" else "orange" end)}, {valueKey:"repo",kind:"jsonSchemaType",type:"string",stringValue:(.repo // "-"),color:"#8c8c8c"} ] ] }'
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

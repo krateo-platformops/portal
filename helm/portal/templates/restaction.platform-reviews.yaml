@@ -1,0 +1,71 @@
+{{/* Lists the Proposal CRs (review.krateo.io) produced by the nightly platform review, plus the most */}}
+{{/* recent ReviewRun for context. Same per-user apiserver path pattern as obs-alerts. */}}
+{{/* */}}
+{{/* THE EVIDENCE COUNT IS A COLUMN, NOT A DETAIL. These rows are machine-authored suggestions, and */}}
+{{/* the only question that matters when triaging one is what it rests on. A proposal carrying a */}}
+{{/* single observation and one carrying three hundred look identical if the table shows only a title */}}
+{{/* and a confidence word — and the confidence word is the least trustworthy thing on the row, since */}}
+{{/* the model wrote it. So the count is surfaced beside it and the two can be compared at a glance. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: platform-reviews
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: proposals
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/proposals
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: review.krateo.io
+        resource: proposals
+        namespaceFrom: .metadata.namespace
+      {{/* continueOnError so the page renders before the component is installed: a fresh cluster has */}}
+      {{/* no review.krateo.io CRDs at all, and a 404 here must degrade to an empty table with a */}}
+      {{/* message rather than a broken page. */}}
+      continueOnError: true
+      errorKey: proposalsError
+    - name: runs
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/reviewruns
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: review.krateo.io
+        resource: reviewruns
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: runsError
+  filter: >
+    {
+      rows: [ ((.proposals.items) // [])[]
+              | {
+                  routeNs:   (.metadata.namespace // ""),
+                  routeName: (.metadata.name // ""),
+                  kind:      (.spec.kind // "-"),
+                  title:     (.spec.title // .metadata.name // ""),
+                  confidence:(.spec.confidence // "low"),
+                  evidence:  ((.spec.evidence // []) | length),
+                  observed:  ([ ((.spec.evidence // [])[] | (.observedCount // 0)) ] | add // 0),
+                  repo:      ((.spec.target.repo) // "-"),
+                  phase:     ((.status.phase) // "Proposed"),
+                  pr:        ((.status.pullRequest.url) // "")
+                } ]
+              | sort_by(.phase == "Merged", .phase == "Rejected", -(.observed)),
+      {{/* Open means UNDECIDED — Proposed or PrOpen. It is the only number on the page anyone acts */}}
+      {{/* on, so it is computed here rather than left to a reader counting rows. */}}
+      open: ([ ((.proposals.items) // [])[]
+               | select(((.status.phase) // "Proposed") as $p | $p == "Proposed" or $p == "PrOpen") ] | length),
+      lastRun: ( [ ((.runs.items) // [])[] ]
+                 | sort_by(.status.startedAt // "") | last
+                 | if . == null then "no review has run yet"
+                   else ((.status.phase // "?") + " · " + ((.status.proposals.created // 0)|tostring)
+                         + " proposed · " + (.status.startedAt // "?"))
+                   end )
+    }
