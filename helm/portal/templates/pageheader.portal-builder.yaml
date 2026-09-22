@@ -15,11 +15,39 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* THE COUNTER READS THE DRAFTS FEED. The same RESTAction the drafts table below uses, so the */}}
+  {{/* header can say how much unfinished work is waiting before anyone scrolls to find it. */}}
+  apiRef:
+    name: preview-drafts
+    namespace: {{ .Release.Namespace }}
+  widgetDataTemplate:
+    - forPath: counter
+      expression: ${ .items | length }
   widgetData:
     title: Portal Builder
+    {{/* NAMES THE MEDIUM, THE GUARANTEE, THE OUTPUT AND THE GATE. The old subtitle opened "Ask */}}
+    {{/* Autopilot to build a new page, blueprint, or API mapping" and never mentioned the */}}
+    {{/* composer, widgets or layout — on a page whose own decision record says the composer is */}}
+    {{/* the only path, and which links only to the PAGE composer while blueprints and API */}}
+    {{/* mappings have builders of their own. */}}
     subtitle: >-
-      Ask Autopilot to build a new page, blueprint, or API mapping. It previews the draft live, then
-      opens a gated change request — a pull request or merge request, depending on your git host —
-      in the platform's git repos. Your in-flight builder change requests are listed below.
+      Build a page for this portal out of the widget catalogue — layout, widgets, and the
+      RESTActions that feed them. Preview it against your own cluster, with your own permissions,
+      then publish the whole set as one change request. Nothing appears in this portal until that
+      change request is merged.
+    counterLabel: drafts in progress
+    {{/* ONE action, right-aligned in the title row. PageHeader affords exactly one and says so, */}}
+    {{/* which is why flex.portal-builder-ask-cta — a wrapper whose only job was justify:flex-end */}}
+    {{/* — is retired: it rebuilt one level down the affordance this widget exists to provide. */}}
+    allowedResources:
+      - buttons
+    items:
+      - resourceRefId: portal-builder-compose
   resourcesRefs:
-    items: []
+    items:
+      - id: portal-builder-compose
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: portal-builder-compose
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
