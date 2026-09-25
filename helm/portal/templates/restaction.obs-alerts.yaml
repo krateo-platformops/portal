@@ -21,22 +21,21 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: alertsError
-    {{/* The investigations these alerts produced. Read here rather than on the detail page because */}}
-    {{/* the LIST is where "did this alert ever actually do anything" goes unanswered: the table shows */}}
-    {{/* configuration (what it watches, its threshold) and never outcome. A report that reached */}}
-    {{/* phase=Ready having produced nothing is invisible from this page today. */}}
-    - name: reports
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
+    {{/* The incidents these alerts opened, read here because the table shows configuration (what */}}
+    {{/* an alert watches, its threshold) and never outcome: an analysis that failed or produced */}}
+    {{/* nothing is otherwise invisible from this page. */}}
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/incidents
       verb: GET
       headers:
         - 'Accept: application/json'
       userAccessFilter:
         verb: list
         group: observability.krateo.io
-        resource: troubleshootingreports
+        resource: incidents
         namespaceFrom: .metadata.namespace
       continueOnError: true
-      errorKey: reportsError
+      errorKey: incidentsError
   filter: >
     { rows: [ ((.alerts.items) // [])[] | {
         name: (.spec.displayName // .metadata.name // ""),
@@ -62,14 +61,16 @@ spec:
       # looking exactly like a working one — same columns, same quiet OK-ish blank — so the only
       # place this can be seen is a count.
       synced: ([ ((.alerts.items) // [])[] | select(((.status.hyperdxAlertId) // "") != "") ] | length),
-      # Outcome, which the table has never shown. A report whose text is a provider dump, or which
-      # has no text at all, did not produce an analysis — and both of those happened on krateo-057
-      # while every surface upstream read as healthy.
-      reportsTotal: ([ ((.reports.items) // [])[] ] | length),
-      reportsBarren: ([ ((.reports.items) // [])[]
+      # Outcome: an incident whose analysis failed (status.error, or a provider dump as its report)
+      # or finished with neither a root cause nor a report produced nothing.
+      incidentsTotal: ([ ((.incidents.items) // [])[] ] | length),
+      incidentsBarren: ([ ((.incidents.items) // [])[]
+          | select((.status.state // "Analyzing") != "Analyzing")
           | ((.status.report // "") | if type == "string" then . else "" end) as $t
-          | select( ($t == "") or ($t | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")) ) ] | length),
-      reportsReadable: ((.reportsError // null) == null),
+          | select( ((.status.error // "") != "")
+                    or ($t | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum"))
+                    or (($t == "") and ((.status.rootCause.statement // "") == "")) ) ] | length),
+      incidentsReadable: ((.incidentsError // null) == null),
       # Always-visible "author with Autopilot" CTA for listy.alerts-hint (was empty-state-only, and
       # had no ask link — this replaces the separate "Ask Autopilot" button). askHref opens the rail
       # seeded with the alert-authoring flow; copy reworded off "your first".

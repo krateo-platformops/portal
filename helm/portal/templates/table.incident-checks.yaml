@@ -1,0 +1,37 @@
+{{/* Check history: every script run the controller recorded (status.checks — precondition and */}}
+{{/* verify runs, and the apply an "I applied it" click records), plus how the incident ended */}}
+{{/* (status.resolution), newest first. The controller keeps the last 20 checks. Rows are inert. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-checks
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of a horizontal scrollbar. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: when
+      title: When
+    - valueKey: script
+      title: Script
+    - valueKey: exit
+      title: Exit
+    - valueKey: outcome
+      title: Result
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.checkRows // [])[] | [ {valueKey:"when",kind:"jsonSchemaType",type:"string",stringValue:(.when // ""),format:"relative"}, {valueKey:"script",kind:"jsonSchemaType",type:"string",stringValue:(.script // "")}, {valueKey:"exit",kind:"jsonSchemaType",type:"string",stringValue:(.exit // "—")}, {valueKey:"outcome",kind:"jsonSchemaType",type:"string",stringValue:(.outcome // ""),color:(.color // "#8c8c8c")} ] ] }'
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

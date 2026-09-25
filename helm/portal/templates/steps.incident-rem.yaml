@@ -1,10 +1,9 @@
-{{/* REMEDIATION STEPS navigator — antd Steps (vertical, small) showing ALL plan steps with */}}
-{{/* sequential status computed server-side: */}}
-{{/* · finish  — already applied; resourceRefId → Flex with markdown receipt (no button) */}}
-{{/* · process — the current step; resourceRefId → Flex with markdown + "Review & apply" button */}}
-{{/* · wait    — future steps (locked); no resourceRefId — only title/status shows inline */}}
-{{/* The Steps widget renders each step's referenced Flex widget inside the step itself, so the */}}
-{{/* action button lives within the step rather than below the entire navigator. */}}
+{{/* HOW TO FIX — the incident's three scripts (status.howToFix) as antd Steps: precondition, */}}
+{{/* apply, verify. Each step carries its last run from status.checks (subTitle) and a status: */}}
+{{/* · precondition / verify: finish on exit 0, error on exit 1 (or a flagged precondition), */}}
+{{/*   process while it is the running check, wait otherwise; */}}
+{{/* · apply: process while the incident is Open (a human's turn), finish once applied. */}}
+{{/* Every step embeds its Flex (the script, copyable; only apply adds "I applied it"). */}}
 kind: Steps
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -24,19 +23,12 @@ spec:
     items: []
   widgetDataTemplate:
     - forPath: current
-      expression: '${ .remCurrentStep // 0 }'
-    {{/* resourceRefId added to applied steps (receipt) and the current step (button). */}}
-    {{/* Future steps (index > remCurrentStep) show only title+status — no inline widget. */}}
+      expression: '${ .fixCurrent // 0 }'
     - forPath: items
-      expression: >-
-        ${ (.remCurrentStep // 0) as $cur
-        | (.remStepsForWidget // [])
-        | to_entries
-        | map(.value + (if .key <= $cur then { resourceRefId: ("incident-rem-step-" + (.key | tostring)) } else {} end))
-        }
+      expression: '${ .fixStepsForWidget // [] }'
   resourcesRefs:
     items:
-    {{- range $i := until 6 }}
+    {{- range $i := until 3 }}
     - id: incident-rem-step-{{ $i }}
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-rem-step-{{ $i }}

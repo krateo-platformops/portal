@@ -1,0 +1,50 @@
+{{/* The incident page's reference material, one tab open at a time so the page stays short: */}}
+{{/* Involved resources (always), Check history (once a check ran) and Similar incidents (when */}}
+{{/* there are any), gated on incident-detail's sections. */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-tabs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - flexes
+    - tables
+    - listies
+    items:
+    - label: Involved resources
+      resourceRefId: incident-detail-manifests-flex
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.sections // {}) as $s
+        | [ { label: "Involved resources", resourceRefId: "incident-detail-manifests-flex" } ]
+        + (if ($s.checks // false) then [ { label: (.checksLabel // "Check history"), resourceRefId: "incident-checks" } ] else [] end)
+        + (if ($s.similar // false) then [ { label: "Similar incidents", resourceRefId: "incident-similar" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: incident-detail-manifests-flex
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-manifests-flex
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: incident-checks
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-checks
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
+    - id: incident-similar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-similar
+      namespace: {{ .Release.Namespace }}
+      resource: listies
+      verb: GET

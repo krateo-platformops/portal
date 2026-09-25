@@ -73,10 +73,10 @@ spec:
         resource: kubernetestargets
         namespaceFrom: .metadata.namespace
       filter: '[.clusters.items[]? | {name: .metadata.name, ns: .metadata.namespace}]'
-    {{/* incidents — TroubleshootingReports (observability), namespaced in the release namespace */}}
-    {{/* (mirrors incidents-list). Searchable title = the rootCause one-liner with honest fallbacks. */}}
+    {{/* incidents — Incidents (observability), in the release namespace (mirrors incidents-list). */}}
+    {{/* Searchable title = the root cause, else the alert name, else the incident name. */}}
     - name: incidents
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/incidents
       verb: GET
       continueOnError: true
       errorKey: incidentsError
@@ -85,7 +85,7 @@ spec:
           name: .metadata.name,
           ns: "{{ .Release.Namespace }}",
           title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
-                  elif (.spec.alertName // "") != "" then ("Investigation — " + .spec.alertName)
+                  elif ((.metadata.labels // {})["observability.krateo.io/alert"] // "") != "" then ("Incident — " + .metadata.labels["observability.krateo.io/alert"])
                   else (.metadata.name // "") end)
         }]
   {{/* Merge both sources into one result list, then filter by the `q` extra */}}

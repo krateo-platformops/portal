@@ -1,0 +1,24 @@
+{{/* A failed root-cause analysis: the incident stays Open with status.error set and no scripts. */}}
+{{/* The page shows the error here, verbatim, and Close stays available. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-error
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: The analysis failed
+    type: error
+    showIcon: true
+    description: ''
+  widgetDataTemplate:
+  - forPath: description
+    expression: '${ (.errorText // "") + " — no fix was proposed. Close the incident; if the alert still fires, the next firing opens a new one with a fresh analysis." }'
+  resourcesRefs:
+    items: []
