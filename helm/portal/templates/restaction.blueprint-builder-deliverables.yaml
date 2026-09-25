@@ -12,6 +12,24 @@
 {{/* the table's rowNavigateTo into the blueprint detail page (the linkable deliverable), while the */}}
 {{/* PR number + html_url ride along so the table can surface the opened PR (a "#N" cell). */}}
 {{/* */}}
+{{/* THE REGISTER STEP. A merged blueprint is not yet installable: somebody has to create its */}}
+{{/* CompositionDefinition, and that is a person's decision, taken after the release is green — */}}
+{{/* possibly days after the merge. So a row whose change request is merged and which has no */}}
+{{/* CompositionDefinition says "Merged", its Next step cell says "Register", and the row opens */}}
+{{/* /marketplace/<chart>/install: the existing install Form, which the builder publish pre-fills */}}
+{{/* (restaction.blueprint-install-formdef) and which POSTs as the caller. The Table cannot carry */}}
+{{/* an action in a row (Table.tsx has rowNavigateTo only), so the row IS the control and the */}}
+{{/* cell says what it does. */}}
+{{/* */}}
+{{/* "MERGED" NEEDS EVIDENCE, and today there is none: the PullRequest CR's status is exactly */}}
+{{/* conditions/html_url/number/state (github-provider-kog 0.3.1), so .status.merged is always */}}
+{{/* absent and a merged PR reads as state=closed. Guessing would call a rejected change merged. */}}
+{{/* So a closed PR whose provider does not REPORT merged says "Closed", and its Next step says */}}
+{{/* "Register if merged" — the row still opens the Register form, the person checks the PR, and */}}
+{{/* nothing claims a merge that nothing observed. When the provider reports `merged`, the same */}}
+{{/* row becomes "Merged" / "Register" on its own, and a closed-unmerged one becomes a plain */}}
+{{/* "Closed" that links back to its PR. */}}
+{{/* */}}
 {{/* NEEDS snowplow >= 1.4.0 for the external helm-index YAML fetch (external_fetch.go YAML->JSON). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
@@ -41,7 +59,10 @@ spec:
               title: ((.spec.title) // ""),
               number: ((.status.number) // 0),
               state: ((.status.state) // "pending"),
-              merged: ((.status.merged) // false),
+              merged: ((.status.merged) == true),
+              # Whether the provider reports `merged` at all — distinct from reporting false. `// false`
+              # folds "absent" into "not merged", and those two need opposite rows (see the header).
+              mergedKnown: (((.status.merged) | type) == "boolean"),
               url: ((.status.html_url) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
     {{/* The registered blueprints (CompositionDefinitions). The join key is metadata.name == */}}
@@ -90,12 +111,25 @@ spec:
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
       filter: >
         [ (((.catalog // {}).entries) // {}) | keys[] ]
-  {{/* Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/In review) + its */}}
-  {{/* chip colour, the marketplace-available chip, and the PR "#N" cell are all computed HERE, */}}
+  {{/* Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/Merged/Closed/ */}}
+  {{/* In review, and for claim rows Pushed/Publish failed/Publishing) + its chip colour, the Next */}}
+  {{/* step cell, the marketplace-available chip, and the PR "#N" cell are all computed HERE, */}}
   {{/* server-side. Rows are newest-first. (No Autopilot deep-link is emitted here: the entry points */}}
   {{/* live in the page header — "Compose a blueprint", the primary, and the "Ask Autopilot" link */}}
   {{/* that lands in the same composer — so a row never needs to carry one.) */}}
-  filter: >
+  {{/* A LITERAL block (|), not folded (>): folding joins every line at the block's base indent */}}
+  {{/* into one, so a `#` comment there would swallow the def that follows it. */}}
+  filter: |
+    # ending($pr): "merged" | "closed?" | "closed" | "" — see portal.builderPrEnding (_builder.tpl),
+    # shared with restaction.builder-prs. Legacy and claim rows both use it, so both paths reach
+    # Register on the same evidence.
+    {{- include "portal.builderPrEnding" . | nindent 4 }}
+    # The Register destination exists only for a row with no CompositionDefinition — once one
+    # exists the row goes to the blueprint, and a second POST of the same name would 409. And
+    # only when the CompositionDefinitions could be READ: a failed `cds` step (cdsError) is not
+    # evidence that there is none.
+    ((.cdsError // null) == null) as $cdsRead
+    | def registerable($cd; $end): $cdsRead and $cd == null and ($end == "merged" or $end == "closed?");
     (.cds // []) as $cds
     | (.prs // []) as $prs
     | ((.catalog // []) | map({key: ., value: true}) | from_entries) as $inCatalog
@@ -104,6 +138,7 @@ spec:
          | . as $pr
          | ( [ $cds[] | select(.name == $pr.chart) ] | first ) as $cd
          | ($inCatalog[$pr.chart] // false) as $published
+         | ending($pr) as $end
          | { chart: $pr.chart,
              title: $pr.title,
              pr: ("#" + ($pr.number | tostring)),
@@ -111,9 +146,19 @@ spec:
              version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
              status: (if ($cd != null and $cd.ready == "True") then "Registered"
                       elif ($cd != null) then "Reconciling"
+                      elif $end == "merged" then "Merged"
+                      elif ($end == "closed" or $end == "closed?") then "Closed"
                       else "In review" end),
+             # Green stays the DELIVERABLE's health — registered and Ready. A merged change is not
+             # there yet (it waits on a person), so it is blue, the non-health colour an open PR
+             # wears elsewhere; a closed one is gray, as on the builder change-request list.
              statusColor: (if ($cd != null and $cd.ready == "True") then "green"
+                           elif ($cd == null and $end == "merged") then "blue"
+                           elif ($cd == null and ($end == "closed" or $end == "closed?")) then "gray"
                            else "orange" end),
+             # What the row click does next, when that is a person's step. Empty otherwise: a
+             # row with nothing to do says nothing (exception-only).
+             next: (if registerable($cd; $end) then (if $end == "merged" then "Register" else "Register if merged" end) else "" end),
              # Marketplace availability — is the chart published to the helm index yet? A chip is
              # rendered ONLY when it is (green "Available"); an unpublished chart shows no chip
              # (exception-only: the calm default is "not yet in the marketplace", no noise).
@@ -121,9 +166,11 @@ spec:
              marketColor: (if $published then "green" else "" end),
              ns: "{{ .Release.Namespace }}",
              # Per-row destination, resolved server-side (the Table takes it whole, verbatim).
-             # Registered → the blueprint's own page; otherwise the change request; otherwise
-             # nothing, and Table.tsx leaves the row inert.
+             # Registered → the blueprint's own page; merged (or closed with no merge signal) and
+             # unregistered → the Register form; otherwise the change request; otherwise nothing,
+             # and Table.tsx leaves the row inert.
              rowHref: (if $cd != null then ("/blueprints/{{ .Release.Namespace }}/" + $pr.chart)
+                       elif registerable($cd; $end) then ("/marketplace/" + $pr.chart + "/install")
                        else (($pr.url) // "") end),
              age: $pr.created } ]) as $prRows
     | ([ (.publishes // []) | group_by(.publish)[]
@@ -135,6 +182,7 @@ spec:
          | (all(.[]; .synced == "True")) as $pushed
          | (any(.[]; .syncReason == "ReconcileError")) as $failed
          | ( [ $prs[] | select(((.publish) // "") == ($p0.publish // "")) ] | first ) as $pr
+         | ending($pr) as $end
          | { chart: $chart,
              title: (($pr.title) // ""),
              # builder-publish 1.8.21 opens the change request itself and its CR carries
@@ -146,6 +194,11 @@ spec:
              version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
              status: (if ($cd != null and $cd.ready == "True") then "Registered"
                       elif ($cd != null) then "Reconciling"
+                      # A change request that has ENDED outranks "In review" — it was the next rung,
+                      # and used to swallow closed PRs whole, so a merged blueprint sat "In review"
+                      # forever with no way on to Register.
+                      elif $end == "merged" then "Merged"
+                      elif ($end == "closed" or $end == "closed?") then "Closed"
                       # "In review" USED TO claim a review that provably could not exist: until
                       # builder-publish 1.8.21 the claim path opened no PullRequest at all, the prs step
                       # 404'd under continueOnError, and every row was a claim row wearing a status no
@@ -156,11 +209,15 @@ spec:
                       elif $pushed then "Pushed"
                       elif $failed then "Publish failed" else "Publishing" end),
              statusColor: (if ($cd != null and $cd.ready == "True") then "green"
+                           elif ($cd == null and $end == "merged") then "blue"
+                           elif ($cd == null and ($end == "closed" or $end == "closed?")) then "gray"
                            else "orange" end),
+             next: (if registerable($cd; $end) then (if $end == "merged" then "Register" else "Register if merged" end) else "" end),
              marketLabel: (if $published then "Available" else "" end),
              marketColor: (if $published then "green" else "" end),
              ns: "{{ .Release.Namespace }}",
              rowHref: (if $cd != null then ("/blueprints/{{ .Release.Namespace }}/" + $chart)
+                       elif registerable($cd; $end) then ("/marketplace/" + $chart + "/install")
                        else (($pr.url) // "") end),
              age: ($p0.created // "") } ]) as $claimRows
     | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows

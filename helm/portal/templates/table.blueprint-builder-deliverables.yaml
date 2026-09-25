@@ -1,12 +1,13 @@
 {{/* The published-blueprints registry — ONE row per blueprint published from this builder (the */}}
 {{/* composer or Autopilot), off blueprint-builder-deliverables. Columns: Blueprint (chart) / */}}
 {{/* Pull request title / */}}
-{{/* Version / Status chip (Registered=green, Reconciling=orange, In review=blue) / */}}
+{{/* Version / Status chip (Registered=green, Merged=blue, Closed=gray, everything still in */}}
+{{/* flight=orange) / Next step (the person's step the row click leads to — "Register", or */}}
+{{/* "Register if merged" while the provider cannot say whether a closed PR merged) / */}}
 {{/* Marketplace chip (Available=green, shown only when the chart is in the helm index) / */}}
-{{/* PR # / Published age. Rows are LINKABLE: rowNavigateTo lands on the blueprint detail */}}
-{{/* page (/blueprints/{ns}/{chart}) — the {ns} + {chart} tokens resolve from the row's */}}
-{{/* cells (ns rides as a hidden cell, bound to no column). A merged+registered blueprint */}}
-{{/* opens its detail; an in-review one still links (detail shows not-found until CI registers it). */}}
+{{/* PR # / Published age. Rows are LINKABLE through a per-row destination the RA resolves */}}
+{{/* (rowHref, below): the blueprint page once registered, the Register form */}}
+{{/* (/marketplace/{chart}/install) once merged, else the change request. */}}
 {{/* */}}
 {{/* WHY the PR is a plain "#N" TEXT cell, not a link (issue #28): a Table can only navigate a */}}
 {{/* whole ROW (rowNavigateTo) — it has NO per-cell href, and rowNavigateTo runs */}}
@@ -31,7 +32,8 @@ spec:
     {{/* Was the fixed path /blueprints/{ns}/{chart} — a DEAD LINK for every row still in review,
          because a blueprint has no detail page until its CompositionDefinition exists, and those
          are precisely the rows that now carry a change request. The RA resolves the destination
-         per row instead (registered → the blueprint page, else the PR, else nothing), and this
+         per row instead (registered → the blueprint page, merged and unregistered → the Register
+         form at /marketplace/{chart}/install, else the PR, else nothing), and this
          whole-placeholder form passes it through verbatim (Table.tsx:35,45) so an external
          https:// URL survives. An unresolved row stays inert. */}}
     rowNavigateTo: '{rowHref}'
@@ -46,6 +48,12 @@ spec:
       title: Version
     - valueKey: status
       title: Status
+    {{/* THE REGISTER CELL. Beside the status because it answers the question the status raises */}}
+    {{/* ("Merged — so what now?"). A text cell, not a Tag: a Tag in this portal is a status, and */}}
+    {{/* this is a step. The Table has no per-row action (Table.tsx: rowNavigateTo only), so the */}}
+    {{/* cell names what the row click does; empty on every row with nothing for a person to do. */}}
+    - valueKey: next
+      title: Next step
     - valueKey: market
       title: Marketplace
     - valueKey: pr
@@ -55,7 +63,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "In review"),color:(.statusColor // "orange")}, (if (.marketLabel // "") != "" then {valueKey:"market",kind:"tag",stringValue:.marketLabel,color:(.marketColor // "green")} else {valueKey:"market",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"#8c8c8c"} end), {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")}, {valueKey:"rowHref",kind:"jsonSchemaType",type:"string",stringValue:(.rowHref // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "In review"),color:(.statusColor // "orange")}, {valueKey:"next",kind:"jsonSchemaType",type:"string",stringValue:(.next // "")}, (if (.marketLabel // "") != "" then {valueKey:"market",kind:"tag",stringValue:.marketLabel,color:(.marketColor // "green")} else {valueKey:"market",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"#8c8c8c"} end), {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")}, {valueKey:"rowHref",kind:"jsonSchemaType",type:"string",stringValue:(.rowHref // "")} ] ] }'
   apiRef:
     name: blueprint-builder-deliverables
     namespace: {{ .Release.Namespace }}
