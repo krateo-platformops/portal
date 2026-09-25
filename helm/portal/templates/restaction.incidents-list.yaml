@@ -1,18 +1,12 @@
-{{/* /incidents data source — one row per TroubleshootingReport CR (observability.krateo.io, */}}
-{{/* written by krateo-alert-troubleshooter). All derivation is server-side: */}}
-{{/* rows      : the incident list (title = rootCause one-liner with honest fallbacks, */}}
-{{/* lifecycle, trigger, affected-resource mono ref, age, confidence, severity */}}
-{{/* dot colour), filtered by the ?status= lifecycle chip (extras). */}}
-{{/* counts    : per-lifecycle totals over the FULL set (before the status filter) so every */}}
-{{/* chip shows its live count regardless of the selected chip. */}}
-{{/* awaiting  : firing Alert CRs (state=ALERT) that have NO report yet — the */}}
-{{/* "awaiting investigation" strip (exception-only; hidden when empty). Each */}}
-{{/* carries askHref: an /incidents?ask= Autopilot deep-link (@uri, server-built). */}}
-{{/* projects  : echo of the shell scope param, so the chip Listy (incidents-status-chips) */}}
-{{/* can rebuild query-merged routes server-side. */}}
-{{/* Severity is DERIVED, not invented (Alert CRs carry no severity field): resolved → gray */}}
-{{/* (calm), confirmed rootCause while unresolved → crimson, still-uninvestigated/no-verdict → */}}
-{{/* orange. v1 prose-only reports degrade to their alertName/CR name and "—" confidence. */}}
+{{/* /incidents data source — one row per Incident (incidents.observability.krateo.io, owned by */}}
+{{/* incident-controller), shaped server-side: */}}
+{{/* rows     : title (the alert's display name, else the root cause, else the alert name), */}}
+{{/*            state, firings, age, severity dot colour; filtered by the ?status= chip (extras). */}}
+{{/* counts   : per-state totals over the full set, so every chip shows its live count. */}}
+{{/* awaiting : firing Alerts (state ALERT) with no open incident — the "not yet investigated" */}}
+{{/*            strip, each with an /incidents?ask= Autopilot deep-link. */}}
+{{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
+{{/* An incident belongs to the alert named by its observability.krateo.io/alert label. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -22,81 +16,51 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    - name: reports
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/incidents
       verb: GET
       continueOnError: true
-      errorKey: reportsError
+      errorKey: incidentsError
     - name: alerts
       path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/alerts
       verb: GET
       continueOnError: true
       errorKey: alertsError
-  filter: >
-    (.status // "all") as $sel
-    | ((.reports.items) // []) as $items
+  filter: |
+    def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
+    (.status // "all" | tostring | ascii_downcase) as $sel
+    | ((.incidents.items) // []) as $items
+    | ((.alerts.items) // []) as $alerts
+    | ($alerts | map({ key: (.metadata.name // ""), value: (.spec.displayName // "") }) | from_entries) as $display
     | ($items | map(
-        (.status.rootCause // {}) as $rc
-        | (.status.lifecycle // "open") as $lc
-        | ([ (.status.analyzedResources // [])[] | select((.gvr // "") | contains("composition")) ] | first) as $comp
+        (.status.state // "Analyzing") as $state
+        | alertlabel as $alert
+        | (($display[$alert] // "") | gsub("[^ -~]"; "") | sub("^ +"; "") | sub(" +$"; "")) as $dn
         | {
             name: (.metadata.name // ""),
-            # namespace is DERIVED from the query namespace (this RA lists a fixed
-            # namespaces/<ns>/troubleshootingreports path), NOT from .metadata.namespace: a
-            # namespace-scoped list omits it per item (redundant with the path) and snowplow
-            # does not backfill it — an empty {namespace} made the incidents-table rowNavigateTo
-            # (/incidents/{namespace}/{name}) resolve empty, so Table.buildRowPath returned
-            # undefined and the row click opened nothing. The literal is honest: these reports
-            # ARE in the release namespace we just queried.
+            # A namespaced list omits .metadata.namespace per item; these incidents are in the namespace just listed.
             namespace: "{{ .Release.Namespace }}",
-            # UX-27 (#72 §0.4): lead with the SHORT alert name (emoji-stripped) so the INCIDENT
-            # column matches the detail page's concise title — the long root-cause statement was
-            # grabbing the column. Falls back to the statement, then the CR name.
-            title: (if (.spec.alertName // "") != "" then (.spec.alertName | gsub("[^ -~]"; "") | sub("^ +";"") | sub(" +$";"")) elif ($rc.statement // "") != "" then $rc.statement else (.metadata.name // "") end),
-            trigger: (.spec.trigger // "alert"),
-            lifecycle: $lc,
-            # UX-20 (Ready homonym): same presentation map as obs-troubleshooting/incident-detail —
-            # the CR's analysis-complete "Ready" reads "Analyzed" everywhere in the incident domain.
-            phase: ((.status.phase // "Pending") | if . == "Ready" then "Analyzed" else . end),
-            ref: (if $comp then ((($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "") + " · " + ($comp.namespace // "")) else "—" end),
-            age: (.metadata.creationTimestamp // ""),
+            title: (if $dn != "" then $dn elif (.status.rootCause.statement // "") != "" then .status.rootCause.statement elif $alert != "" then $alert else (.metadata.name // "") end),
+            state: $state,
+            stateKey: ($state | ascii_downcase),
+            firings: (.status.firings // 0),
+            age: (.metadata.creationTimestamp // .spec.triggeredAt // ""),
             triggeredAt: (.spec.triggeredAt // .metadata.creationTimestamp // ""),
-            # HONEST GROUNDING (mirrors the detail verdict card): the list surfaces the
-            # DETERMINISTIC evidence basis — the real count of verbatim sources + analyzed
-            # resources the agent read — NOT the model's self-reported "confidence NN%" (false
-            # precision paraded as if measured). Raw confidence is dropped from the UI entirely.
-            grounding: ( ((.status.sources // []) | length) as $sc
-                         | ((.status.analyzedResources // []) | length) as $ac
-                         | if ($sc > 0) or ($ac > 0) then (($sc|tostring) + " src · " + ($ac|tostring) + " res") else "—" end ),
-            sevColor: (if $lc == "resolved" then "#8c8c8c" elif ($rc.statement // "") != "" then "#cf1322" else "#d48806" end)
+            sevColor: ({ Open: "#cf1322", Verifying: "#d48806", Resolved: "#389e0d" }[$state] // "#8c8c8c")
           }
-      ) | sort_by(.triggeredAt // "") | reverse) as $rows
-    | ([ ((.alerts.items) // [])[]
-         | . as $a
+      ) | sort_by(.triggeredAt) | reverse) as $rows
+    | ([ $items[] | select((.status.state // "Analyzing") as $s | ($s != "Resolved" and $s != "Closed")) | alertlabel ] | unique) as $openAlerts
+    | ([ $alerts[]
          | select((.status.state // "") == "ALERT")
-         # HONESTY (IA incidents-deepdive): a report keys its alert by DISPLAY name
-         # (spec.alertName, may carry an emoji) while the Alert CR's identity is a slug
-         # (metadata.name) + a separate spec.displayName. The old literal alertName==metadata.name
-         # NEVER matched, so an already-analyzed firing alert was wrongly listed "awaiting".
-         # Match on a NORMALIZED key (lowercased, alphanumerics only) against BOTH the alert's
-         # metadata.name AND its displayName.
-         | (($a.metadata.name // "") | ascii_downcase | gsub("[^a-z0-9]"; "")) as $anorm
-         | (($a.spec.displayName // "") | ascii_downcase | gsub("[^a-z0-9]"; "")) as $dnorm
-         | select(([ $items[]
-                     | (((.spec.alertName // "") | ascii_downcase | gsub("[^a-z0-9]"; ""))) as $rnorm
-                     | select($rnorm != "" and ($rnorm == $anorm or $rnorm == $dnorm)) ] | length) == 0)
-         | { name: ($a.spec.displayName // $a.metadata.name // ""),
-             state: ($a.status.state // "ALERT"),
-             askHref: ("/incidents?ask=" + (("Investigate the \"" + ($a.spec.displayName // $a.metadata.name // "this alert") + "\" observability alert — it is firing but has no troubleshooting report yet. Run a root-cause analysis and give me the concrete next steps.") | @uri)) }
+         | select((.metadata.name // "") as $a | ($openAlerts | index($a)) == null)
+         | { name: (.spec.displayName // .metadata.name // ""),
+             state: (.status.state // "ALERT"),
+             askHref: ("/incidents?ask=" + (("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is firing but has no open incident. Run a root-cause analysis and give me the concrete next steps.") | @uri)) }
        ] | .[0:8]) as $awaiting
     | {
-        rows: (if $sel == "all" then $rows else [ $rows[] | select(.lifecycle == $sel) ] end),
-        counts: {
-          all: ($rows | length),
-          open: ([ $rows[] | select(.lifecycle == "open") ] | length),
-          mitigated: ([ $rows[] | select(.lifecycle == "mitigated") ] | length),
-          resolved: ([ $rows[] | select(.lifecycle == "resolved") ] | length)
-        },
+        rows: (if $sel == "all" then $rows else [ $rows[] | select(.stateKey == $sel) ] end),
+        counts: ({ all: ($rows | length) }
+          + ([ "analyzing", "open", "verifying", "resolved", "closed" ] | map({ key: ., value: (. as $k | [ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)),
         status: $sel,
         projects: ((.projects // "") | tostring),
         awaiting: $awaiting,

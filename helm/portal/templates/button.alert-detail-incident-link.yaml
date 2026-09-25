@@ -1,9 +1,6 @@
-{{/* Alert→incident back-link (item 22 alert-side) — the TroubleshootingReport whose */}}
-{{/* spec.alertName normalized-matches THIS alert's displayName, if one exists. A link Button that */}}
-{{/* navigates (SPA) to /incidents/{ns}/{name}; both the label (the incident's root-cause one-liner */}}
-{{/* / honest fallback) and the concrete path are baked server-side by alert-detail (.linkedReport */}}
-{{/* / .linkedRoute) — same literal-navigate pattern as incident-ref-link. The page Flex includes */}}
-{{/* this widget only when sections.incident is true (a match exists), so it's never a dead link. */}}
+{{/* Alert→incident back-link: this alert's newest Incident (label observability.krateo.io/alert). */}}
+{{/* The label (its root cause, or its name) and the path come from alert-detail */}}
+{{/* (.linkedIncident / .linkedRoute); the page includes it only when one exists. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -30,7 +27,7 @@ spec:
           path: /incidents
   widgetDataTemplate:
     - forPath: label
-      expression: '${ .linkedReport.title // "View incident" }'
+      expression: '${ (.linkedIncident.title // "View incident") + " · " + (.linkedIncident.state // "Analyzing") + (if (.incidentCount // 0) > 1 then (" · latest of " + (.incidentCount | tostring)) else "" end) }'
     {{/* Defensive fallback to the /incidents list (never a 404) if linkedRoute is somehow empty. */}}
     - forPath: actions
       expression: '${ { navigate: [ { id: "open-incident", type: "navigate", path: (if (.linkedRoute // "") != "" then .linkedRoute else "/incidents" end) } ] } }'

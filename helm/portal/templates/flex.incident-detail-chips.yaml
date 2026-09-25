@@ -1,12 +1,10 @@
-{{/* Detail chips line — lifecycle chip + trigger badge + affected-resource ref + triggering-alert */}}
-{{/* link (mockup det-head second toprow). Two slots are templated SERVER-SIDE off incident-detail: */}}
-{{/* · ref: when the investigation isolated a composition the ref renders as a LINK Button (one */}}
-{{/* click to /compositions/{ns}/{name}); otherwise the inert mono Paragraph — an alert-only ref */}}
-{{/* never becomes a broken link (CTA audit). */}}
-{{/* · alert (UX-22): the triggering alert. Rendered as a LINK Button to /alerts/{ns}/{name} ONLY */}}
-{{/* when incident-detail resolved the alert's real metadata.name (alertRoute non-empty); */}}
-{{/* otherwise the alert name is inert text — a display-name-only report never becomes a broken */}}
-{{/* link. Omitted entirely when the report carries no alertName. */}}
+{{/* The alert chip under the incident title, all from incident-detail: */}}
+{{/* · the alert that opened the incident, a link to /alerts/{ns}/{name} (spec.alertRef, exact), */}}
+{{/*   or inert text when the Alert no longer exists; */}}
+{{/* · its live state (OK / ALERT / PENDING, or "not found"); */}}
+{{/* · how long it has been OK (Alert.status.okSince), only while OK; */}}
+{{/* · which incident of that alert this is ("#3 of this alert"). */}}
+{{/* Then the affected composition as a link, when the analysis isolated one. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -23,32 +21,57 @@ spec:
   widgetData:
     allowedResources:
     - tags
-    - paragraphs
     - buttons
     gap: small
     align: center
     wrap: true
     items:
-    - resourceRefId: incident-ref
+    - resourceRefId: incident-alert-text
   widgetDataTemplate:
-    {{/* #69 §0.4: Lifecycle + Trigger moved to the title line (incident-detail-titleline). */}}
-    {{/* #83 §0.2: the triggering-alert link moved OUT of this row into its own "Related alerts" footer */}}
-    {{/* section (flex.page-incident-detail, next to Similar incidents). This row now carries ONLY the */}}
-    {{/* affected-resource ref (when a composition was isolated). */}}
     - forPath: items
       expression: >-
-        ${ (if (.refRoute // "") != "" then [ { resourceRefId: "incident-ref-link" } ] else [] end) }
+        ${ (if (.alertName // "") == "" then []
+            elif (.alertRoute // "") != "" then [ { resourceRefId: "incident-alert-link" } ]
+            else [ { resourceRefId: "incident-alert-text" } ] end)
+        + (if (.alertStateLabel // "") != "" then [ { resourceRefId: "incident-alert-state" } ] else [] end)
+        + (if (.alertOkFor // "") != "" then [ { resourceRefId: "incident-alert-oksince" } ] else [] end)
+        + (if (.ordinalLabel // "") != "" then [ { resourceRefId: "incident-alert-ordinal" } ] else [] end)
+        + (if (.refRoute // "") != "" then [ { resourceRefId: "incident-ref-link" } ] else [] end) }
   resourcesRefs:
     items:
+    - id: incident-alert-link
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-link
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: incident-alert-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-text
+      namespace: {{ .Release.Namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-alert-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-state
+      namespace: {{ .Release.Namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-alert-oksince
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-oksince
+      namespace: {{ .Release.Namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-alert-ordinal
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-ordinal
+      namespace: {{ .Release.Namespace }}
+      resource: tags
+      verb: GET
     - id: incident-ref-link
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-ref-link
       namespace: {{ .Release.Namespace }}
       resource: buttons
-      verb: GET
-    - id: incident-ref
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-ref
-      namespace: {{ .Release.Namespace }}
-      resource: paragraphs
       verb: GET

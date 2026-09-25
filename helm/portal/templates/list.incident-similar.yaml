@@ -1,7 +1,6 @@
-{{/* SIMILAR INCIDENTS strip (mockup .similar) — past investigations sharing this one's */}}
-{{/* rootCause.category, matched server-side (incident-detail .similar: self excluded, ≤4). */}}
-{{/* EXCEPTION-ONLY twice over: the page Flex omits the section when the list is empty AND */}}
-{{/* hideWhenEmpty guards the widget itself. Rows navigate to the sibling incident detail. */}}
+{{/* Similar incidents: the same alert's other incidents first (newest first), then incidents with */}}
+{{/* the same root-cause category, at most 6, matched server-side (incident-detail .similar). */}}
+{{/* Rows open the sibling incident. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -24,21 +23,21 @@ spec:
       navigateTo: '/incidents/{namespace}/{name}'
       iconVariant: dot
       color:
-        value: '{lifecycle}'
+        value: '{state}'
         map:
-          open: red
-          mitigated: orange
-          resolved: green
+          Open: red
+          Verifying: orange
+          Resolved: green
         default: gray
       primaryText: '{title}'
-      {{/* Sentence-cased server-side (lifecycleLabel); the raw value keys the colour map. */}}
-      secondaryText: '{lifecycleLabel}'
+      subPrimaryText: '{reason}'
+      secondaryText: '{state}'
       secondaryTextAsTag: true
-      subSecondaryText: '{completedAt}'
+      subSecondaryText: '{when}'
       formats:
         subSecondaryText: relative
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ (.similar // []) | map(. + { lifecycleLabel: ((.lifecycle // "") | if . == "" then "" else ((.[0:1] | ascii_upcase) + .[1:]) end) }) }'
+    expression: '${ .similar // [] }'
   resourcesRefs:
     items: []

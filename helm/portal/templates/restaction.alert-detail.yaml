@@ -5,11 +5,8 @@
 {{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
 {{/* and its live HyperDX-mirrored state in .status (state / phase / lastSyncedAt */}}
 {{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-troubleshooter. */}}
-{{/* reports : the release-namespace TroubleshootingReports — used ONLY to find the incident */}}
-{{/* whose spec.alertName NORMALIZED-matches this alert's displayName (the alert→ */}}
-{{/* incident back-link, item 22 alert-side; same normalization the incidents-list */}}
-{{/* awaiting-strip uses: lowercased, alphanumerics only — a report keys its alert by */}}
-{{/* the DISPLAY name which may carry an emoji, so a literal == never matched). */}}
+{{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
+{{/* observability.krateo.io/alert: <name>; the newest is the back-link. */}}
 {{/* Everything is derived server-side (nothing-hardcoded): */}}
 {{/* the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so */}}
 {{/* the healthy quiet state OK reads green), the "above N" threshold prose, the compact */}}
@@ -40,15 +37,17 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: alertError
-    {{/* The back-link lookup follows the alert's namespace as well (a report is keyed to the alert it */}}
-    {{/* investigates), release ns as the same fallback. */}}
-    - name: reports
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/troubleshootingreports" }
+    {{/* Incidents live in their alert's namespace. */}}
+    - name: incidents
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/incidents" }
       verb: GET
       continueOnError: true
-      errorKey: reportsError
+      errorKey: incidentsError
   filter: >
     def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
+    def aepoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    def arel: (. // "") as $s | ($s | aepoch) as $t | if $t == null then ($s | tostring | .[0:19] | sub("T"; " ")) else ($t | todate | rel) end;
+    def asince: (aepoch) as $t | if $t == null then "" else (now - $t) as $dt | (if $dt < 60 then "for under a minute" elif $dt < 3600 then "for \(($dt/60)|floor) min" elif $dt < 86400 then (($dt/3600)|floor) as $h | "for \($h) hour" + (if $h == 1 then "" else "s" end) else (($dt/86400)|floor) as $d | "for \($d) day" + (if $d == 1 then "" else "s" end) end) end;
     ({{ .Values.observabilityConsoleUrl | default "" | quote }} | rtrimstr("/")) as $console
     | (.name // "") as $n
     | (.namespace // "{{ .Release.Namespace }}") as $ns
@@ -58,20 +57,23 @@ spec:
     | ($st.state // "PENDING") as $state
     | ($st.hyperdxAlertId // "") as $haid
     | ($st.hyperdxDashboardId // "") as $hdid
-    | ($dn | ascii_downcase | gsub("[^a-z0-9]"; "")) as $dnorm
-      # Find any TroubleshootingReport keyed to THIS alert (normalized displayName match).
-    | (if $dnorm == "" then null else ([ ((.reports.items) // [])[]
-         | (((.spec.alertName // "") | ascii_downcase | gsub("[^a-z0-9]"; ""))) as $rnorm
-         | select($rnorm != "" and $rnorm == $dnorm)
-         | { name: (.metadata.name // ""), namespace: (.metadata.namespace // "{{ .Release.Namespace }}"),
-             title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement elif (.spec.alertName // "") != "" then ("Investigation — " + .spec.alertName) else (.metadata.name // "") end),
-             lifecycle: (.status.lifecycle // "open"),
-             phase: (.status.phase // ""),
-             # Did the run produce an ANALYSIS, or a provider error standing in for one?
+    | ($sp.apiRef // null) as $apiRef
+      # This alert's incidents, newest first: the ones carrying its label.
+    | ([ ((.incidents.items) // [])[]
+         | select(((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "") == $n) ]) as $incs
+    | ([ $incs[]
+         | { name: (.metadata.name // ""), namespace: (.metadata.namespace // $ns),
+             title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement else ("Incident " + (.metadata.name // "")) end),
+             state: (.status.state // "Analyzing"),
+             error: (.status.error // ""),
              reportText: ((.status.report // "") | if type == "string" then . else "" end),
-             structured: (((.status.rootCause.statement // "") != "")) } ] | first) end) as $rep
+             structured: ((.status.rootCause.statement // "") != ""),
+             when: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]
+       | sort_by(.when) | reverse) as $shaped
+    | ($shaped[0] // null) as $rep
+      # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
       | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
-      | ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")) as $repFailed
+      | ($rep != null and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
       | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
     | {
         displayName: $dn,
@@ -103,7 +105,6 @@ spec:
         # pre-encoded exactly once). The raw `ask` is also emitted for any raw consumer.
         ask: ("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps."),
         askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
-        # Back-link to the matched incident (alert→incident, item 22 alert-side). Empty when none.
         # ── THE PIPELINE WALK ──────────────────────────────────────────────────────────────
         # An alert is not one object, it is a CHAIN: the CR, the HyperDX rule it syncs to, the
         # evaluation, the webhook, the investigation that webhook opens, and the incident that
@@ -128,18 +129,42 @@ spec:
              elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
              else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end),
             (if $haid == "" then empty
-             elif $rep != null then ("4. **An investigation was opened.** `" + ($rep.name // "") + "`, phase `" + ($rep.phase // "?") + "`.")
-             elif $state == "ALERT" then "4. **No investigation exists, and this alert is firing.** The webhook should have opened a TroubleshootingReport; nothing here matches this alert. Either the callback never arrived or the troubleshooter could not create one."
-             else "4. No investigation — this alert has not fired, so none is expected." end),
+             elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`" + (if ($shaped | length) > 1 then (", the latest of " + ($shaped | length | tostring) + " for this alert") else "" end) + ".")
+             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The webhook should have opened one; no Incident carries this alert's label. Either the callback never arrived or the troubleshooter could not create one."
+             else "4. No incident — this alert has not fired, so none is expected." end),
             (if $rep == null then empty
-             elif $repProduced then "5. **The investigation produced an analysis.** Open the incident below to read it."
-             elif $repFailed then "5. **The investigation returned a PROVIDER ERROR instead of an analysis.** The run reached the model and the model refused it; the incident page shows the provider\u0027s own words. This is the hop that fails silently — the alert above still reads as healthy."
-             else ("5. **The investigation produced nothing.** It reached phase `" + ($rep.phase // "?") + "` and wrote neither a report nor an error, which is itself the finding.") end),
-            (if $rep == null then empty else ("6. **Incident** `" + ($rep.name // "") + "` is **" + ($rep.lifecycle // "open") + "**.") end)
+             elif $repProduced then "5. **The analysis produced a root cause.** Open the incident below to read it."
+             elif $repFailed then "5. **The analysis FAILED.** The incident carries the error instead of a root cause; its page shows it verbatim. This is the hop that fails silently — the alert above still reads as healthy."
+             elif ($rep.state // "") == "Analyzing" then "5. **The analysis is still running.**"
+             else "5. **The analysis produced nothing.** It wrote neither a root cause nor an error, which is itself the finding." end),
+            (if $rep == null then empty else ("6. **Incident** `" + ($rep.name // "") + "` is **" + ($rep.state // "Analyzing") + "**.") end)
           ] | join("\n")),
-        linkedReport: $rep,
-        linkedRoute: (if $rep then ("/incidents/" + ($rep.namespace // "{{ .Release.Namespace }}") + "/" + ($rep.name // "")) else "" end),
+        linkedIncident: $rep,
+        linkedRoute: (if $rep then ("/incidents/" + ($rep.namespace // $ns) + "/" + ($rep.name // "")) else "" end),
+        incidentCount: ($shaped | length),
         hasIncident: ($rep != null),
+        # An apiRef alert has no HyperDX hops: the pipeline card shows what it evaluates instead —
+        # the RESTAction, its last value against the threshold, and how the last evaluation went.
+        isApiRef: ($apiRef != null),
+        apiRefItems: (if $apiRef == null then [] else
+          ({ above: "≥", above_exclusive: ">", below: "<", below_or_equal: "≤", equal: "=", not_equal: "≠" }) as $ops
+          | ({ above: "<", above_exclusive: "≤", below: "≥", below_or_equal: ">", equal: "≠", not_equal: "=" }) as $negs
+          | ($sp.thresholdType // "above") as $tt
+          | ($sp.threshold // 0) as $th
+          | ($st.value // null) as $v
+          | ($ops[$tt] // null) as $op
+          | [ { label: "RESTAction", value: (($apiRef.namespace // "") + "/" + ($apiRef.name // "")) },
+              { label: "Last value", value: (
+                  if $op == null then ("thresholdType " + $tt + " cannot be evaluated for an apiRef alert")
+                  elif ($v | type) != "number" then ("not evaluated yet — fires when the value is " + $op + " " + ($th | tostring))
+                  elif ({ above: ($v >= $th), above_exclusive: ($v > $th), below: ($v < $th), below_or_equal: ($v <= $th), equal: ($v == $th), not_equal: ($v != $th) }[$tt])
+                    then (($v | tostring) + " " + $op + " " + ($th | tostring) + " — the condition holds")
+                  else (($v | tostring) + " " + $negs[$tt] + " " + ($th | tostring) + " — fires when the value is " + $op + " " + ($th | tostring)) end) },
+              { label: "State", value: ($state + (if $state == "OK" and (($st.okSince // "") | asince) != "" then (" · " + ($st.okSince | asince)) else "" end)) },
+              { label: "Phase", value: ($st.phase // "Pending") },
+              (if ($st.error // "") != "" then { label: "Error", value: $st.error } else empty end),
+              (if ($st.lastSyncedAt // "") != "" then { label: "Last evaluated", value: ($st.lastSyncedAt | arel) } else empty end),
+              { label: "Evaluated every", value: ($sp.interval // "5m") } ] end),
         sections: {
           incident: ($rep != null),
           # Not exception-only: its job is to say which hops SUCCEEDED as well as which stopped,

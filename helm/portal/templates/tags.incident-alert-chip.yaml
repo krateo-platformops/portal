@@ -1,0 +1,68 @@
+{{/* The rest of the alert chip under the incident title, all from incident-detail: the alert's */}}
+{{/* live state, how long it has been OK, and this incident's number among the alert's incidents. */}}
+{{/* incident-detail-chips includes each one only when its label is non-empty. */}}
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-alert-state
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: PENDING
+    color: orange
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ .alertStateLabel // "PENDING" }'
+    - forPath: color
+      expression: '${ .alertStateColor // "gray" }'
+  resourcesRefs:
+    items: []
+---
+{{/* Alert.status.okSince as a duration ("for 13 min"). Context only: it never closes the incident. */}}
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-alert-oksince
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: ' '
+    variant: outlined
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ .alertOkFor // " " }'
+  resourcesRefs:
+    items: []
+---
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-alert-ordinal
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: ' '
+    variant: outlined
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ .ordinalLabel // " " }'
+  resourcesRefs:
+    items: []

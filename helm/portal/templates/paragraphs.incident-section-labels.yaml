@@ -84,9 +84,7 @@ spec:
       resource: tabs
       verb: GET
 ---
-{{/* REMEDIATION PLAN section — the gated apply rows under the shared card header. The card hosts */}}
-{{/* only the first `sections.remCount` rows (server-side templated `items`), so a 3-step plan renders */}}
-{{/* exactly 3 rows inside one card and a v1 report renders no card at all. */}}
+{{/* HOW TO FIX section: the three scripts (precondition · apply · verify) as one Steps widget. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -115,12 +113,6 @@ spec:
       color: cyan
     items:
     - resourceRefId: incident-rem-widget
-  widgetDataTemplate:
-    {{/* Single Steps widget that shows all plan steps with finish/process/wait status. */}}
-    {{/* The Steps widget itself embeds each step's Flex (markdown + button) via resourceRefId, */}}
-    {{/* so the action button lives inside the step — not below the navigator. */}}
-    - forPath: items
-      expression: '${ [ { resourceRefId: "incident-rem-widget" } ] }'
   resourcesRefs:
     items:
     - id: incident-rem-widget
@@ -129,43 +121,3 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: steps
       verb: GET
----
-{{/* REMEDIATION AUDIT LOG section (feature #7) — the read-only trail of gated mutations recorded */}}
-{{/* against THIS incident's resources (actor · verb · resource · result · when), same section-CARD */}}
-{{/* family as Evidence/Why/Remediation. apiRef is incident-auditrecords (its own data source) so the */}}
-{{/* card reads hasRecords/auditDesc; it hosts the audit Table. The page Flex includes this card ONLY */}}
-{{/* when there are records (incident-auditrecords .hasRecords) — exception-only, no empty section. */}}
-kind: Card
-apiVersion: widgets.templates.krateo.io/v1beta1
-metadata:
-  name: incident-sec-audit-card
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    "krateo.io/verbose": "true"
-spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
-  keyExtras: [name, namespace]
-  apiRef:
-    name: incident-auditrecords
-    namespace: {{ .Release.Namespace }}
-  widgetData:
-    anchorId: incident-remediation-audit
-    title: Remediation audit
-    titleVariant: eyebrow
-    variant: outlined
-    icon:
-      name: fa-clipboard-list
-      color: cyan
-    items:
-    - resourceRefId: incident-auditrecords-table
-  resourcesRefs:
-    items:
-    - id: incident-auditrecords-table
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-auditrecords
-      namespace: {{ .Release.Namespace }}
-      resource: tables
-      verb: GET
-{{/* #86 §0.7: the standalone "Similar incidents" strong-label Paragraph (incident-sec-similar-label) */}}
-{{/* was retired — Similar incidents is now the section Card card.incident-similar.yaml, matching the */}}
-{{/* Evidence/Why/Remediation family (its title replaces this label). */}}

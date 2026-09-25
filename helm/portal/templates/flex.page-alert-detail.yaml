@@ -40,7 +40,9 @@ spec:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
-        | [ { resourceRefId: "alert-detail-page-header" }, { resourceRefId: "card-alert-detail-manifest" } ]
+        | [ { resourceRefId: "alert-detail-page-header" } ]
+        + (if ($s.pipeline // false) then [ { resourceRefId: "alert-detail-pipeline-card" } ] else [] end)
+        + [ { resourceRefId: "card-alert-detail-manifest" } ]
         + (if ($s.console // false) then [ { resourceRefId: "card-alert-detail-console" } ] else [] end)
         + (if ($s.incident // false) then [ { resourceRefId: "card-alert-detail-incident" } ] else [] end) }
   resourcesRefs:
