@@ -12,23 +12,32 @@
 {{/* the table's rowNavigateTo into the blueprint detail page (the linkable deliverable), while the */}}
 {{/* PR number + html_url ride along so the table can surface the opened PR (a "#N" cell). */}}
 {{/* */}}
-{{/* THE REGISTER STEP. A merged blueprint is not yet installable: somebody has to create its */}}
+{{/* THE INSTALL STEP. A merged blueprint is not yet installable: somebody has to create its */}}
 {{/* CompositionDefinition, and that is a person's decision, taken after the release is green — */}}
 {{/* possibly days after the merge. So a row whose change request is merged and which has no */}}
-{{/* CompositionDefinition says "Merged", its Next step cell says "Register", and the row opens */}}
+{{/* CompositionDefinition says "Merged", its Next step cell says "Install" — the portal's verb */}}
+{{/* for creating a CompositionDefinition, and the word on the page it opens — and the row opens */}}
 {{/* /marketplace/<chart>/install: the existing install Form, which the builder publish pre-fills */}}
 {{/* (restaction.blueprint-install-formdef) and which POSTs as the caller. The Table cannot carry */}}
 {{/* an action in a row (Table.tsx has rowNavigateTo only), so the row IS the control and the */}}
 {{/* cell says what it does. */}}
 {{/* */}}
+{{/* ONLY A PUBLISH THAT CARRIES ITS REGISTRATION FILE. The form pre-fills from the publish's root */}}
+{{/* compositiondefinition.yaml and from nothing else of the publish; without that file it falls */}}
+{{/* back to a helm-index chart that shares the name, and the person would install that chart */}}
+{{/* believing it was theirs. Blueprints published before the composer wrote the file (and every */}}
+{{/* legacy PR row, which has no krateo.io/publish label to find one by) keep linking to their */}}
+{{/* change request. The file test is portal.builderIsRegistrationFile, the one the form uses. */}}
+{{/* */}}
 {{/* "MERGED" NEEDS EVIDENCE, and today there is none: the PullRequest CR's status is exactly */}}
 {{/* conditions/html_url/number/state (github-provider-kog 0.3.1), so .status.merged is always */}}
 {{/* absent and a merged PR reads as state=closed. Guessing would call a rejected change merged. */}}
 {{/* So a closed PR whose provider does not REPORT merged says "Closed", and its Next step says */}}
-{{/* "Register if merged" — the row still opens the Register form, the person checks the PR, and */}}
-{{/* nothing claims a merge that nothing observed. When the provider reports `merged`, the same */}}
-{{/* row becomes "Merged" / "Register" on its own, and a closed-unmerged one becomes a plain */}}
-{{/* "Closed" that links back to its PR. */}}
+{{/* "Install if merged" — the row still opens the install form, which links the change request */}}
+{{/* (restaction.blueprint-install-origin) so the person checks it there, and nothing claims a */}}
+{{/* merge that nothing observed. When the provider reports `merged`, the same row becomes */}}
+{{/* "Merged" / "Install" on its own, and a closed-unmerged one becomes a plain "Closed" that */}}
+{{/* links back to its PR. */}}
 {{/* */}}
 {{/* NEEDS snowplow >= 1.4.0 for the external helm-index YAML fetch (external_fetch.go YAML->JSON). */}}
 apiVersion: templates.krateo.io/v1
@@ -103,6 +112,9 @@ spec:
               # comments further down this file complain about; it was in the step, not the ladder.
               syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
               syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
+              # Is this file the publish's root registration file — the one the install form
+              # pre-fills from? A publish without one is never offered Install (see the header).
+              reg: {{ include "portal.builderIsRegistrationFile" . }},
               created: ((.metadata.creationTimestamp) // "") } ]
     {{/* The krateo-blueprints blueprints helm index — the marketplace catalog. Mirrors */}}
     {{/* restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's */}}
@@ -121,15 +133,17 @@ spec:
   {{/* into one, so a `#` comment there would swallow the def that follows it. */}}
   filter: |
     # ending($pr): "merged" | "closed?" | "closed" | "" — see portal.builderPrEnding (_builder.tpl),
-    # shared with restaction.builder-prs. Legacy and claim rows both use it, so both paths reach
-    # Register on the same evidence.
+    # shared with restaction.builder-prs. Legacy and claim rows both use it, so both paths judge a
+    # merge on the same evidence.
     {{- include "portal.builderPrEnding" . | nindent 4 }}
-    # The Register destination exists only for a row with no CompositionDefinition — once one
-    # exists the row goes to the blueprint, and a second POST of the same name would 409. And
-    # only when the CompositionDefinitions could be READ: a failed `cds` step (cdsError) is not
-    # evidence that there is none.
+    # The Install destination exists only for a row with no CompositionDefinition — once one
+    # exists the row goes to the blueprint, and a second POST of the same name would 409. Only
+    # when the CompositionDefinitions could be READ: a failed `cds` step (cdsError) is not
+    # evidence that there is none. And only for a publish that carries its registration file
+    # ($hasReg): that file is the whole pre-fill, and without it the form opens on whatever
+    # helm-index chart shares the name.
     ((.cdsError // null) == null) as $cdsRead
-    | def registerable($cd; $end): $cdsRead and $cd == null and ($end == "merged" or $end == "closed?");
+    | def registerable($cd; $end; $hasReg): $cdsRead and $hasReg and $cd == null and ($end == "merged" or $end == "closed?");
     (.cds // []) as $cds
     | (.prs // []) as $prs
     | ((.catalog // []) | map({key: ., value: true}) | from_entries) as $inCatalog
@@ -149,16 +163,19 @@ spec:
                       elif $end == "merged" then "Merged"
                       elif ($end == "closed" or $end == "closed?") then "Closed"
                       else "In review" end),
-             # Green stays the DELIVERABLE's health — registered and Ready. A merged change is not
-             # there yet (it waits on a person), so it is blue, the non-health colour an open PR
-             # wears elsewhere; a closed one is gray, as on the builder change-request list.
+             # Merged is green, the chip the change-request list (restaction.builder-prs) gives the
+             # same merged PR: one state, one colour, on both builder pages — and blue there is
+             # Open. Registered is still told apart by its label and its empty Next step; a
+             # closed change is gray, as on that list.
              statusColor: (if ($cd != null and $cd.ready == "True") then "green"
-                           elif ($cd == null and $end == "merged") then "blue"
+                           elif ($cd == null and $end == "merged") then "green"
                            elif ($cd == null and ($end == "closed" or $end == "closed?")) then "gray"
                            else "orange" end),
              # What the row click does next, when that is a person's step. Empty otherwise: a
              # row with nothing to do says nothing (exception-only).
-             next: (if registerable($cd; $end) then (if $end == "merged" then "Register" else "Register if merged" end) else "" end),
+             # Legacy rows carry no krateo.io/publish label, so no registration file can be found
+             # for them: they are never offered Install ($hasReg false).
+             next: (if registerable($cd; $end; false) then (if $end == "merged" then "Install" else "Install if merged" end) else "" end),
              # Marketplace availability — is the chart published to the helm index yet? A chip is
              # rendered ONLY when it is (green "Available"); an unpublished chart shows no chip
              # (exception-only: the calm default is "not yet in the marketplace", no noise).
@@ -166,11 +183,11 @@ spec:
              marketColor: (if $published then "green" else "" end),
              ns: "{{ .Release.Namespace }}",
              # Per-row destination, resolved server-side (the Table takes it whole, verbatim).
-             # Registered → the blueprint's own page; merged (or closed with no merge signal) and
-             # unregistered → the Register form; otherwise the change request; otherwise nothing,
-             # and Table.tsx leaves the row inert.
+             # Registered → the blueprint's own page; merged (or closed with no merge signal),
+             # unregistered and carrying a registration file → the install form; otherwise the
+             # change request; otherwise nothing, and Table.tsx leaves the row inert.
              rowHref: (if $cd != null then ("/blueprints/{{ .Release.Namespace }}/" + $pr.chart)
-                       elif registerable($cd; $end) then ("/marketplace/" + $pr.chart + "/install")
+                       elif registerable($cd; $end; false) then ("/marketplace/" + $pr.chart + "/install")
                        else (($pr.url) // "") end),
              age: $pr.created } ]) as $prRows
     | ([ (.publishes // []) | group_by(.publish)[]
@@ -181,6 +198,8 @@ spec:
          | ($inCatalog[$chart] // false) as $published
          | (all(.[]; .synced == "True")) as $pushed
          | (any(.[]; .syncReason == "ReconcileError")) as $failed
+         # The publish carries its root registration file (portal.builderIsRegistrationFile).
+         | (any(.[]; .reg == true)) as $hasReg
          | ( [ $prs[] | select(((.publish) // "") == ($p0.publish // "")) ] | first ) as $pr
          | ending($pr) as $end
          | { chart: $chart,
@@ -196,7 +215,7 @@ spec:
                       elif ($cd != null) then "Reconciling"
                       # A change request that has ENDED outranks "In review" — it was the next rung,
                       # and used to swallow closed PRs whole, so a merged blueprint sat "In review"
-                      # forever with no way on to Register.
+                      # forever with no way on to its install.
                       elif $end == "merged" then "Merged"
                       elif ($end == "closed" or $end == "closed?") then "Closed"
                       # "In review" USED TO claim a review that provably could not exist: until
@@ -209,15 +228,15 @@ spec:
                       elif $pushed then "Pushed"
                       elif $failed then "Publish failed" else "Publishing" end),
              statusColor: (if ($cd != null and $cd.ready == "True") then "green"
-                           elif ($cd == null and $end == "merged") then "blue"
+                           elif ($cd == null and $end == "merged") then "green"
                            elif ($cd == null and ($end == "closed" or $end == "closed?")) then "gray"
                            else "orange" end),
-             next: (if registerable($cd; $end) then (if $end == "merged" then "Register" else "Register if merged" end) else "" end),
+             next: (if registerable($cd; $end; $hasReg) then (if $end == "merged" then "Install" else "Install if merged" end) else "" end),
              marketLabel: (if $published then "Available" else "" end),
              marketColor: (if $published then "green" else "" end),
              ns: "{{ .Release.Namespace }}",
              rowHref: (if $cd != null then ("/blueprints/{{ .Release.Namespace }}/" + $chart)
-                       elif registerable($cd; $end) then ("/marketplace/" + $chart + "/install")
+                       elif registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")
                        else (($pr.url) // "") end),
              age: ($p0.created // "") } ]) as $claimRows
     | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows

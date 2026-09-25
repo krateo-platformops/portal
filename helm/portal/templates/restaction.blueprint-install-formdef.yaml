@@ -7,11 +7,13 @@
 {{/* CompositionDefinition metadata.name; namespace is fixed to the release ns by the form). */}}
 {{/* Returns { schemaSpec, initialValues, apiVersion/kind/resource } — mirrors blueprint-formdef. */}}
 {{/* */}}
-{{/* THIS FORM IS ALSO THE REGISTER STEP of the builder publish chain. A builder deliverables row */}}
+{{/* THIS FORM IS ALSO THE INSTALL STEP of the builder publish chain. A builder deliverables row */}}
 {{/* whose change request was merged and which has no CompositionDefinition yet navigates here */}}
-{{/* (restaction.blueprint-builder-deliverables, restaction.builder-prs). Registering is a */}}
+{{/* (restaction.blueprint-builder-deliverables, restaction.builder-prs). Installing is a */}}
 {{/* PERSON's action: the write below is the form's own POST through snowplow /call, as the */}}
-{{/* caller, behind the blast-radius confirm — Autopilot never submits it. */}}
+{{/* caller, behind the blast-radius confirm — Autopilot never submits it. The change request */}}
+{{/* the chart came from is linked above the form (restaction.blueprint-install-origin), so the */}}
+{{/* person can check that it merged where they decide. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -37,46 +39,10 @@ spec:
     {{/* the two-index fetch of restaction.blueprints-catalog so the pre-fill covers both sources. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
-    {{/* The builder's registration files. A chart published from the Portal or Blueprint builder */}}
-    {{/* is in NO helm index: its release workflow pushes it to GHCR as OCI, so the catalog steps */}}
-    {{/* above resolve nothing for it, and the form used to open with an empty chart.url — which */}}
-    {{/* the CRD requires. What the publish does carry is the CompositionDefinition it wrote into */}}
-    {{/* the change request: builder-publish renders every held file as a git-provider */}}
-    {{/* LocalResource labelled krateo.io/publish: <claim name>, and the file's bytes ride verbatim */}}
-    {{/* in spec.fromResource.fromString (templates/localresources.yaml there). That file is what */}}
-    {{/* registers the chart — the builder wrote it with the OCI url the chart's release pushes */}}
-    {{/* to — so its url and version are the pre-fill. */}}
-    {{/* */}}
-    {{/* ROOT FILE ONLY. fileName is a basename (the CRD forbids slashes; the directory rides in */}}
-    {{/* toRepo.path), so a blueprint that ships a CompositionDefinition as one of its own */}}
-    {{/* TEMPLATES would also match on the name alone — templates/compositiondefinition.yaml is a */}}
-    {{/* LocalResource with fileName compositiondefinition.yaml and path /templates. The */}}
-    {{/* registration file is the one at the repository root, which is where the release */}}
-    {{/* workflow reads it. */}}
-    {{/* */}}
-    {{/* The claim is matched in the TOP-LEVEL filter, not here, because it needs the route's */}}
-    {{/* `name`, and whether ?extras are visible inside a step filter is not verified. This step */}}
-    {{/* only projects the list down to each root registration file and the claim that wrote it — */}}
-    {{/* a LocalResource carries the full bytes of its file, and the rest of the list is chart */}}
-    {{/* sources this form never reads. No ?labelSelector=: the snowplow LIST dispatch does not */}}
-    {{/* guarantee query-param passthrough (restaction.component-detail). */}}
-    {{/* */}}
-    {{/* A plain collection GET with no endpointRef, so snowplow runs it as the caller; */}}
-    {{/* continueOnError, so a person who may not list LocalResources, or an install without */}}
-    {{/* git-provider, falls back to the helm index exactly as before. */}}
-    - name: builderCds
-      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
-      verb: GET
-      headers:
-        - 'Accept: application/json'
-      continueOnError: true
-      errorKey: builderCdsError
-      filter: >
-        [ (.builderCds.items // [])[]
-          | select(((.spec.fromResource.fileName) // "") == "compositiondefinition.yaml")
-          | select(((.spec.toRepo.path) // "/") as $p | $p == "/" or $p == "")
-          | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
-              cd: ((.spec.fromResource.fromString) // "") } ]
+    {{/* The builder's registration files — the pre-fill for a chart published from the Portal or */}}
+    {{/* Blueprint builder, which is in no helm index. The step, and the rule for which file */}}
+    {{/* applies, are shared with the change-request note (_builder.tpl). */}}
+    {{- include "portal.builderRegistrationStep" $ | nindent 4 }}
     {{/* Namespaces the user may create CompositionDefinitions in → the Namespace select's enum */}}
     {{/* (UAF SubjectAccessReview, mirrors blueprint-formdef). */}}
     - name: namespaces
@@ -112,17 +78,9 @@ spec:
         namespaceFrom: .metadata.namespace
       filter: "[.targets.items[]? | .metadata.name]"
   filter: |
-    # One `key: value` line of the builder's registration file (spec.chart.url / .version), with a
-    # trailing comment and surrounding quotes removed; "" when the key is absent. jq has no YAML
-    # parser, and the file is the fixed shape the builders emit — one indented line per key — so a
-    # line match is exact. Indented only: the leading whitespace keeps `apiVersion:` from reading
-    # as `version:`, and the header comments ("kubectl apply -f https://…") never start with a key.
-    def cdField($k):
-      [ split("\n")[]
-        | select(test("^\\s+" + $k + ":"))
-        | sub("^\\s+" + $k + ":\\s*"; "") | sub("\\s+#.*$"; "") | sub("\\s+$"; "")
-        | ltrimstr("\"") | rtrimstr("\"") | ltrimstr("'") | rtrimstr("'") ]
-      | first // "";
+    # cdField / indexEntry / builderChart — portal.builderRegistrationDefs (_builder.tpl), shared
+    # with restaction.blueprint-install-origin so the note and the pre-fill cannot disagree.
+    {{- include "portal.builderRegistrationDefs" . | nindent 4 }}
     # Drop statusDataTemplate — it's a blueprint-author field (status projection), not something
     # the installer sets; remove it from the fetched CRD schema so it doesn't render in the form.
     (.crd.spec.versions[]? | select(.name == "v1alpha1") | .schema.openAPIV3Schema.properties.spec | del(.properties.statusDataTemplate)) as $spec0
@@ -148,27 +106,20 @@ spec:
     # OCI branch) is chart.url = the FULL oci ref (oci://<base>/<name>, NOT filename-stripped) and NO
     # chart.repo (appending the name to url would double it). So branch on the url scheme below: oci://
     # keeps the raw url + omits repo; a helm-repo url strips the filename + carries repo=name.
-    | (((.catalog.entries[$bp]?) // (.operators.entries[$bp]?) // [])[0]) as $entry
+    | indexEntry($bp) as $entry
     | ($entry.version // "") as $ver
     | ($entry.urls[0]? // "") as $rawUrl
     | ($rawUrl | sub("/[^/]+$"; "")) as $repoUrl
     # The builder publish, when this chart came from one: builder-publish names the claim
     # "publish-<chart>" and labels every file it commits with that claim, so the route's `name`
-    # selects the claim's own registration file. It WINS over the helm index: a builder chart is
-    # published to GHCR, never to an index, so an index entry of the same name is a different
-    # chart — and one namespace holds one CompositionDefinition per name, so the two cannot both
-    # be registered anyway. The person sees the url before submitting.
-    #
-    # CHART_VERSION is not a version. A page set's file carries that placeholder because the
-    # release tag decides the version and the release stamps it into the published copy; the
-    # branch never learns it. Pre-filling the placeholder would register a version nothing
-    # published, so it becomes "" and the person types the tag (the field says why, below). A
-    # blueprint's file carries Chart.yaml's literal version, which is exactly what its merge
-    # releases.
-    | ((.builderCds // []) | if type == "array" then . else [] end) as $builderCds
-    | ([ $builderCds[] | select($bp != "" and ((.publish) // "") == ("publish-" + $bp)) | ((.cd) // "") ] | first // "") as $builderCd
-    | ($builderCd | cdField("url")) as $bUrl
-    | ($builderCd | cdField("version") | if . == "CHART_VERSION" then "" else . end) as $bVer
+    # selects the claim's own registration file. Only for a name no helm index carries: this route
+    # is also the official marketplace card, and an index name keeps its index chart — a builder
+    # claim that shares the name must not re-point it (builderChart, _builder.tpl). A builder chart
+    # is published to GHCR, never to an index, so for every other name the builder file is the
+    # only pre-fill there is. CHART_VERSION (a page set's placeholder) comes back as "".
+    | builderChart($bp) as $b
+    | ($b.url // "") as $bUrl
+    | ($b.version // "") as $bVer
     | {
         schemaSpec: ($spec
           | .properties = ({
@@ -184,14 +135,16 @@ spec:
           # Form also files them under the chart section's collapsed "Advanced" group
           # (SchemaFields partitions on each object's own `required`). So for a builder chart only,
           # url and version are required again: both sit up-front where the person reviews them,
-          # and a page set cannot be registered until the person types its tag — instead of
+          # and a page set cannot be installed until the person types its tag — instead of
           # POSTing a CompositionDefinition with no version, which the pruning would let through.
-          # The empty version also says why it is empty, rather than looking like a failed
-          # pre-fill. Every other install keeps exactly the schema it had.
+          # The empty version also says why it is empty and what to do about it, in the person's
+          # terms: a page set's merge releases nothing (the scaffold releases a placeholder
+          # version only from a tag), so the step before this one is pushing that tag. Every
+          # other install keeps exactly the schema it had.
           | (if $bUrl != "" and ((.properties.chart.properties? // null) != null)
              then (.properties.chart.required = ["url", "version"])
                   | (if $bVer == "" and ((.properties.chart.properties.version? // null) != null)
-                     then (.properties.chart.properties.version |= (. + { description: "Type the version this chart was released under. Its registration file leaves the version to the release tag (it says CHART_VERSION)." }))
+                     then (.properties.chart.properties.version |= (. + { description: "A page set's merge releases nothing. Push a semver tag on main in its repository (git tag 0.1.0 origin/main && git push origin 0.1.0), wait for that release to go green, then type the tag here." }))
                      else . end)
              else . end)),
         initialValues: {

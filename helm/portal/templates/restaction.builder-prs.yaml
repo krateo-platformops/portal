@@ -10,17 +10,30 @@
 {{/* state to a domain chip (open→blue Open / merged→green Merged / closed→slate Closed); green is */}}
 {{/* reserved for a genuinely-landed deliverable (merged), matching the health=green rule. */}}
 {{/* */}}
-{{/* THE REGISTER STEP, for pages as for blueprints. A merged page set is a chart on GHCR that */}}
+{{/* THE INSTALL STEP, for pages as for blueprints. A merged page set is a chart on GHCR that */}}
 {{/* nothing can install until someone creates its CompositionDefinition — a person's step, */}}
 {{/* after the release is green. A claim row from the Portal or Blueprint builder whose change */}}
 {{/* request is merged, and whose chart has no CompositionDefinition in this namespace (the */}}
-{{/* `cds` step), gets a "Register" Next step and opens /marketplace/<chart>/install — the */}}
-{{/* install Form, pre-filled from the publish's own registration file */}}
-{{/* (restaction.blueprint-install-formdef). The same evidence rule as the blueprint list: */}}
-{{/* merged is the provider's word or nothing (portal.builderPrEnding, _builder.tpl), and a */}}
-{{/* closed PR the provider cannot call merged or unmerged says "Closed" with "Register if */}}
-{{/* merged" — reachable, never claimed. Controller publishes (API mappings into krateo-oas) are */}}
-{{/* not registered through a CompositionDefinition, so their rows never offer it. */}}
+{{/* `cds` step), gets an "Install" Next step — the portal's verb for creating a */}}
+{{/* CompositionDefinition, and the word on the page it opens — and opens */}}
+{{/* /marketplace/<chart>/install: the install Form, pre-filled from the publish's own */}}
+{{/* registration file (restaction.blueprint-install-formdef). The same evidence rule as the */}}
+{{/* blueprint list: merged is the provider's word or nothing (portal.builderPrEnding, */}}
+{{/* _builder.tpl), and a closed PR the provider cannot call merged or unmerged says "Closed" */}}
+{{/* with "Install if merged" — reachable, never claimed; the install page links the change */}}
+{{/* request (restaction.blueprint-install-origin), so the person checks the merge there. */}}
+{{/* Controller publishes (API mappings into krateo-oas) are not registered through a */}}
+{{/* CompositionDefinition, so their rows never offer it. */}}
+{{/* */}}
+{{/* Only for a publish that carries its root registration file (portal.builderIsRegistrationFile, */}}
+{{/* the test the form's pre-fill uses): without it the form falls back to a helm-index chart */}}
+{{/* that shares the name, and the person would install that chart believing it was theirs. */}}
+{{/* */}}
+{{/* A PAGE SET'S NEXT STEP IS A TAG FIRST. Its merge releases nothing: its Chart.yaml carries the */}}
+{{/* CHART_VERSION placeholder, and the scaffold's release workflow releases a placeholder */}}
+{{/* version only from a semver tag pushed on main. So a page row says "Tag a release, then */}}
+{{/* install", and the install form's version field says how. A blueprint carries a literal */}}
+{{/* version that its merge releases, so its row says just "Install". */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -55,7 +68,7 @@ spec:
           | select(((.metadata.labels["krateo.io/publish"]) // "") != "")
           | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
               # page | blueprint | controller — only the first two register through a
-              # CompositionDefinition, so only their rows can lead to Register.
+              # CompositionDefinition, so only their rows can lead to Install.
               builder: ((.metadata.labels["krateo.io/builder"]) // ""),
               branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
               repo: (((.spec.toRepo.url) // "") | rtrimstr(".git") | split("/")
@@ -66,17 +79,20 @@ spec:
               # boolean, so "queued" and "broken for a day" became the same row.
               syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
               syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
+              # Is this file the publish's root registration file — the one the install form
+              # pre-fills from? A publish without one is never offered Install (see the header).
+              reg: {{ include "portal.builderIsRegistrationFile" . }},
               # Identity, so a row can point at the object it is about.
               ns: ((.metadata.namespace) // ""),
               lrName: ((.metadata.name) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
-    {{/* The registered charts (CompositionDefinitions) in this namespace, by name — the Register */}}
+    {{/* The registered charts (CompositionDefinitions) in this namespace, by name — the Install */}}
     {{/* step is offered only while a merged chart has none. Names only: presence is the whole */}}
     {{/* question here; the blueprint list carries readiness. Same join key as */}}
     {{/* restaction.blueprint-builder-deliverables: the builder names the branch builder/<chart>, */}}
     {{/* the claim publish-<chart> and the CompositionDefinition <chart>. continueOnError, and a */}}
-    {{/* failed read offers NO Register (cdsError, below): not being able to see a */}}
-    {{/* CompositionDefinition is not evidence that there is none, and a Register against one */}}
+    {{/* failed read offers NO Install (cdsError, below): not being able to see a */}}
+    {{/* CompositionDefinition is not evidence that there is none, and an Install against one */}}
     {{/* that exists is a 409. */}}
     - name: cds
       path: /apis/core.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/compositiondefinitions
@@ -150,6 +166,8 @@ spec:
          # On krateo-057 five of seven sat here: a missing publish-<name>-git-username Secret, or a
          # stuck krateo.io/external-create-pending annotation. Neither self-heals.
          | (any(.[]; .syncReason == "ReconcileError")) as $failed
+         # The publish carries its root registration file (portal.builderIsRegistrationFile).
+         | (any(.[]; .reg == true)) as $hasReg
          | ([ .[] | select(.syncReason == "ReconcileError") | .syncMsg ] | map(select(. != "")) | first // "") as $failMsg
          # Claim-path row. Option A is no longer the only ending: builder-publish 1.8.21 opens the
          # change request itself once every file is committed, so a claim row can now carry a real
@@ -163,10 +181,12 @@ spec:
          # "merged" only on the provider's word; a closed PR without it stays "closed".
          | (if $end == "merged" then "merged" else (($pr.state) // "") end) as $prState
          | ($p0.publish | sub("^publish-"; "")) as $chart
-         # REGISTER: a Portal or Blueprint publish whose change request merged (or closed, with no
-         # merge signal from the provider), whose chart has no CompositionDefinition here, read
-         # successfully. Controller publishes never qualify — see the header.
+         # INSTALL: a Portal or Blueprint publish that carries its registration file, whose change
+         # request merged (or closed, with no merge signal from the provider), and whose chart has
+         # no CompositionDefinition here, read successfully. Controller publishes never qualify —
+         # see the header.
          | ((((($p0.builder) // "") == "page") or ((($p0.builder) // "") == "blueprint"))
+            and $hasReg
             and $cdsRead
             and (($registered[$chart] // false) | not)
             and ($end == "merged" or $end == "closed?")) as $register
@@ -178,7 +198,7 @@ spec:
              # A change request that has ENDED outranks a LocalResource failure. The PR exists only
              # because every file reported a commit (builder-publish's PR gate), so the publish
              # itself succeeded; a failure reported after the PR closed is about the branch, and
-             # must not hide a merged row's way on to Register. The failure still shows in Reason.
+             # must not hide a merged row's way on to Install. The failure still shows in Reason.
              state: (if $end != "" then $prState elif $failed then "failed" elif $prNum > 0 then $prState elif $pushed then "pushed" else "pending" end),
              stateLabel: (if $end != "" then ((($prState)[0:1] | ascii_upcase) + ($prState)[1:])
                           elif $failed then "Publish failed"
@@ -192,8 +212,13 @@ spec:
                            elif $pushed then "green" else "orange" end),
                # What actually went wrong, for the new Reason column. A healthy row says nothing.
                reason: (if $failed then ($failMsg | if length > 140 then (.[0:140] + "…") else . end) else "" end),
-             # What the row click does next, when that is a person's step; empty otherwise.
-             next: (if $register then (if $end == "merged" then "Register" else "Register if merged" end) else "" end),
+             # What the row click does next, when that is a person's step; empty otherwise. A page
+             # set's merge releases nothing, so its step starts with the tag (see the header).
+             next: (if $register
+                    then (if (($p0.builder) // "") == "page"
+                          then (if $end == "merged" then "Tag a release, then install" else "If merged: tag a release, then install" end)
+                          elif $end == "merged" then "Install" else "Install if merged" end)
+                    else "" end),
              pr: (if $prNum > 0 then ("#" + ($prNum | tostring)) else "" end),
              created: ($p0.created // ""),
              # A per-row destination, replacing the hardcoded "" that made every claim row SILENTLY
@@ -201,8 +226,8 @@ spec:
                # handlers entirely — no cursor, no role, no error. The LocalResource behind a
                # publish is a real object, and the generic resource-detail route renders its
                # conditions, which is exactly the "why did this fail" this table cannot fit.
-               # A row that leads to Register opens the install Form instead — the step the person
-               # has left — and the Ref column still names its PR (#N).
+               # A row that leads to Install opens the install Form instead — the step the person
+               # has left — and the Ref column still names its PR (#N), which that page links.
                url: (if $register then ("/marketplace/" + $chart + "/install")
                      elif (($pr.url) // "") != "" then $pr.url
                      else ("/resources/" + (($p0.ns // "") | if . == "" then "krateo-system" else . end) + "/git.krateo.io/v1alpha1/localresources/" + ($p0.lrName // "")) end) } ]) as $claimRows

@@ -25,8 +25,12 @@ spec:
     - forPath: title
       expression: '${ "Install " + (.name // "blueprint") }'
     {{/* Version and maturity only — the reader is committing to a specific revision, and the */}}
-    {{/* category they already saw on the page they came from. */}}
+    {{/* category they already saw on the page they came from. The version part only when there */}}
+    {{/* is a version: marketplace-detail resolves helm-index entries alone, and for a chart in no */}}
+    {{/* index (every builder chart the Install step sends here) `.version` is "", not null, so */}}
+    {{/* `"v" + (.version // "?")` rendered a lone "v" that survived the empty filter. With no */}}
+    {{/* version and no maturity the subtitle is "", and PageHeader drops it. */}}
     - forPath: subtitle
-      expression: '${ ([ (.maturity // empty), ("v" + (.version // "?")) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
+      expression: '${ ([ (.maturity // empty), (if (.version // "") != "" then ("v" + .version) else empty end) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
   resourcesRefs:
     items: []

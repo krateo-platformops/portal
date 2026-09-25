@@ -1,12 +1,13 @@
 {{/* The published-blueprints registry — ONE row per blueprint published from this builder (the */}}
 {{/* composer or Autopilot), off blueprint-builder-deliverables. Columns: Blueprint (chart) / */}}
 {{/* Pull request title / */}}
-{{/* Version / Status chip (Registered=green, Merged=blue, Closed=gray, everything still in */}}
-{{/* flight=orange) / Next step (the person's step the row click leads to — "Register", or */}}
-{{/* "Register if merged" while the provider cannot say whether a closed PR merged) / */}}
+{{/* Version / Status chip (Registered=green, Merged=green as on the change-request list, */}}
+{{/* Closed=gray, everything still in flight=orange) / Next step (the person's step the row */}}
+{{/* click leads to — "Install", or "Install if merged" while the provider cannot say whether a */}}
+{{/* closed PR merged; only for a publish that carries its registration file) / */}}
 {{/* Marketplace chip (Available=green, shown only when the chart is in the helm index) / */}}
 {{/* PR # / Published age. Rows are LINKABLE through a per-row destination the RA resolves */}}
-{{/* (rowHref, below): the blueprint page once registered, the Register form */}}
+{{/* (rowHref, below): the blueprint page once registered, the install form */}}
 {{/* (/marketplace/{chart}/install) once merged, else the change request. */}}
 {{/* */}}
 {{/* WHY the PR is a plain "#N" TEXT cell, not a link (issue #28): a Table can only navigate a */}}
@@ -32,7 +33,7 @@ spec:
     {{/* Was the fixed path /blueprints/{ns}/{chart} — a DEAD LINK for every row still in review,
          because a blueprint has no detail page until its CompositionDefinition exists, and those
          are precisely the rows that now carry a change request. The RA resolves the destination
-         per row instead (registered → the blueprint page, merged and unregistered → the Register
+         per row instead (registered → the blueprint page, merged and unregistered → the install
          form at /marketplace/{chart}/install, else the PR, else nothing), and this
          whole-placeholder form passes it through verbatim (Table.tsx:35,45) so an external
          https:// URL survives. An unresolved row stays inert. */}}
@@ -48,7 +49,7 @@ spec:
       title: Version
     - valueKey: status
       title: Status
-    {{/* THE REGISTER CELL. Beside the status because it answers the question the status raises */}}
+    {{/* THE NEXT-STEP CELL. Beside the status because it answers the question the status raises */}}
     {{/* ("Merged — so what now?"). A text cell, not a Tag: a Tag in this portal is a status, and */}}
     {{/* this is a step. The Table has no per-row action (Table.tsx: rowNavigateTo only), so the */}}
     {{/* cell names what the row click does; empty on every row with nothing for a person to do. */}}

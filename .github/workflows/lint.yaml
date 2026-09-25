@@ -132,3 +132,30 @@ jobs:
 
       - name: Table rowNavigateTo route derivation
         run: python3 scripts/test-rownavigateto-f8.py
+
+  # The builder publish chain's Install step is four RESTActions and three widgets of jq, and each
+  # defect found in it (a claim re-pointing an official marketplace card, Install offered for a
+  # publish the form could not pre-fill, a page set told to install a release that never happened)
+  # was a branch nobody had evaluated. This renders the chart and runs that jq on fixtures.
+  builder-install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Builder Install step, evaluated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-builder-install.py

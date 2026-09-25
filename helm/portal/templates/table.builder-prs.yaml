@@ -3,10 +3,12 @@
 {{/* #84 §0.2 — was a Listy). Columns: Pull request / Repo / Branch / Status chip / Next step / */}}
 {{/* Reason / PR # / Opened. */}}
 {{/* */}}
-{{/* A merged Portal or Blueprint publish with no CompositionDefinition yet is the one row that */}}
-{{/* does NOT open its PR: it opens the Register form (/marketplace/<chart>/install), and its */}}
-{{/* Next step says so — "Register", or "Register if merged" while the provider cannot report */}}
-{{/* whether a closed PR merged. Resolved server-side in restaction.builder-prs (url / next). */}}
+{{/* A merged Portal or Blueprint publish with no CompositionDefinition yet, carrying its */}}
+{{/* registration file, is the one row that does NOT open its PR: it opens the install form */}}
+{{/* (/marketplace/<chart>/install), which links the PR back, and its Next step says so — */}}
+{{/* "Install" ("Tag a release, then install" for a page set, whose merge releases nothing), */}}
+{{/* or the same prefixed "if merged" while the provider cannot report whether a closed PR */}}
+{{/* merged. Resolved server-side in restaction.builder-prs (url / next). */}}
 {{/* */}}
 {{/* LINKABLE to the real GitHub PR: rowNavigateTo is the whole-placeholder `{url}`. A single */}}
 {{/* `{key}` rowNavigateTo now passes the cell value THROUGH verbatim (no encodeURIComponent) and */}}
@@ -35,7 +37,7 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    {{/* Whole-placeholder → opens the real GitHub PR verbatim (safe per aee40c3), or the Register */}}
+    {{/* Whole-placeholder → opens the real GitHub PR verbatim (safe per aee40c3), or the install */}}
     {{/* form's in-app route for a merged, unregistered publish. The url rides as a hidden cell */}}
     {{/* below (bound to no column) so the row carries the link without a visible column. */}}
     rowNavigateTo: '{url}'
@@ -50,7 +52,7 @@ spec:
       title: Branch
     - valueKey: status
       title: Status
-    {{/* THE REGISTER CELL — same column as on /blueprint-builder: a text cell naming the person's */}}
+    {{/* THE NEXT-STEP CELL — same column as on /blueprint-builder: a text cell naming the person's */}}
     {{/* next step, which the row click leads to (the Table has no per-row action), empty on */}}
     {{/* every row with nothing to do. A text cell, not a Tag, because it is a step, not a state. */}}
     - valueKey: next
