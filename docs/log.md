@@ -21,7 +21,7 @@ occurrence of an alert's problem, instead of the one-per-alert `TroubleshootingR
 joins its alert on the `observability.krateo.io/alert` label and `spec.alertRef`, not on a
 normalized display name. **How to fix** shows the three scripts in `status.howToFix`
 (precondition · apply · verify), each with its last run from `status.checks`; its one button is
-"I applied it" (`spec.applied`). **Close** (`spec.closed`) replaces Resolve and cannot be undone.
+"I applied it" (`spec.applied`). **Close** (`spec.closed`) replaces Resolve, cannot be undone and is not offered on a Resolved incident.
 Check history (from `status.checks`) replaces the Remediation audit, and Involved resources,
 Check history and Similar incidents (same alert first) share one tab strip.
 

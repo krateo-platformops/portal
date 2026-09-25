@@ -170,7 +170,8 @@ spec:
              + " and how to fix it — grounded in the evidence on this page.") | @uri)),
         # Target of Close, "I applied it" and Discard, written with the user's own token.
         incidentGvr: { apiVersion: "observability.krateo.io/v1alpha1", resource: "incidents", name: $n, namespace: $ns },
-        canClose: ($exists and $state != "Closed"),
+        # A Resolved incident was proven fixed by its verify script; the portal offers Close only before that.
+        canClose: ($exists and $state != "Closed" and $state != "Resolved"),
         canDiscard: $exists,
         canApply: $canApply,
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | rel) } else empty end),
