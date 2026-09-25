@@ -1,5 +1,8 @@
-{{/* /blueprint-builder deliverables — one row per Autopilot-authored blueprint, sourced */}}
-{{/* from the git PullRequest CRs to the blueprints repo (spec.repo == krateo-blueprints), */}}
+{{/* /blueprint-builder deliverables — one row per blueprint published from this builder. The */}}
+{{/* composer and Autopilot (frontend >= 1.6.59) both publish through a BuilderPublish claim, */}}
+{{/* whose files are LocalResources labelled krateo.io/builder: blueprint (the `publishes` step); */}}
+{{/* the older rows are sourced from the git PullRequest CRs to the blueprints repo */}}
+{{/* (spec.repo == krateo-blueprints, no krateo.io/publish label), */}}
 {{/* JOINED to (a) the registered CompositionDefinition — is the merged chart live yet? — and */}}
 {{/* (b) the blueprints helm index — is the chart published to the marketplace yet? */}}
 {{/* Cluster-native for the CR joins (no GitHub token/endpoint); the catalog step is an external */}}
@@ -89,8 +92,9 @@ spec:
         [ (((.catalog // {}).entries) // {}) | keys[] ]
   {{/* Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/In review) + its */}}
   {{/* chip colour, the marketplace-available chip, and the PR "#N" cell are all computed HERE, */}}
-  {{/* server-side. Rows are newest-first. (The Autopilot deep-link is no longer emitted here — the */}}
-  {{/* page's single "Ask Autopilot →" CTA is the one entry point; the redundant hint strip was removed.) */}}
+  {{/* server-side. Rows are newest-first. (No Autopilot deep-link is emitted here: the entry points */}}
+  {{/* live in the page header — "Compose a blueprint", the primary, and the "Ask Autopilot" link */}}
+  {{/* that lands in the same composer — so a row never needs to carry one.) */}}
   filter: >
     (.cds // []) as $cds
     | (.prs // []) as $prs

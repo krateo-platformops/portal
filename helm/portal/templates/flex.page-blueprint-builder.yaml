@@ -1,7 +1,7 @@
 {{/* Convention page root for /blueprint-builder — the Blueprint Builder's home: a header that says */}}
 {{/* what a blueprint is and carries both routes into the composer ("Compose a blueprint", primary; */}}
-{{/* "Ask Autopilot", a link that lands in the same composer), and the published-blueprints */}}
-{{/* deliverables table (each row links to its blueprint detail). */}}
+{{/* "Ask Autopilot", a link that lands in the same composer), and a titled Card holding a note and */}}
+{{/* the deliverables table (each row links to its change request, then to its blueprint). */}}
 {{/* */}}
 {{/* Authoring does not happen on this page. It happens at /blueprint-builder/compose, a static */}}
 {{/* frontend route (frontend >= 1.6.59); this page is the way in and the record of what shipped. */}}
@@ -19,12 +19,14 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   widgetData:
-    {{/* `flexes` went with flex.blueprint-builder-ask-cta (the header right-aligns its own */}}
-    {{/* actions) and `cards` with card.author-blueprint — each plural goes when the last child */}}
-    {{/* that needed it does. */}}
+    {{/* Each plural goes when the last child that needed it does. `flexes` went with */}}
+    {{/* flex.blueprint-builder-ask-cta (the header right-aligns its own actions); `tables` went */}}
+    {{/* when the deliverables Table moved inside card.blueprint-builder-deliverables, because a */}}
+    {{/* Table cannot render a heading of its own. `cards` now means that Card — the one */}}
+    {{/* card.author-blueprint used to need it for is gone. */}}
     allowedResources:
     - pageheaders
-    - tables
+    - cards
     vertical: true
     gap: middle
     items:
@@ -41,7 +43,7 @@ spec:
          claim behind a confirm. Two peer-looking ways to build the same thing, one of which asks
          for hand-escaped JSON, is worse than one that works. The Portal Builder made the same
          decision about its two Forms (flex.page-portal-builder). */}}
-    - resourceRefId: blueprint-builder-deliverables
+    - resourceRefId: blueprint-builder-deliverables-card
   resourcesRefs:
     items:
     - id: blueprint-builder-page-header
@@ -50,9 +52,9 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
       verb: GET
-    - id: blueprint-builder-deliverables
+    - id: blueprint-builder-deliverables-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: blueprint-builder-deliverables
+      name: blueprint-builder-deliverables-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET
