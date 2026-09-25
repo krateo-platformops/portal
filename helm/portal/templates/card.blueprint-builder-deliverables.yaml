@@ -1,0 +1,43 @@
+{{/* A Table cannot render a heading — the CRD has no title field — so a Table that needs to say    */}}
+{{/* what it is must be wrapped. The Portal Builder wraps both of its Tables for that reason         */}}
+{{/* (card.your-drafts, card.builder-change-requests); this is the same structure, not decoration. */}}
+{{/*                                                                                              */}}
+{{/* It became necessary when the page header's subtitle was rewritten to the entry mockup: the   */}}
+{{/* old subtitle's closing sentences were the only words on /blueprint-builder that said what    */}}
+{{/* the rows below are. Without them the page was a header over seven bare column titles, and on */}}
+{{/* an install with nothing published yet, over "No rows" — a table nobody could read.            */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-builder-deliverables-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* WHERE THE ROWS COME FROM, not what state they are in. They run from "Publishing" to  */}}
+    {{/* "Registered" (and "Publish failed"), so "Published blueprints" would be false of half */}}
+    {{/* of them; the Status column already says which is which.                              */}}
+    title: Blueprints from this builder
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - paragraphs
+      - tables
+    items:
+      - resourceRefId: blueprint-builder-deliverables-note
+      - resourceRefId: blueprint-builder-deliverables
+  resourcesRefs:
+    items:
+      - id: blueprint-builder-deliverables-note
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-builder-deliverables-note
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: blueprint-builder-deliverables
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-builder-deliverables
+        namespace: {{ .Release.Namespace }}
+        resource: tables
+        verb: GET
