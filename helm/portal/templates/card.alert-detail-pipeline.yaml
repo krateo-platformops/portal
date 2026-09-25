@@ -1,7 +1,7 @@
-{{/* Frame for the pipeline walk. Titled, because it sits among other cards on this page and a reader */}}
-{{/* scanning for "did this alert actually do anything" needs to find it without reading it first. */}}
-{{/* */}}
-{{/* RESTORES a CR that #149 referenced but never committed — see markdown.alert-detail-pipeline. */}}
+{{/* Frame for what the alert does, titled so a reader scanning for "did this alert actually do */}}
+{{/* anything" finds it. A where alert shows its hop-by-hop HyperDX walk (alert-detail-pipeline); */}}
+{{/* an apiRef alert, which HyperDX never sees, shows its RESTAction, its last value against the */}}
+{{/* threshold and how the last evaluation went (alert-detail-apiref). */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,11 +11,19 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
   widgetData:
     variant: outlined
     title: What this alert actually does, hop by hop
     items:
     - resourceRefId: alert-detail-pipeline
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ if (.isApiRef // false) then "What this alert evaluates" else "What this alert actually does, hop by hop" end }'
+    - forPath: items
+      expression: '${ if (.isApiRef // false) then [ { resourceRefId: "alert-detail-apiref" } ] else [ { resourceRefId: "alert-detail-pipeline" } ] end }'
   resourcesRefs:
     items:
     - id: alert-detail-pipeline
@@ -23,4 +31,10 @@ spec:
       name: alert-detail-pipeline
       namespace: {{ .Release.Namespace }}
       resource: markdowns
+      verb: GET
+    - id: alert-detail-apiref
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-apiref
+      namespace: {{ .Release.Namespace }}
+      resource: descriptions
       verb: GET

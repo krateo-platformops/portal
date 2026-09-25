@@ -1,0 +1,26 @@
+{{/* An apiRef alert's evaluation, from alert-detail (.apiRefItems): the RESTAction it reads, its */}}
+{{/* last value against the threshold ("42 ≥ 10 — the condition holds"), its state and how long */}}
+{{/* it has been OK, the last evaluation's phase and error, when it ran, and how often it runs. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-apiref
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    column: 1
+    variant: form
+    bordered: false
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ .apiRefItems // [] }'
+  resourcesRefs:
+    items: []

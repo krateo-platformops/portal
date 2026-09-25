@@ -45,6 +45,9 @@ spec:
       errorKey: incidentsError
   filter: >
     def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
+    def aepoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    def arel: (. // "") as $s | ($s | aepoch) as $t | if $t == null then ($s | tostring | .[0:19] | sub("T"; " ")) else ($t | todate | rel) end;
+    def asince: (aepoch) as $t | if $t == null then "" else (now - $t) as $dt | (if $dt < 60 then "for under a minute" elif $dt < 3600 then "for \(($dt/60)|floor) min" elif $dt < 86400 then (($dt/3600)|floor) as $h | "for \($h) hour" + (if $h == 1 then "" else "s" end) else (($dt/86400)|floor) as $d | "for \($d) day" + (if $d == 1 then "" else "s" end) end) end;
     ({{ .Values.observabilityConsoleUrl | default "" | quote }} | rtrimstr("/")) as $console
     | (.name // "") as $n
     | (.namespace // "{{ .Release.Namespace }}") as $ns
@@ -54,6 +57,7 @@ spec:
     | ($st.state // "PENDING") as $state
     | ($st.hyperdxAlertId // "") as $haid
     | ($st.hyperdxDashboardId // "") as $hdid
+    | ($sp.apiRef // null) as $apiRef
       # This alert's incidents, newest first: the ones carrying its label.
     | ([ ((.incidents.items) // [])[]
          | select(((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "") == $n) ]) as $incs
@@ -139,6 +143,28 @@ spec:
         linkedRoute: (if $rep then ("/incidents/" + ($rep.namespace // $ns) + "/" + ($rep.name // "")) else "" end),
         incidentCount: ($shaped | length),
         hasIncident: ($rep != null),
+        # An apiRef alert has no HyperDX hops: the pipeline card shows what it evaluates instead —
+        # the RESTAction, its last value against the threshold, and how the last evaluation went.
+        isApiRef: ($apiRef != null),
+        apiRefItems: (if $apiRef == null then [] else
+          ({ above: "≥", above_exclusive: ">", below: "<", below_or_equal: "≤", equal: "=", not_equal: "≠" }) as $ops
+          | ({ above: "<", above_exclusive: "≤", below: "≥", below_or_equal: ">", equal: "≠", not_equal: "=" }) as $negs
+          | ($sp.thresholdType // "above") as $tt
+          | ($sp.threshold // 0) as $th
+          | ($st.value // null) as $v
+          | ($ops[$tt] // null) as $op
+          | [ { label: "RESTAction", value: (($apiRef.namespace // "") + "/" + ($apiRef.name // "")) },
+              { label: "Last value", value: (
+                  if $op == null then ("thresholdType " + $tt + " cannot be evaluated for an apiRef alert")
+                  elif ($v | type) != "number" then ("not evaluated yet — fires when the value is " + $op + " " + ($th | tostring))
+                  elif ({ above: ($v >= $th), above_exclusive: ($v > $th), below: ($v < $th), below_or_equal: ($v <= $th), equal: ($v == $th), not_equal: ($v != $th) }[$tt])
+                    then (($v | tostring) + " " + $op + " " + ($th | tostring) + " — the condition holds")
+                  else (($v | tostring) + " " + $negs[$tt] + " " + ($th | tostring) + " — fires when the value is " + $op + " " + ($th | tostring)) end) },
+              { label: "State", value: ($state + (if $state == "OK" and (($st.okSince // "") | asince) != "" then (" · " + ($st.okSince | asince)) else "" end)) },
+              { label: "Phase", value: ($st.phase // "Pending") },
+              (if ($st.error // "") != "" then { label: "Error", value: $st.error } else empty end),
+              (if ($st.lastSyncedAt // "") != "" then { label: "Last evaluated", value: ($st.lastSyncedAt | arel) } else empty end),
+              { label: "Evaluated every", value: ($sp.interval // "5m") } ] end),
         sections: {
           incident: ($rep != null),
           # Not exception-only: its job is to say which hops SUCCEEDED as well as which stopped,

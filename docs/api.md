@@ -73,7 +73,7 @@ blueprint-preview seam) and the marketplace catalog index — each through an
 | API | Owner | Read by | Written by the portal |
 |---|---|---|---|
 | `incidents.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents`, `/incidents/{namespace}/{name}`, the composition page's Incidents strip, `/alerts/{namespace}/{name}`, the alerts summary band, global search | `spec.applied: true` ("I applied it"), `spec.closed: true` (Close), and DELETE (Discard), each as the clicking user |
-| `alerts.observability.krateo.io/v1alpha1` | [alert-troubleshooter](https://github.com/krateo-platformops/alert-troubleshooter) | `/alerts`, `/alerts/{namespace}/{name}`, the incident page's alert chip (`status.state`, `status.okSince`) | the alert create/edit/delete forms |
+| `alerts.observability.krateo.io/v1alpha1` | [alert-troubleshooter](https://github.com/krateo-platformops/alert-troubleshooter) | `/alerts`, `/alerts/{namespace}/{name}` (for an apiRef alert, `spec.apiRef` and `status.value` against the threshold, in place of the HyperDX walk), the incident page's alert chip (`status.state`, `status.okSince`) | the alert create/edit/delete forms |
 
 An Incident lives in its Alert's namespace and carries the label
 `observability.krateo.io/alert: <alert name>`; the pages join incidents to alerts on that
