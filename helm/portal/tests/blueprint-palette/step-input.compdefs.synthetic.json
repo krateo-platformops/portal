@@ -1,0 +1,44 @@
+{
+  "compdefs": {
+    "items": [
+      {
+        "metadata": {
+          "name": "fresh-chart",
+          "namespace": "demo-system"
+        },
+        "spec": {
+          "chart": {
+            "version": "0.1.0"
+          }
+        },
+        "status": {}
+      },
+      {
+        "metadata": {
+          "name": "webapp",
+          "namespace": "demo-system"
+        },
+        "spec": {
+          "chart": {
+            "version": "1.0.0"
+          },
+          "statusDataTemplate": [
+            {
+              "expression": "${ .helm.values.host }",
+              "forPath": "endpoint"
+            },
+            {
+              "expression": "${ true }",
+              "forPath": "workloadHealthy"
+            }
+          ]
+        },
+        "status": {
+          "apiVersion": "composition.krateo.io/v1-0-0",
+          "kind": "Webapp",
+          "resource": "webapps"
+        }
+      }
+    ]
+  }
+}

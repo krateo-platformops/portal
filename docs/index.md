@@ -57,9 +57,10 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 ## Chart-adjacent corpora (code-adjacent, authoritative for their scope)
 
   — the drop-in sidebar-entry mechanism for Autopilot-authored pages (#106).
-- [`helm/portal/tests/blueprints-catalog/README.md`](../helm/portal/tests/blueprints-catalog/README.md)
-  and [`helm/portal/tests/blueprint-render/README.md`](../helm/portal/tests/blueprint-render/README.md)
-  — self-contained jq fixtures for the two heaviest RESTAction filters.
+- [`helm/portal/tests/blueprints-catalog/README.md`](../helm/portal/tests/blueprints-catalog/README.md),
+  [`helm/portal/tests/blueprint-render/README.md`](../helm/portal/tests/blueprint-render/README.md)
+  and [`helm/portal/tests/blueprint-palette/README.md`](../helm/portal/tests/blueprint-palette/README.md)
+  — self-contained jq fixtures for the three heaviest RESTAction filters.
 - `scripts/` — `lint-keyextras.py` (CI gate), `mockup-diff.mjs` (mockup coverage audit),
   `test-rownavigateto-f8.py` (route-derivation fixtures), `test-builder-install.py` (the builder
   publish chain's Install step: renders the chart and runs its RESTAction and widget jq on
