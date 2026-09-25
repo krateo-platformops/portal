@@ -172,10 +172,12 @@ spec:
         | (($tv.resource != "") and ($tn != "") and ($vb != "apply") and ($vb != "install") and ($isRead == null)) as $actionable
         | (if $actionable then ($rv + " " + $tv.resource + "/" + $tn + (if $tns != "" then (" -n " + $tns) else "" end)) else "" end) as $op
         # The exact command a user can copy and run in their own terminal (the primary path — most
-        # SREs apply from a real shell, not the portal). Verb-accurate: delete/patch for mutations,
-        # get for reads. The button remains the optional in-portal path for mutations.
+        # SREs apply from a real shell, not the portal). Verb-accurate: delete, create, replace or patch
+        # for mutations, get for reads. The button remains the optional in-portal path for mutations.
         | (if ($tv.resource != "") and ($tn != "") then
              (if $vb == "delete" then ("kubectl delete " + $tv.resource + " " + $tn)
+              elif $actionable and $rv == "POST" then ("echo '" + (($s.payload // {}) | tojson) + "' | kubectl create -f -")
+              elif $actionable and $rv == "PUT" then ("echo '" + (($s.payload // {}) | tojson) + "' | kubectl replace -f -")
               elif $actionable then ("kubectl patch " + $tv.resource + " " + $tn + " --type merge -p '" + (($s.payload // {}) | tojson) + "'")
               else ("kubectl get " + $tv.resource + " " + $tn) end)
              + (if $tns != "" then (" -n " + $tns) else "" end)
