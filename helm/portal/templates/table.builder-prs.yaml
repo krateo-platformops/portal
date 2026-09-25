@@ -1,6 +1,14 @@
 {{/* In-flight builder pull requests — ONE row per pullrequests.github.krateo.io CR (every builder */}}
 {{/* PR: portal + blueprint + API-mapping). A sortable Table (blueprint-builder-deliverables parity, */}}
-{{/* #84 §0.2 — was a Listy). Columns: Pull request / Repo / Branch / Status chip / PR # / Opened. */}}
+{{/* #84 §0.2 — was a Listy). Columns: Pull request / Repo / Branch / Status chip / Next step / */}}
+{{/* Reason / PR # / Opened. */}}
+{{/* */}}
+{{/* A merged Portal or Blueprint publish with no CompositionDefinition yet, carrying its */}}
+{{/* registration file, is the one row that does NOT open its PR: it opens the install form */}}
+{{/* (/marketplace/<chart>/install), which links the PR back, and its Next step says so — */}}
+{{/* "Install" ("Tag a release, then install" for a page set, whose merge releases nothing), */}}
+{{/* or the same prefixed "if merged" while the provider cannot report whether a closed PR */}}
+{{/* merged. Resolved server-side in restaction.builder-prs (url / next). */}}
 {{/* */}}
 {{/* LINKABLE to the real GitHub PR: rowNavigateTo is the whole-placeholder `{url}`. A single */}}
 {{/* `{key}` rowNavigateTo now passes the cell value THROUGH verbatim (no encodeURIComponent) and */}}
@@ -29,8 +37,9 @@ spec:
     allowedResources: []
     bordered: false
     size: small
-    {{/* Whole-placeholder → opens the real GitHub PR verbatim (safe per aee40c3). The url rides as a */}}
-    {{/* hidden cell below (bound to no column) so the row carries the link without a visible column. */}}
+    {{/* Whole-placeholder → opens the real GitHub PR verbatim (safe per aee40c3), or the install */}}
+    {{/* form's in-app route for a merged, unregistered publish. The url rides as a hidden cell */}}
+    {{/* below (bound to no column) so the row carries the link without a visible column. */}}
     rowNavigateTo: '{url}'
     pagination:
       defaultPageSize: 15
@@ -43,6 +52,11 @@ spec:
       title: Branch
     - valueKey: status
       title: Status
+    {{/* THE NEXT-STEP CELL — same column as on /blueprint-builder: a text cell naming the person's */}}
+    {{/* next step, which the row click leads to (the Table has no per-row action), empty on */}}
+    {{/* every row with nothing to do. A text cell, not a Tag, because it is a step, not a state. */}}
+    - valueKey: next
+      title: Next step
     {{/* Exception-only in spirit: a healthy row leaves it empty. It exists because the status chip */}}
     {{/* can now say "Publish failed", and a red chip with nowhere to point is a dead end. */}}
     - valueKey: reason
@@ -54,6 +68,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"repo",kind:"jsonSchemaType",type:"string",stringValue:(.repo // "")}, {valueKey:"head",kind:"jsonSchemaType",type:"string",stringValue:(.head // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.stateLabel // ""),color:(.stateColor // "orange")}, {valueKey:"reason",kind:"jsonSchemaType",type:"string",stringValue:(.reason // ""),color:"var(--gray-color)"}, {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"opened",kind:"jsonSchemaType",type:"string",stringValue:(.created // ""),format:"relative"}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"repo",kind:"jsonSchemaType",type:"string",stringValue:(.repo // "")}, {valueKey:"head",kind:"jsonSchemaType",type:"string",stringValue:(.head // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.stateLabel // ""),color:(.stateColor // "orange")}, {valueKey:"next",kind:"jsonSchemaType",type:"string",stringValue:(.next // "")}, {valueKey:"reason",kind:"jsonSchemaType",type:"string",stringValue:(.reason // ""),color:"var(--gray-color)"}, {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"opened",kind:"jsonSchemaType",type:"string",stringValue:(.created // ""),format:"relative"}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")} ] ] }'
   resourcesRefs:
     items: []

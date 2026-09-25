@@ -61,4 +61,6 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
   and [`helm/portal/tests/blueprint-render/README.md`](../helm/portal/tests/blueprint-render/README.md)
   — self-contained jq fixtures for the two heaviest RESTAction filters.
 - `scripts/` — `lint-keyextras.py` (CI gate), `mockup-diff.mjs` (mockup coverage audit),
-  `test-rownavigateto-f8.py` (route-derivation fixtures).
+  `test-rownavigateto-f8.py` (route-derivation fixtures), `test-builder-install.py` (the builder
+  publish chain's Install step: renders the chart and runs its RESTAction and widget jq on
+  fixtures; CI gate).

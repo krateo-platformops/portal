@@ -1,0 +1,82 @@
+{{/* Where a builder chart came from — the change-request note on /marketplace/{name}/install. */}}
+{{/* */}}
+{{/* The builder lists send a person here to install a chart whose change request has ended, and */}}
+{{/* while github-provider-kog does not report `merged` they cannot say whether it merged: the */}}
+{{/* row reads "Closed" and its Next step "Install if merged". The row used to be the person's */}}
+{{/* only way to that PR; once it led here instead, the condition the hedge sets could not be */}}
+{{/* checked from the portal at all. So this page names the change request, as a link, beside */}}
+{{/* the Install button, and says outright what the provider knows (portal.builderPrEnding, */}}
+{{/* the same def the rows use): merged, closed without merging, still open, or closed with */}}
+{{/* nothing reported. */}}
+{{/* */}}
+{{/* Only for a chart the install form pre-fills from a builder publish. Which one that is is */}}
+{{/* decided by portal.builderRegistrationDefs, shared with restaction.blueprint-install-formdef, */}}
+{{/* so the note never names a change request as the source of a chart the form does not hold. */}}
+{{/* The one other note is the exception to that: a builder publish that shares a helm-index */}}
+{{/* name. The form keeps the index chart there (it is the official marketplace card), but the */}}
+{{/* builder lists still send that publish's author here, so the note says plainly that this */}}
+{{/* form installs the marketplace chart and not theirs. */}}
+{{/* */}}
+{{/* A SEPARATE RESTAction, not a field of the formdef, because the page root binds it to decide */}}
+{{/* whether the note is composed at all (an empty Paragraph still takes a gap in the page's */}}
+{{/* Flex), and the formdef's `crd` step is not continueOnError: bound to the page root, a */}}
+{{/* person who may not read that CRD would lose the whole page, header included, instead of */}}
+{{/* the form alone. Every step here continues on error, so the worst this can do is say */}}
+{{/* nothing. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: blueprint-install-origin
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* The helm indexes, only to know whether the name is an index chart (builderChart). */}}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
+    {{- include "portal.builderRegistrationStep" $ | nindent 4 }}
+    {{/* The builder's change requests. builder-publish (>= 1.8.21) opens one per claim and labels */}}
+    {{/* it krateo.io/publish: <claim name>; the provider writes html_url, state and — from the */}}
+    {{/* release that adds it — merged. Projected to what the note reads; `mergedKnown` separates */}}
+    {{/* "not reported" from "reported false", as on the lists. As the caller, continueOnError. */}}
+    - name: builderPrs
+      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ .Release.Namespace }}/pullrequests
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: builderPrsError
+      filter: >
+        [ (.builderPrs.items // [])[]
+          | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+              url: ((.status.html_url) // ""),
+              state: ((.status.state) // ""),
+              merged: ((.status.merged) == true),
+              mergedKnown: (((.status.merged) | type) == "boolean") } ]
+  filter: |
+    {{- include "portal.builderRegistrationDefs" . | nindent 4 }}
+    {{- include "portal.builderPrEnding" . | nindent 4 }}
+    (.name // "") as $bp
+    | builderChart($bp) as $b
+    | (($b.url // "") != "") as $fromBuilder
+    # A builder publish of this name exists, but the name is a helm-index chart's, so the form
+    # holds that chart instead (builderChart); the author was sent here by their row all the same.
+    | ((($b.url // "") == "") and ((builderFile($bp) | cdField("url")) != "")) as $indexName
+    | ([ ((.builderPrs // []) | if type == "array" then . else [] end)[]
+         | select(($fromBuilder or $indexName) and ((.publish) // "") == ("publish-" + $bp)) ] | first) as $pr
+    | (($pr.url) // "") as $url
+    | ending($pr) as $end
+    # A page set's merge releases nothing — its version comes from a tag the person pushes, as
+    # the version field below says — so "its release" would send them waiting for one.
+    | (if ($b.version // "") == "" then "a release you tagged on main is green" else "its release is green" end) as $released
+    | { changeRequest: { url: $url, state: (($pr.state) // ""), ending: $end },
+        note: (if $indexName
+               then ((if $url != "" then ("Published by " + $url + " under") else "A builder publish uses" end)
+                     + " a name the marketplace already has. This form installs the marketplace chart of that name, not the published one; to install that one, publish it under another name.")
+               elif $url == "" then ""
+               elif $end == "merged" then ("Published by " + $url + ", which merged. Install it once " + $released + ".")
+               elif $end == "closed" then ("Published by " + $url + ", which closed without merging: nothing was released, so there is nothing to install.")
+               elif $end == "closed?" then ("Published by " + $url + ", now closed. Install it only if that change request merged and " + $released + ".")
+               elif (($pr.state) // "") == "open" then ("Published by " + $url + ", still open. Install it once it merges and " + $released + ".")
+               else ("Published by " + $url + ". Install it once that change request merges and " + $released + ".") end) }
