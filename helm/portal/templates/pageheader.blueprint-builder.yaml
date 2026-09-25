@@ -1,17 +1,17 @@
-{{/* The /blueprint-builder page header — title and subtitle in one CR. */}}
+{{/* The /blueprint-builder page header — title, subtitle and both routes into the composer, in */}}
+{{/* one CR. */}}
 {{/* */}}
 {{/* Replaces four: flex.blueprint-builder-header (a vertical Flex whose only job was to stack them), */}}
 {{/* paragraph.blueprint-builder-eyebrow, paragraph.blueprint-builder-title and */}}
-{{/* paragraph.blueprint-builder-subtitle. */}}
+{{/* paragraph.blueprint-builder-subtitle. And now a fifth: flex.blueprint-builder-ask-cta, a */}}
+{{/* justify:flex-end wrapper whose only job was to right-align one button — which is what this */}}
+{{/* widget's action row already does. */}}
 {{/* */}}
 {{/* THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx already */}}
 {{/* returns null for `variant: eyebrow`, so "Builders · tenant …" has been rendering as nothing. The */}}
 {{/* frontend comment says the canonical source is the chart's *-eyebrow CRs and that returning null */}}
-{{/* "avoids touching the cluster" — this CR is the cluster being touched. */}}
-{{/* */}}
-{{/* No actions in the header. The page's entry point is blueprint-builder-ask-cta directly below, */}}
-{{/* which is the Autopilot prompt itself rather than a button that opens one; promoting a duplicate */}}
-{{/* into the header would give the same action two homes a few pixels apart. */}}
+{{/* "avoids touching the cluster" — this CR is the cluster being touched. PageHeader has no eyebrow */}}
+{{/* field either, so the entry mockup's "Admin · Blueprint Builder" line is the breadcrumb's job. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -22,10 +22,38 @@ metadata:
 spec:
   widgetData:
     title: Blueprint Builder
+    {{/* NAMES WHAT IS BUILT, NOT WHO BUILDS IT. The old subtitle opened "Describe a blueprint to */}}
+    {{/* Autopilot" — true of the one route that can be switched off, and silent about the */}}
+    {{/* composer. This one is the approved entry mockup's, word for word: what a blueprint is */}}
+    {{/* (a chart that registers as a Krateo kind), the three things a person decides in it, and */}}
+    {{/* that the Autopilot route ends on the same canvas rather than somewhere else. */}}
+    {{/* */}}
+    {{/* The old closing sentences — merged → OCI chart → a row below → installable from the */}}
+    {{/* Blueprints page — went with it: the deliverables table directly under this header shows */}}
+    {{/* that outcome, and each row links to its blueprint by itself. */}}
     subtitle: >-
-      Describe a blueprint to Autopilot and it drafts the Helm chart, previews a live helm-render,
-      and opens a gated change request to the blueprints repository. Once merged, it publishes an
-      OCI chart and appears below — installable by anyone from the Blueprints page. Each row links
-      to its blueprint.
+      Build a Helm chart that registers as a Krateo kind: its resources, what each waits on, and
+      the form people fill to install it. Describe it to Autopilot instead and it lands in the
+      same composer.
+    {{/* TWO actions, ONE primary — the /alerts header's shape. Autopilot first as a link, the */}}
+    {{/* composer last as the filled primary, so the eye ends on the action that always works. */}}
+    {{/* PageHeader right-aligns them on the title line; P6 allows a container exactly one primary. */}}
+    allowedResources:
+      - buttons
+    items:
+      - resourceRefId: blueprint-builder-ask
+      - resourceRefId: blueprint-builder-compose
   resourcesRefs:
-    items: []
+    items:
+      - id: blueprint-builder-ask
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-builder-ask
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: blueprint-builder-compose
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-builder-compose
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET

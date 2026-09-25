@@ -1,9 +1,10 @@
-{{/* Convention page root for /blueprint-builder — the Blueprint builder's home: a */}}
-{{/* how-it-works header, the always-visible "Ask Autopilot →" CTA (the page's own entry */}}
-{{/* into the flow), and the published-blueprints deliverables table (each row links to its */}}
-{{/* blueprint detail). The authoring flow itself lives in the Autopilot rail (previewBlueprint */}}
-{{/* → gated git publish); this page is the deliverables surface. The redundant "author with */}}
-{{/* Autopilot" hint strip was removed — the three builder pages share the single Ask-Autopilot CTA. */}}
+{{/* Convention page root for /blueprint-builder — the Blueprint Builder's home: a header that says */}}
+{{/* what a blueprint is and carries both routes into the composer ("Compose a blueprint", primary; */}}
+{{/* "Ask Autopilot", a link that lands in the same composer), and the published-blueprints */}}
+{{/* deliverables table (each row links to its blueprint detail). */}}
+{{/* */}}
+{{/* Authoring does not happen on this page. It happens at /blueprint-builder/compose, a static */}}
+{{/* frontend route (frontend >= 1.6.59); this page is the way in and the record of what shipped. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,22 +19,28 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   widgetData:
+    {{/* `flexes` went with flex.blueprint-builder-ask-cta (the header right-aligns its own */}}
+    {{/* actions) and `cards` with card.author-blueprint — each plural goes when the last child */}}
+    {{/* that needed it does. */}}
     allowedResources:
     - pageheaders
-    - flexes
     - tables
-    {{/* B4: the authoring card. Without this the Flex refuses to mount it. */}}
-    - cards
     vertical: true
     gap: middle
     items:
     - resourceRefId: blueprint-builder-page-header
-    {{/* #84 §0.1: CTA rides in a right-aligned wrapper Flex (was a bare left-aligned button). */}}
-    - resourceRefId: blueprint-builder-ask-cta
-    {{/* B4: authoring on the page. Placed ABOVE the deliverables table for the same reason the
-         KOG builder places its author cards above its registry — the table answers "what did I
-         ship?", so it belongs after the thing that ships. */}}
-    - resourceRefId: author-blueprint-card
+    {{/* ONE WAY TO BUILD A BLUEPRINT, and it is the composer. This page used to mount
+         card.author-blueprint: a Form whose only chart control was a JSON textarea, into which a
+         person pasted the whole tree as one object of path → file contents. It existed because
+         SchemaFields has no repeatable-row control, so a chart TREE had no other home in a Form —
+         and it closed a real gap, since until then only the rail could author a blueprint at all.
+
+         The composer closes the same gap without the textarea: it starts a chart from a name,
+         edits each file as a file, draws the resources and what each waits on from
+         architecture.yaml, previews a real render, and publishes through the same BuilderPublish
+         claim behind a confirm. Two peer-looking ways to build the same thing, one of which asks
+         for hand-escaped JSON, is worse than one that works. The Portal Builder made the same
+         decision about its two Forms (flex.page-portal-builder). */}}
     - resourceRefId: blueprint-builder-deliverables
   resourcesRefs:
     items:
@@ -42,18 +49,6 @@ spec:
       name: blueprint-builder-page-header
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
-      verb: GET
-    - id: blueprint-builder-ask-cta
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: blueprint-builder-ask-cta
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
-      verb: GET
-    - id: author-blueprint-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: author-blueprint-card
-      namespace: {{ .Release.Namespace }}
-      resource: cards
       verb: GET
     - id: blueprint-builder-deliverables
       apiVersion: widgets.templates.krateo.io/v1beta1
