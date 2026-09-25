@@ -48,7 +48,8 @@ spec:
             title: (if ($rc.statement // "") != "" then $rc.statement else (.metadata.name // "") end),
             lifecycle: $lc,
             lifecycleColor: (if $lc == "open" then "red" elif $lc == "mitigated" then "orange" elif $lc == "resolved" then "green" else "gray" end),
-            route: ("/incidents/" + $ns + "/" + (.metadata.name // ""))
+            # the report's own namespace; a namespaced list omits it per item, so fall back to the listed one
+            route: ("/incidents/" + (.metadata.namespace // "{{ .Release.Namespace }}") + "/" + (.metadata.name // ""))
           }
       ] as $rows
     | { rows: $rows }
