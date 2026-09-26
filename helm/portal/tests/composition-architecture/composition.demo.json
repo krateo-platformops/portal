@@ -1,0 +1,203 @@
+{
+  "apiVersion": "composition.krateo.io/v1-8-40",
+  "kind": "BuilderPublish",
+  "metadata": {
+    "annotations": {
+      "krateo.io/external-create-pending": "2026-09-23T10:15:31Z",
+      "krateo.io/external-create-succeeded": "2026-09-23T10:15:33Z"
+    },
+    "creationTimestamp": "2026-09-23T10:15:31Z",
+    "finalizers": [
+      "composition.krateo.io/finalizer"
+    ],
+    "generation": 1,
+    "labels": {
+      "app.kubernetes.io/managed-by": "krateo",
+      "krateo.io/authored-by": "autopilot",
+      "krateo.io/composition-definition-group": "core.krateo.io",
+      "krateo.io/composition-definition-name": "builder-publish",
+      "krateo.io/composition-definition-namespace": "krateo-system",
+      "krateo.io/composition-definition-resource": "compositiondefinitions",
+      "krateo.io/composition-definition-version": "v1alpha1",
+      "krateo.io/composition-version": "v1-8-40",
+      "krateo.io/release-name": "publish-pod-sizing-demo-v4d5xbxv"
+    },
+    "name": "publish-pod-sizing-demo",
+    "namespace": "krateo-system",
+    "resourceVersion": "1790388289542079023",
+    "uid": "a081c6ca-e11d-463b-ae18-4c683c76c315"
+  },
+  "spec": {
+    "branch": "builder/pod-sizing-demo",
+    "builder": "page",
+    "files": [
+      {
+        "content": "apiVersion: widgets.templates.krateo.io/v1beta1\nkind: Flex\nmetadata:\n  annotations:\n    krateo.io/allowed-resources: derived\n    krateo.io/nav-label: Pod sizing\n    krateo.io/nav-order: '100'\n    krateo.io/nav-path: /pod-sizing-demo\n  name: page-pod-sizing-demo\n  namespace: '{{ include \"page.tierNamespace\" (dict \"ctx\" . \"tier\" \"common\") }}'\nspec:\n  resourcesRefs:\n    items:\n      - apiVersion: widgets.templates.krateo.io/v1beta1\n        id: page-pod-sizing-demo-row\n        name: page-pod-sizing-demo-row\n        namespace: krateo-system\n        resource: rows\n        verb: GET\n      - apiVersion: widgets.templates.krateo.io/v1beta1\n        id: page-pod-sizing-demo-header\n        name: page-pod-sizing-demo-header\n        namespace: '{{ include \"page.tierNamespace\" (dict \"ctx\" . \"tier\" \"common\") }}'\n        resource: pageheaders\n        verb: GET\n  widgetData:\n    allowedResources:\n      - rows\n      - pageheaders\n    gap: middle\n    items:\n      - resourceRefId: page-pod-sizing-demo-row\n      - resourceRefId: page-pod-sizing-demo-header\n    vertical: true\n",
+        "path": "templates/flex.page-pod-sizing-demo.yaml"
+      },
+      {
+        "content": "apiVersion: widgets.templates.krateo.io/v1beta1\nkind: PageHeader\nmetadata:\n  name: page-pod-sizing-demo-header\n  namespace: '{{ include \"page.tierNamespace\" (dict \"ctx\" . \"tier\" \"common\") }}'\nspec:\n  resourcesRefs:\n    items: []\n  widgetData:\n    title: Pod sizing\n",
+        "path": "templates/pageheader.page-pod-sizing-demo-header.yaml"
+      },
+      {
+        "content": "apiVersion: v2\nappVersion: CHART_VERSION\ndescription: Krateo Composable Portal pages — pod-sizing-demo.\nname: pod-sizing-demo\ntype: application\nversion: CHART_VERSION\n",
+        "path": "Chart.yaml"
+      },
+      {
+        "content": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"additionalProperties\": false,\n  \"description\": \"Krateo Composable Portal pages — pod-sizing-demo.\",\n  \"properties\": {\n    \"tiers\": {\n      \"additionalProperties\": false,\n      \"description\": \"Which namespace this page set is created in. Empty = the release namespace.\",\n      \"properties\": {\n        \"common\": {\n          \"default\": \"\",\n          \"title\": \"Namespace\",\n          \"type\": \"string\"\n        }\n      },\n      \"title\": \"Namespace tiers\",\n      \"type\": \"object\"\n    }\n  },\n  \"title\": \"pod-sizing-demo\",\n  \"type\": \"object\"\n}\n",
+        "path": "values.schema.json"
+      },
+      {
+        "content": "{{/*\npage.tierNamespace — resolve a widget tier to a namespace.\nCall: {{ include \"page.tierNamespace\" (dict \"ctx\" . \"tier\" \"common\") }}\nReturns .Values.tiers.<tier> if non-empty, else .Release.Namespace.\n*/}}\n{{- define \"page.tierNamespace\" -}}\n{{- $ns := index (default (dict) .ctx.Values.tiers) .tier -}}\n{{- if $ns -}}{{ $ns }}{{- else -}}{{ .ctx.Release.Namespace }}{{- end -}}\n{{- end -}}\n",
+        "path": "templates/_tiers.tpl"
+      },
+      {
+        "content": "tiers:\n  # Namespace this page set is created in. Empty = the release namespace.\n  common: \"\"\n",
+        "path": "values.yaml"
+      },
+      {
+        "content": "apiVersion: widgets.templates.krateo.io/v1beta1\nkind: Row\nmetadata:\n  annotations:\n    krateo.io/allowed-resources: derived\n  name: page-pod-sizing-demo-row\n  namespace: krateo-system\nspec:\n  resourcesRefs:\n    items:\n      - apiVersion: widgets.templates.krateo.io/v1beta1\n        id: pod-sizing-demo-table\n        name: pod-sizing-demo-table\n        namespace: krateo-system\n        resource: tables\n        verb: GET\n  widgetData:\n    allowedResources:\n      - tables\n    items:\n      - resourceRefId: pod-sizing-demo-table\n",
+        "path": "templates/row.page-pod-sizing-demo-row.yaml"
+      },
+      {
+        "content": "apiVersion: widgets.templates.krateo.io/v1beta1\nkind: Table\nmetadata:\n  name: pod-sizing-demo-table\n  namespace: krateo-system\nspec:\n  widgetDataTemplate:\n  - expression: ${ .items }\n    forPath: dataSource\n  apiRef:\n    name: pod-sizing-demo-query\n    namespace: krateo-system\n  resourcesRefs:\n    items: []\n  widgetData:\n    allowedResources: []\n    columns:\n      - title: Pod\n        valueKey: pod\n      - title: Requested\n        valueKey: requested\n      - title: Used\n        valueKey: used\n      - title: Utilization\n        valueKey: utilization\n      - title: Verdict\n        valueKey: verdict\n",
+        "path": "templates/table.pod-sizing-demo-table.yaml"
+      },
+      {
+        "content": "apiVersion: templates.krateo.io/v1\nkind: RESTAction\nmetadata:\n  name: pod-sizing-demo-query\n  namespace: krateo-system\nspec:\n  api:\n    - headers:\n        - 'Accept: application/json'\n      name: pods\n      path: /api/v1/namespaces/krateo-system/pods\n      verb: GET\n    - headers:\n        - 'Accept: application/json'\n      name: metrics\n      path: /apis/metrics.k8s.io/v1beta1/namespaces/krateo-system/pods\n      verb: GET\n  filter: |-\n    include \"quantity\";\n    . as $r\n    | { items: [\n          $r.pods.items[] as $p\n          | ([ $r.metrics.items[] | select(.metadata.name == $p.metadata.name) ] | first) as $m\n          | ([ $p.spec.containers[].resources.requests.cpu // empty ] | sum_quantities) as $req\n          | ([ (($m.containers // [])[]).usage.cpu ] | sum_quantities) as $use\n          | utilization_pct($use; $req) as $pct\n          | provisioning_verdict($pct) as $v\n          # ORDERED FOR THE QUESTION BEING ASKED, which is not the module's default order.\n          # provisioning_severity ranks Underprovisioned above Overprovisioned, and it is right to:\n          # throttling a workload now is worse than paying for capacity nobody uses. But this page asks\n          # \"what is oversized\", and under that ranking the first sixteen rows were all\n          # Underprovisioned — so on a virtualized table showing thirteen, the word Overprovisioned\n          # never appeared at all. The subject of the page has to be on the first screen.\n          # Within each group the WORST case leads: the emptiest reservation for the overprovisioned,\n          # the most throttled for the underprovisioned.\n          | ({ \"Overprovisioned\": 3, \"Underprovisioned\": 2, \"Unknown\": 1, \"Right-sized\": 0 }[$v]) as $grp\n          | (if $v == \"Overprovisioned\" then -($pct // 0) else ($pct // -1) end) as $worst\n          | { rank: [ $grp, $worst ],\n              row: [\n                { kind: \"jsonSchemaType\", type: \"string\", valueKey: \"pod\",\n                  stringValue: $p.metadata.name },\n                { kind: \"jsonSchemaType\", type: \"string\", valueKey: \"requested\",\n                  stringValue: (if $req == null then \"—\" else (($req*1000|round|tostring) + \"m\") end) },\n                { kind: \"jsonSchemaType\", type: \"string\", valueKey: \"used\",\n                  stringValue: (if $use == null then \"—\" else (($use*1000|round|tostring) + \"m\") end) },\n                { kind: \"jsonSchemaType\", type: \"string\", valueKey: \"utilization\",\n                  stringValue: (if $pct == null then \"—\" else (($pct|tostring) + \"%\") end) },\n                { kind: \"tag\", valueKey: \"verdict\", stringValue: $v,\n                  color: ({ \"Underprovisioned\": \"red\", \"Overprovisioned\": \"gold\",\n                            \"Right-sized\": \"green\", \"Unknown\": \"default\" }[$v]) }\n              ] }\n        ]\n        | sort_by(.rank) | reverse | map(.row) }\n",
+        "path": "templates/restaction.pod-sizing-demo-query.yaml"
+      },
+      {
+        "content": "# REGISTERS this page set as installable. Apply the STAMPED copy from the GitHub release, not this\n# one: the branch carries the CHART_VERSION placeholder, and registering that pins a chart version\n# that was never published.\n#\n#   kubectl apply -f https://github.com/krateo-blueprints/pod-sizing-demo/releases/download/<tag>/compositiondefinition.yaml\n#\n# Install it WHERE THE PORTAL IS — the pages must land in namespaces the portal's RBAC covers.\napiVersion: core.krateo.io/v1alpha1\nkind: CompositionDefinition\nmetadata:\n  name: pod-sizing-demo\n  namespace: krateo-system\nspec:\n  chart:\n    url: oci://ghcr.io/krateo-blueprints/charts/pod-sizing-demo\n    version: CHART_VERSION\n",
+        "path": "compositiondefinition.yaml"
+      }
+    ],
+    "name": "publish-pod-sizing-demo",
+    "source": {
+      "branch": "main",
+      "krateoIgnorePath": "/",
+      "url": "https://github.com/krateo-blueprints/portal-builder.git"
+    },
+    "target": {
+      "base": "main",
+      "namespace": "krateo-blueprints",
+      "repo": "demo-service-catalog"
+    }
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-09-23T10:20:24Z",
+        "message": "Composition is up-to-date",
+        "reason": "Available",
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-09-26T02:04:49Z",
+        "message": "",
+        "reason": "ReconcileSuccess",
+        "status": "True",
+        "type": "Synced"
+      }
+    ],
+    "digest": "8206e1504b6899fa",
+    "helmChartUrl": "oci://ghcr.io/krateo-platformops/charts/builder-publish",
+    "helmChartVersion": "1.8.40",
+    "managed": [
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-000",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-000",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-001",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-001",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-002",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-002",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-003",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-003",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-004",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-004",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-005",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-005",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-006",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-006",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-007",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-007",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-008",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-008",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-009",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/localresources/publish-pod-sizing-demo-009",
+        "resource": "localresources"
+      },
+      {
+        "apiVersion": "github.krateo.io/v2022-11-28",
+        "name": "publish-pod-sizing-demo-pr",
+        "namespace": "krateo-system",
+        "path": "/apis/github.krateo.io/v2022-11-28/namespaces/krateo-system/pullrequests/publish-pod-sizing-demo-pr",
+        "resource": "pullrequests"
+      },
+      {
+        "apiVersion": "git.krateo.io/v1alpha1",
+        "name": "publish-pod-sizing-demo-source",
+        "namespace": "krateo-system",
+        "path": "/apis/git.krateo.io/v1alpha1/namespaces/krateo-system/repoes/publish-pod-sizing-demo-source",
+        "resource": "repoes"
+      },
+      {
+        "apiVersion": "github.krateo.io/v2022-11-28",
+        "name": "publish-pod-sizing-demo-repo",
+        "namespace": "krateo-system",
+        "path": "/apis/github.krateo.io/v2022-11-28/namespaces/krateo-system/repositories/publish-pod-sizing-demo-repo",
+        "resource": "repositories"
+      }
+    ],
+    "observedGeneration": 1,
+    "previousDigest": "8206e1504b6899fa"
+  }
+}

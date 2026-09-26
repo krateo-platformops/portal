@@ -1,0 +1,298 @@
+{
+  "_comment": [
+    "Cases for scripts/test-composition-architecture.py. `compositions` are krateo-057 objects (2026-09-26,",
+    "read-only): the composition and its managed objects, managedFields dropped and the objects' spec",
+    "dropped (no program reads it). The architecture ConfigMap is not a fixture: the runner renders",
+    "helm/builder-publish for the composition, as CDC does, so the chart's own output feeds the RESTAction.",
+    "Each case mutates that cluster the way a real caller meets it; `proves` says what it pins."
+  ],
+  "compositions": {
+    "demo": {
+      "composition": "composition.demo.json",
+      "objects": "objects.demo.json",
+      "resource": "builderpublishes",
+      "names": [
+        "publish-pod-sizing-demo-repo",
+        "publish-pod-sizing-demo-source",
+        "publish-pod-sizing-demo-000",
+        "publish-pod-sizing-demo-001",
+        "publish-pod-sizing-demo-002",
+        "publish-pod-sizing-demo-003",
+        "publish-pod-sizing-demo-004",
+        "publish-pod-sizing-demo-005",
+        "publish-pod-sizing-demo-006",
+        "publish-pod-sizing-demo-007",
+        "publish-pod-sizing-demo-008",
+        "publish-pod-sizing-demo-009",
+        "publish-pod-sizing-demo-pr"
+      ],
+      "finished": true
+    },
+    "v1b": {
+      "composition": "composition.v1b.json",
+      "objects": "objects.v1b.json",
+      "resource": "builderpublishes",
+      "names": [
+        "publish-pod-sizing-v1b-repo",
+        "publish-pod-sizing-v1b-source",
+        "publish-pod-sizing-v1b-000",
+        "publish-pod-sizing-v1b-001",
+        "publish-pod-sizing-v1b-002",
+        "publish-pod-sizing-v1b-003",
+        "publish-pod-sizing-v1b-004",
+        "publish-pod-sizing-v1b-005",
+        "publish-pod-sizing-v1b-006",
+        "publish-pod-sizing-v1b-007",
+        "publish-pod-sizing-v1b-008",
+        "publish-pod-sizing-v1b-009",
+        "publish-pod-sizing-v1b-pr"
+      ],
+      "finished": false
+    },
+    "frontend-agent": {
+      "composition": "composition.frontend-agent.json",
+      "resource": "frontendagents"
+    }
+  },
+  "cases": [
+    {
+      "name": "demo",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "strip-typemeta",
+          "target": "configmap"
+        },
+        {
+          "op": "strip-typemeta",
+          "target": "objects"
+        }
+      ],
+      "proves": "A finished composition, with the ConfigMap and every other managed object served from snowplow's informer (no apiVersion, no kind): S4 change-request-open, all ready, joined by name."
+    },
+    {
+      "name": "v1b",
+      "composition": "v1b",
+      "extras": "page",
+      "proves": "The live v1b: S2 seeding, waiting on the Repo, which is NotSynced (ReconcileError); the files and the PR are withheld, and not fetched."
+    },
+    {
+      "name": "v1b-cdc-extras",
+      "composition": "v1b",
+      "extras": "cdc",
+      "proves": "CDC's extras (compositionName, compositionNamespace, compositionId) read exactly as the page's."
+    },
+    {
+      "name": "v1b-denied-repository",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-v1b-repo",
+          "as": "snowplow"
+        }
+      ],
+      "proves": "A caller denied the Repository by snowplow's own RBAC re-gate (a Forbidden string): the rendered Repo proves the Repository was ready at the last render, so it is done, inferred, and says it is not readable."
+    },
+    {
+      "name": "v1b-denied-current",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-v1b-source",
+          "as": "status"
+        }
+      ],
+      "proves": "A caller denied the current node by the apiserver (a 403 Status, which snowplow keeps without `details`): the Repo is unreadable, named from the message, and the level is still known."
+    },
+    {
+      "name": "v1b-current-deleted",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "delete",
+          "name": "publish-pod-sizing-v1b-source"
+        }
+      ],
+      "proves": "The current node is gone (404) though status.managed still lists it: it is waiting, not unreadable."
+    },
+    {
+      "name": "v1b-current-dropped",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "drop",
+          "name": "publish-pod-sizing-v1b-source"
+        }
+      ],
+      "proves": "The current node was served with no error and nothing in it (an informer drop): unavailable, 'could not be read'."
+    },
+    {
+      "name": "v1b-current-failed",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "fail",
+          "name": "publish-pod-sizing-v1b-source"
+        }
+      ],
+      "proves": "The current node's read never got an answer (a 500 with no object name in it): unavailable, never 'not readable with your access'."
+    },
+    {
+      "name": "demo-denied-two-files",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-003",
+          "as": "status"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-004",
+          "as": "status"
+        }
+      ],
+      "proves": "Two of ten files denied: the rendered PullRequest proves all ten were ready, so the files are done, inferred, and the composition is still all ready."
+    },
+    {
+      "name": "composition-forbidden",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo",
+          "as": "status"
+        }
+      ],
+      "proves": "The composition itself is denied: readable is false, every present node is unknown, and no object is fetched."
+    },
+    {
+      "name": "configmap-forbidden",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-architecture",
+          "as": "status"
+        }
+      ],
+      "proves": "The ConfigMap is denied by the apiserver: no architecture, access forbidden."
+    },
+    {
+      "name": "configmap-denied-by-snowplow",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-architecture",
+          "as": "snowplow"
+        }
+      ],
+      "proves": "The ConfigMap is denied by snowplow's RBAC re-gate (a Forbidden string, the shape an informer-served kind gets from snowplow >= 1.12.14): access forbidden."
+    },
+    {
+      "name": "no-configmap",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "delete",
+          "name": "publish-pod-sizing-demo-architecture"
+        }
+      ],
+      "proves": "No ConfigMap (404): no architecture, and no claim about access."
+    },
+    {
+      "name": "label-mismatch",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "label",
+          "key": "krateo.io/composition-name",
+          "value": "someone-else"
+        }
+      ],
+      "proves": "A ConfigMap of that name that another composition rendered is not this composition's architecture."
+    },
+    {
+      "name": "no-extras",
+      "composition": "demo",
+      "extras": "none",
+      "proves": "No extras: no architecture (the call goes to a name that cannot exist)."
+    },
+    {
+      "name": "empty-descriptor",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "graph",
+          "set": {
+            "nodes": [],
+            "states": []
+          }
+        }
+      ],
+      "proves": "A chart that declares no resources: nodes [], all ready, level null, and nothing to draw."
+    }
+  ],
+  "gate": [
+    {
+      "name": "v1b-rendered",
+      "composition": "v1b",
+      "rendered": true,
+      "items": [
+        {
+          "resourceRefId": "card-composition-detail-architecture",
+          "size": 24
+        }
+      ],
+      "proves": "Once the chart renders its ConfigMap, status.managed lists it and the card shows."
+    },
+    {
+      "name": "demo-rendered",
+      "composition": "demo",
+      "rendered": true,
+      "items": [
+        {
+          "resourceRefId": "card-composition-detail-architecture",
+          "size": 24
+        }
+      ],
+      "proves": "Same for a finished composition."
+    },
+    {
+      "name": "v1b-today",
+      "composition": "v1b",
+      "rendered": false,
+      "items": [],
+      "proves": "Before the chart ships architecture.yaml (057 today): nothing renders, composition-architecture is never called."
+    },
+    {
+      "name": "no-architecture",
+      "composition": "frontend-agent",
+      "rendered": false,
+      "items": [],
+      "proves": "A composition that manages ConfigMaps, none of them its architecture: nothing renders."
+    },
+    {
+      "name": "not-found",
+      "composition": null,
+      "items": [],
+      "proves": "composition-detail cannot resolve the composition for this caller: nothing renders, like the rest of the page."
+    }
+  ]
+}

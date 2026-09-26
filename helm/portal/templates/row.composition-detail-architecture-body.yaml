@@ -1,0 +1,52 @@
+{{/* The Topology card's body, chosen by what the caller could read. */}}
+{{/* The architecture EXISTS — the gate Row only renders this card when status.managed lists the */}}
+{{/* ConfigMap — so a ConfigMap or composition this person cannot read is a denial, and the body says */}}
+{{/* so in one sentence instead of drawing a graph of unknowns. */}}
+{{/* "Where it is" sits beside the graph only while the machine is between states (exception-only): */}}
+{{/* a composition that is all ready shows the graph alone, full width. It is a column of this card */}}
+{{/* rather than a card of its own so the unreadable sentence can replace the whole body. */}}
+{{/* An empty descriptor (a chart that declares no resources) draws nothing: the gate cannot see node */}}
+{{/* counts, so the nodes-present condition lives here. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: row-composition-detail-architecture-body
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-architecture
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+      - flexes
+      - descriptions
+      - paragraphs
+    alignment: top
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ if (.architecture == true and .readable == true) then (if ([ .nodes[]? | select(.present == true) ] | length) == 0 then [] elif .allReady == true then [ {resourceRefId: "flex-composition-detail-architecture-graph", size: 24} ] else [ {resourceRefId: "flex-composition-detail-architecture-graph", size: 17, xs: 24, xl: 17}, {resourceRefId: "descriptions-composition-detail-architecture-where", size: 7, xs: 24, xl: 7} ] end) else [ {resourceRefId: "paragraph-composition-detail-architecture-unreadable", size: 24} ] end }'
+  resourcesRefs:
+    items:
+      - id: flex-composition-detail-architecture-graph
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: flex-composition-detail-architecture-graph
+        namespace: {{ .Release.Namespace }}
+        resource: flexes
+        verb: GET
+      - id: descriptions-composition-detail-architecture-where
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: descriptions-composition-detail-architecture-where
+        namespace: {{ .Release.Namespace }}
+        resource: descriptions
+        verb: GET
+      - id: paragraph-composition-detail-architecture-unreadable
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: paragraph-composition-detail-architecture-unreadable
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET

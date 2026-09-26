@@ -71,8 +71,10 @@ Then run the authoring gates:
 ```sh
 python3 scripts/lint-keyextras.py   # F6 cache-key declaration gate (does its own tempdir render)
 python3 scripts/test-builder-install.py   # builder Install step: the chart's own jq on fixtures (JQ=gojq for snowplow's engine)
+python3 scripts/test-composition-architecture.py   # detail-page topology: builder-publish + RESTAction + widget jq on 057 fixtures
 node scripts/mockup-diff.mjs        # mockup coverage / journey / hardcoded-data audit
 ```
 
 CI runs the same on every PR (`.github/workflows/lint.yaml`: helm lint +
-`values.schema.json` validity + render smoke + the `keyextras` and `builder-install` jobs).
+`values.schema.json` validity + render smoke + the `keyextras`, `builder-install` and
+`composition-architecture` jobs).

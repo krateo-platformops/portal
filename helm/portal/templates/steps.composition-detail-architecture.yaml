@@ -1,0 +1,25 @@
+{{/* The state strip: one step per level of the chart's machine, named by its states[] ("S2 seeding"). */}}
+{{/* The steps before the current one are finished, the current one is in process, the rest wait; a */}}
+{{/* composition that is all ready shows every step finished. This replaces the mockup's header pill */}}
+{{/* ("S3 · committing · 7 of 9"), which said the same thing a second time on every composition. */}}
+kind: Steps
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: steps-composition-detail-architecture
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-architecture
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ . as $r | if $r.readable != true then [] else [ range(0; $r.states | length) as $i | { title: ("S" + (($i + 1) | tostring) + " " + $r.states[$i]), status: (if $r.allReady == true or $i < $r.level then "finish" elif $i == $r.level then "process" else "wait" end) } ] end }'
+    - forPath: current
+      expression: '${ .level // 0 }'
