@@ -6,7 +6,15 @@
 {{/* `exception`, set only for a NotSynced or NotReady condition (Kubernetes' own tokens). */}}
 {{/* The detail line says what the node is waiting on in the person's terms — the readiness field and */}}
 {{/* its value, a count, or what it waits for — and says plainly when this person could not read it: */}}
-{{/* a denied object is "not readable with your access", never "not ready". */}}
+{{/* a denied object is "not readable with your access", never "not ready". A forEach node that is only */}}
+{{/* partly denied counts the denied instances ("2 of 10 not readable with your access"), because the */}}
+{{/* sentence alone reads as if the caller could read none of them; a node or range denied in full */}}
+{{/* keeps the plain sentence. */}}
+{{/* THE NAME LINE DROPS THE COMPOSITION'S OWN PREFIX ("…-source", "…-000 … 009", as mockup 14 writes */}}
+{{/* them). The page header already names the composition, and a node has 194px of text: the full */}}
+{{/* name spent it on the prefix every node shares, and the ellipsis cut exactly the suffix that tells */}}
+{{/* the nodes apart — a range read as one object. A name that does not start with the prefix is kept */}}
+{{/* whole. */}}
 kind: FlowChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -25,4 +33,4 @@ spec:
     data: []
   widgetDataTemplate:
     - forPath: data
-      expression: '${ . as $r | if .readable != true then [] else [ .nodes[] | select(.present == true) | ((.readyWhen // "") | if . == "" then "exists" else ltrimstr(".status.") end) as $field | { uid: ("arch:" + .id), kind: (.kind + (if .forEach then " ×" + (.expected | tostring) else "" end)), name: (if .expected == 0 then "none" elif .expected == 1 then .instances[0].name else (.instances[0].name + " … " + (.instances[-1].name | split("-") | last)) end), state: .phase, detail: (if .phase == "done" and .inferred then (if .unreadable > 0 then "not readable with your access" else "could not be read" end) elif .phase == "done" then (if .readyWhen == null then "" elif .forEach then ($field + " · " + (.satisfied | tostring) + " of " + (.expected | tostring)) else ($field + " · " + (.instances[0].value | tostring | if test("^[0-9a-f]{40}$") then .[0:7] else . end)) end) elif .phase == "waiting" then ($field + " · " + (.satisfied | tostring) + " of " + (.expected | tostring)) elif .phase == "withheld" then ("waits for " + ([ .waits[] as $w | $r.nodes[] | select(.id == $w.ref) | (if $w.all then "all " + (.expected | tostring) + " " else "" end) + .kind ] | join(", "))) elif .phase == "unreadable" then "not readable with your access" elif .phase == "unavailable" then "could not be read" else "" end), exception: .exception, parentRefs: [ .parents[] | { uid: ("arch:" + .) } ] } | if .exception == null then del(.exception) else . end ] end }'
+      expression: '${ . as $r | (($r.composition // "") + "-") as $p | def short: if $p != "-" and startswith($p) then "…-" + ltrimstr($p) else . end; if .readable != true then [] else [ .nodes[] | select(.present == true) | ((.readyWhen // "") | if . == "" then "exists" else ltrimstr(".status.") end) as $field | { uid: ("arch:" + .id), kind: (.kind + (if .forEach then " ×" + (.expected | tostring) else "" end)), name: (if .expected == 0 then "none" elif .expected == 1 then (.instances[0].name | short) else ((.instances[0].name | short) + " … " + (.instances[-1].name | split("-") | last)) end), state: .phase, detail: (if .phase == "done" and .inferred then (if .unreadable == 0 then "could not be read" elif .forEach and .unreadable < .expected then ((.unreadable | tostring) + " of " + (.expected | tostring) + " not readable with your access") else "not readable with your access" end) elif .phase == "done" then (if .readyWhen == null then "" elif .forEach then ($field + " · " + (.satisfied | tostring) + " of " + (.expected | tostring)) else ($field + " · " + (.instances[0].value | tostring | if test("^[0-9a-f]{40}$") then .[0:7] else . end)) end) elif .phase == "waiting" then ($field + " · " + (.satisfied | tostring) + " of " + (.expected | tostring)) elif .phase == "withheld" then ("waits for " + ([ .waits[] as $w | $r.nodes[] | select(.id == $w.ref) | (if $w.all then "all " + (.expected | tostring) + " " else "" end) + .kind ] | join(", "))) elif .phase == "unreadable" then "not readable with your access" elif .phase == "unavailable" then "could not be read" else "" end), exception: .exception, parentRefs: [ .parents[] | { uid: ("arch:" + .) } ] } | if .exception == null then del(.exception) else . end ] end }'

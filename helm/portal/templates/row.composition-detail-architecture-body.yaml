@@ -1,12 +1,24 @@
 {{/* The Topology card's body, chosen by what the caller could read. */}}
 {{/* The architecture EXISTS — the gate Row only renders this card when status.managed lists the */}}
-{{/* ConfigMap — so a ConfigMap or composition this person cannot read is a denial, and the body says */}}
-{{/* so in one sentence instead of drawing a graph of unknowns. */}}
-{{/* "Where it is" sits beside the graph only while the machine is between states (exception-only): */}}
-{{/* a composition that is all ready shows the graph alone, full width. It is a column of this card */}}
-{{/* rather than a card of its own so the unreadable sentence can replace the whole body. */}}
-{{/* An empty descriptor (a chart that declares no resources) draws nothing: the gate cannot see node */}}
-{{/* counts, so the nodes-present condition lives here. */}}
+{{/* ConfigMap — but existence does not make every failed read a denial. So the body says "not readable */}}
+{{/* with your access" only when the RESTAction saw one (`access: forbidden`), and names what was */}}
+{{/* denied: the ConfigMap, or the composition it describes (architecture: true, readable: false). */}}
+{{/* Anything else that leaves no graph — a read that failed or timed out, a ConfigMap gone (404) while */}}
+{{/* status.managed still lists it, one another composition rendered (its label names someone else), a */}}
+{{/* graph this portal does not know (not v: 1, no graph at all), the composition moved to a version the */}}
+{{/* ConfigMap does not name — says only that the topology could not be read: telling an administrator */}}
+{{/* their access is the problem would send them to fix RBAC that is not broken. */}}
+{{/* "Where it is" is shown only while the machine is between states (exception-only): a composition */}}
+{{/* that is all ready shows the graph alone. It is part of this card rather than a card of its own so */}}
+{{/* one sentence can replace the whole body. */}}
+{{/* IT SITS UNDER THE GRAPH, NOT BESIDE IT. The graph is drawn at true size (220px cards, 160px between */}}
+{{/* columns) and pinned to its first column, so the box's width decides what it shows. Beside a */}}
+{{/* 7-column panel at the mockup's own 1440px, the box is 782px: in S3 the current node (LocalResource, */}}
+{{/* third column) showed 6px and the next one none, while the panel beside it stood mostly empty. At */}}
+{{/* full width the box is 1110px and the current node shows whole. */}}
+{{/* An empty descriptor, or one whose every `when` is false for this composition's values, has no */}}
+{{/* node to draw. The gate cannot see node counts, so the card is already on the page, and an empty */}}
+{{/* titled card would read as a failed load: the body says it in one sentence instead. */}}
 kind: Row
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,7 +41,7 @@ spec:
     items: []
   widgetDataTemplate:
     - forPath: items
-      expression: '${ if (.architecture == true and .readable == true) then (if ([ .nodes[]? | select(.present == true) ] | length) == 0 then [] elif .allReady == true then [ {resourceRefId: "flex-composition-detail-architecture-graph", size: 24} ] else [ {resourceRefId: "flex-composition-detail-architecture-graph", size: 17, xs: 24, xl: 17}, {resourceRefId: "descriptions-composition-detail-architecture-where", size: 7, xs: 24, xl: 7} ] end) else [ {resourceRefId: "paragraph-composition-detail-architecture-unreadable", size: 24} ] end }'
+      expression: '${ if (.architecture == true and .readable == true) then (if ([ .nodes[]? | select(.present == true) ] | length) == 0 then [ {resourceRefId: "paragraph-composition-detail-architecture-empty", size: 24} ] elif .allReady == true then [ {resourceRefId: "flex-composition-detail-architecture-graph", size: 24} ] else [ {resourceRefId: "flex-composition-detail-architecture-graph", size: 24}, {resourceRefId: "descriptions-composition-detail-architecture-where", size: 24} ] end) elif .access == "forbidden" then (if .architecture == true then [ {resourceRefId: "paragraph-composition-detail-architecture-unreadable-composition", size: 24} ] else [ {resourceRefId: "paragraph-composition-detail-architecture-unreadable", size: 24} ] end) else [ {resourceRefId: "paragraph-composition-detail-architecture-unavailable", size: 24} ] end }'
   resourcesRefs:
     items:
       - id: flex-composition-detail-architecture-graph
@@ -47,6 +59,24 @@ spec:
       - id: paragraph-composition-detail-architecture-unreadable
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: paragraph-composition-detail-architecture-unreadable
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-composition-detail-architecture-unreadable-composition
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: paragraph-composition-detail-architecture-unreadable-composition
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-composition-detail-architecture-unavailable
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: paragraph-composition-detail-architecture-unavailable
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-composition-detail-architecture-empty
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: paragraph-composition-detail-architecture-empty
         namespace: {{ .Release.Namespace }}
         resource: paragraphs
         verb: GET

@@ -10,9 +10,9 @@ resolver). Nothing in `helm template` evaluates any of it. Each of these was wro
 RESTAction, and read correctly until it met a realistic input:
   - the join between the descriptor and the live objects was on apiVersion, and an object snowplow
     serves from its informer has an EMPTY apiVersion, so every node read as unreadable;
-  - a denied object was named from the error's `details`, which snowplow's copy of an apiserver
-    Status does not have, so a denial read as "could not be read" instead of "not readable with your
-    access";
+  - a denied object was named from the error's `details`, which no denial snowplow records carries
+    (a string in cluster, a details-less response.Status on its httpcall fall-through), so a denial
+    read as "could not be read" instead of "not readable with your access";
   - an empty descriptor indexed states[] with a null level and failed the whole resolve.
 So this renders the charts in this repo and runs their own jq over krateo-057 objects.
 
@@ -23,16 +23,19 @@ HOW.
      composition's status.managed lists — all of them for a composition that finished, a subset for
      one still being built, since a withheld node has not rendered yet.
   2. That ConfigMap, stamped with CDC's post-renderer labels, joins the composition and its managed
-     objects in a fixture cluster (path -> object). Each case then mutates the cluster the way a real
-     caller would meet it: an object this caller is denied (as the apiserver's 403, or as snowplow's
-     own Forbidden string), one that is gone, one that failed, one the informer served without
-     TypeMeta.
+     objects in a fixture cluster (path -> object). A case may first patch the composition's spec
+     and drop objects its chart never rendered (pullRequest.create=false), so the ConfigMap is
+     rendered from the same values. Each case then mutates the cluster the way a real caller would
+     meet it: an object this caller is denied (in either shape snowplow records a denial in), one
+     that is gone, one that failed, one the informer served without TypeMeta.
   3. helm/portal is rendered and its composition-architecture RESTAction is resolved over the cluster
-     by a model of snowplow 1.12.13's resolver (resolvers/restactions/api): the extras seed the dict;
+     by a model of snowplow >= #256's resolver (resolvers/restactions/api): the extras seed the dict;
      a stage's iterator runs over the whole dict and its path over each element; a step filter sees
      {extras, <stage>: response}; the first result is stored as-is and later filter-produced arrays
-     are spliced; a failed call appends an error under the stage's errorKey — an apiserver error as
-     plumbing's response.Status (kind, apiVersion, status, message, reason, code — no details).
+     are spliced; a failed call appends an error under the stage's errorKey. An in-cluster denial is
+     snowplow's Forbidden string from internal dispatch; the response.Status form (kind, apiVersion,
+     status, message, reason, code — no details) is the httpcall fall-through (out of cluster).
+     1.12.13 serves a denied GET under its ServiceAccount, so no denial case holds there.
      Iterator items run concurrently in snowplow, so every case is resolved twice, in both orders,
      and must give one answer.
   4. Every widget on the topology card is evaluated over each result, and the gate Row over
@@ -59,6 +62,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -234,8 +238,11 @@ def gvr_of(path):
 
 
 def status(path, code):
-    """What snowplow keeps of an apiserver error: the body decoded into plumbing's response.Status,
-    which has no `details` and no `metadata` (plumbing http/request Do + response.AsMap)."""
+    """What snowplow's httpcall fall-through (out of cluster) keeps of an apiserver error: the body
+    decoded into plumbing's response.Status, which has no `details` and no `metadata` (plumbing
+    http/request Do + response.AsMap). Every 404 here takes this shape; the final filter reads a
+    404 by its code or by its message, so a string would give the same answer. A denial is modelled
+    in both shapes (see mutate's `deny`)."""
     group, resource, name = gvr_of(path)
     gr = f'{resource}.{group}' if group else resource
     if code == 404:
@@ -252,8 +259,32 @@ class Failure:
         self.value = value
 
 
-def cluster_for(fixture):
+def merge_patch(target, patch):
+    """RFC 7386 JSON merge patch: null removes a key, an object merges into an object, anything else
+    replaces."""
+    for key, value in patch.items():
+        if value is None:
+            target.pop(key, None)
+        elif isinstance(value, dict) and isinstance(target.get(key), dict):
+            merge_patch(target[key], value)
+        else:
+            target[key] = copy.deepcopy(value)
+    return target
+
+
+def cluster_for(fixture, case=None):
+    case = case or {}
     comp = load(fixture['composition'])
+    # The composition as this case needs it: its spec patched (a value its creator chose), and the
+    # objects its chart has not rendered for those values dropped from status.managed. The ConfigMap
+    # is rendered from the patched spec, so the graph and status.managed agree, as CDC's would.
+    merge_patch(comp.setdefault('spec', {}), case.get('spec') or {})
+    unmanaged = set(case.get('unmanaged') or [])
+    listed = {m['name'] for m in comp['status']['managed']}
+    if unmanaged - listed:
+        raise AssertionError(f'{case.get("name")}: unmanaged names {sorted(unmanaged - listed)}, which '
+                             f'status.managed does not list')
+    comp['status']['managed'] = [m for m in comp['status']['managed'] if m['name'] not in unmanaged]
     cm = architecture_configmap(comp, fixture['resource'])
     group_version = comp['apiVersion']
     cluster = {
@@ -285,12 +316,15 @@ def mutate(cluster, op):
                 cluster[p].pop('kind', None)
     elif kind == 'deny':
         p = path_of(op['name'])
-        if op['as'] == 'status':      # the apiserver's 403, read with the caller's own token
+        if op['as'] == 'httpcall':    # the httpcall fall-through's response.Status (out of cluster)
             cluster[p] = Failure(status(p, 403))
-        else:                         # snowplow's own re-gate (#256): apierrors.NewForbidden, as a string
-            group, resource, name = gvr_of(p)
+        elif op['as'] == 'dispatch':  # in cluster, snowplow >= #256: internal dispatch re-gates the read
+            group, resource, name = gvr_of(p)   # with the caller's RBAC; apierrors.NewForbidden, a string
             gr = f'{resource}.{group}' if group else resource
             cluster[p] = Failure(f'{gr} "{name}" is forbidden: user not authorized to get {NS}/{name}')
+        else:
+            raise AssertionError(f'deny as {op["as"]!r}: a denial is `dispatch` (in cluster, #256) or '
+                                 f'`httpcall` (out of cluster)')
     elif kind == 'delete':
         p = path_of(op['name'])
         cluster[p] = Failure(status(p, 404))
@@ -309,6 +343,16 @@ def mutate(cluster, op):
         graph = json.loads(cm['data']['graph'])
         graph.update(op['set'])
         cm['data']['graph'] = json.dumps(graph)
+    elif kind == 'no-graph':          # the frontend <= 1.6.59 composer's <release>-architecture: no graph
+        cm = next(o for p, o in cluster.items() if '/configmaps/' in p)
+        del cm['data']['graph']
+    elif kind == 'serve-version':     # the composition's CRD moved on; the ConfigMap names the old version
+        old = next(p for p in cluster if p.startswith('/apis/composition.'))
+        parts = old.split('/')        # '', 'apis', group, version, 'namespaces', ns, resource, name
+        parts[3] = op['version']
+        comp = cluster.pop(old)
+        comp['apiVersion'] = f'{parts[2]}/{op["version"]}'
+        cluster['/'.join(parts)] = comp
     else:
         raise AssertionError(f'unknown mutation {kind!r}')
 
@@ -324,7 +368,9 @@ def extras_for(kind, comp):
 
 
 # ---------------------------------------------------------------------------------------------
-# A model of snowplow 1.12.13's RESTAction resolve
+# A model of snowplow >= #256's RESTAction resolve. An in-cluster denial is snowplow's Forbidden
+# string from internal dispatch; the response.Status form is the httpcall fall-through (out of
+# cluster). 1.12.13 serves a denied GET under its ServiceAccount, so no denial case holds there.
 # ---------------------------------------------------------------------------------------------
 
 def store(d, key, value, filtered):
@@ -497,7 +543,7 @@ def check_resolved_cases(ctx):
     ra = find(ctx['portal'], 'RESTAction', RA)
     for case in ctx['cases']['cases']:
         fixture = ctx['cases']['compositions'][case['composition']]
-        cluster, comp = cluster_for(fixture)
+        cluster, comp = cluster_for(fixture, case)
         for op in case.get('mutate', []):
             mutate(cluster, op)
         extras = extras_for(case['extras'], comp)
@@ -529,14 +575,28 @@ def check_what_the_page_says(ctx):
     graph = 'flex-composition-detail-architecture-graph'
     where = 'descriptions-composition-detail-architecture-where'
     unreadable = 'paragraph-composition-detail-architecture-unreadable'
+    unreadable_comp = 'paragraph-composition-detail-architecture-unreadable-composition'
+    unavailable = 'paragraph-composition-detail-architecture-unavailable'
+    empty = 'paragraph-composition-detail-architecture-empty'
     nodes = lambda c: {n['uid']: n for n in w[c]['FlowChart flowchart-composition-detail-architecture data']}
     rows = lambda c: {i['label']: i['value'] for i in w[c]['Descriptions descriptions-composition-detail-architecture-where items']}
+    steps = lambda c: w[c]['Steps steps-composition-detail-architecture items']
+    current = lambda c: w[c]['Steps steps-composition-detail-architecture current']
 
     # v1b, live: S2 seeding, the Repo is current and NotSynced, the rest waits.
     expect(f, 'v1b: body', body('v1b'), [graph, where])
-    expect(f, 'v1b: steps', [s['status'] for s in w['v1b']['Steps steps-composition-detail-architecture items']],
-           ['finish', 'process', 'wait', 'wait'])
-    expect(f, 'v1b: current step', w['v1b']['Steps steps-composition-detail-architecture current'], 1)
+    # "Where it is" sits UNDER the graph: the graph is drawn at true size and pinned to its first
+    # column, so beside a 7-column panel its box hid the current node at the mockup's 1440px.
+    expect(f, 'v1b: the graph spans the card, "Where it is" under it',
+           w['v1b']['Row row-composition-detail-architecture-body items'],
+           [{'resourceRefId': graph, 'size': 24}, {'resourceRefId': where, 'size': 24}])
+    expect(f, 'v1b: steps', [s['status'] for s in steps('v1b')], ['finish', 'process', 'wait', 'wait'])
+    expect(f, 'v1b: current step', current('v1b'), 1)
+    # The name line drops the composition's own prefix (mockup 14), so the suffix that tells the
+    # nodes apart survives the node's 194px.
+    expect(f, 'v1b: node names', {k: v['name'] for k, v in nodes('v1b').items()},
+           {'arch:repository': '…-repo', 'arch:repo': '…-source', 'arch:localresources': '…-000 … 009',
+            'arch:pullrequest': '…-pr'})
     expect(f, 'v1b: node states', {k: v['state'] for k, v in nodes('v1b').items()},
            {'arch:repository': 'done', 'arch:repo': 'waiting', 'arch:localresources': 'withheld', 'arch:pullrequest': 'withheld'})
     expect(f, 'v1b: repository detail', nodes('v1b')['arch:repository']['detail'], 'default_branch · main')
@@ -547,29 +607,86 @@ def check_what_the_page_says(ctx):
            {'State': 'S2 · seeding', 'Since': o['v1b']['since'], 'Waiting on': 'Repo', 'Next': 'LocalResource'})
     # demo, finished: every step done, the graph alone, no "Where it is".
     expect(f, 'demo: body', body('demo'), [graph])
-    expect(f, 'demo: steps', [s['status'] for s in w['demo']['Steps steps-composition-detail-architecture items']],
-           ['finish'] * 4)
+    expect(f, 'demo: steps', [s['status'] for s in steps('demo')], ['finish'] * 4)
     expect(f, 'demo: every node done', {v['state'] for v in nodes('demo').values()}, {'done'})
-    # §7: what a caller who cannot read something sees.
-    expect(f, 'configmap forbidden: body', body('configmap-forbidden'), [unreadable])
-    expect(f, 'configmap forbidden: access', o['configmap-forbidden'].get('access'), 'forbidden')
-    expect(f, 'composition forbidden: body', body('composition-forbidden'), [unreadable])
-    expect(f, 'current node denied (apiserver 403): repo', nodes('v1b-denied-current')['arch:repo']['state'], 'unreadable')
+    expect(f, 'demo: node names', sorted(v['name'] for v in nodes('demo').values()),
+           ['…-000 … 009', '…-pr', '…-repo', '…-source'])
+    # A finished composition has no current step: antd paints a finished step that is also active
+    # with a white check, which the frontend's tinted ground hides in the light theme.
+    for c, out in sorted(o.items()):
+        if out.get('readable') is True and out.get('allReady') is True:
+            expect(f, f'{c}: all ready, so no step is active (current is past the last)',
+                   current(c), len(steps(c)))
+    # One step per level the composition uses: a level whose every node is absent was never entered.
+    expect(f, 'no pull request: steps', [(s['title'], s['status']) for s in steps('demo-no-pull-request')],
+           [('S1 repository-only', 'finish'), ('S2 seeding', 'finish'), ('S3 committing', 'finish')])
+    expect(f, 'no pull request: level', (o['demo-no-pull-request']['level'], o['demo-no-pull-request']['state'],
+           o['demo-no-pull-request']['allReady']), (2, 'committing', True))
+    expect(f, 'no source: steps', [(s['title'], s['status']) for s in steps('v1b-no-source')],
+           [('S1 repository-only', 'finish'), ('S3 committing', 'process'), ('S4 change-request-open', 'wait')])
+    expect(f, 'no source: current indexes the steps drawn', current('v1b-no-source'), 1)
+    expect(f, 'no source: where it is keeps the level\'s own number', rows('v1b-no-source')['State'], 'S3 · committing')
+    # §7: what a caller who cannot read something sees. "Not readable with your access" is said
+    # exactly when the RESTAction saw a denial, and names what was denied.
+    denial = {unreadable, unreadable_comp}
+    for c, out in sorted(o.items()):
+        expect(f, f'{c}: the body claims a denial only when there was one',
+               bool(denial & set(body(c))), out.get('access') == 'forbidden')
+    for c in ('configmap-forbidden', 'configmap-denied-by-snowplow'):
+        expect(f, f'{c}: body', body(c), [unreadable])
+        expect(f, f'{c}: access', o[c].get('access'), 'forbidden')
+    expect(f, 'composition forbidden: body names the composition, not its ConfigMaps',
+           body('composition-forbidden'), [unreadable_comp])
+    for c in ('no-configmap', 'label-mismatch', 'no-extras', 'configmap-no-graph', 'graph-v2',
+              'configmap-failed', 'composition-failed', 'composition-version-moved'):
+        expect(f, f'{c}: body says only that it could not be read', body(c), [unavailable])
+    for c in ('configmap-failed', 'composition-failed', 'composition-version-moved'):
+        expect(f, f'{c}: access', o[c].get('access'), 'error')
+    expect(f, 'current node denied (httpcall response.Status): repo', nodes('v1b-denied-current')['arch:repo']['state'], 'unreadable')
     expect(f, 'current node denied: waiting on', rows('v1b-denied-current')['Waiting on'], 'Repo (not readable with your access)')
     expect(f, 'current node denied: level still known', rows('v1b-denied-current')['State'], 'S2 · seeding')
-    expect(f, 'proven node denied (snowplow 403): repository', (nodes('v1b-denied-repository')['arch:repository']['state'],
+    expect(f, 'proven node denied (dispatch Forbidden string, #256): repository', (nodes('v1b-denied-repository')['arch:repository']['state'],
            nodes('v1b-denied-repository')['arch:repository']['detail']), ('done', 'not readable with your access'))
     expect(f, 'two files denied: localresources', (nodes('demo-denied-two-files')['arch:localresources']['state'],
-           nodes('demo-denied-two-files')['arch:localresources']['detail']), ('done', 'not readable with your access'))
+           nodes('demo-denied-two-files')['arch:localresources']['detail']), ('done', '2 of 10 not readable with your access'))
+    expect(f, 'every file denied: localresources', (nodes('demo-denied-all-files')['arch:localresources']['state'],
+           nodes('demo-denied-all-files')['arch:localresources']['detail']), ('done', 'not readable with your access'))
     expect(f, 'two files denied: still all ready', body('demo-denied-two-files'), [graph])
     for c in ('v1b-current-dropped', 'v1b-current-failed'):
         expect(f, f'{c}: repo', (nodes(c)['arch:repo']['state'], nodes(c)['arch:repo']['detail']),
                ('unavailable', 'could not be read'))
         expect(f, f'{c}: waiting on', rows(c)['Waiting on'], 'Repo (could not be read)')
     expect(f, 'repo deleted: waiting, not unreadable', nodes('v1b-current-deleted')['arch:repo']['state'], 'waiting')
-    expect(f, 'empty descriptor: body draws nothing', body('empty-descriptor'), [])
-    for c in ('no-configmap', 'label-mismatch', 'no-extras'):
+    expect(f, 'empty descriptor: body says there is nothing to draw', body('empty-descriptor'), [empty])
+    for c in ('no-configmap', 'label-mismatch', 'no-extras', 'configmap-no-graph', 'graph-v2'):
         expect(f, f'{c}: no architecture', o[c], {'architecture': False, 'access': None})
+    return f
+
+
+def check_readme_says_every_case(ctx):
+    """The corpus README says what every case proves, and, for every denial case, which snowplow
+    records the denial in that shape: internal dispatch's Forbidden string needs #256 (in cluster),
+    plumbing's response.Status is the httpcall fall-through (out of cluster). snowplow 1.12.13 serves
+    a denied GET under its ServiceAccount, so a denial row that does not say which snowplow it models
+    reads as if it held on the one deployed."""
+    f = []
+    rows = {}
+    for line in open(os.path.join(FIXTURES, 'README.md'), encoding='utf-8').read().splitlines():
+        cells = line.split('|')
+        if len(cells) >= 4 and cells[1].strip().startswith('`'):
+            for name in re.findall(r'`([^`]+)`', cells[1]):
+                rows[name] = '|'.join(cells[2:])
+    for case in ctx['cases']['cases']:
+        row = rows.get(case['name'])
+        if row is None:
+            f.append(f'{case["name"]}: no row in README.md')
+            continue
+        shapes = {op['as'] for op in case.get('mutate', []) if op['op'] == 'deny'}
+        if 'dispatch' in shapes and '#256' not in row:
+            f.append(f'{case["name"]}: a dispatch denial, and its README row does not say it needs #256')
+        if 'httpcall' in shapes and 'httpcall' not in row:
+            f.append(f'{case["name"]}: a response.Status denial, and its README row does not say it is httpcall\'s')
+    f += [f'gate {g["name"]}: no row in README.md' for g in ctx['cases']['gate'] if g['name'] not in rows]
     return f
 
 
@@ -616,7 +733,10 @@ def check_widget_crs(ctx):
             if isinstance(doc, dict) and doc.get('kind') == 'CustomResourceDefinition':
                 crds[doc['spec']['names']['kind']] = doc
     names = [n for n in (GATE[1], 'card-composition-detail-architecture', 'flex-composition-detail-architecture-graph',
-                         'paragraph-composition-detail-architecture-unreadable')] + sorted({w[1] for w in WIDGETS})
+                         'paragraph-composition-detail-architecture-unreadable',
+                         'paragraph-composition-detail-architecture-unreadable-composition',
+                         'paragraph-composition-detail-architecture-unavailable',
+                         'paragraph-composition-detail-architecture-empty')] + sorted({w[1] for w in WIDGETS})
     docs = {d['metadata']['name']: d for d in ctx['portal'] if (d.get('metadata') or {}).get('name') in names}
 
     def validate(label, doc):
@@ -662,6 +782,7 @@ CHECKS = [
     check_resolved_cases,
     check_cdc_extras_read_the_same,
     check_what_the_page_says,
+    check_readme_says_every_case,
     check_gate,
     check_widget_crs,
 ]

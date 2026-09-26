@@ -3,9 +3,9 @@
   "architecture": true,
   "chart": "builder-publish",
   "composition": "publish-pod-sizing-v1b",
-  "level": 1,
+  "level": 2,
   "next": [
-    "localresources"
+    "pullrequest"
   ],
   "nodes": [
     {
@@ -15,16 +15,16 @@
       "expected": 1,
       "forEach": false,
       "id": "repository",
-      "inferred": true,
+      "inferred": false,
       "instances": [
         {
           "exception": null,
           "name": "publish-pod-sizing-v1b-repo",
           "ok": true,
-          "read": "unreadable",
-          "satisfied": null,
-          "since": null,
-          "value": null
+          "read": "ok",
+          "satisfied": true,
+          "since": "2026-09-24T18:50:26Z",
+          "value": "main"
         }
       ],
       "kind": "Repository",
@@ -35,49 +35,31 @@
       "readyWhen": ".status.default_branch",
       "rendered": 1,
       "satisfied": 1,
-      "since": null,
+      "since": "2026-09-24T18:50:26Z",
       "unknown": 0,
-      "unreadable": 1,
+      "unreadable": 0,
       "waits": []
     },
     {
       "apiVersion": "git.krateo.io/v1alpha1",
       "class": "custom",
-      "exception": {
-        "label": "NotSynced",
-        "message": "cannot determine creation result - remove the krateo.io/external-create-pending annotation if it is safe to proceed",
-        "reason": "ReconcileError"
-      },
-      "expected": 1,
+      "exception": null,
+      "expected": 0,
       "forEach": false,
       "id": "repo",
       "inferred": false,
-      "instances": [
-        {
-          "exception": {
-            "label": "NotSynced",
-            "message": "cannot determine creation result - remove the krateo.io/external-create-pending annotation if it is safe to proceed",
-            "reason": "ReconcileError"
-          },
-          "name": "publish-pod-sizing-v1b-source",
-          "ok": false,
-          "read": "ok",
-          "satisfied": false,
-          "since": "2026-09-24T18:51:30Z",
-          "value": null
-        }
-      ],
+      "instances": [],
       "kind": "Repo",
       "level": 1,
       "parents": [
         "repository"
       ],
-      "phase": "waiting",
-      "present": true,
+      "phase": "absent",
+      "present": false,
       "readyWhen": ".status.targetCommitId",
-      "rendered": 1,
+      "rendered": 0,
       "satisfied": 0,
-      "since": "2026-09-24T18:51:30Z",
+      "since": null,
       "unknown": 0,
       "unreadable": 0,
       "waits": [
@@ -190,8 +172,7 @@
       "kind": "LocalResource",
       "level": 2,
       "parents": [
-        "repository",
-        "repo"
+        "repository"
       ],
       "phase": "withheld",
       "present": true,
@@ -205,10 +186,6 @@
         {
           "all": false,
           "ref": "repository"
-        },
-        {
-          "all": false,
-          "ref": "repo"
         }
       ]
     },
@@ -253,12 +230,12 @@
     }
   ],
   "progress": {
-    "expected": 1,
+    "expected": 10,
     "satisfied": 0
   },
   "readable": true,
-  "since": "2026-09-24T18:51:30Z",
-  "state": "seeding",
+  "since": null,
+  "state": "committing",
   "states": [
     "repository-only",
     "seeding",
@@ -267,10 +244,10 @@
   ],
   "waitingOn": [
     {
-      "id": "repo",
-      "kind": "Repo",
-      "pending": 1,
-      "phase": "waiting"
+      "id": "localresources",
+      "kind": "LocalResource",
+      "pending": 10,
+      "phase": "withheld"
     }
   ]
 }

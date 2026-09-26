@@ -4,7 +4,12 @@
     "read-only): the composition and its managed objects, managedFields dropped and the objects' spec",
     "dropped (no program reads it). The architecture ConfigMap is not a fixture: the runner renders",
     "helm/builder-publish for the composition, as CDC does, so the chart's own output feeds the RESTAction.",
-    "Each case mutates that cluster the way a real caller meets it; `proves` says what it pins."
+    "A case may patch the composition's `spec` (an RFC 7386 merge patch) and list objects its chart has not",
+    "rendered for those values (`unmanaged`, dropped from status.managed) before the ConfigMap is rendered.",
+    "Each case mutates that cluster the way a real caller meets it; `proves` says what it pins.",
+    "A `deny` is recorded `as` snowplow records it: `dispatch` is internal dispatch's Forbidden string (in",
+    "cluster, snowplow with #256), `httpcall` is plumbing's response.Status (the httpcall fall-through, out",
+    "of cluster). snowplow 1.12.13 serves a denied GET under its ServiceAccount, so no deny case holds there."
   ],
   "compositions": {
     "demo": {
@@ -69,7 +74,7 @@
           "target": "objects"
         }
       ],
-      "proves": "A finished composition, with the ConfigMap and every other managed object served from snowplow's informer (no apiVersion, no kind): S4 change-request-open, all ready, joined by name."
+      "proves": "A finished composition, with the ConfigMap and every other managed object served from snowplow's informer (no apiVersion, no kind): S4 change-request-open, all ready, joined by name, and no step active."
     },
     {
       "name": "v1b",
@@ -91,10 +96,10 @@
         {
           "op": "deny",
           "name": "publish-pod-sizing-v1b-repo",
-          "as": "snowplow"
+          "as": "dispatch"
         }
       ],
-      "proves": "A caller denied the Repository by snowplow's own RBAC re-gate (a Forbidden string): the rendered Repo proves the Repository was ready at the last render, so it is done, inferred, and says it is not readable."
+      "proves": "A caller denied the Repository, in cluster with #256 (internal dispatch's Forbidden string): the rendered Repo proves the Repository was ready at the last render, so it is done, inferred, and says it is not readable."
     },
     {
       "name": "v1b-denied-current",
@@ -104,10 +109,10 @@
         {
           "op": "deny",
           "name": "publish-pod-sizing-v1b-source",
-          "as": "status"
+          "as": "httpcall"
         }
       ],
-      "proves": "A caller denied the current node by the apiserver (a 403 Status, which snowplow keeps without `details`): the Repo is unreadable, named from the message, and the level is still known."
+      "proves": "A caller denied the current node, as plumbing's response.Status (snowplow's httpcall path, out of cluster; no `details`): the Repo is unreadable, named from the message, and the level is still known."
     },
     {
       "name": "v1b-current-deleted",
@@ -153,15 +158,73 @@
         {
           "op": "deny",
           "name": "publish-pod-sizing-demo-003",
-          "as": "status"
+          "as": "httpcall"
         },
         {
           "op": "deny",
           "name": "publish-pod-sizing-demo-004",
-          "as": "status"
+          "as": "httpcall"
         }
       ],
-      "proves": "Two of ten files denied: the rendered PullRequest proves all ten were ready, so the files are done, inferred, and the composition is still all ready."
+      "proves": "Two of ten files denied (as httpcall's response.Status): the rendered PullRequest proves all ten were ready, so the files are done, inferred, the composition is still all ready, and the node counts the denied files."
+    },
+    {
+      "name": "demo-denied-all-files",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-000",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-001",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-002",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-003",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-004",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-005",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-006",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-007",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-008",
+          "as": "dispatch"
+        },
+        {
+          "op": "deny",
+          "name": "publish-pod-sizing-demo-009",
+          "as": "dispatch"
+        }
+      ],
+      "proves": "All ten files denied, in cluster with #256: the rendered PullRequest still proves them ready, and a node denied in full keeps the plain 'not readable with your access'."
     },
     {
       "name": "composition-forbidden",
@@ -171,10 +234,34 @@
         {
           "op": "deny",
           "name": "publish-pod-sizing-demo",
-          "as": "status"
+          "as": "httpcall"
         }
       ],
-      "proves": "The composition itself is denied: readable is false, every present node is unknown, and no object is fetched."
+      "proves": "The composition itself is denied (as httpcall's response.Status): readable is false, every present node is unknown, no object is fetched, and the body names the composition, not its ConfigMaps."
+    },
+    {
+      "name": "composition-failed",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "fail",
+          "name": "publish-pod-sizing-demo"
+        }
+      ],
+      "proves": "The composition's read never got an answer (a 500): readable false, access error, and the body says only that it could not be read."
+    },
+    {
+      "name": "composition-version-moved",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "serve-version",
+          "version": "v1-8-41"
+        }
+      ],
+      "proves": "The composition's CRD now serves a newer version and the ConfigMap still names the old one until CDC renders it again: the read is a 404, access error, and nobody is told their access is the problem."
     },
     {
       "name": "configmap-forbidden",
@@ -184,10 +271,10 @@
         {
           "op": "deny",
           "name": "publish-pod-sizing-demo-architecture",
-          "as": "status"
+          "as": "httpcall"
         }
       ],
-      "proves": "The ConfigMap is denied by the apiserver: no architecture, access forbidden."
+      "proves": "The ConfigMap is denied as plumbing's response.Status (snowplow's httpcall path, out of cluster): no architecture, access forbidden, and the body says it is not readable."
     },
     {
       "name": "configmap-denied-by-snowplow",
@@ -197,10 +284,22 @@
         {
           "op": "deny",
           "name": "publish-pod-sizing-demo-architecture",
-          "as": "snowplow"
+          "as": "dispatch"
         }
       ],
-      "proves": "The ConfigMap is denied by snowplow's RBAC re-gate (a Forbidden string, the shape an informer-served kind gets from snowplow >= 1.12.14): access forbidden."
+      "proves": "The ConfigMap is denied in cluster with #256 (internal dispatch's Forbidden string): access forbidden, and the body says it is not readable."
+    },
+    {
+      "name": "configmap-failed",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "fail",
+          "name": "publish-pod-sizing-demo-architecture"
+        }
+      ],
+      "proves": "The ConfigMap's read never got an answer (a 500): no architecture, access error, and the body says only that it could not be read."
     },
     {
       "name": "no-configmap",
@@ -212,7 +311,7 @@
           "name": "publish-pod-sizing-demo-architecture"
         }
       ],
-      "proves": "No ConfigMap (404): no architecture, and no claim about access."
+      "proves": "No ConfigMap (404) though status.managed lists it: no architecture, no claim about access, and the body says only that it could not be read."
     },
     {
       "name": "label-mismatch",
@@ -225,13 +324,38 @@
           "value": "someone-else"
         }
       ],
-      "proves": "A ConfigMap of that name that another composition rendered is not this composition's architecture."
+      "proves": "A ConfigMap of that name that another composition rendered is not this composition's architecture, and not a denial."
+    },
+    {
+      "name": "configmap-no-graph",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "no-graph"
+        }
+      ],
+      "proves": "The ConfigMap has no graph (the frontend <= 1.6.59 composer wrote <release>-architecture without one): no architecture, and not a denial."
+    },
+    {
+      "name": "graph-v2",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "graph",
+          "set": {
+            "v": 2
+          }
+        }
+      ],
+      "proves": "A graph shape this portal does not know (a later composer's v: 2): no architecture, and an administrator is not told their access is the problem."
     },
     {
       "name": "no-extras",
       "composition": "demo",
       "extras": "none",
-      "proves": "No extras: no architecture (the call goes to a name that cannot exist)."
+      "proves": "No extras: no architecture (the call goes to a name that cannot exist), and not a denial."
     },
     {
       "name": "empty-descriptor",
@@ -246,7 +370,33 @@
           }
         }
       ],
-      "proves": "A chart that declares no resources: nodes [], all ready, level null, and nothing to draw."
+      "proves": "A chart that declares no resources: nodes [], all ready, level null, and one sentence instead of an empty card."
+    },
+    {
+      "name": "demo-no-pull-request",
+      "composition": "demo",
+      "extras": "page",
+      "spec": {
+        "pullRequest": {
+          "create": false
+        }
+      },
+      "unmanaged": [
+        "publish-pod-sizing-demo-pr"
+      ],
+      "proves": "pullRequest.create=false (stop at the pushed branch): the PullRequest is absent, the composition is all ready at S3 committing, and the strip draws S1-S3 only, never a change request that does not exist."
+    },
+    {
+      "name": "v1b-no-source",
+      "composition": "v1b",
+      "extras": "page",
+      "spec": {
+        "source": null
+      },
+      "unmanaged": [
+        "publish-pod-sizing-v1b-source"
+      ],
+      "proves": "No source to seed from: the Repo is absent, so the strip draws S1, S3, S4, keeps each level's own number, and `current` points at S3 among the steps drawn."
     }
   ],
   "gate": [

@@ -87,9 +87,10 @@ spec:
   {{/* after it. Three things it must never do, each found on a real input: */}}
   {{/*  - join on apiVersion strictly: an object snowplow serves from its informer has an EMPTY */}}
   {{/*    apiVersion and kind, so it joins by name (names are unique across nodes: composer lint L5); */}}
-  {{/*  - read a denial's object name from `.details`: snowplow keeps an apiserver error as plumbing's */}}
-  {{/*    response.Status, which has no `details`, so the name comes from the message, the one field that */}}
-  {{/*    survives ('repoes.git.krateo.io "x" is forbidden: …'), and a string error is read the same way; */}}
+  {{/*  - read a denial's object name from `.details`: in cluster snowplow records a denied read as a */}}
+  {{/*    client-go error string from its internal dispatch ('configmaps "x" is forbidden: …'), and only */}}
+  {{/*    its httpcall fall-through keeps plumbing's response.Status, which has no `details`; either way */}}
+  {{/*    the name comes from the message, the one field both shapes carry; */}}
   {{/*  - index states[] with a null level (an empty descriptor). */}}
   filter: |
     # Input: snowplow's resolve dict — the request extras at the top level, each stage's (step-filtered)
@@ -125,7 +126,7 @@ spec:
           access: (if any($archErrs[]; . == "forbidden") then "forbidden"
                    elif any($archErrs[]; . == "error") then "error" else null end) }
       elif (.comp[0]? // null) == null then
-        { architecture: true, chart: $g.chart, readable: false, states: $g.states,
+        { architecture: true, chart: $g.chart, composition: ($g.composition.name? // ""), readable: false, states: $g.states,
           access: (if any(errs(.compErr)[]; errKind == "forbidden") then "forbidden" else "error" end),
           level: null, state: null, allReady: null, waitingOn: [], progress: null, since: null, next: [],
           nodes: [ ($g.nodes // [])[] | select((.lifecycle // "") == "")
@@ -195,6 +196,7 @@ spec:
                                    else "waiting" end) } ] as $nodes2
       | { architecture: true,
           chart: $g.chart,
+          composition: ($g.composition.name? // ""),
           readable: ($comp != null),
           states: $g.states,
           level: $level,

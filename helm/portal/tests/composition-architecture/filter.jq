@@ -31,7 +31,7 @@ def exception:                                         # K8s-native tokens, exce
       access: (if any($archErrs[]; . == "forbidden") then "forbidden"
                elif any($archErrs[]; . == "error") then "error" else null end) }
   elif (.comp[0]? // null) == null then
-    { architecture: true, chart: $g.chart, readable: false, states: $g.states,
+    { architecture: true, chart: $g.chart, composition: ($g.composition.name? // ""), readable: false, states: $g.states,
       access: (if any(errs(.compErr)[]; errKind == "forbidden") then "forbidden" else "error" end),
       level: null, state: null, allReady: null, waitingOn: [], progress: null, since: null, next: [],
       nodes: [ ($g.nodes // [])[] | select((.lifecycle // "") == "")
@@ -101,6 +101,7 @@ def exception:                                         # K8s-native tokens, exce
                                else "waiting" end) } ] as $nodes2
   | { architecture: true,
       chart: $g.chart,
+      composition: ($g.composition.name? // ""),
       readable: ($comp != null),
       states: $g.states,
       level: $level,
