@@ -1,0 +1,146 @@
+{{/* blueprint-palette — the kinds a person may place on the Blueprint Composer's canvas, read AS */}}
+{{/* THAT PERSON. The composer (frontend blueprintPalette.ts) fetches it like any widget: */}}
+{{/* GET /call?resource=restactions&name=blueprint-palette&namespace=<frontend ns> with the */}}
+{{/* caller's Bearer. Kubernetes native kinds are a static table in the frontend and need no read. */}}
+{{/* A portal that predates this file answers 404, which the composer shows as a sentence. */}}
+{{/* */}}
+{{/* EVERY STEP ASKS TO RUN AS THE CALLER. No endpointRef, and NO userAccessFilter: a UAF step */}}
+{{/* dispatches as snowplow's own ServiceAccount (snowplow apis/templates/v1/core.go, */}}
+{{/* UserAccessFilter — "dispatches via the snowplow ServiceAccount"), and a builder surface */}}
+{{/* never reads under a service identity. blueprints-catalog uses UAF; this deliberately does not. */}}
+{{/* Asking is all an RA can do, and snowplow 1.12.13 does not always honour it. A collection GET */}}
+{{/* its informer cannot serve falls back to its ServiceAccount with no per-user narrowing, until */}}
+{{/* snowplow ed466daf (#256) ships; nothing in this RA can see or undo that. A POST reaches the */}}
+{{/* apiserver on that ServiceAccount's endpoint carrying the caller's snowplow session JWT, which */}}
+{{/* is not a Kubernetes credential, so the two may* probes below are answered 401 there; the */}}
+{{/* filter keeps that from showing a denial as an empty list. */}}
+{{/* */}}
+{{/* A DENIAL IS CONTENT, NOT AN EMPTY LIST. With CACHE_ENABLED (the snowplow chart's default), */}}
+{{/* snowplow serves a plain collection GET from its informer and narrows it to the items the */}}
+{{/* caller may list (filterListByRBAC) — so a caller without a cluster-wide list right gets an */}}
+{{/* EMPTY list, not the 403 the apiserver would answer the same request with. The palette would */}}
+{{/* then tell cyberjoker "no blueprints are installed" while 46 are. The two may* steps ask the */}}
+{{/* apiserver what `kubectl auth can-i` asks — a SelfSubjectAccessReview created as the caller */}}
+{{/* (system:basic-user lets any authenticated user create one; nothing is persisted) — and a */}}
+{{/* `no` turns that class into a 403 record. A probe that itself fails claims nothing about a */}}
+{{/* list that has items. It does decide an EMPTY one: an empty list nobody could check may be a */}}
+{{/* denial, so that class becomes the probe's own error instead of "none". */}}
+{{/* */}}
+{{/* The "N running" counts are what the caller may list of each kind. A kind whose list errors */}}
+{{/* sets runningPartial, and the composer then shows no count rather than a false 0. */}}
+{{/* */}}
+{{/* OUTPUT */}}
+{{/*   custom:        { kinds: [ {group, kind, plural, version, scope, owner, statusFields, conditions} ] } */}}
+{{/*                  or { error: {code, reason, message} } */}}
+{{/*   compositions:  { items: [ {name, namespace, kind, apiVersion, plural, chartVersion, projects, running} ] } */}}
+{{/*                  or { error: {code, reason, message} } */}}
+{{/*   runningPartial: true when any per-kind count could not be read */}}
+{{/* On krateo-057 the raw CRD list is 20.5 MB (235 CRDs); the crds step projects it to 34 KB. */}}
+{{/* Fixtures, and how to run them: helm/portal/tests/blueprint-palette/README.md. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: blueprint-palette
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* Custom resource kinds. Krateo's own machinery is not placeable: composition.krateo.io */}}
+    {{/* is the Compositions class below, and widgets/templates/core are the portal's and the */}}
+    {{/* platform's. The version is served-and-stored, else the first served one — 38 of 46 */}}
+    {{/* composition CRDs on krateo-057 STORE a version they no longer serve. Cluster-scoped kinds */}}
+    {{/* ride along with their scope so the composer can say how many it leaves out. owner is the */}}
+    {{/* provenance: the KOG RestDefinition, else the composition that installed the CRD. */}}
+    - name: crds
+      path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions
+      verb: GET
+      continueOnError: true
+      errorKey: crdsError
+      filter: >
+        [.crds.items[]?
+         | select(.spec.group as $g | ["composition.krateo.io","widgets.templates.krateo.io","templates.krateo.io","core.krateo.io"] | index($g) | not)
+         | ((([.spec.versions[] | select(.served and .storage)])[0]) // (([.spec.versions[] | select(.served)])[0])) as $v
+         | select($v != null)
+         | {group: .spec.group, kind: .spec.names.kind, plural: .spec.names.plural, version: $v.name, scope: .spec.scope,
+            owner: (.metadata.annotations["krateo.io/owned-by-restdefinition"] // .metadata.labels["krateo.io/composition-name"] // null),
+            statusFields: (($v.schema.openAPIV3Schema.properties.status.properties // {}) | keys),
+            conditions: ($v.schema.openAPIV3Schema.properties.status.properties.conditions != null)}]
+    {{/* Installed blueprints: every CompositionDefinition whose CRD core-provider has generated. */}}
+    {{/* apiVersion is the version it SERVES — pass it through, never the CRD's storage version. */}}
+    - name: compdefs
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      continueOnError: true
+      errorKey: compdefsError
+      filter: >
+        [.compdefs.items[]? | select((.status.kind//"")!="" and (.status.apiVersion//"")!="" and (.status.resource//"")!="")
+         | {name: .metadata.name, namespace: .metadata.namespace, kind: .status.kind, apiVersion: .status.apiVersion,
+            plural: .status.resource, chartVersion: (.spec.chart.version // ""),
+            projects: [(.spec.statusDataTemplate // [])[] | .forPath]}]
+    {{/* One list per installed CRD, counted by the labels core-provider stamps on every */}}
+    {{/* instance — never by .kind. Two definitions of one chart at two versions share ONE CRD */}}
+    {{/* (core-provider docs/design/composition-version-management.md §3), and with conversion */}}
+    {{/* None a list at any served version returns all its objects. So the iterator lists each */}}
+    {{/* CRD once; listing it once per definition would count every instance once per definition. */}}
+    - name: running
+      dependsOn:
+        name: compdefs
+        iterator: '(.compdefs // []) | unique_by([(.apiVersion | split("/"))[0], .plural])'
+      path: ${ "/apis/" + .apiVersion + "/" + .plural }
+      verb: GET
+      continueOnError: true
+      errorKey: runningError
+      filter: >
+        [.running.items[]? | {cd: (.metadata.labels["krateo.io/composition-definition-name"] // ""),
+                              cdNs: (.metadata.labels["krateo.io/composition-definition-namespace"] // "")}]
+    {{/* The two access probes. Same request as the list above them, asked of the authorizer: */}}
+    {{/* no namespace means all namespaces, which is what a cluster-wide list needs. */}}
+    - name: mayListCrds
+      path: /apis/authorization.k8s.io/v1/selfsubjectaccessreviews
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: mayListCrdsError
+      payload: '{"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":{"resourceAttributes":{"group":"apiextensions.k8s.io","resource":"customresourcedefinitions","verb":"list"}}}'
+      filter: >
+        {allowed: (.mayListCrds.status.allowed == true), evaluated: ((.mayListCrds.status // null) != null)}
+    - name: mayListCompdefs
+      path: /apis/authorization.k8s.io/v1/selfsubjectaccessreviews
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: mayListCompdefsError
+      payload: '{"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":{"resourceAttributes":{"group":"core.krateo.io","resource":"compositiondefinitions","verb":"list"}}}'
+      filter: >
+        {allowed: (.mayListCompdefs.status.allowed == true), evaluated: ((.mayListCompdefs.status // null) != null)}
+  {{/* A class is an error when its list failed (snowplow accumulates errorKey values as a list; */}}
+  {{/* the first one is the answer — an apiserver Status map, or a bare string from an in-process */}}
+  {{/* dispatch), or when its probe answered no, or when its list is empty and its probe did not */}}
+  {{/* answer — the probe's own code and reason, since that is what the cluster said. Otherwise */}}
+  {{/* it is its projected list. */}}
+  filter: >
+    def firstErr($e): (($e // []) | map(if type == "object" then . else {message: tostring} end) | .[0]) // {}
+      | {code: (.code // 0), reason: (.reason // ""), message: (.message // "")};
+    def refused($p): ($p // {}) | ((.evaluated == true) and (.allowed != true));
+    def unchecked($p; $list): ((($p // {}).evaluated != true) and ((($list // []) | length) == 0));
+    def forbidden($what): {code: 403, reason: "Forbidden",
+      message: ("you may not list " + $what + " across the cluster (SelfSubjectAccessReview: allowed=false)")};
+    def uncheckable($what; $e): firstErr($e) as $f
+      | $f + {message: ("could not check that you may list " + $what + " across the cluster (SelfSubjectAccessReview: "
+          + (if $f.code > 0 then ($f.code | tostring) + " " + $f.reason elif $f.message != "" then $f.message else "no answer" end)
+          + "), so an empty list is not shown as none")};
+    { custom: (if ((.crdsError // []) | length) > 0 then {error: firstErr(.crdsError)}
+               elif refused(.mayListCrds) then {error: forbidden("customresourcedefinitions.apiextensions.k8s.io")}
+               elif unchecked(.mayListCrds; .crds) then {error: uncheckable("customresourcedefinitions.apiextensions.k8s.io"; .mayListCrdsError)}
+               else {kinds: (.crds // [])} end),
+      compositions: (if ((.compdefsError // []) | length) > 0 then {error: firstErr(.compdefsError)}
+                     elif refused(.mayListCompdefs) then {error: forbidden("compositiondefinitions.core.krateo.io")}
+                     elif unchecked(.mayListCompdefs; .compdefs) then {error: uncheckable("compositiondefinitions.core.krateo.io"; .mayListCompdefsError)}
+                     else {items: [ (.compdefs // [])[] as $c
+                                    | $c + {running: ([ (.running // [])[] | select(.cd == $c.name and .cdNs == $c.namespace) ] | length)} ]} end),
+      runningPartial: (((.runningError // []) | length) > 0) }
