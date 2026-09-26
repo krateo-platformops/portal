@@ -1,0 +1,19 @@
+{{/* The composition has an architecture — the gate saw its ConfigMap in status.managed — and the */}}
+{{/* RESTAction saw this person denied that ConfigMap (`access: forbidden`, no graph). Said once, in */}}
+{{/* place of the graph (P16: what happened, and what would change it), rather than drawn as a graph of */}}
+{{/* unknowns or left as an empty card that reads like "nothing here". Only a denial reaches this */}}
+{{/* sentence: a read that failed, or a ConfigMap this portal cannot use, gets the neutral "could not be */}}
+{{/* read" paragraph, and a denied composition gets its own, since granting ConfigMaps would not help. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: paragraph-composition-detail-architecture-unreadable
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    text: This composition's topology is not readable with your access. An administrator can grant read access to its ConfigMaps in this namespace.
+    type: secondary

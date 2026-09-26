@@ -1,0 +1,212 @@
+{{/* A composition's architecture, and where its machine is in it. The chart renders its descriptor */}}
+{{/* into a ConfigMap per composition (builder-publish templates/architecture.yaml is the first), */}}
+{{/* with every node's object names already resolved; this reads that ConfigMap, the composition, */}}
+{{/* and each object a node names, and says which state the composition is in. */}}
+{{/* ONE action for every composition, because a widget's apiRef is a fixed name (snowplow */}}
+{{/* resolvers/widgets GetApiRef): the page cannot pick a per-chart action. */}}
+{{/* EVERY STAGE RUNS UNDER THE CALLER'S CREDENTIAL: no endpointRef, no userAccessFilter. A read the */}}
+{{/* caller is denied is content, reported by the final filter as `unreadable` — it is never retried */}}
+{{/* under another identity, and never shown as "not ready", which would be a claim about an object */}}
+{{/* this person was not allowed to see. */}}
+{{/* Extras: the detail page passes name/namespace (its keyExtras); CDC passes compositionName and */}}
+{{/* compositionNamespace (core-provider apiresolver), so the same jq serves both. */}}
+{{/* Fixtures: helm/portal/tests/composition-architecture — every jq program below is extracted there */}}
+{{/* verbatim and evaluated by scripts/test-composition-architecture.py. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: composition-architecture
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* 1. The ConfigMap, by the name the chart gives it: <compositionName>-architecture. The page only */}}
+    {{/*    calls this for a composition whose status.managed lists that ConfigMap (the gate Row reads */}}
+    {{/*    composition-detail), because a 404 here is a stage error: snowplow would decline to cache */}}
+    {{/*    the result and WARN on every view of every composition that has no architecture. */}}
+    {{/*    The step filter keeps the graph only when the ConfigMap is this composition's own (CDC stamps */}}
+    {{/*    krateo.io/composition-name on everything it renders) and in a shape it knows (v: 1). */}}
+    - name: arch
+      path: ${ "/api/v1/namespaces/" + ((.compositionNamespace // .namespace) // "") + "/configmaps/" + ((.compositionName // .name) // "") + "-architecture" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: archErr
+      filter: |
+        ((.extras.compositionName // .extras.name) // "") as $n
+        | (.arch.metadata.labels // {}) as $l
+        | (try (.arch.data.graph | fromjson) catch null) as $g
+        | if $n != "" and ($l["krateo.io/composition-name"] // "") == $n and ($g | type) == "object" and $g.v == 1
+          then {graph: $g, compositionId: ($l["krateo.io/composition-id"] // "")}
+          else null end
+    {{/* 2. The composition itself: one call, or none when there is no graph (a null upstream yields */}}
+    {{/*    zero calls). Its status.managed is what the last render produced, each entry with the real */}}
+    {{/*    path of its object — so no path is ever built from a pluralised kind (Repo is `repoes`). */}}
+    - name: comp
+      dependsOn:
+        name: arch
+        iterator: '[ .arch.graph.composition? | select(. != null and (.apiVersion // "") != "" and (.resource // "") != "" and (.name // "") != "") ]'
+      path: ${ "/apis/" + .apiVersion + "/namespaces/" + .namespace + "/" + .resource + "/" + .name }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: compErr
+      filter: |
+        [ (.comp // .) | select(type == "object" and (.metadata.name // "") != "")
+          | { uid: (.metadata.uid // ""),
+              managed: [ .status.managed[]? | {apiVersion: (.apiVersion // ""), name: (.name // ""), path: (.path // "")} ],
+              conditions: (.status.conditions // []) } ]
+    {{/* 3. Every rendered object a node names, at its managed path. A node whose objects the chart */}}
+    {{/*    has not rendered yet (withheld behind a gate) is not fetched at all: there is nothing to read. */}}
+    - name: objs
+      dependsOn:
+        name: comp
+        iterator: |
+          . as $r
+          | ($r.comp[0].managed // []) as $m
+          | [ ($r.arch.graph.nodes // [])[]
+              | select(.present == true and ((.lifecycle // "") == "")) as $nd
+              | $nd.names[] as $nm
+              | $m[] | select(.name == $nm and .apiVersion == $nd.apiVersion and .path != "") | {path} ]
+          | unique
+      path: ${ .path }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: objErr
+      filter: |
+        [ (.objs // .) | select(type == "object" and (.metadata.name // "") != "")
+          | { apiVersion: (.apiVersion // ""),
+              metadata: { name: .metadata.name, namespace: (.metadata.namespace // ""), creationTimestamp: (.metadata.creationTimestamp // "") },
+              status: (.status // {}) } ]
+  {{/* The final filter. A LITERAL block, because a folded one would join each # comment onto the code */}}
+  {{/* after it. Three things it must never do, each found on a real input: */}}
+  {{/*  - join on apiVersion strictly: an object snowplow serves from its informer has an EMPTY */}}
+  {{/*    apiVersion and kind, so it joins by name (names are unique across nodes: composer lint L5); */}}
+  {{/*  - read a denial's object name from `.details`: in cluster snowplow records a denied read as a */}}
+  {{/*    client-go error string from its internal dispatch ('configmaps "x" is forbidden: …'), and only */}}
+  {{/*    its httpcall fall-through keeps plumbing's response.Status, which has no `details`; either way */}}
+  {{/*    the name comes from the message, the one field both shapes carry; */}}
+  {{/*  - index states[] with a null level (an empty descriptor). */}}
+  filter: |
+    # Input: snowplow's resolve dict — the request extras at the top level, each stage's (step-filtered)
+    # output under its name, and each stage's errors, accumulated as a list, under its errorKey.
+    def truthy: . != null and . != false and . != "" and . != 0 and . != [] and . != {};  # Helm `if`
+    def pathOf($rw): $rw | ltrimstr(".") | split(".");                                    # dotted keys only
+    def errKind:
+      if type == "object" then
+        (if (.code // 0) == 403 or .reason == "Forbidden" then "forbidden"
+         elif (.code // 0) == 404 or .reason == "NotFound" then "notfound" else "error" end)
+      elif type == "string" then
+        (if test("forbidden|not authorized"; "i") then "forbidden"
+         elif test("not found"; "i") then "notfound" else "error" end)
+      else "error" end;
+    def nameIn: [capture("\"(?<n>[^\"]+)\" (is forbidden|not found)")][0].n // null;
+    def errName:
+      if type == "object" then (.details.name // ((.message // "") | nameIn))
+      elif type == "string" then nameIn
+      else null end;
+    def errs($k): [ ($k // []) | if type == "array" then .[] else . end ];
+    def exception:                                         # K8s-native tokens, exception-only
+      (.status.conditions // []) as $c
+      | ([ $c[] | select(.type == "Synced" and .status == "False") ][0]) as $s
+      | ([ $c[] | select((.type == "Ready" or .type == "Available") and .status == "False") ][0]) as $r
+      | if $s != null then {label: "NotSynced", reason: ($s.reason // ""), message: ($s.message // "")}
+        elif $r != null then {label: "NotReady", reason: ($r.reason // ""), message: ($r.message // "")}
+        else null end;
+
+    (.arch.graph // null) as $g
+    | (errs(.archErr) | map(errKind)) as $archErrs
+    | if $g == null then
+        { architecture: false,
+          access: (if any($archErrs[]; . == "forbidden") then "forbidden"
+                   elif any($archErrs[]; . == "error") then "error" else null end) }
+      elif (.comp[0]? // null) == null then
+        { architecture: true, chart: $g.chart, composition: ($g.composition.name? // ""), readable: false, states: $g.states,
+          access: (if any(errs(.compErr)[]; errKind == "forbidden") then "forbidden" else "error" end),
+          level: null, state: null, allReady: null, waitingOn: [], progress: null, since: null, next: [],
+          nodes: [ ($g.nodes // [])[] | select((.lifecycle // "") == "")
+                   | {id, kind, apiVersion, class, level, present, forEach: (.forEach // false), readyWhen: (.readyWhen // null),
+                      parents: [ .dependsOn[]? | select(.active) | .ref ], expected: (.names | length),
+                      phase: (if .present then "unknown" else "absent" end)} ] }
+      else
+      (.comp[0]? // null) as $comp
+      | ($comp.managed // []) as $managed
+      | ([ .objs ] | flatten | map(select(type == "object" and (.metadata.name // "") != ""))) as $got
+      | (errs(.objErr) | map(select(errKind == "forbidden") | errName) | map(select(. != null))) as $denied
+      | (errs(.objErr) | map(select(errKind == "notfound") | errName) | map(select(. != null))) as $missing
+      | [ ($g.nodes // [])[] | select((.lifecycle // "") == "") ] as $seq
+      # 1. each instance, from what was rendered (status.managed) and what the caller could read
+      | [ $seq[] | . as $n
+          | [ .names[]? as $nm
+              | ([ $got[] | select(.metadata.name == $nm and (.apiVersion == "" or .apiVersion == $n.apiVersion)) ][0]) as $o
+              | (any($managed[]; .name == $nm and .apiVersion == $n.apiVersion)) as $rendered
+              | { name: $nm,
+                  read: (if $o != null then "ok"
+                         elif ($rendered | not) then "withheld"
+                         elif ($denied | index($nm)) != null then "unreadable"
+                         elif ($missing | index($nm)) != null then "missing"
+                         else "unavailable" end),
+                  satisfied: (if $o == null then null
+                              elif ($n.readyWhen // "") == "" then true
+                              else ((try ($o | getpath(pathOf($n.readyWhen))) catch null) | truthy) end),
+                  value: (if $o != null and ($n.readyWhen // "") != "" then (try ($o | getpath(pathOf($n.readyWhen))) catch null) else null end),
+                  since: (if $o != null then ($o.metadata.creationTimestamp // null) else null end),
+                  exception: (if $o != null then ($o | exception) else null end) } ] as $inst
+          | $n + { instances: $inst } ] as $nodes0
+      # 2. a rendered dependent proves its ready: true dependencies held at the last render (gate parity)
+      | ([ $nodes0[] | select(.present)
+           | select(any(.instances[]; .read != "withheld"))
+           | .dependsOn[]? | select(.active and .ready) | .ref ] | unique) as $proven
+      | [ $nodes0[] | . as $n
+          | (($proven | index($n.id)) != null) as $isProven
+          | (($n.readyWhen // "") == "") as $existence
+          | [ .instances[] | . + { ok: (if .satisfied == true then true
+                                       elif .read == "ok" then false
+                                       elif .read == "withheld" then false
+                                       elif .read == "missing" then false
+                                       elif $existence or $isProven then true
+                                       else null end) } ] as $inst
+          | { id, kind, apiVersion, class, level, present, forEach: (.forEach // false), readyWhen: (.readyWhen // null),
+              parents: [ .dependsOn[]? | select(.active) | .ref ],
+              waits: [ .dependsOn[]? | select(.active and .ready) | {ref, all: (.all // false)} ],
+              expected: ($inst | length),
+              rendered: ([ $inst[] | select(.read != "withheld") ] | length),
+              satisfied: ([ $inst[] | select(.ok == true) ] | length),
+              unknown: ([ $inst[] | select(.ok == null) ] | length),
+              unreadable: ([ $inst[] | select(.read == "unreadable") ] | length),
+              inferred: any($inst[]; .ok == true and .read != "ok"),
+              since: ([ $inst[] | .since | select(. != null) ] | min),
+              exception: ([ $inst[] | .exception | select(. != null) ][0]),
+              instances: $inst } ] as $nodes
+      # 3. the level: the first level (of those this composition uses) whose nodes are not all satisfied
+      | ([ $nodes[] | select(.present) | .level ] | unique) as $levels
+      | ([ $levels[] as $l | select(any($nodes[]; .present and .level == $l and .satisfied < .expected)) | $l ][0]) as $cur
+      | ($cur == null) as $all
+      | (if $all then ($levels | max) else $cur end) as $level
+      | [ $nodes[] | . + { phase: (if (.present | not) then "absent"
+                                   elif .satisfied == .expected then "done"
+                                   elif .unknown > 0 and .unreadable > 0 then "unreadable"
+                                   elif .unknown > 0 then "unavailable"
+                                   elif .rendered == 0 and .expected > 0 then "withheld"
+                                   else "waiting" end) } ] as $nodes2
+      | { architecture: true,
+          chart: $g.chart,
+          composition: ($g.composition.name? // ""),
+          readable: ($comp != null),
+          states: $g.states,
+          level: $level,
+          state: (if $level == null then null else ($g.states[$level] // null) end),
+          allReady: $all,
+          waitingOn: (if $all then [] else [ $nodes2[] | select(.present and .level == $cur and .satisfied < .expected)
+                       | {id, kind, pending: (.expected - .satisfied), phase} ] end),
+          progress: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) ]
+                       | {satisfied: (map(.satisfied) | add), expected: (map(.expected) | add)}) end),
+          since: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) | .since | select(. != null) ] | min) end),
+          next: (if $all then [] else [ $nodes2[] | select(.present and .level == ($levels | map(select(. > $cur)) | min)) | .id ] end),
+          nodes: $nodes2 }
+      end

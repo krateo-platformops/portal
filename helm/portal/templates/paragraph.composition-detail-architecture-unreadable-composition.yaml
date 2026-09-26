@@ -1,0 +1,18 @@
+{{/* The ConfigMap was readable but the composition it describes was not (`access: forbidden` with */}}
+{{/* `architecture: true`): the page lists the composition, and this person may not read it. Without */}}
+{{/* the composition there is no status.managed to find the objects by, so no node's state is known. */}}
+{{/* Its own sentence, because the ConfigMap paragraph's remedy (grant ConfigMaps) is what this person */}}
+{{/* already has; what would change it is read access to the composition's kind (P16). */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: paragraph-composition-detail-architecture-unreadable-composition
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    text: This composition's topology is not readable with your access. An administrator can grant read access to compositions of this kind in this namespace.
+    type: secondary

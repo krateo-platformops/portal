@@ -16,4 +16,4 @@ timestamp: 2026-08-07T00:00:00Z
 
 Related fixtures (not standalone examples): the jq test corpora under
 [`helm/portal/tests/`](../helm/portal/tests/) exercise the `blueprints-catalog`,
-`blueprint-render` and `blueprint-palette` RESTAction filters offline.
+`blueprint-render`, `blueprint-palette` and `composition-architecture` RESTAction filters offline.

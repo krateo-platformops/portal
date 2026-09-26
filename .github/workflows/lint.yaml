@@ -159,3 +159,37 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           jq --version
           python3 scripts/test-builder-install.py
+
+  # A composition's topology on its detail page is one builder-publish template, one RESTAction of
+  # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's
+  # widget resolver — and `helm template` evaluates none of it. Drafts of it read correctly and were
+  # wrong on realistic input (an informer-served object with no apiVersion, a denial whose object
+  # name snowplow does not keep in `details`). This renders both charts and runs that jq
+  # on krateo-057 objects, then validates every topology widget CR, as authored and as resolved,
+  # against the NEWEST RELEASED frontend-crds: snowplow refuses a resolved widget its CRD does not
+  # admit (HTTP 400), so this job stays red until a frontend release carries the FlowChart CRD with
+  # `variant: architecture` — which is the first half of this chart's merge order, not a flake.
+  composition-architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Composition topology, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-composition-architecture.py --crds "$RUNNER_TEMP/crds/frontend-crds"

@@ -1,0 +1,28 @@
+{{/* "Where it is": the state the composition is in, since when, what it is waiting on and what comes */}}
+{{/* next. Shown only while the machine is between states, under the graph — the body Row drops this */}}
+{{/* panel once all is ready, because a panel restating "done" on every healthy composition is noise. */}}
+{{/* Since is the creation time of the current state's first object, printed as the raw RFC 3339 */}}
+{{/* timestamp the metadata card's Created row uses; a relative "1m 42s" would be a client computation */}}
+{{/* and stale the moment it rendered. There is no "typical duration": nothing measures one. */}}
+{{/* A node this person could not read is named with the reason, never listed as merely pending. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: descriptions-composition-detail-architecture-where
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-architecture
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Where it is
+    column: 1
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ . as $r | if $r.readable != true then [] else [ {label: "State", value: ("S" + ((($r.level // 0) + 1) | tostring) + " · " + ($r.state // ""))} ] + (if $r.allReady == true then [] else ([ {label: "Since", value: ($r.since // "")} ] | map(select(.value != ""))) + [ {label: "Waiting on", value: ([ $r.waitingOn[] | .kind + (if .pending > 1 then " ×" + (.pending | tostring) else "" end) + (if .phase == "unreadable" then " (not readable with your access)" elif .phase == "unavailable" then " (could not be read)" else "" end) ] | join(", "))} ] + ([ {label: "Next", value: ([ $r.next[] as $id | $r.nodes[] | select(.id == $id) | .kind ] | join(", "))} ] | map(select(.value != ""))) end) end }'
