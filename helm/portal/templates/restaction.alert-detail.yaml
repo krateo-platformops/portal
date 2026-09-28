@@ -4,7 +4,7 @@
 {{/* alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in */}}
 {{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
 {{/* and its live HyperDX-mirrored state in .status (state / phase / lastSyncedAt */}}
-{{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-troubleshooter. */}}
+{{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-provider. */}}
 {{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
 {{/* observability.krateo.io/alert: <name>; the newest is the back-link. */}}
 {{/* Everything is derived server-side (nothing-hardcoded): */}}
@@ -126,7 +126,7 @@ spec:
              else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end),
             (if $haid == "" then empty
              elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`" + (if ($shaped | length) > 1 then (", the latest of " + ($shaped | length | tostring) + " for this alert") else "" end) + ".")
-             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The webhook should have opened one; no Incident carries this alert's label. Either the callback never arrived or the troubleshooter could not create one."
+             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The webhook should have opened one; no Incident carries this alert's label. Either the callback never arrived or the alert-provider could not create one."
              else "4. No incident — this alert has not fired, so none is expected." end),
             (if $rep == null then empty
              elif $repProduced then "5. **The analysis produced a root cause.** Open the incident below to read it."
