@@ -71,6 +71,13 @@ spec:
           ops:
             - resourceRefId: create-status-restaction
               payload: {}
+              {{/* The referenced resource's payload base is merged OVER this op's payload, and its */}}
+              {{/* metadata.name is empty — so the RESTAction's name and namespace are set again here, */}}
+              {{/* as the CompositionDefinition's are below. Plain strings (not ${ }) are used verbatim; */}}
+              {{/* widgetDataTemplate writes the bundle's into them. */}}
+              payloadToOverride:
+                - { name: metadata.name, value: '' }
+                - { name: metadata.namespace, value: '' }
             - resourceRefId: create-compdef
               payload:
                 apiVersion: core.krateo.io/v1alpha1
@@ -94,6 +101,10 @@ spec:
       expression: '${ if .projection != null then "submit-projected" else "submit" end }'
     - forPath: actions.rest[1].ops[0].payload
       expression: '${ .projection.restaction // {} }'
+    - forPath: actions.rest[1].ops[0].payloadToOverride[0].value
+      expression: '${ .projection.restaction.metadata.name // "" }'
+    - forPath: actions.rest[1].ops[0].payloadToOverride[1].value
+      expression: '${ .projection.restaction.metadata.namespace // "" }'
     - forPath: actions.rest[1].ops[1].payloadToOverride[2].value
       expression: '${ "${ ((.json | del(.name) | del(.namespace)) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end)) + " + ({ apiRef: (.projection.apiRef // null), statusDataTemplate: (.projection.statusDataTemplate // null) } | tojson) + " }" }'
   resourcesRefs:

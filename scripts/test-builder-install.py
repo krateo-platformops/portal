@@ -449,6 +449,10 @@ def check_install_applies_the_status_projection(chart):
     out, w = install(json.dumps(bundle))
     expect(f, 'projected: action', w['submitActionId'], 'submit-projected')
     expect(f, 'projected: RESTAction op payload', w['actions.rest[1].ops[0].payload'], restaction)
+    # The ref's payload base is merged OVER the op's payload, blanking metadata.name (057): the op sets
+    # it again, as a string, from the bundle.
+    expect(f, 'projected: RESTAction name override', widget(chart, 'Form', 'blueprint-install', 'actions.rest[1].ops[0].payloadToOverride[0].value', out, extras), 'my-bp-status')
+    expect(f, 'projected: RESTAction namespace override', widget(chart, 'Form', 'blueprint-install', 'actions.rest[1].ops[0].payloadToOverride[1].value', out, extras), NS)
     expect(f, 'projected: spec override is a ${ } string', isinstance(w[SPEC], str) and w[SPEC].startswith('${') and w[SPEC].endswith('}'), True)
     spec = jq(w[SPEC][2:-1], {'json': submitted})
     expect(f, 'projected: spec keeps the form', spec.get('chart'), submitted['chart'])
@@ -460,6 +464,7 @@ def check_install_applies_the_status_projection(chart):
         expect(f, f'{label}: action', w['submitActionId'], 'submit')
         expect(f, f'{label}: projection', out.get('projection'), None)
         expect(f, f'{label}: the templated override is still a string', isinstance(w[SPEC], str), True)
+        expect(f, f'{label}: the name override is still a string', isinstance(widget(chart, 'Form', 'blueprint-install', 'actions.rest[1].ops[0].payloadToOverride[0].value', out, extras), str), True)
     # The form's own shape: the projected action writes the RESTAction FIRST, and each op's ref exists.
     form = chart.get('Form', 'blueprint-install')
     projected = [a for a in form['spec']['widgetData']['actions']['rest'] if a['id'] == 'submit-projected'][0]
