@@ -99,6 +99,11 @@ def exception:                                         # K8s-native tokens, exce
                                elif .unknown > 0 then "unavailable"
                                elif .rendered == 0 and .expected > 0 then "withheld"
                                else "waiting" end) } ] as $nodes2
+  # 4. a withheld node whose every parent is done has an OPEN gate: the chart would render it now.
+  #    It is "not created" — yet (CDC re-renders within its resync), or because the render failed
+  #    (the composition's own Synced/Ready=False says why) — never "waits for" parents that are done.
+  | [ $nodes2[] | . + { gateOpen: (.phase == "withheld" and (.parents | length) > 0
+                                   and all(.parents[]; . as $p | any($nodes2[]; .id == $p and .phase == "done"))) } ] as $nodes2
   | { architecture: true,
       chart: $g.chart,
       composition: ($g.composition.name? // ""),
@@ -108,10 +113,12 @@ def exception:                                         # K8s-native tokens, exce
       state: (if $level == null then null else ($g.states[$level] // null) end),
       allReady: $all,
       waitingOn: (if $all then [] else [ $nodes2[] | select(.present and .level == $cur and .satisfied < .expected)
-                   | {id, kind, pending: (.expected - .satisfied), phase} ] end),
+                   | {id, kind, pending: (.expected - .satisfied), phase, gateOpen} ] end),
       progress: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) ]
                    | {satisfied: (map(.satisfied) | add), expected: (map(.expected) | add)}) end),
       since: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) | .since | select(. != null) ] | min) end),
       next: (if $all then [] else [ $nodes2[] | select(.present and .level == ($levels | map(select(. > $cur)) | min)) | .id ] end),
+      # Only Synced=False: the render or apply failed. Ready=False is a composition still converging.
+      compositionNotSynced: ({status: {conditions: ($comp.conditions // [])}} | exception | if . != null and .label == "NotSynced" then . else null end),
       nodes: $nodes2 }
   end
