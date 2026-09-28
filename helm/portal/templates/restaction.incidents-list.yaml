@@ -1,7 +1,9 @@
 {{/* /incidents data source — one row per Incident (incidents.observability.krateo.io, owned by */}}
 {{/* incident-controller), shaped server-side: */}}
-{{/* rows     : title (the alert's display name, else the root cause, else the alert name), */}}
-{{/*            state, firings, age, severity dot colour; filtered by the ?status= chip (extras). */}}
+{{/* rows     : title (the alert's display name, else its name, else the root cause), */}}
+{{/*            cause (the root cause: an alert can have several incidents open at once, one per */}}
+{{/*            problem, and this tells them apart), state, firings, age, severity dot colour; */}}
+{{/*            filtered by the ?status= chip (extras). */}}
 {{/* counts   : per-state totals over the full set, so every chip shows its live count. */}}
 {{/* awaiting : firing Alerts (state ALERT) with no open incident — the "not yet investigated" */}}
 {{/*            strip, each with an /incidents?ask= Autopilot deep-link. */}}
@@ -40,7 +42,11 @@ spec:
             name: (.metadata.name // ""),
             # A namespaced list omits .metadata.namespace per item; these incidents are in the namespace just listed.
             namespace: "{{ .Release.Namespace }}",
-            title: (if $dn != "" then $dn elif (.status.rootCause.statement // "") != "" then .status.rootCause.statement elif $alert != "" then $alert else (.metadata.name // "") end),
+            title: (if $dn != "" then $dn elif $alert != "" then $alert elif (.status.rootCause.statement // "") != "" then .status.rootCause.statement else (.metadata.name // "") end),
+            cause: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
+                    elif (.status.error // "") != "" then "analysis failed"
+                    elif $state == "Analyzing" then "analyzing"
+                    else "—" end),
             state: $state,
             stateKey: ($state | ascii_downcase),
             firings: (.status.firings // 0),

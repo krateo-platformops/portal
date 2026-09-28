@@ -1,6 +1,7 @@
 {{/* The incident list — one row per Incident, off incidents-list (which applies the ?status= */}}
-{{/* filter server-side): severity dot, title, state, firings, age. Row click → the incident */}}
-{{/* detail page; the {namespace}/{name} placeholders fill from hidden cells. */}}
+{{/* filter server-side): severity dot, title, root cause, state, firings, age. The root cause */}}
+{{/* tells apart incidents of one alert that are open at once. Row click → the incident detail */}}
+{{/* page; the {namespace}/{name} placeholders fill from hidden cells. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -28,6 +29,8 @@ spec:
       title: ' '
     - valueKey: title
       title: Incident
+    - valueKey: cause
+      title: Root cause
     - valueKey: state
       title: State
     - valueKey: firings
@@ -36,10 +39,10 @@ spec:
       title: Age
     dataSource: []
   widgetDataTemplate:
-  {{/* The title can be a long root-cause sentence; it is capped at ~110 chars so it does not */}}
-  {{/* crush the trailing columns (the Table columns carry no width knobs). */}}
+  {{/* The title and the root cause can be long sentences; each is capped at ~110 chars so they do */}}
+  {{/* not crush the trailing columns (the Table columns carry no width knobs). */}}
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:"●",color:(.sevColor // "#8c8c8c")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:((.title // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Analyzing"),color:({ Open: "red", Verifying: "orange", Resolved: "green" }[.state // ""] // "gray")}, {valueKey:"firings",kind:"jsonSchemaType",type:"string",stringValue:((.firings // 0) | tostring)}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:"●",color:(.sevColor // "#8c8c8c")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:((.title // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"cause",kind:"jsonSchemaType",type:"string",stringValue:((.cause // "—") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Analyzing"),color:({ Open: "red", Verifying: "orange", Resolved: "green" }[.state // ""] // "gray")}, {valueKey:"firings",kind:"jsonSchemaType",type:"string",stringValue:((.firings // 0) | tostring)}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
   apiRef:
     name: incidents-list
     namespace: {{ .Release.Namespace }}

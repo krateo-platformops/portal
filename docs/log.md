@@ -23,7 +23,9 @@ normalized display name. **How to fix** shows the scripts in `status.howToFix` (
 apply · verify), each with its last run from `status.checks`, and the optional rollback, which a
 human runs only to revert an applied fix; its one button is "I applied it" (`spec.applied`). **Close** (`spec.closed`) replaces Resolve, cannot be undone and is not offered on a Resolved incident.
 Check history (from `status.checks`) replaces the Remediation audit, and Involved resources,
-Check history and Similar incidents (same alert first) share one tab strip.
+Check history and Similar incidents (same alert first) share one tab strip. An alert can have
+several incidents open at once, one per problem: the alert page lists every open one, then the
+latest ended ones, and the incident list shows each incident's root cause next to its alert.
 
 ## 2026-09-09 — builder-publish creates the destination repository
 

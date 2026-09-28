@@ -1,6 +1,7 @@
-{{/* "Latest incident" card: the back-link to this alert's newest Incident. The page Flex */}}
-{{/* includes it only when sections.incident is true (the alert has one). To start an */}}
-{{/* investigation, use "Investigate with Autopilot" in the page header. */}}
+{{/* "Incidents" card: this alert's incidents (alert-detail-incidents), every open one first, then */}}
+{{/* the latest ended ones. Several can be open at once, one per problem the alert-provider tells */}}
+{{/* apart. The page Flex includes the card only when sections.incident is true (the alert has any). */}}
+{{/* To start an investigation, use "Investigate with Autopilot" in the page header. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,17 +12,23 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
   widgetData:
-    title: Latest incident
+    title: Incidents
     titleVariant: eyebrow
     variant: outlined
     items:
-      - resourceRefId: alert-detail-incident-link
+      - resourceRefId: alert-detail-incidents
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .incidentsTitle // "Incidents" }'
   resourcesRefs:
     items:
-      - id: alert-detail-incident-link
+      - id: alert-detail-incidents
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: alert-detail-incident-link
+        name: alert-detail-incidents
         namespace: {{ .Release.Namespace }}
-        resource: buttons
+        resource: listies
         verb: GET

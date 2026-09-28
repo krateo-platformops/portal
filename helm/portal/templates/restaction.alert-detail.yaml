@@ -6,7 +6,8 @@
 {{/* and its live HyperDX-mirrored state in .status (state / phase / lastSyncedAt */}}
 {{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-provider. */}}
 {{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
-{{/* observability.krateo.io/alert: <name>; the newest is the back-link. */}}
+{{/* observability.krateo.io/alert: <name>. Several can be open at once, one per problem, so */}}
+{{/* the page lists every open one, then the latest ended ones. */}}
 {{/* Everything is derived server-side (nothing-hardcoded): */}}
 {{/* the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so */}}
 {{/* the healthy quiet state OK reads green), the "above N" threshold prose, the compact */}}
@@ -64,9 +65,15 @@ spec:
              error: (.status.error // ""),
              reportText: ((.status.report // "") | if type == "string" then . else "" end),
              structured: ((.status.rootCause.statement // "") != ""),
+             firings: (.status.firings // 0),
              when: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]
-       | sort_by(.when) | reverse) as $shaped
+       | sort_by(.when) | reverse
+       | map(. + { open: (.state != "Resolved" and .state != "Closed"),
+                   route: ("/incidents/" + .namespace + "/" + .name) })) as $shaped
     | ($shaped[0] // null) as $rep
+    | [ $shaped[] | select(.open) ] as $open
+    | [ $shaped[] | select(.open | not) ] as $ended
+    | (if ($shaped | length) > 1 then "latest analysis" else "analysis" end) as $an
       # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
       | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
       | ($rep != null and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
@@ -125,20 +132,25 @@ spec:
              elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
              else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end),
             (if $haid == "" then empty
-             elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`" + (if ($shaped | length) > 1 then (", the latest of " + ($shaped | length | tostring) + " for this alert") else "" end) + ".")
+             elif ($shaped | length) > 1 then ("4. **Incidents were opened.** " + ($shaped | length | tostring) + " for this alert; the latest is `" + ($rep.name // "") + "`.")
+             elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`.")
              elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The webhook should have opened one; no Incident carries this alert's label. Either the callback never arrived or the alert-provider could not create one."
              else "4. No incident — this alert has not fired, so none is expected." end),
             (if $rep == null then empty
-             elif $repProduced then "5. **The analysis produced a root cause.** Open the incident below to read it."
-             elif $repFailed then "5. **The analysis FAILED.** The incident carries the error instead of a root cause; its page shows it verbatim. This is the hop that fails silently — the alert above still reads as healthy."
-             elif ($rep.state // "") == "Analyzing" then "5. **The analysis is still running.**"
-             else "5. **The analysis produced nothing.** It wrote neither a root cause nor an error, which is itself the finding." end),
-            (if $rep == null then empty else ("6. **Incident** `" + ($rep.name // "") + "` is **" + ($rep.state // "Analyzing") + "**.") end)
+             elif $repProduced then ("5. **The " + $an + " produced a root cause.** Open `" + ($rep.name // "") + "` below to read it.")
+             elif $repFailed then ("5. **The " + $an + " FAILED.** `" + ($rep.name // "") + "` carries the error instead of a root cause; its page shows it verbatim. This is the hop that fails silently — the alert above still reads as healthy.")
+             elif ($rep.state // "") == "Analyzing" then ("5. **The " + $an + " is still running.**")
+             else ("5. **The " + $an + " produced nothing.** It wrote neither a root cause nor an error, which is itself the finding.") end),
+            (if $rep == null then empty
+             elif ($open | length) == 0 then ("6. **No incident is open.** The latest, `" + ($rep.name // "") + "`, is **" + ($rep.state // "Resolved") + "**.")
+             elif ($open | length) == 1 then ("6. **Incident** `" + ($open[0].name // "") + "` is **" + ($open[0].state // "Analyzing") + "**.")
+             else ("6. **" + ($open | length | tostring) + " incidents are open at once**, each a different problem. The list below has them all.") end)
           ] | join("\n")),
-        linkedIncident: $rep,
-        linkedRoute: (if $rep then ("/incidents/" + ($rep.namespace // $ns) + "/" + ($rep.name // "")) else "" end),
-        incidentCount: ($shaped | length),
-        hasIncident: ($rep != null),
+        # The Incidents card: every open incident, then the five latest ended ones, newest first within each.
+        incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route,
+                      detail: (if .firings > 0 then ((.firings | tostring) + (if .firings == 1 then " firing" else " firings" end)) else "" end) })),
+        incidentsTitle: ("Incidents · " + ($open | length | tostring) + " open"
+          + (if ($ended | length) > 0 then (" · " + ($ended | length | tostring) + " ended" + (if ($ended | length) > 5 then ", the latest 5 shown" else "" end)) else "" end)),
         sections: {
           incident: ($rep != null),
           # Not exception-only: its job is to say which hops SUCCEEDED as well as which stopped,
