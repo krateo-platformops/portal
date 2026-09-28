@@ -38,7 +38,7 @@ spec:
     {{/* (blueprints in krateo-system); for a tenant whose blueprints live in krateo-blueprints this */}}
     {{/* is what stops the CM GET 404 → null stringSchema → the Form's "stringSchema Invalid value null". */}}
     - name: jsonschema
-      path: ${ "/api/v1/namespaces/" + (.compdef.metadata.namespace // "{{ .Release.Namespace }}") + "/configmaps/" + .compdef.status.resource + "-" + (.compdef.status.apiVersion | split("/")[1]) + "-jsonschema-configmap" }
+      path: ${ "/api/v1/namespaces/" + (.compdef.metadata.namespace // "{{ .Release.Namespace }}") + "/configmaps/" + (.compdef.status.resource // "") + "-" + (((.compdef.status.apiVersion // "") | split("/"))[1] // "") + "-jsonschema-configmap" }
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -49,10 +49,14 @@ spec:
     - name: crd
       dependsOn:
         name: compdef
-      path: ${ "/apis/apiextensions.k8s.io/v1/customresourcedefinitions/" + .compdef.status.resource + "." + (.compdef.status.apiVersion | split("/")[0]) }
+      path: ${ "/apis/apiextensions.k8s.io/v1/customresourcedefinitions/" + (.compdef.status.resource // "") + "." + (((.compdef.status.apiVersion // "") | split("/"))[0] // "") }
       verb: GET
       headers:
         - 'Accept: application/json'
+      {{/* A CRD that lags its CompositionDefinition (core-provider generates it after the CD is */}}
+      {{/* written) is content — the "still being registered" form — never a failed resolve. */}}
+      continueOnError: true
+      errorKey: crdError
     {{/* Namespaces fed into the form's Namespace field as a select (enum), RBAC-filtered */}}
     {{/* to the namespaces where the USER can `create` this composition. Uses snowplow's */}}
     {{/* native userAccessFilter (the SubjectAccessReview the user-bearer token is appended */}}
@@ -92,7 +96,27 @@ spec:
   {{/* blueprint's own `namespace` spec field is untouched; only real, create-permitted namespaces are */}}
   {{/* offered. Was previously pinned to a single [$blueprintNs] which 403'd every tenant create. */}}
   filter: |
-    (.compdef.status.apiVersion | split("/")[1]) as $ver
+    # NOT READY — the CompositionDefinition has no generated kind yet (core-provider has not
+    # reconciled it: the first seconds after an Install), its CRD is not served yet, or this runs with
+    # no blueprint named (a background prewarm). Every path above is null-safe for it, and the form
+    # says so instead of failing to resolve: `split` on a null apiVersion used to fail the whole
+    # widget. The Form widget renders a schema with no fields as its title and description.
+    (((.username // "anon") | gsub("[^a-zA-Z0-9_.-]"; "-"))
+        + "__" + ((.namespace // "") | gsub("[^a-zA-Z0-9_.-]"; "-"))
+        + "__" + ((.name // "") | gsub("[^a-zA-Z0-9_.-]"; "-"))) as $ownerKey
+    | ((.compdef.status.apiVersion // "") | tostring) as $cdApiVersion
+    | if ($cdApiVersion | contains("/") | not) or ((.compdef.status.resource // "") == "") or ((.crd.spec // null) == null) then
+        ([ (.compdef.status.conditions // [])[]? | select(.type == "Ready" and .status == "False") | (.message // "") | select(. != "") ][0]) as $why
+        | { stringSchema: "",
+            schemaSpec: { type: "object",
+                          title: "This blueprint is still being registered",
+                          description: ("Its kind has not been generated yet, so there is no form to fill in. This usually takes under a minute — reload the page."
+                                        + (if $why == null then "" else " core-provider reports: " + $why end)) },
+            propertiesToHide: [],
+            initialValues: { __owner: $ownerKey },
+            apiVersion: "", kind: "", resource: "" }
+      else
+    ($cdApiVersion | split("/")[1]) as $ver
     | ((.namespace // "") | if . == "" then "{{ .Release.Namespace }}" else . end) as $blueprintNs
     # #66 (tenant self-service): the composition RECORD namespace (metadata.namespace) must be one
     # the USER can `create` this composition in — NOT blindly the blueprint's namespace. A tenant's
@@ -130,10 +154,12 @@ spec:
     # can create in, defaulting to $blueprintNs when allowed (admin) else the first allowed ns
     # (tenant → own ns). Renders single-option/pre-filled only when exactly one ns is permitted.
     | ((.jsonschema.data["values.schema.json"]) // null) as $raw
-    | (if $raw == null then null
+    # "" (never null) when there is no raw schema: the Form CRD types stringSchema a string and snowplow
+    # refuses a resolved widget it does not admit; the Form reads "" as absent and uses schemaSpec.
+    | (if $raw == null then ""
        else ("\"properties\": ") as $n
          | ($raw | index($n)) as $pi
-         | (if $pi == null then null
+         | (if $pi == null then ""
             else ($raw[0:($pi + ($n | length))]) as $pfx
               | ($raw[($pi + ($n | length)):]) as $rst
               | ({ __composition_name__:      { type: "string", title: "Name",      description: "Name for the new composition instance" },
@@ -168,3 +194,4 @@ spec:
         kind: .compdef.status.kind,
         resource: .compdef.status.resource
       }
+      end

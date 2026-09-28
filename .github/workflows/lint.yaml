@@ -153,12 +153,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Builder Install step, evaluated
+      # Every Form the checks resolve is validated, as resolved, against the NEWEST RELEASED Form CRD:
+      # snowplow refuses a resolved widget its CRD does not admit, and portal 1.8.45 shipped one.
+      - name: Builder Install step, evaluated and validated
         run: |
           set -euo pipefail
-          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
           jq --version
-          python3 scripts/test-builder-install.py
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-builder-install.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # A composition's topology on its detail page is one builder-publish template, one RESTAction of
   # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's

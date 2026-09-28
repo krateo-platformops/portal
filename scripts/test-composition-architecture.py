@@ -333,6 +333,8 @@ def mutate(cluster, op):
         cluster[p] = Failure({'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'code': 500,
                               'reason': 'InternalError',
                               'message': f'Get "https://10.96.0.1:443{p}": context deadline exceeded'})
+    elif kind == 'patch':             # an object's live state moved on: an RFC 7386 merge patch
+        merge_patch(cluster[path_of(op['name'])], op['set'])
     elif kind == 'drop':              # served with no error, and nothing in it
         cluster[path_of(op['name'])] = {}
     elif kind == 'label':

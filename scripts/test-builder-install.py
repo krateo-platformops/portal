@@ -29,10 +29,17 @@ widget's `${ … }` expression is then evaluated over that output, as the fronte
 Uses the `jq` binary (preinstalled on GitHub's ubuntu runners). snowplow runs gojq; JQ=gojq runs
 the same checks on it.
 
-Usage: test-builder-install.py [chart-dir]   (default helm/portal). Exit code = failed checks.
+With --crds DIR (a frontend-crds chart, as `helm pull --untar` leaves it), every Form the checks
+resolve is also validated, as resolved, against its CRD, closed the way the apiserver's strict field
+validation closes it: snowplow refuses a resolved widget its CRD does not admit (HTTP 400), and portal
+1.8.45 shipped exactly that — an object where the Form CRD wants a string — for every install.
+
+Usage: test-builder-install.py [chart-dir] [--crds DIR]   (default helm/portal). Exit code = failed checks.
 """
 import copy
+import glob
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -123,6 +130,32 @@ def widget(chart, kind, name, path, ra_output, extras):
     data = dict(extras)
     data.update(ra_output if isinstance(ra_output, dict) else {})
     return jq(chart.expression(kind, name, path), data)
+
+
+# Every widget a check resolved, as snowplow would serve it: validated against its CRD with --crds.
+RESOLVED = []
+
+
+def set_path(target, path, value):
+    """Write `value` at a widgetDataTemplate forPath: dotted keys with [i] indexes."""
+    keys = [int(k) if k.isdigit() else k for k in re.findall(r'[^.\[\]]+', path)]
+    for key, nxt in zip(keys, keys[1:]):
+        if isinstance(key, int):
+            target = target[key]
+        else:
+            target = target.setdefault(key, [] if isinstance(nxt, int) else {})
+    target[keys[-1]] = value
+
+
+def resolved_widget(chart, kind, name, ra_output, extras, label):
+    """The widget CR with every widgetDataTemplate entry written into widgetData — what snowplow
+    validates — recorded for the CRD check."""
+    doc = copy.deepcopy(chart.get(kind, name))
+    for entry in doc['spec'].get('widgetDataTemplate') or []:
+        set_path(doc['spec'].setdefault('widgetData', {}), entry['forPath'],
+                 widget(chart, kind, name, entry['forPath'], ra_output, extras))
+    RESOLVED.append((label, doc))
+    return doc
 
 
 # ---------------------------------------------------------------------------------------------
@@ -441,6 +474,8 @@ def check_install_applies_the_status_projection(chart):
         resp = responses(prs('closed', merged=True))
         resp['builderProjections'] = {'items': [local_resource('publish-my-bp', 'blueprint', 'status-projection.json', content=projection_file)]} if projection_file is not None else {'items': []}
         out = resolve(chart, 'blueprint-install-formdef', resp, extras)
+        resolved_widget(chart, 'Form', 'blueprint-install', out, extras,
+                        f'blueprint-install ({"no bundle" if projection_file is None else "bundle"})')
         return out, {path: widget(chart, 'Form', 'blueprint-install', path, out, extras) for path in (
             'submitActionId', 'actions.rest[1].ops[0].payload', SPEC)}
 
@@ -479,6 +514,53 @@ def check_install_applies_the_status_projection(chart):
             expect(f, f'template {t["forPath"]} targets a value', t['forPath'].endswith('.value'), True)
     return f
 
+def check_create_form_says_when_the_blueprint_is_not_registered_yet(chart):
+    """The create form (/blueprints/<ns>/<name>/create) right after an Install, before core-provider
+    has generated the kind: the CompositionDefinition has no status.apiVersion yet. That used to fail
+    the whole widget (`split cannot be applied to: null`, and on krateo-057 ~1,500 lines an hour from
+    the background prewarm, which resolves it with no blueprint named). It must resolve, and say the
+    blueprint is still being registered — and, once registered, render the chart's fields."""
+    f = []
+    extras = {'name': 'my-bp', 'namespace': NS, 'username': 'admin'}
+    cd = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+          'metadata': {'name': 'my-bp', 'namespace': NS}}
+    registered = {**cd, 'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'MyBp', 'resource': 'mybps'}}
+    crd = {'spec': {'versions': [{'name': 'v0-1-0', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'properties': {'replicas': {'type': 'integer', 'title': 'Replicas'}}}}}}}]}}
+    schema_cm = {'data': {'values.schema.json': json.dumps({'type': 'object', 'properties': {'replicas': {'type': 'integer', 'title': 'Replicas'}}})}}
+    namespaces = {'items': [{'metadata': {'name': NS}}]}
+
+    def create(label, responses, extras=extras):
+        out = resolve(chart, 'blueprint-formdef', responses, extras)
+        return out, resolved_widget(chart, 'Form', 'blueprint-create', out, extras, f'blueprint-create ({label})')
+
+    not_ready = {
+        'no status yet': {'compdef': cd, 'jsonschema': 'ERROR', 'crd': 'ERROR', 'namespaces': namespaces},
+        'no status, core-provider says why': {'compdef': {**cd, 'status': {'conditions': [
+            {'type': 'Ready', 'status': 'False', 'reason': 'ReconcileError', 'message': 'chart not found: oci://x/my-bp:0.1.0'}]}},
+            'jsonschema': 'ERROR', 'crd': 'ERROR', 'namespaces': namespaces},
+        'status, CRD not served yet': {'compdef': registered, 'jsonschema': 'ERROR', 'crd': 'ERROR', 'namespaces': namespaces},
+        'no blueprint named (prewarm)': {'compdef': {'apiVersion': 'v1', 'kind': 'List', 'items': []},
+                                         'jsonschema': 'ERROR', 'crd': 'ERROR', 'namespaces': namespaces},
+    }
+    for label, responses in not_ready.items():
+        out, doc = create(label, responses, extras if 'prewarm' not in label else {'username': 'admin'})
+        schema = doc['spec']['widgetData']['schema']
+        expect(f, f'{label}: says it is being registered', schema.get('title'), 'This blueprint is still being registered')
+        expect(f, f'{label}: no fields to fill', schema.get('properties'), None)
+        expect(f, f'{label}: resource refs are strings', [out['apiVersion'], out['resource']], ['', ''])
+    out, _ = create('core-provider says why', not_ready['no status, core-provider says why'])
+    expect(f, 'the reason core-provider gives is shown', 'chart not found' in out['schemaSpec']['description'], True)
+
+    out, doc = create('registered, no values.schema.json', {'compdef': registered, 'jsonschema': 'ERROR', 'crd': crd, 'namespaces': namespaces})
+    expect(f, 'registered without a jsonschema ConfigMap: stringSchema is "" (the CRD wants a string)', doc['spec']['widgetData']['stringSchema'], '')
+    out, doc = create('registered', {'compdef': registered, 'jsonschema': schema_cm, 'crd': crd, 'namespaces': namespaces})
+    schema = doc['spec']['widgetData']['schema']
+    expect(f, 'registered: the chart\'s fields', sorted(schema['properties']), ['__composition_name__', '__composition_namespace__', 'replicas'])
+    expect(f, 'registered: the kind it creates', [out['apiVersion'], out['resource']], ['composition.krateo.io/v0-1-0', 'mybps'])
+    return f
+
+
 def check_review_proposals_are_not_builder_publishes(chart):
     """A nightly-review proposal rides the builder-publish chain with krateo.io/builder: review. It is
     not a builder's publish, so the builders' change-request feed must not list it — while a
@@ -503,11 +585,62 @@ CHECKS = [
     check_install_header_has_no_lone_v,
     check_install_applies_the_status_projection,
     check_review_proposals_are_not_builder_publishes,
+    check_create_form_says_when_the_blueprint_is_not_registered_yet,
 ]
 
 
+def strict(schema):
+    """Close an openAPIV3Schema the way the apiserver's strict field validation does (the same
+    closure test-composition-architecture.py applies)."""
+    if isinstance(schema, dict):
+        schema = {k: strict(v) for k, v in schema.items()}
+        if schema.get('type') == 'object' and 'properties' in schema \
+                and not schema.get('x-kubernetes-preserve-unknown-fields') and 'additionalProperties' not in schema:
+            schema['additionalProperties'] = False
+        if schema.get('x-kubernetes-int-or-string'):
+            schema.pop('type', None)
+            schema['anyOf'] = [{'type': 'integer'}, {'type': 'string'}]
+        return schema
+    if isinstance(schema, list):
+        return [strict(x) for x in schema]
+    return schema
+
+
+def validate_resolved(crds_dir):
+    """Every widget the checks resolved, against its CRD. Returns the problems."""
+    import jsonschema
+    crds = {}
+    for path in glob.glob(os.path.join(crds_dir, '**', '*.yaml'), recursive=True):
+        for doc in yaml.safe_load_all(open(path)):
+            if isinstance(doc, dict) and doc.get('kind') == 'CustomResourceDefinition':
+                crds[doc['spec']['names']['kind']] = doc
+    problems = []
+    for label, doc in RESOLVED:
+        crd = crds.get(doc['kind'])
+        if crd is None:
+            problems.append(f'{label}: no CRD for kind {doc["kind"]} in {crds_dir}')
+            continue
+        version = doc['apiVersion'].split('/')[1]
+        served = [v for v in crd['spec']['versions'] if v['name'] == version]
+        if not served:
+            problems.append(f'{label}: the {doc["kind"]} CRD serves no {version}')
+            continue
+        schema = strict(copy.deepcopy(served[0]['schema']['openAPIV3Schema']))
+        schema.setdefault('properties', {}).update({'metadata': {'type': 'object'},
+                                                    'apiVersion': {'type': 'string'}, 'kind': {'type': 'string'}})
+        for err in sorted(jsonschema.Draft7Validator(schema).iter_errors(doc), key=lambda e: list(e.path)):
+            problems.append(f'{label}: {"/".join(map(str, err.path))}: {err.message[:200]}')
+    return problems
+
+
 def main():
-    chart_dir = sys.argv[1] if len(sys.argv) > 1 else 'helm/portal'
+    args = sys.argv[1:]
+    crds_dir = None
+    if '--crds' in args:
+        i = args.index('--crds')
+        crds_dir = args[i + 1]
+        del args[i:i + 2]
+    chart_dir = args[0] if args else 'helm/portal'
     chart = Chart(render(chart_dir))
     failed = 0
     for check in CHECKS:
@@ -520,7 +653,15 @@ def main():
         for problem in dict.fromkeys(problems):     # one line per distinct problem, in order
             print(f'        {problem}')
         failed += bool(problems)
-    print(f'\n{len(CHECKS) - failed} of {len(CHECKS)} checks passed ({JQ})')
+    total = len(CHECKS)
+    if crds_dir:
+        total += 1
+        problems = validate_resolved(crds_dir)
+        print(f'[{"FAIL" if problems else "PASS"}] {len(RESOLVED)} resolved widgets validate against their CRDs')
+        for problem in dict.fromkeys(problems):
+            print(f'        {problem}')
+        failed += bool(problems)
+    print(f'\n{total - failed} of {total} checks passed ({JQ}{"" if crds_dir else "; resolved widgets NOT validated (no --crds)"})')
     return failed
 
 
