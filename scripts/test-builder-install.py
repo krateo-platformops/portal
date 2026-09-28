@@ -422,7 +422,11 @@ def check_install_header_has_no_lone_v(chart):
 def check_install_applies_the_status_projection(chart):
     """S12 (decision D1): a builder blueprint that publishes status-projection.json installs as two
     writes — its <chart>-status RESTAction, then the CompositionDefinition carrying that apiRef and
-    its rows. Every other install keeps the one plain write, and a malformed bundle is no bundle."""
+    its rows. Every other install keeps the one plain write, and a malformed bundle is no bundle.
+
+    And EVERY templated payloadToOverride value is a STRING, in every case: snowplow validates the
+    resolved widgetData against the Form CRD, where that field is a string, and an object there
+    refused the whole form for every install (portal 1.8.45-1.8.46 on krateo-057)."""
     f = []
     restaction = {'apiVersion': 'templates.krateo.io/v1', 'kind': 'RESTAction',
                   'metadata': {'name': 'my-bp-status', 'namespace': NS},
@@ -431,25 +435,31 @@ def check_install_applies_the_status_projection(chart):
     bundle = {'apiRef': {'name': 'my-bp-status', 'namespace': NS}, 'restaction': restaction,
               'statusDataTemplate': [{'forPath': 'architectureReady', 'expression': '${ .api.allReady == true }', 'type': 'boolean'}]}
     extras = {'name': 'my-bp'}
+    SPEC = 'actions.rest[1].ops[1].payloadToOverride[2].value'
 
     def install(projection_file):
         resp = responses(prs('closed', merged=True))
         resp['builderProjections'] = {'items': [local_resource('publish-my-bp', 'blueprint', 'status-projection.json', content=projection_file)]} if projection_file is not None else {'items': []}
         out = resolve(chart, 'blueprint-install-formdef', resp, extras)
         return out, {path: widget(chart, 'Form', 'blueprint-install', path, out, extras) for path in (
-            'submitActionId', 'actions.rest[1].ops[0].payload',
-            'actions.rest[1].ops[1].payloadToOverride[3].value', 'actions.rest[1].ops[1].payloadToOverride[4].value')}
+            'submitActionId', 'actions.rest[1].ops[0].payload', SPEC)}
 
+    # What the form submits for this chart (the values the person reviewed).
+    submitted = {'name': 'my-bp', 'namespace': NS, 'chart': {'url': 'oci://ghcr.io/krateo-blueprints/charts/my-bp', 'version': '0.1.0'}}
     out, w = install(json.dumps(bundle))
     expect(f, 'projected: action', w['submitActionId'], 'submit-projected')
     expect(f, 'projected: RESTAction op payload', w['actions.rest[1].ops[0].payload'], restaction)
-    expect(f, 'projected: spec.apiRef', w['actions.rest[1].ops[1].payloadToOverride[3].value'], bundle['apiRef'])
-    expect(f, 'projected: spec.statusDataTemplate', w['actions.rest[1].ops[1].payloadToOverride[4].value'], bundle['statusDataTemplate'])
-    expect(f, 'projected: chart prefill unchanged', out['initialValues']['chart'], {'url': 'oci://ghcr.io/krateo-blueprints/charts/my-bp', 'version': '0.1.0'})
+    expect(f, 'projected: spec override is a ${ } string', isinstance(w[SPEC], str) and w[SPEC].startswith('${') and w[SPEC].endswith('}'), True)
+    spec = jq(w[SPEC][2:-1], {'json': submitted})
+    expect(f, 'projected: spec keeps the form', spec.get('chart'), submitted['chart'])
+    expect(f, 'projected: spec.apiRef', spec.get('apiRef'), bundle['apiRef'])
+    expect(f, 'projected: spec.statusDataTemplate', spec.get('statusDataTemplate'), bundle['statusDataTemplate'])
+    expect(f, 'projected: chart prefill unchanged', out['initialValues']['chart'], submitted['chart'])
     for label, content in (('no bundle', None), ('malformed bundle', '{not json'), ('bundle without a RESTAction', json.dumps({**bundle, 'restaction': None}))):
         out, w = install(content)
         expect(f, f'{label}: action', w['submitActionId'], 'submit')
         expect(f, f'{label}: projection', out.get('projection'), None)
+        expect(f, f'{label}: the templated override is still a string', isinstance(w[SPEC], str), True)
     # The form's own shape: the projected action writes the RESTAction FIRST, and each op's ref exists.
     form = chart.get('Form', 'blueprint-install')
     projected = [a for a in form['spec']['widgetData']['actions']['rest'] if a['id'] == 'submit-projected'][0]
@@ -457,10 +467,12 @@ def check_install_applies_the_status_projection(chart):
     refs = {r['id']: r for r in form['spec']['resourcesRefs']['items']}
     expect(f, 'projected: RESTAction ref', {k: refs['create-status-restaction'][k] for k in ('apiVersion', 'resource', 'verb')},
            {'apiVersion': 'templates.krateo.io/v1', 'resource': 'restactions', 'verb': 'POST'})
-    overrides = [o['name'] for o in projected['ops'][1]['payloadToOverride']]
-    expect(f, 'projected: constants override the form spec, after it', overrides[2:], ['spec', 'spec.apiRef', 'spec.statusDataTemplate'])
+    # Every templated forPath under a payloadToOverride value must be one — and nothing may template
+    # a non-string there (the CRD's type).
+    for t in form['spec']['widgetDataTemplate']:
+        if 'payloadToOverride' in t['forPath']:
+            expect(f, f'template {t["forPath"]} targets a value', t['forPath'].endswith('.value'), True)
     return f
-
 
 def check_review_proposals_are_not_builder_publishes(chart):
     """A nightly-review proposal rides the builder-publish chain with krateo.io/builder: review. It is
