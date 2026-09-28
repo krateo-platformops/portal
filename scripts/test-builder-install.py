@@ -462,6 +462,20 @@ def check_install_applies_the_status_projection(chart):
     return f
 
 
+def check_review_proposals_are_not_builder_publishes(chart):
+    """A nightly-review proposal rides the builder-publish chain with krateo.io/builder: review. It is
+    not a builder's publish, so the builders' change-request feed must not list it — while a
+    blueprint publish in the same response still is listed."""
+    f = []
+    resp = responses(prs('open'))
+    review = [local_resource('publish-nightly-0928', 'review', 'proposals/0928.md', path='/docs')]
+    resp['publishes'] = {'items': LOCAL_RESOURCES + review}
+    names = [r.get('name') for r in rows(chart, 'builder-prs', resp)]
+    expect(f, 'review publish is not a builder row', 'publish-nightly-0928' in names, False)
+    expect(f, 'a blueprint publish still is', 'publish-my-bp' in names, True)
+    return f
+
+
 CHECKS = [
     check_index_name_keeps_its_index_chart,
     check_install_page_links_the_change_request,
@@ -471,6 +485,7 @@ CHECKS = [
     check_the_step_is_called_install,
     check_install_header_has_no_lone_v,
     check_install_applies_the_status_projection,
+    check_review_proposals_are_not_builder_publishes,
 ]
 
 
