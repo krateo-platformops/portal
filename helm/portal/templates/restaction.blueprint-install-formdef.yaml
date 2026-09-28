@@ -43,6 +43,8 @@ spec:
     {{/* Blueprint builder, which is in no helm index. The step, and the rule for which file */}}
     {{/* applies, are shared with the change-request note (_builder.tpl). */}}
     {{- include "portal.builderRegistrationStep" $ | nindent 4 }}
+    {{/* The publish's status projection (S12), applied by Install beside the CompositionDefinition. */}}
+    {{- include "portal.builderProjectionStep" $ | nindent 4 }}
     {{/* Namespaces the user may create CompositionDefinitions in → the Namespace select's enum */}}
     {{/* (UAF SubjectAccessReview, mirrors blueprint-formdef). */}}
     - name: namespaces
@@ -156,5 +158,9 @@ spec:
         },
         apiVersion: "core.krateo.io/v1alpha1",
         kind: "CompositionDefinition",
-        resource: "compositiondefinitions"
+        resource: "compositiondefinitions",
+        # A builder chart's status projection (S12): the <chart>-status RESTAction and the apiRef and
+        # rows its CompositionDefinition carries. Null for every other install — the form then keeps
+        # its one plain write.
+        projection: (if $bUrl != "" then builderProjection($bp) else null end)
       }

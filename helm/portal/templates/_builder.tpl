@@ -137,6 +137,33 @@ def ending($pr):
   the catalog, operators and builderCds steps. Emits defs only (each ends in `;`), for the head of
   a LITERAL (|) filter block.
 */}}
+{{/*
+  portal.builderProjectionStep — the `builderProjections` api step: every builder status-projection
+  bundle in the release namespace, as [{publish: <claim name>, projection: <the file's bytes>}].
+
+  A blueprint whose descriptor compiles a status projection (frontend S12b) commits
+  status-projection.json at the chart root beside compositiondefinition.yaml: the <chart>-status
+  RESTAction the CompositionDefinition's apiRef names, and that apiRef and its statusDataTemplate
+  rows. The Install step applies it (decision D1, 2026-09-28). JSON, because jq parses it (fromjson)
+  and has no YAML parser. As the caller, continueOnError: no read, no projection — the install
+  degrades to the plain one, never refuses.
+*/}}
+{{- define "portal.builderProjectionStep" -}}
+- name: builderProjections
+  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
+  verb: GET
+  headers:
+    - 'Accept: application/json'
+  continueOnError: true
+  errorKey: builderProjectionsError
+  filter: >
+    [ (.builderProjections.items // [])[]
+      | select(((.spec.fromResource.fileName) // "") == "status-projection.json"
+               and ((((.spec.toRepo.path) // "/") as $p | ($p == "/" or $p == ""))))
+      | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+          projection: ((.spec.fromResource.fromString) // "") } ]
+{{- end -}}
+
 {{- define "portal.builderRegistrationDefs" -}}
 def cdField($k):
   [ split("\n")[]
@@ -149,6 +176,15 @@ def builderFile($bp):
   if $bp == "" then ""
   else ([ ((.builderCds // []) | if type == "array" then . else [] end)[]
           | select(((.publish) // "") == ("publish-" + $bp)) | ((.cd) // "") ] | first // "") end;
+# The publish's status projection, or null: parsed, and only when it has the three parts Install
+# applies — a malformed bundle is no projection, so the install is the plain one.
+def builderProjection($bp):
+  if $bp == "" then null
+  else ([ ((.builderProjections // []) | if type == "array" then . else [] end)[]
+          | select(((.publish) // "") == ("publish-" + $bp)) | ((.projection) // "") ] | first // "") as $t
+       | (if $t == "" then null else (try ($t | fromjson) catch null) end)
+       | (if type == "object" and ((.restaction | type) == "object") and ((.apiRef | type) == "object")
+               and ((.statusDataTemplate | type) == "array") then . else null end) end;
 def builderChart($bp):
   ((indexEntry($bp).urls[0]?) // "") as $indexUrl
   | (if $indexUrl != "" then "" else builderFile($bp) end) as $file
