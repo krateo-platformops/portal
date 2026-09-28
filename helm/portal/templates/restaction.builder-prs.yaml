@@ -66,6 +66,9 @@ spec:
       filter: >
         [ (.publishes.items // [])[]
           | select(((.metadata.labels["krateo.io/publish"]) // "") != "")
+          # A nightly-review proposal (krateo.io/builder: review) rides the same chain but is not a
+          # builder's publish; this feed promises the Portal, Blueprint and Controller builders' own.
+          | select(((.metadata.labels["krateo.io/builder"]) // "") != "review")
           | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
               # page | blueprint | controller — only the first two register through a
               # CompositionDefinition, so only their rows can lead to Install.

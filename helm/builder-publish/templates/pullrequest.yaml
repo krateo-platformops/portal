@@ -120,7 +120,9 @@ spec:
   head: {{ .Values.branch | quote }}
   base: {{ $base | quote }}
   title: {{ $title | quote }}
-  body: {{ $pr.body | default (printf "Authored in the Krateo portal (%s builder) and published as %d file(s) by the `%s` BuilderPublish claim." .Values.builder (len (include "builder-publish.files" $ | fromYamlArray)) .Values.name) | quote }}
+  {{- /* A review proposal is not authored in a builder, so its default body does not say it was. */}}
+  {{- $origin := ternary "Proposed by the Krateo nightly review" (printf "Authored in the Krateo portal (%s builder)" .Values.builder) (eq .Values.builder "review") }}
+  body: {{ $pr.body | default (printf "%s and published as %d file(s) by the `%s` BuilderPublish claim." $origin (len (include "builder-publish.files" $ | fromYamlArray)) .Values.name) | quote }}
 {{- end }}
 {{- end }}
 {{- end }}
