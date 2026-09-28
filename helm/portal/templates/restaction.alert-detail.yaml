@@ -110,8 +110,8 @@ spec:
         askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
         # ── THE PIPELINE WALK ──────────────────────────────────────────────────────────────
         # An alert is not one object, it is a CHAIN: the CR, the HyperDX rule it syncs to, the
-        # evaluation, the webhook, the investigation that webhook opens, and the incident that
-        # investigation becomes. Every hop can stop without the one before it noticing, and this
+        # evaluation, the alert-provider pass that reads it as a firing, the investigation that
+        # firing opens, and the incident that investigation becomes. Every hop can stop without the one before it noticing, and this
         # page said nothing about any of them — it showed a green "OK" for days while the
         # alert -> RCA loop was dead on a tool schema the model kept refusing.
         #
@@ -134,7 +134,7 @@ spec:
             (if $haid == "" then empty
              elif ($shaped | length) > 1 then ("4. **Incidents were opened.** " + ($shaped | length | tostring) + " for this alert; the latest is `" + ($rep.name // "") + "`.")
              elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`.")
-             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The webhook should have opened one; no Incident carries this alert's label. Either the callback never arrived or the alert-provider could not create one."
+             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The alert-provider's next pass (every 60 s) should open one; no Incident carries this alert's label. Either no pass has run since the alert fired, or the alert-provider could not create one; its logs say which."
              else "4. No incident — this alert has not fired, so none is expected." end),
             (if $rep == null then empty
              elif $repProduced then ("5. **The " + $an + " produced a root cause.** Open `" + ($rep.name // "") + "` below to read it.")
