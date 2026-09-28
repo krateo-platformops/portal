@@ -1,8 +1,10 @@
-{{/* HOW TO FIX — the incident's three scripts (status.howToFix) as antd Steps: precondition, */}}
-{{/* apply, verify. Each step carries its last run from status.checks (subTitle) and a status: */}}
+{{/* HOW TO FIX — the incident's scripts (status.howToFix) as antd Steps: precondition, apply, */}}
+{{/* verify and, when the incident has one, rollback. Each step carries its last run from */}}
+{{/* status.checks (subTitle) and a status: */}}
 {{/* · precondition / verify: finish on exit 0, error on exit 1 (or a flagged precondition), */}}
 {{/*   process while it is the running check, wait otherwise; */}}
-{{/* · apply: process while the incident is Open (a human's turn), finish once applied. */}}
+{{/* · apply: process while the incident is Open (a human's turn), finish once applied; */}}
+{{/* · rollback: always wait. A human runs it only to revert an applied fix; no check records it. */}}
 {{/* Every step embeds its Flex (the script, copyable; only apply adds "I applied it"). */}}
 kind: Steps
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -28,7 +30,7 @@ spec:
       expression: '${ .fixStepsForWidget // [] }'
   resourcesRefs:
     items:
-    {{- range $i := until 3 }}
+    {{- range $i := until 4 }}
     - id: incident-rem-step-{{ $i }}
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-rem-step-{{ $i }}

@@ -114,14 +114,21 @@ spec:
          { key: "verify", title: "Verify", status: $verifyStatus, last: $lastLines[2],
            lead: "Did the fix work? The controller runs this in the read-only sandbox once the precondition exits 0 or you click **I applied it**, retrying for about 5 minutes: exit **0** means fixed, **1** that it still holds.",
            note: "" } ]
+       # Rollback, only when the analysis wrote one: a human runs it to revert an applied fix. No check records it and it moves no state, so it has no last run.
+       + (if ($fix.rollback // "") != "" then [
+         { key: "rollback", title: "Rollback", status: "wait", last: null,
+           lead: "Undoes apply. Run it only to revert an applied fix, in your own terminal. The controller never runs it, and running it leaves this incident's state as it is.",
+           note: "" } ] else [] end)
        | to_entries | map(.key as $i | .value as $s
          | (($fix[$s.key] // "") | rtrimstr("\n")) as $script
          | $s + {
              i: $i,
+             eyebrow: (if $s.key == "rollback" then "optional" else ("step " + (($i + 1) | tostring)) end),
              subTitle: (if $s.key == "apply" and $appliedPending then "I applied it: recorded, waiting for the controller"
+                        elif $s.key == "rollback" then "only to revert an applied fix"
                         elif $s.last != null then $s.last elif $s.key == "apply" then "not applied yet" else "not run yet" end),
              md: ($s.lead
-               + "\n\n**Last run:** " + ($s.last // "never")
+               + (if $s.key == "rollback" then "" else ("\n\n**Last run:** " + ($s.last // "never")) end)
                + $s.note
                + (if $script != "" then ("\n\n" + ($script | fence) + "bash\n" + $script + "\n" + ($script | fence)) else "\n\n_No " + $s.key + " script._" end)) })) as $fixSteps
     | ([ $checks[] | {
@@ -225,7 +232,7 @@ spec:
         rootCauseStatement: ($rc.statement // ""),
         fixSteps: $fixSteps,
         fixCurrent: $fixCurrent,
-        fixStepsForWidget: ($fixSteps | map({ eyebrow: ("step " + ((.i + 1) | tostring)), title, subTitle, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
+        fixStepsForWidget: ($fixSteps | map({ eyebrow, title, subTitle, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
         checkRows: $checkRows,
         checksLabel: ("Check history · " + ($checkRows | length | tostring)),
         similar: $similar,
