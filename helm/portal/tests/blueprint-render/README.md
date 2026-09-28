@@ -26,13 +26,13 @@ extras for the PAYLOAD builder.
 
 ```sh
 # filter cases
-for c in chart-success rawtemplates-success service-error transport-error both-sources no-source; do
+for c in chart-success rawtemplates-success service-error transport-error both-sources no-source stubs-success; do
   diff <(jq -S -f filter.jq "input.$c.json") <(jq -S . "expected.$c.json") \
     && echo "$c OK" || echo "$c FAIL"
 done
 
 # payload builder cases (compact, the exact bytes the RA POSTs sans | tojson)
-for c in chart rawtemplates; do
+for c in chart rawtemplates stubs stubs-empty; do
   diff <(jq -c -f payload.jq "payload-input.$c.json") "expected.payload-$c.json" \
     && echo "payload-$c OK" || echo "payload-$c FAIL"
 done
@@ -50,6 +50,9 @@ done
 | `no-source` | neither source present → a "no chart source" `error`, `objects:[]` |
 | `payload-chart` | remote body: `{chart{url,repo,version}, values, releaseName, namespace}` — empty optionals omitted |
 | `payload-rawtemplates` | inline body: `{rawTemplates, values}` — `chart` never emitted, defaulted `values:{}` |
+| `payload-stubs` | a preview's `lookupStubs` ride to the render service verbatim, so gated resources render |
+| `payload-stubs-empty` | an empty `lookupStubs` array is not sent — the body is the plain `helm template` request |
+| `stubs-success` | the service's `lookups` report (which gates a stub answered) passes through beside `objects` |
 
 ## Contract notes
 

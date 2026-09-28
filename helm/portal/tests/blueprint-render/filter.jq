@@ -19,4 +19,5 @@
          yaml: (.yaml // "") } ]) as $objects
 | ({ objects: (if $err != "" then [] else $objects end) }
    + (if $err != "" then { error: $err } else {} end)
-   + (if ($err == "") and ($r.valuesSchema != null) then { valuesSchema: $r.valuesSchema } else {} end))
+   + (if ($err == "") and ($r.valuesSchema != null) then { valuesSchema: $r.valuesSchema } else {} end)
+   + (if ($err == "") and (($r.lookups // null) | type) == "array" then { lookups: $r.lookups } else {} end))
