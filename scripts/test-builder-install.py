@@ -767,6 +767,13 @@ def check_my_drafts_are_the_callers_own(chart):
     expect(f, 'card counts: blueprint and page', [rendered['blueprint-builder-drafts-card']['extra'], rendered['portal-builder-drafts-card']['extra']],
            ['3 drafts · only you see these', '1 draft · only you see these'])
 
+    # The mockup's buttons: visible at the row's end, the first primary, none red.
+    for kind, name in MY_DRAFT_WIDGETS[:4]:
+        tpl = chart.get('Listy', name)['spec']['widgetData']['itemTemplate']
+        expect(f, f'{name}: row actions are visible buttons, none danger', [tpl.get('rowActionsDisplay'), [a.get('danger', False) for a in tpl['rowActions']]],
+               ['buttons', [False] * len(tpl['rowActions'])])
+        expect(f, f'{name}: the first (primary) button', tpl['rowActions'][0]['actionId'], 'discard' if name.endswith('-published') else 'resume')
+
     # Discard: a DELETE of the row's record in the sandbox, never of a name that could be one.
     for kind, name in MY_DRAFT_WIDGETS[:4]:
         spec = chart.get('Listy', name)['spec']
@@ -832,6 +839,10 @@ def check_unowned_drafts_are_the_legacy_roots(chart):
     navigate = {a['id']: a['path'] for a in actions.get('navigate') or []}
     expect(f, 'Adopt and Discard are routes into the page composer', navigate,
            {'adopt': '/portal-builder/compose?adopt=${rootName}', 'discard': '/portal-builder/compose?discard-legacy=${rootName}'})
+    tpl = spec['widgetData']['itemTemplate']
+    expect(f, 'visible buttons, Adopt first (primary), none danger',
+           [tpl.get('rowActionsDisplay'), [(a['actionId'], a.get('danger', False)) for a in tpl['rowActions']]],
+           ['buttons', [('adopt', False), ('discard', False)]])
     expect(f, 'the list writes nothing itself: no rest action, no refs', [actions.get('rest'), spec['resourcesRefs']['items'], spec.get('resourcesRefsTemplate')],
            [None, [], None])
     return f

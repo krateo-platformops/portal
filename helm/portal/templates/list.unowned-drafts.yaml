@@ -1,7 +1,7 @@
 {{/* "Unowned drafts" rows — the page previews from before drafts had owners (restaction.unowned-drafts). */}}
 {{/* A Listy for the reason list.my-drafts is one: each row carries its own Adopt and Discard. */}}
 {{/* */}}
-{{/* NO ROW CLICK. Adopting makes a draft yours, which is a choice the row's menu asks for by name; */}}
+{{/* NO ROW CLICK. Adopting makes a draft yours, which is a choice its own button asks for by name; */}}
 {{/* a stray click on a list of other people's leftovers must not do it. */}}
 {{/* */}}
 {{/* BOTH ACTIONS ARE ROUTES INTO THE PAGE COMPOSER, and Discard being one is deliberate. A legacy */}}
@@ -11,9 +11,8 @@
 {{/* would orphan the rest. The composer reads the set, asks through the standard confirm, and */}}
 {{/* deletes all of it, as the person. So this list writes nothing itself and carries no refs. */}}
 {{/* */}}
-{{/* TODO(visible row buttons): the mockup shows Adopt and Discard as visible buttons. They come from */}}
-{{/* the frontend Listy option that renders rowActions as buttons instead of the ⋮ menu, which is */}}
-{{/* still being built and needs a frontend-crds release. Set that option here once it is released. */}}
+{{/* rowActionsDisplay: buttons, Adopt first (primary) — the mockup's order. Discard is a neutral */}}
+{{/* button, not `danger`: the composer's confirm, which lists the whole set, is what guards it. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -35,6 +34,7 @@ spec:
       subSecondaryText: '{created}'
       formats:
         subSecondaryText: datetime
+      rowActionsDisplay: buttons
       rowActions:
         - actionId: adopt
           label: Adopt
@@ -42,7 +42,6 @@ spec:
         - actionId: discard
           label: Discard
           icon: fa-trash
-          danger: true
     actions:
       navigate:
         {{/* The page composer (frontend RoutesContext) with the root's name. ?adopt= turns the */}}

@@ -6,8 +6,11 @@
 {{/* and a `widget` cell can only point at a CR that already exists, never at "this row". Listy's */}}
 {{/* rowActions dispatch one action definition with the row as its payload, so one Discard serves */}}
 {{/* every row. The default row keeps the mockup's reading order (name and what it is on the left, */}}
-{{/* when and in what state on the right); the actions sit in the row's menu, and a click on the */}}
-{{/* row itself is the primary one. */}}
+{{/* when and in what state on the right), and rowActionsDisplay: buttons puts the actions at the */}}
+{{/* row's end as the mockup's buttons — the first primary. A click on the row itself is Resume too. */}}
+{{/* */}}
+{{/* DISCARD IS NOT `danger`: the mockup draws it as a neutral outline beside Resume. What guards */}}
+{{/* it is the blast-radius confirm every DELETE gets, which names the record — not a red button. */}}
 {{/* */}}
 {{/* WHY PUBLISHED IS ITS OWN LIST. rowActions are one set per list, not per row, and a published */}}
 {{/* draft offers different things: its change request, and Remove from list. It is hidden when */}}
@@ -21,11 +24,6 @@
 {{/* is), which names the record, and the list refetches on success. A page's preview objects are */}}
 {{/* not deleted here: they are derived from the record, and the composer sweeps them by owner and */}}
 {{/* slug before any apply. */}}
-{{/* */}}
-{{/* TODO(visible row buttons): the mockup shows Resume and Discard (and Remove from list) as */}}
-{{/* visible buttons. They come from the frontend Listy option that renders rowActions as buttons */}}
-{{/* instead of the ⋮ menu, which is still being built and needs a frontend-crds release. Set that */}}
-{{/* option on these four lists once it is released. */}}
 {{- $sandbox := .Values.previewSandbox.namespace }}
 {{- range $kind := list "blueprint" "page" }}
 {{- range $state := list "open" "published" }}
@@ -66,6 +64,7 @@ spec:
           previewed: green
           published: gray
         default: gray
+      rowActionsDisplay: buttons
       {{- if eq $state "open" }}
       navigateTo: '{resumePath}'
       rowActions:
@@ -75,7 +74,6 @@ spec:
         - actionId: discard
           label: Discard
           icon: fa-trash
-          danger: true
       {{- else }}
       {{/* The change request is where a published draft goes next; the row opens it. */}}
       navigateTo: '{prUrl}'
@@ -83,7 +81,6 @@ spec:
         - actionId: discard
           label: Remove from list
           icon: fa-xmark
-          danger: true
       {{- end }}
     actions:
       {{- if eq $state "open" }}
