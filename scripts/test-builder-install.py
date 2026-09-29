@@ -561,6 +561,33 @@ def check_create_form_says_when_the_blueprint_is_not_registered_yet(chart):
     return f
 
 
+def check_marketplace_detail_resolves_without_a_name(chart):
+    """The marketplace detail RESTAction behind /marketplace/<name> and the Install page header. The
+    background prewarm resolves it with no ?extras.name, and `.entries[null]` raised "expected a
+    string for object key but got: null" — every widget on it failed, ~670 an hour on krateo-057.
+    With no name it must resolve (found: false); with a name, exactly as before. Every widget on it
+    is recorded for the CRD validation, in both cases."""
+    f = []
+    index = {'entries': {'my-bp': [{'name': 'my-bp', 'version': '0.2.0', 'description': 'A blueprint',
+                                     'urls': ['oci://ghcr.io/krateo-blueprints/charts/my-bp'],
+                                     'annotations': {'krateo.io/category': 'blueprint'}}]}}
+    responses = {'catalog': {'data': {'blueprints-index.json': json.dumps(index)}},
+                 'compdefs': {'items': [{'metadata': {'name': 'my-bp', 'namespace': NS}, 'spec': {'chart': {'version': '0.1.0'}}}]}}
+    widgets = [('Button', 'marketplace-detail-action'), ('Descriptions', 'descriptions-marketplace-detail-about'),
+               ('PageHeader', 'blueprint-install-page-header'), ('PageHeader', 'marketplace-detail-page-header'),
+               ('Paragraph', 'marketplace-detail-description'), ('Paragraph', 'marketplace-detail-links')]
+    for label, extras in (('no name (prewarm)', {}), ('named', {'name': 'my-bp'})):
+        out = resolve(chart, 'marketplace-detail', responses, extras)
+        for kind, name in widgets:
+            resolved_widget(chart, kind, name, out, extras, f'{name} ({label})')
+        if label == 'named':
+            expect(f, 'named: found', out['found'], True)
+            expect(f, 'named: installed, at the installed version', [out['installed'], out['installedVersion']], [True, '0.1.0'])
+        else:
+            expect(f, 'no name: not found, and nothing installed', [out['found'], out['installed']], [False, False])
+    return f
+
+
 def check_review_proposals_are_not_builder_publishes(chart):
     """A nightly-review proposal rides the builder-publish chain with krateo.io/builder: review. It is
     not a builder's publish, so the builders' change-request feed must not list it — while a
@@ -586,6 +613,7 @@ CHECKS = [
     check_install_applies_the_status_projection,
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
+    check_marketplace_detail_resolves_without_a_name,
 ]
 
 
