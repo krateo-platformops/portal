@@ -798,6 +798,8 @@ def check_unowned_drafts_are_the_legacy_roots(chart):
         flex('page-pod-sizing', '2026-09-24T18:49:00Z', children=[('pageheaders', 'h'), ('cards', 'c'), ('tables', 't'), ('rows', 'r')]),
         flex('page-alert-catalog', '2026-09-16T10:05:00Z', children=[('pageheaders', 'h')]),
         flex('page-mine', '2026-09-29T10:00:00Z', owner='diego'),
+        # An owner-scoped root as the frontend names them since #390: page-<slug>-<owner tag>.
+        flex('page-service-catalog-3f9a1c2e', '2026-09-29T11:00:00Z', owner='diego', children=[('pageheaders', 'h')]),
         flex('page-shipped', '2026-09-20T10:00:00Z', purpose='page'),
         flex('layout-row', '2026-09-20T10:00:00Z'),
     ]
