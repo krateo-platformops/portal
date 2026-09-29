@@ -1,0 +1,28 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-notes
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Validation notes
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    extra: "verbatim from status.conditions"
+    items:
+    - resourceRefId: review-run-notes-list
+  resourcesRefs:
+    items:
+    - id: review-run-notes-list
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-notes-list
+      namespace: {{ .Release.Namespace }}
+      resource: markdowns
+      verb: GET

@@ -1,0 +1,40 @@
+{{/* The proposal's title, kind, phase and subject, and its actions. The subject is spec.subject */}}
+{{/* (0.1.21); a legacy proposal has none and shows no subject tag. No priority, no confidence. */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Proposal
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: review-proposal-actions
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .title // "Proposal" }'
+    - forPath: subtitle
+      expression: '${ if (.found // false) then (.name + " · proposed " + (.proposedAt // "")) else (.message // "") end }'
+    - forPath: tags
+      expression: >-
+        ${ if (.found // false) | not then []
+           else [ { label: .kind, color: "gray" }, { label: .phase, color: .phaseColor } ]
+                + (if (.subject // "") != "" then [ { label: .subject, color: "gray" } ] else [] end) end }
+    - forPath: items
+      expression: '${ if (.found // false) then [ { resourceRefId: "review-proposal-actions" } ] else [] end }'
+  resourcesRefs:
+    items:
+    - id: review-proposal-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-actions
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

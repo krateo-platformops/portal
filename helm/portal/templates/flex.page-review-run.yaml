@@ -1,0 +1,91 @@
+{{/* Page root for /reviews/runs/{name}: did this run see the platform? Header, a notice only when */}}
+{{/* it failed or saw part of the platform, the model's summary and the steps when the run recorded */}}
+{{/* them (0.1.22), then evidence sources beside the proposals it wrote, validation notes when */}}
+{{/* present, the SQL it issued, and the run's facts. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-review-run
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/nav-order": "942"
+    "krateo.io/nav-path": "/reviews/runs/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - alerts
+    - cards
+    - rows
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: review-run-header
+    - resourceRefId: review-run-body
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "review-run-header" } ]
+        + (if (.found // false) | not then [ { resourceRefId: "review-run-alert" } ]
+           else ((if (.alert // null) != null then [ { resourceRefId: "review-run-alert" } ] else [] end)
+               + (if (.summary // "") != "" then [ { resourceRefId: "review-run-summary" } ] else [] end)
+               + (if ((.steps // []) | length) > 0 then [ { resourceRefId: "review-run-steps" } ] else [] end)
+               + [ { resourceRefId: "review-run-body" } ]
+               + (if (.notesMarkdown // "") != "" then [ { resourceRefId: "review-run-notes" } ] else [] end)
+               + (if (.queriesMarkdown // "") != "" then [ { resourceRefId: "review-run-queries" } ] else [] end)
+               + [ { resourceRefId: "review-run-facts" } ]) end) }
+  resourcesRefs:
+    items:
+    - id: review-run-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-header
+      namespace: {{ .Release.Namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: review-run-alert
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-alert
+      namespace: {{ .Release.Namespace }}
+      resource: alerts
+      verb: GET
+    - id: review-run-summary
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-summary
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-run-steps
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-steps
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-run-body
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-body
+      namespace: {{ .Release.Namespace }}
+      resource: rows
+      verb: GET
+    - id: review-run-notes
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-notes
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-run-queries
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-queries
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-run-facts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-facts
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET

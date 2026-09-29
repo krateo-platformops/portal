@@ -1,6 +1,6 @@
-{{/* The /reviews page header. The subtitle does real work here: it is the only place that tells a */}}
-{{/* reader these rows are SUGGESTIONS a machine wrote and nothing has been applied — without which */}}
-{{/* a table of confident-looking changes reads as a changelog of things already done. */}}
+{{/* The /reviews page header. The subtitle carries the page's one essential fact: nothing listed has */}}
+{{/* been applied, and a proposal becomes a change request only when someone opens one. The counter */}}
+{{/* is the undecided proposals, the only number anyone acts on. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,20 +9,21 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
   widgetData:
     title: Platform review
+    counterLabel: open
     subtitle: >-
-      Proposals from the nightly review of this platform's telemetry and agent conversations.
-      Nothing here has been applied — each one is a suggestion with a pull request behind it, and
-      rejecting one is a working loop rather than a failure. Weigh the evidence column against the
-      confidence: a confident proposal resting on a single observation is the weakest row on the page.
+      Changes the nightly review suggests after reading this platform's telemetry and agent
+      sessions. Nothing here has been applied. A proposal becomes a change request only when someone
+      opens one from it, and its pull request is where the change is decided.
     allowedResources: []
-    {{/* No buttons in this release. The obvious one — "approve" — would mean the portal holding */}}
-    {{/* pull-request merge authority, which is a much larger grant than rendering and deserves its */}}
-    {{/* own decision rather than arriving as a side effect of a page. */}}
     items: []
-  {{/* REQUIRED even when empty: the PageHeader CRD marks spec.resourcesRefs required, so omitting it */}}
-  {{/* is rejected by the apiserver although the chart renders cleanly. Caught by a server dry-run; a */}}
-  {{/* local render would have shipped it. */}}
+  widgetDataTemplate:
+    - forPath: counter
+      expression: '${ .open // 0 }'
+  {{/* REQUIRED even when empty: the apiserver rejects a PageHeader without spec.resourcesRefs. */}}
   resourcesRefs:
     items: []

@@ -1,0 +1,28 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-queries
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Queries issued
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    extra: "SQL as the service sent it, with the window"
+    items:
+    - resourceRefId: review-run-queries-list
+  resourcesRefs:
+    items:
+    - id: review-run-queries-list
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-queries-list
+      namespace: {{ .Release.Namespace }}
+      resource: markdowns
+      verb: GET

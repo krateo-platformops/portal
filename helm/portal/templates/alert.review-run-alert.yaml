@@ -1,0 +1,27 @@
+{{/* Failed: status.error verbatim. PartiallyCompleted: which sources were not read. Also the */}}
+{{/* not-found / refused notice when the run cannot be read. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-alert
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Review run
+    type: info
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ if (.found // false) then (.alert.title // "") else (.title // "Review run not found") end }'
+    - forPath: description
+      expression: '${ if (.found // false) then (.alert.description // "") else (.message // "") end }'
+    - forPath: type
+      expression: '${ if (.found // false) then (.alert.type // "info") else "warning" end }'
+  resourcesRefs:
+    items: []

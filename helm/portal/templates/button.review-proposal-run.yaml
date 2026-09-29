@@ -1,0 +1,30 @@
+{{/* Link to the run that produced this proposal. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-run
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Run
+    type: link
+    icon: fa-clock-rotate-left
+    clickActionId: open-run
+    actions:
+      navigate:
+        - id: open-run
+          type: navigate
+          path: /reviews?tab=Runs
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ "Run " + (.run // "") }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open-run", type: "navigate", path: (if (.runPath // "") != "" then .runPath else "/reviews?tab=Runs" end) } ] } }'
+  resourcesRefs:
+    items: []

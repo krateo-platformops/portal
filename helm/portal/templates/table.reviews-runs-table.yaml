@@ -1,0 +1,52 @@
+{{/* One row per ReviewRun, newest first. A Failed run records no proposal counts, so its Result is */}}
+{{/* status.error; "Sources not read" names every evidence source that errored or came back empty. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-runs-table
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    rowNavigateTo: /reviews/runs/{name}
+    pagination:
+      defaultPageSize: 15
+      hideOnSinglePage: true
+    columns:
+    - valueKey: name
+      title: Run
+      minWidth: 150
+    - valueKey: phase
+      title: Phase
+    - valueKey: started
+      title: Started
+      minWidth: 140
+    - valueKey: took
+      title: Took
+    - valueKey: result
+      title: Result
+      minWidth: 260
+    - valueKey: notRead
+      title: Sources not read
+      minWidth: 240
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: >-
+      ${ [ (.runRows // [])[] | [
+        {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name},
+        {valueKey:"phase",kind:"tag",stringValue:.phase,color:.phaseColor},
+        {valueKey:"started",kind:"jsonSchemaType",type:"string",stringValue:(if .started == "" then "—" else .started end),format:(if .started == "" then null else "datetime" end)},
+        {valueKey:"took",kind:"jsonSchemaType",type:"string",stringValue:.took},
+        {valueKey:"result",kind:"jsonSchemaType",type:"string",stringValue:.result},
+        {valueKey:"notRead",kind:"jsonSchemaType",type:"string",stringValue:.notRead} ] | map(with_entries(select(.value != null))) ] }
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

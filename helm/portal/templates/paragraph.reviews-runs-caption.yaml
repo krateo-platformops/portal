@@ -1,0 +1,19 @@
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-runs-caption
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: Review runs, newest first
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ if (.runCount // 0) == 0 then "No review has run yet." else (.runCaption + " · validation notes are on each run''s page") end }'
+  resourcesRefs:
+    items: []

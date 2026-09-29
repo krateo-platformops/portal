@@ -1,0 +1,30 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-proposals
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Proposed by this run
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    items:
+    - resourceRefId: review-run-proposals-table
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ ((.proposalRows // []) | length | tostring) }'
+  resourcesRefs:
+    items:
+    - id: review-run-proposals-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-proposals-table
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

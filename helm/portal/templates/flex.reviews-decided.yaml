@@ -1,0 +1,47 @@
+{{/* Decided proposals. Empty today on every cluster (nothing has been merged, rejected or failed), so */}}
+{{/* the empty state explains how a decision happens rather than showing a blank table. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-decided
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - results
+    - paragraphs
+    - tables
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: reviews-decided-empty
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ if (.decidedCount // 0) == 0 then [ { resourceRefId: "reviews-decided-empty" } ]
+           else [ { resourceRefId: "reviews-decided-caption" }, { resourceRefId: "reviews-decided-table" } ] end }
+  resourcesRefs:
+    items:
+    - id: reviews-decided-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-decided-empty
+      namespace: {{ .Release.Namespace }}
+      resource: results
+      verb: GET
+    - id: reviews-decided-caption
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-decided-caption
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-decided-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-decided-table
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

@@ -1,0 +1,58 @@
+{{/* Reject: a merge-PATCH of spec.decision {phase: Rejected, reason} on the proposal, as the caller, */}}
+{{/* the same way button.incident-detail-resolve writes spec.lifecycle (snowplow's /call cannot */}}
+{{/* address the status subresource). decidedBy/decidedAt are not sent: nightly-review's admission */}}
+{{/* policy stamps them from the request identity. A caller without patch on proposals gets the */}}
+{{/* apiserver's 403 as the error message; so does a cluster whose CRD does not serve spec.decision. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-reject-form
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    layout: vertical
+    submitActionId: reject
+    submitDisabledWhenPristine: true
+    schema:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          title: Reason
+          description: Why this change should not be made. Kept on the proposal.
+          minLength: 3
+          maxLength: 1000
+    buttonConfig:
+      primary:
+        label: Reject proposal
+    actions:
+      rest:
+        - id: reject
+          type: rest
+          resourceRefId: reject-proposal
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          successMessage: Proposal rejected
+          payload:
+            spec:
+              decision:
+                phase: Rejected
+          payloadToOverride:
+            - { name: spec.decision.reason, value: '${ .json.reason }' }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: reject-proposal
+        apiVersion: review.krateo.io/v1alpha1
+        resource: proposals
+        name: '${ .name }'
+        namespace: {{ .Release.Namespace }}
+        verb: PATCH
