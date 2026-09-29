@@ -154,8 +154,12 @@ spec:
                                           created: (.metadata.creationTimestamp // ""), target: (.spec.target.repo // "—") } ],
             {{/* Open change request: offered only while undecided and before a claim exists. */}}
             canOpen: (($ph == "Proposed") and $claim == null and ((.bpError // null) == null)),
-            {{/* Reject: while undecided, a proposal whose pull request is open included. */}}
+            {{/* By effective phase (nightly-review 0.1.23 allows only PrOpen -> Rejected; Rejected is */}}
+            {{/* final): Proposed offers Open change request and Reject, PrOpen offers Reject only. */}}
             canReject: ($ph == "Proposed" or $ph == "PrOpen"),
+            {{/* A claim that exists with no decision recorded (opened before 0.1.23, or its PrOpen */}}
+            {{/* write failed): record it, once, as PrOpen. */}}
+            canRecord: ($ph == "Proposed" and $claim != null and (($p.spec.decision // null) == null)),
             claimName: $claimName,
             branch: $branch,
             prTitle: ("review: " + ($p.spec.title // $name)),

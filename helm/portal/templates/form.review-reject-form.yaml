@@ -1,8 +1,9 @@
 {{/* Reject: a merge-PATCH of spec.decision {phase: Rejected, reason} on the proposal, as the caller, */}}
 {{/* the same way button.incident-detail-resolve writes spec.lifecycle (snowplow's /call cannot */}}
 {{/* address the status subresource). decidedBy/decidedAt are not sent: nightly-review's admission */}}
-{{/* policy stamps them from the request identity. A caller without patch on proposals gets the */}}
-{{/* apiserver's 403 as the error message; so does a cluster whose CRD does not serve spec.decision. */}}
+{{/* policy stamps them from the request identity. A refused write (403, or the admission policy: */}}
+{{/* only PrOpen -> Rejected is allowed, Rejected is final) reaches the person as the apiserver's */}}
+{{/* message. The reason is optional, at most 1000 characters (the CRD's bound). */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,16 +19,13 @@ spec:
   widgetData:
     layout: vertical
     submitActionId: reject
-    submitDisabledWhenPristine: true
     schema:
       type: object
-      required: [reason]
       properties:
         reason:
           type: string
-          title: Reason
+          title: Reason (optional)
           description: Why this change should not be made. Kept on the proposal.
-          minLength: 3
           maxLength: 1000
     buttonConfig:
       primary:
@@ -44,8 +42,10 @@ spec:
             spec:
               decision:
                 phase: Rejected
+          {{/* An empty reason is omitted rather than sent as "". */}}
           payloadToOverride:
-            - { name: spec.decision.reason, value: '${ .json.reason }' }
+            - name: spec.decision
+              value: '${ { phase: "Rejected" } + (if ((.json.reason // "") | length) > 0 then { reason: .json.reason } else {} end) }'
   resourcesRefs:
     items: []
   resourcesRefsTemplate:

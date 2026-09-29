@@ -29,9 +29,16 @@ spec:
         + (if (.supersededByPath // "") != "" then [ { resourceRefId: "review-proposal-replacement" } ] else [] end)
         + [ { resourceRefId: "review-proposal-ask" } ]
         + (if (.canReject // false) then [ { resourceRefId: "review-proposal-reject" } ] else [] end)
+        + (if (.canRecord // false) then [ { resourceRefId: "review-proposal-record" } ] else [] end)
         + (if (.canOpen // false) then [ { resourceRefId: "review-proposal-open-pr" } ] else [] end) }
   resourcesRefs:
     items:
+    - id: review-proposal-record
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-record
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
     - id: review-proposal-reject
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: review-proposal-reject

@@ -19,8 +19,8 @@
 
   Decision. The portal records a decision in spec.decision (a main-resource merge-PATCH, as the
   caller; decidedBy/decidedAt are stamped by nightly-review's admission policy, never sent). It is
-  read FIRST so the page changes at once; status is the nightly mirror. A phase only the service
-  writes (Merged, Failed, Superseded) wins over a decision it has since moved past.
+  read FIRST so the page changes at once; status is the nightly mirror. The one exception is Merged,
+  which only the service writes and which a PrOpen decision must not hide (nightly-review 0.1.23).
 */}}
 {{- define "portal.reviewDefs" -}}
 def rv_ts: if (. // "") == "" then null else (.[0:19] + "Z") end;
@@ -38,7 +38,7 @@ def rv_num: tostring as $s
   | if ($s | test("^[0-9]{4,}$")) then ([ range(($s | length); 0; -3) | $s[([. - 3, 0] | max):.] ] | reverse | join(",")) else $s end;
 def rv_phase:
   (.status.phase // "") as $s
-  | if $s == "Merged" or $s == "Failed" or $s == "Superseded" then $s
+  | if $s == "Merged" then $s
     else (.spec.decision.phase // (if $s == "" then "Proposed" else $s end)) end;
 def rv_decision:
   { phase: rv_phase,
