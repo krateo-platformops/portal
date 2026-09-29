@@ -1,0 +1,81 @@
+{{/* "Unowned drafts" rows — the page previews from before drafts had owners (restaction.unowned-drafts). */}}
+{{/* A Listy for the reason list.my-drafts is one: each row carries its own Adopt and Discard. */}}
+{{/* */}}
+{{/* NO ROW CLICK. Adopting makes a draft yours, which is a choice the row's menu asks for by name; */}}
+{{/* a stray click on a list of other people's leftovers must not do it. */}}
+{{/* */}}
+{{/* DISCARD DELETES THE ROOT ONLY, and that is the limit of what a row action can say. The root */}}
+{{/* names its children in resourcesRefs, and they are of varying number and kind (PageHeaders, */}}
+{{/* Rows, Cards, Tables, RESTActions). A rest action's `ops` is a fixed list of refs, one GVR */}}
+{{/* each, and `fanOutPath` fans ONE ref over an array — neither can express "every ref this row */}}
+{{/* names". With the root gone the page no longer exists anywhere (the root is its identity, and */}}
+{{/* nothing lists or mounts a child without it); the children are removed by the composer's adopt */}}
+{{/* path, or by a follow-up that sweeps sandbox objects no root names. */}}
+{{- $sandbox := .Values.previewSandbox.namespace }}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: unowned-drafts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: unowned-drafts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    dataSource: []
+    pagination:
+      pageSize: 10
+    itemTemplate:
+      primaryText: '{slug}'
+      subPrimaryText: '{widgetsLabel}'
+      subSecondaryText: '{created}'
+      formats:
+        subSecondaryText: datetime
+      rowActions:
+        - actionId: adopt
+          label: Adopt
+          icon: fa-hand-holding
+        - actionId: discard
+          label: Discard
+          icon: fa-trash
+          danger: true
+    actions:
+      navigate:
+        - id: adopt
+          type: navigate
+          {{/* The page composer (frontend RoutesContext) with the root's name; the composer */}}
+          {{/* reads ?adopt=, turns the set into a record of the person's own and resumes it. */}}
+          path: /portal-builder/compose?adopt=${rootName}
+      rest:
+        - id: discard
+          type: rest
+          resourceRefId: discard-unowned-root
+          headers:
+            - 'Accept: application/json'
+          requireConfirmation: true
+          payloadToOverride:
+            - name: metadata.name
+              value: '${ .json.rootName }'
+            - name: metadata.namespace
+              value: {{ $sandbox | quote }}
+          successMessage: Draft discarded
+          errorMessage: The draft could not be discarded — it may already be gone; the list refreshes on its own
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: >
+        ${ [ (.items // [])[]
+            | { rootName, slug, created,
+                widgetsLabel: ("\(.widgets // 0) widget" + (if (.widgets // 0) == 1 then "" else "s" end)) } ] }
+  resourcesRefs:
+    items:
+      {{/* A sentinel name no page root has (roots are page-*): the row's rootName replaces it. */}}
+      - id: discard-unowned-root
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        resource: flexes
+        name: select-a-draft
+        namespace: {{ $sandbox }}
+        verb: DELETE

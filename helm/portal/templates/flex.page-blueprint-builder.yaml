@@ -1,7 +1,8 @@
 {{/* Convention page root for /blueprint-builder — the Blueprint Builder's home: a header that says */}}
 {{/* what a blueprint is and carries both routes into the composer ("Compose a blueprint", primary; */}}
-{{/* "Ask Autopilot", a link that lands in the same composer), and a titled Card holding a note and */}}
-{{/* the deliverables table (each row links to its change request, then to its blueprint). */}}
+{{/* "Ask Autopilot", a link that lands in the same composer), the person's drafts (each resumes in */}}
+{{/* the composer), and a titled Card holding a note and the deliverables table (each row links to */}}
+{{/* its change request, then to its blueprint). */}}
 {{/* */}}
 {{/* Authoring does not happen on this page. It happens at /blueprint-builder/compose, a static */}}
 {{/* frontend route (frontend >= 1.6.59); this page is the way in and the record of what shipped. */}}
@@ -43,6 +44,9 @@ spec:
          claim behind a confirm. Two peer-looking ways to build the same thing, one of which asks
          for hand-escaped JSON, is worse than one that works. The Portal Builder made the same
          decision about its two Forms (flex.page-portal-builder). */}}
+    {{/* The person's drafts first (the mockup's order): a closed tab no longer loses a chart, */}}
+    {{/* and this is where it comes back. What already shipped follows. */}}
+    - resourceRefId: blueprint-builder-drafts-card
     - resourceRefId: blueprint-builder-deliverables-card
   resourcesRefs:
     items:
@@ -51,6 +55,12 @@ spec:
       name: blueprint-builder-page-header
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
+      verb: GET
+    - id: blueprint-builder-drafts-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: blueprint-builder-drafts-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
       verb: GET
     - id: blueprint-builder-deliverables-card
       apiVersion: widgets.templates.krateo.io/v1beta1

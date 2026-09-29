@@ -19,6 +19,11 @@ defect found in it so far was a jq branch nobody had evaluated:
 Each is pinned below by what the person would see, on synthetic fixtures shaped like the
 krateo-057 objects they were found on.
 
+The same builder pages also list drafts: "Your drafts" (the caller's draft records, owned by the
+server-injected username sanitized exactly as the frontend kernel's draftOwner) and "Unowned
+drafts" (page previews from before drafts had owners). Those RESTActions are pinned here too — who
+sees which rows, and that the prewarm resolves them to nothing rather than to a jq error.
+
 HOW. Renders helm/portal with helm (in a tempdir, with the CHART_VERSION placeholder stamped, as
 lint-keyextras.py does), then models snowplow's RESTAction resolution closely enough to run the
 chart's own jq: each api step's response is placed under the step's name, the step's own `filter`
@@ -637,6 +642,194 @@ def check_review_proposals_are_not_builder_publishes(chart):
     return f
 
 
+def draft_owner(username):
+    """The frontend kernel's draftOwner (ui/src/components/Autopilot/draftRecord.ts), ported line
+    for line, so the RA's jq is held to the browser's sanitizer rather than to itself."""
+    cleaned = re.sub(r'[^a-z0-9-]+', '-', (username or '').lower())
+    cleaned = re.sub(r'^-+|-+$', '', cleaned)[:40]
+    cleaned = re.sub(r'-+$', '', cleaned)
+    return cleaned or 'unknown'
+
+
+def draft_record(kind, owner, name, updated, state='open', previewed=False, thread=None, publish=None, files=None):
+    """A draft record ConfigMap as draftRecordConfigMap() writes it."""
+    files = files if files is not None else (
+        {'Chart.yaml': f'apiVersion: v2\nname: {name}\nversion: "0.2.0"\n', 'values.yaml': 'a: 1\n', 'templates/cm.yaml': 'kind: ConfigMap\n'}
+        if kind == 'blueprint' else {'page.yaml': 'kind: Flex\n', 'header.yaml': 'kind: PageHeader\n'})
+    body = {'version': 1, 'kind': kind, 'name': name, 'files': files, 'updatedAt': updated, 'state': state}
+    if thread:
+        body['threadId'] = thread
+    if publish:
+        body['publish'] = publish
+    return {'apiVersion': 'v1', 'kind': 'ConfigMap',
+            'metadata': {'name': f'draft-{kind}-{owner}-{name}'[:63].rstrip('-'), 'namespace': 'krateo-preview',
+                         'creationTimestamp': '2026-09-01T00:00:00Z',
+                         'labels': {'krateo.io/purpose': 'draft-record', 'krateo.io/draft-owner': owner,
+                                    'krateo.io/draft-kind': kind, 'krateo.io/draft-state': state,
+                                    'krateo.io/draft-previewed': 'true' if previewed else 'false'},
+                         'annotations': {'krateo.io/draft-name': name, 'krateo.io/draft-updated-at': updated}},
+            'data': {'draft.json': json.dumps(body)}}
+
+
+MY_DRAFT_WIDGETS = [('Listy', f'my-drafts-{kind}{suffix}') for kind in ('blueprint', 'page') for suffix in ('', '-published')] \
+    + [('Card', 'blueprint-builder-drafts-card'), ('Card', 'portal-builder-drafts-card')]
+
+
+def listy_placeholders_resolve(f, chart, name, rows, label):
+    """Every `{key}` the row template reads and every `${key}` a row action interpolates must be a
+    key on each row: an unresolved one renders literally, or navigates to the literal braces."""
+    wd = chart.get('Listy', name)['spec']['widgetData']
+    keys = set(re.findall(r'\{(\w+)\}', json.dumps(wd.get('itemTemplate') or {})))
+    for action in (wd.get('actions') or {}).get('navigate') or []:
+        keys |= set(re.findall(r'\$\{(\w+)\}', action.get('path') or ''))
+    for action in (wd.get('actions') or {}).get('rest') or []:
+        for entry in action.get('payloadToOverride') or []:
+            keys |= set(re.findall(r'\.json\.(\w+)', entry['value']))
+    for row in rows:
+        missing = sorted(k for k in keys if k not in row)
+        expect(f, f'{label}: {name} rows carry every key the list reads', missing, [])
+
+
+def check_my_drafts_are_the_callers_own(chart):
+    """restaction.my-drafts behind "Your drafts" on /blueprint-builder and /portal-builder. The owner
+    is the caller's server-injected username, sanitized exactly as the frontend kernel's draftOwner;
+    another person's records, records owned by "unknown", and ConfigMaps that are not records never
+    appear; the prewarm (no username, no extras, no response) resolves to no rows, never an error.
+    Every widget on it is resolved and recorded for the CRD validation."""
+    f = []
+    me = 'Diego.Braga@Example.com'
+    owner = draft_owner(me)
+    items = [
+        draft_record('blueprint', owner, 'catalog-service', '2026-09-29T10:58:00Z', thread='thread-1'),
+        draft_record('blueprint', owner, 'payments-api', '2026-09-28T17:42:00Z', previewed=True),
+        draft_record('blueprint', owner, 'aws-vpc-network', '2026-09-26T09:10:00Z', state='published', previewed=True,
+                     publish={'repo': 'krateo-blueprints/aws-vpc-network', 'prUrl': 'https://github.com/krateo-blueprints/aws-vpc-network/pull/1'}),
+        draft_record('page', owner, 'service-catalog', '2026-09-29T10:50:00Z', previewed=True),
+        draft_record('blueprint', 'alice', 'catalog-service', '2026-09-29T11:00:00Z'),
+        draft_record('page', 'unknown', 'pod-sizing', '2026-09-24T18:49:00Z'),
+        {'metadata': {'name': 'bp-preview-big-x1', 'labels': {'krateo.io/purpose': 'blueprint-render'}},
+         'data': {'chart.json': '{}'}},
+        {'metadata': {'name': 'kube-root-ca.crt'}, 'data': {'ca.crt': 'x'}},
+    ]
+    responses = {'records': {'items': items}}
+    out = resolve(chart, 'my-drafts', responses, {'username': me})
+    rows = out['items']
+    expect(f, 'named: the owner is the kernel\'s draftOwner of the username', out['owner'], owner)
+    expect(f, 'named: only my records, newest first', [r['recordName'] for r in rows],
+           [f'draft-blueprint-{owner}-catalog-service', f'draft-page-{owner}-service-catalog',
+            f'draft-blueprint-{owner}-payments-api', f'draft-blueprint-{owner}-aws-vpc-network'])
+    expect(f, 'named: another person\'s record with the same name is not mine',
+           any('alice' in r['recordName'] for r in rows), False)
+    by = {r['name'] + '/' + r['kind']: r for r in rows}
+    expect(f, 'the three states say what the mockup says',
+           [by['catalog-service/blueprint']['statusLabel'], by['payments-api/blueprint']['statusLabel'], by['aws-vpc-network/blueprint']['statusLabel']],
+           ['Preview needed', 'Previewed · ready to publish', 'Published · awaiting merge'])
+    expect(f, 'started from: a thread, or by hand',
+           [by['catalog-service/blueprint']['startedFrom'], by['payments-api/blueprint']['startedFrom']],
+           ['Autopilot thread', 'Composed by hand'])
+    expect(f, 'Resume opens each kind\'s composer on the record',
+           [by['catalog-service/blueprint']['resumePath'], by['service-catalog/page']['resumePath']],
+           [f'/blueprint-builder/compose?resume=draft-blueprint-{owner}-catalog-service',
+            f'/portal-builder/compose?resume=draft-page-{owner}-service-catalog'])
+    expect(f, 'published: the PR link rides along', by['aws-vpc-network/blueprint']['prUrl'],
+           'https://github.com/krateo-blueprints/aws-vpc-network/pull/1')
+    expect(f, 'the chart version and file count, from the tree', [by['payments-api/blueprint']['version'], by['payments-api/blueprint']['files']], ['0.2.0', 3])
+    expect(f, 'the body itself is never returned', any('body' in r or 'data' in r or isinstance(r.get('files'), dict) for r in rows), False)
+    kinds = resolve(chart, 'my-drafts', responses, {'username': me, 'kind': 'page'})['items']
+    expect(f, 'extras kind narrows to one kind', [r['kind'] for r in kinds], ['page'])
+
+    # The sanitizer, against the kernel, on names that exercise every step of it.
+    for username in ('Diego.Braga@Example.com', 'ADMIN', '--a__b--', 'x' * 39 + '-yyyy', 'élodie', 'cyberjoker'):
+        got = resolve(chart, 'my-drafts', {'records': {'items': []}}, {'username': username})['owner']
+        expect(f, f'owner of {username!r} matches the kernel', got, draft_owner(username))
+
+    for label, resp, extras in (('no username (prewarm)', responses, {}),
+                                ('no username, no response', {}, {}),
+                                ('empty username', responses, {'username': ''}),
+                                ('a username the sanitizer empties', responses, {'username': '!!!'}),
+                                ('the sandbox could not be read', {'records': 'ERROR'}, {'username': me})):
+        expect(f, f'{label}: no rows', resolve(chart, 'my-drafts', resp, extras)['items'], [])
+
+    for kind, name in MY_DRAFT_WIDGETS:
+        for label, ra_out in (('named', out), ('prewarm', resolve(chart, 'my-drafts', {}, {}))):
+            doc = resolved_widget(chart, kind, name, ra_out, {}, f'{name} ({label})')
+            if kind == 'Listy':
+                listy_placeholders_resolve(f, chart, name, doc['spec']['widgetData']['dataSource'], label)
+    rendered = {name: resolved_widget(chart, kind, name, out, {}, f'{name} (named, again)')['spec']['widgetData']
+                for kind, name in MY_DRAFT_WIDGETS}
+    expect(f, 'blueprint list: the open drafts, their meta line', [(r['name'], r['meta'], r['statusKey']) for r in rendered['my-drafts-blueprint']['dataSource']],
+           [('catalog-service', '0.2.0 · 3 files · Autopilot thread', 'preview-needed'),
+            ('payments-api', '0.2.0 · 3 files · Composed by hand', 'previewed')])
+    expect(f, 'blueprint published list: the change request, named', [r['meta'] for r in rendered['my-drafts-blueprint-published']['dataSource']],
+           ['0.2.0 · published · krateo-blueprints/aws-vpc-network #1'])
+    expect(f, 'page list: the page draft only', [(r['name'], r['meta']) for r in rendered['my-drafts-page']['dataSource']],
+           [('service-catalog', 'page · 2 files · Composed by hand')])
+    expect(f, 'card counts: blueprint and page', [rendered['blueprint-builder-drafts-card']['extra'], rendered['portal-builder-drafts-card']['extra']],
+           ['3 drafts · only you see these', '1 draft · only you see these'])
+
+    # Discard: a DELETE of the row's record in the sandbox, never of a name that could be one.
+    for kind, name in MY_DRAFT_WIDGETS[:4]:
+        spec = chart.get('Listy', name)['spec']
+        ref = spec['resourcesRefs']['items'][0]
+        rest = spec['widgetData']['actions']['rest'][0]
+        overrides = {e['name']: e['value'] for e in rest['payloadToOverride']}
+        expect(f, f'{name}: Discard deletes a ConfigMap in the sandbox', [ref['verb'], ref['resource'], ref['namespace']], ['DELETE', 'configmaps', 'krateo-preview'])
+        expect(f, f'{name}: the ref\'s own name is never a record', ref['name'].startswith('draft-'), False)
+        expect(f, f'{name}: the row names the record', overrides, {'metadata.name': '${ .json.recordName }', 'metadata.namespace': 'krateo-preview'})
+    return f
+
+
+def check_unowned_drafts_are_the_legacy_roots(chart):
+    """restaction.unowned-drafts behind "Unowned drafts" on /portal-builder: the page roots a
+    preview wrote before drafts had owners. A root with an owner, a child Flex, and anything that
+    is not a preview never appear; nothing to read is no rows. Every widget is CRD-validated."""
+    f = []
+
+    def flex(name, created, owner=None, purpose='preview-draft', children=()):
+        labels = {'krateo.io/purpose': purpose, 'krateo.io/preview-session': 'unattributed'}
+        if owner:
+            labels['krateo.io/draft-owner'] = owner
+        return {'metadata': {'name': name, 'labels': labels, 'creationTimestamp': created},
+                'spec': {'resourcesRefs': {'items': [{'id': c, 'name': c, 'resource': r, 'namespace': 'krateo-preview'} for r, c in children]}}}
+
+    items = [
+        flex('page-agentprobe3', '2026-09-21T14:12:00Z', children=[('pageheaders', 'page-agentprobe3-header'), ('flexes', 'page-agentprobe3-body')]),
+        flex('page-agentprobe3-body', '2026-09-21T14:12:00Z'),
+        flex('page-pod-sizing', '2026-09-24T18:49:00Z', children=[('pageheaders', 'h'), ('cards', 'c'), ('tables', 't'), ('rows', 'r')]),
+        flex('page-alert-catalog', '2026-09-16T10:05:00Z', children=[('pageheaders', 'h')]),
+        flex('page-mine', '2026-09-29T10:00:00Z', owner='diego'),
+        flex('page-shipped', '2026-09-20T10:00:00Z', purpose='page'),
+        flex('layout-row', '2026-09-20T10:00:00Z'),
+    ]
+    out = resolve(chart, 'unowned-drafts', {'roots': {'items': items}}, {})
+    rows = out['items']
+    expect(f, 'only ownerless preview roots, newest first', [r['rootName'] for r in rows],
+           ['page-pod-sizing', 'page-agentprobe3', 'page-alert-catalog'])
+    expect(f, 'slug, widgets and adopt path', rows[1], {'rootName': 'page-agentprobe3', 'slug': 'agentprobe3', 'created': '2026-09-21T14:12:00Z',
+                                                         'widgets': 2, 'adoptPath': '/portal-builder/compose?adopt=page-agentprobe3'})
+    for label, resp in (('prewarm, no response', {}), ('the sandbox could not be read', {'roots': 'ERROR'})):
+        expect(f, f'{label}: no rows', resolve(chart, 'unowned-drafts', resp, {})['items'], [])
+
+    card = resolved_widget(chart, 'Card', 'unowned-drafts-card', out, {}, 'unowned-drafts-card (three)')['spec']['widgetData']
+    expect(f, 'card: how many, over which days', card['extra'], '3 drafts · 16–24 Sep')
+    for label, roots, says in (('none', [], 'none left'),
+                               ('one', [items[3]], '1 draft · 16 Sep'),
+                               ('across months', [items[3], flex('page-old', '2026-08-30T08:00:00Z')], '2 drafts · 30 Aug – 16 Sep')):
+        got = resolved_widget(chart, 'Card', 'unowned-drafts-card', resolve(chart, 'unowned-drafts', {'roots': {'items': roots}}, {}), {},
+                              f'unowned-drafts-card ({label})')['spec']['widgetData']['extra']
+        expect(f, f'card, {label}: {says}', got, says)
+    for label, ra_out in (('three', out), ('prewarm', resolve(chart, 'unowned-drafts', {}, {}))):
+        doc = resolved_widget(chart, 'Listy', 'unowned-drafts', ra_out, {}, f'unowned-drafts ({label})')
+        listy_placeholders_resolve(f, chart, 'unowned-drafts', doc['spec']['widgetData']['dataSource'], label)
+    listed = resolved_widget(chart, 'Listy', 'unowned-drafts', out, {}, 'unowned-drafts (three, again)')['spec']['widgetData']['dataSource']
+    expect(f, 'list: widget counts read as words', [r['widgetsLabel'] for r in listed], ['4 widgets', '2 widgets', '1 widget'])
+    spec = chart.get('Listy', 'unowned-drafts')['spec']
+    ref = spec['resourcesRefs']['items'][0]
+    expect(f, 'Discard deletes a Flex in the sandbox, never by a root\'s own name', [ref['verb'], ref['resource'], ref['namespace'], ref['name'].startswith('page-')],
+           ['DELETE', 'flexes', 'krateo-preview', False])
+    return f
+
+
 CHECKS = [
     check_index_name_keeps_its_index_chart,
     check_install_page_links_the_change_request,
@@ -650,6 +843,8 @@ CHECKS = [
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
     check_marketplace_detail_resolves_without_a_name,
     check_render_draft_reads_the_chart_from_its_configmap,
+    check_my_drafts_are_the_callers_own,
+    check_unowned_drafts_are_the_legacy_roots,
 ]
 
 
