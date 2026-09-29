@@ -93,7 +93,8 @@ spec:
     | ([ $checks[] | select(.script == "precondition") ] | last) as $lastPre
     | ([ $checks[] | select(.script == "apply") ] | last) as $lastApply
     | ([ $checks[] | select(.script == "verify") ] | last) as $lastVerify
-    | (if $flagged then "error"
+    # A flagged precondition no longer runs, so it is neither a pass nor a failure.
+    | (if $flagged then "wait"
        elif ($lastPre.exit // null) == 1 then "error"
        elif ($lastPre.exit // null) == 0 then "finish"
        elif $state == "Open" then "process" else "wait" end) as $preStatus
@@ -107,8 +108,9 @@ spec:
         ((if (.exit // null) | isnum then ("exit " + (.exit | tostring) + " · ") else "" end) + outcome + " · " + (.at | rel)) end)) as $lastLines
     | ([ { key: "precondition", title: "Precondition", status: $preStatus, last: $lastLines[0],
            lead: "Does the incident still hold? The controller runs this every minute in a read-only sandbox while the incident is Open: exit **1** means it holds, **0** that it is gone.",
-           note: (if $flagged then "\n\n> **Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix and click **I applied it**, or close the incident." else "" end) },
-         { key: "apply", title: "Review & apply", status: $applyStatus, last: $lastLines[1],
+           note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, or close the incident." else "" end) },
+         { key: "apply", title: "Review & apply", status: $applyStatus,
+           last: (if $appliedPending then "applied, waiting for the controller to verify" else $lastLines[1] end),
            lead: "The fix. Read it, run it in your own terminal, then click **I applied it**: the controller then runs the verify script.",
            note: "" },
          { key: "verify", title: "Verify", status: $verifyStatus, last: $lastLines[2],
@@ -124,11 +126,8 @@ spec:
          | $s + {
              i: $i,
              eyebrow: (if $s.key == "rollback" then "optional" else ("step " + (($i + 1) | tostring)) end),
-             subTitle: (if $s.key == "apply" and $appliedPending then "I applied it: recorded, waiting for the controller"
-                        elif $s.key == "rollback" then "only to revert an applied fix"
-                        elif $s.last != null then $s.last elif $s.key == "apply" then "not applied yet" else "not run yet" end),
              md: ($s.lead
-               + (if $s.key == "rollback" then "" else ("\n\n**Last run:** " + ($s.last // "never")) end)
+               + (if $s.key == "rollback" then "" else ("\n\n**Last run:** " + ($s.last // (if $s.key == "apply" then "not applied yet" else "never" end))) end)
                + $s.note
                + (if $script != "" then ("\n\n" + ($script | fence) + "bash\n" + $script + "\n" + ($script | fence)) else "\n\n_No " + $s.key + " script._" end)) })) as $fixSteps
     | ([ $checks[] | {
@@ -137,12 +136,6 @@ spec:
            exit: (if (.exit // null) | isnum then (.exit | tostring) else "—" end),
            outcome: outcome,
            color: outcomecolor } ]
-       + (if ($st.resolution.at // "") != "" then [ {
-           when: $st.resolution.at,
-           script: (if $st.resolution.by == "verify" then "resolved" else "closed" end),
-           exit: "—",
-           outcome: (if $st.resolution.by == "verify" then "the verify script proved the fix" else "closed by a person" end),
-           color: (if $st.resolution.by == "verify" then "#389e0d" else "#8c8c8c" end) } ] else [] end)
        | sort_by(.when) | reverse) as $checkRows
     | ([ $all[] | select(.metadata.name != $n) ]) as $others
     | ( ([ $others[] | select($alertName != "" and alertlabel == $alertName) ] | sort_by(when) | reverse | map(. + { _why: "same alert" }))
@@ -232,7 +225,7 @@ spec:
         rootCauseStatement: ($rc.statement // ""),
         fixSteps: $fixSteps,
         fixCurrent: $fixCurrent,
-        fixStepsForWidget: ($fixSteps | map({ eyebrow, title, subTitle, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
+        fixStepsForWidget: ($fixSteps | map({ eyebrow, title, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
         checkRows: $checkRows,
         checksLabel: ("Check history · " + ($checkRows | length | tostring)),
         similar: $similar,
