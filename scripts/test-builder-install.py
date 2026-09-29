@@ -588,6 +588,41 @@ def check_marketplace_detail_resolves_without_a_name(chart):
     return f
 
 
+def check_render_draft_reads_the_chart_from_its_configmap(chart):
+    """blueprint-render-draft: the composer's Preview writes the chart into the preview sandbox as a
+    ConfigMap and renders it BY NAME — a chart in ?extras rides the URL, and the gateway refuses an
+    HTTP/2 request whose headers pass 16 KB (431 for a 12 KB chart). The render body must be the
+    ConfigMap's chart.json, narrowed to what /render reads; every way of having no chart must be a
+    sentence, never a render of nothing."""
+    f = []
+    ra = chart.get('RESTAction', 'blueprint-render-draft')
+    render_step = [s for s in ra['spec']['api'] if s['name'] == 'render'][0]
+    payload = render_step['payload'].strip()
+    expect(f, 'the payload is one ${ } program', payload.startswith('${') and payload.endswith('}'), True)
+    files = {'Chart.yaml': 'apiVersion: v2\nname: big\nversion: 0.1.0\n',
+             'values.schema.json': json.dumps({'type': 'object', 'properties': {f'p{i}': {'type': 'string', 'title': 'x' * 200} for i in range(80)}})}
+    stubs = [{'apiVersion': 'v1', 'kind': 'ConfigMap', 'object': {}}]
+    cm = {'data': {'chart.json': json.dumps({'rawTemplates': files, 'values': {'a': 1}, 'lookupStubs': stubs, 'ignored': True})}}
+    body = json.loads(jq(payload[2:-1], {'draft': cm}))
+    expect(f, 'the body is the chart, its values and its stand-ins — nothing else', body,
+           {'rawTemplates': files, 'values': {'a': 1}, 'lookupStubs': stubs})
+    expect(f, 'a chart far past the 16 KB URL limit travels whole', len(files['values.schema.json']) > 16000, True)
+    named = {'namespace': 'krateo-preview', 'name': 'bp-preview-big-x1'}
+    out = resolve(chart, 'blueprint-render-draft', {'draft': cm, 'render': {'objects': [{'kind': 'Deployment', 'name': 'r-app', 'yaml': 'kind: Deployment\n'}],
+                                                                          'lookups': [{'apiVersion': 'v1', 'kind': 'ConfigMap', 'namespace': 'ns', 'name': 'c', 'stubbed': True}]}}, named)
+    expect(f, 'rendered: the objects', [o['kind'] for o in out['objects']], ['Deployment'])
+    expect(f, 'rendered: the lookups report rides along', len(out.get('lookups', [])), 1)
+    expect(f, 'rendered: no error', 'error' in out, False)
+    for label, responses, extras, says in (
+            ('no draft named', {}, {}, 'no draft named'),
+            ('the ConfigMap could not be read', {'draft': 'ERROR', 'render': 'ERROR'}, named, 'could not be read'),
+            ('a ConfigMap with no chart', {'draft': {'data': {}}, 'render': {'error': 'chart: one of url, files or rawTemplates is required'}}, named, 'holds no chart')):
+        out = resolve(chart, 'blueprint-render-draft', responses, extras)
+        expect(f, f'{label}: says so', says in (out.get('error') or ''), True)
+        expect(f, f'{label}: renders nothing', out['objects'], [])
+    return f
+
+
 def check_review_proposals_are_not_builder_publishes(chart):
     """A nightly-review proposal rides the builder-publish chain with krateo.io/builder: review. It is
     not a builder's publish, so the builders' change-request feed must not list it — while a
@@ -614,6 +649,7 @@ CHECKS = [
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
     check_marketplace_detail_resolves_without_a_name,
+    check_render_draft_reads_the_chart_from_its_configmap,
 ]
 
 
