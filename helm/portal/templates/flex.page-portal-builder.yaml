@@ -1,6 +1,7 @@
 {{/* Convention page root for /portal-builder (CHART-P1): a header whose one action is "Open the */}}
 {{/* composer", a how-a-page-gets-built Card whose extra slot carries "Ask Autopilot" (the second */}}
-{{/* way into the same composer), the drafts in progress, and the builders' change requests. */}}
+{{/* way into the same composer), the person's drafts, the unowned drafts, and the builders' */}}
+{{/* change requests. */}}
 {{/* */}}
 {{/* The builder pages no longer share one Ask-Autopilot CTA as their entry point. The Portal and */}}
 {{/* Blueprint builders each lead with their composer — a static route behind no feature flag, */}}
@@ -50,7 +51,10 @@ spec:
          Three peer-looking tiles with no hint which one disappoints is worse than one that works.
          The composer does nesting, layout and live data binding, so it is now the only path. */}}
     - resourceRefId: how-a-page-gets-built-card
-    - resourceRefId: your-drafts-card
+    {{/* The person's own drafts, then the unowned page previews from before drafts had owners */}}
+    {{/* (the mockup's order): what is yours to resume comes before what is yours to adopt. */}}
+    - resourceRefId: portal-builder-drafts-card
+    - resourceRefId: unowned-drafts-card
     - resourceRefId: builder-change-requests-card
   resourcesRefs:
     items:
@@ -66,9 +70,15 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
-    - id: your-drafts-card
+    - id: portal-builder-drafts-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: your-drafts-card
+      name: portal-builder-drafts-card
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: unowned-drafts-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: unowned-drafts-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET

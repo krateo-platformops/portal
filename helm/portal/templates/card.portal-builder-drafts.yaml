@@ -1,0 +1,45 @@
+{{/* "Your drafts" on /portal-builder — the caller's page draft records (restaction.my-drafts). */}}
+{{/* */}}
+{{/* Replaces "Drafts in progress", which listed every preview in the sandbox to everyone: no */}}
+{{/* owner, so each author saw every other author's pages, and no way back into one (the row */}}
+{{/* could only say so). A record is one person's and holds the page's whole tree, so Resume */}}
+{{/* reopens it editable. The copy is the approved mockup's. The Card reads the RA only for its */}}
+{{/* count, and declares the caller's identity for it as the lists do. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: portal-builder-drafts-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  identityContext: [username]
+  apiRef:
+    name: my-drafts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Your drafts
+    extra: only you see these
+    variant: outlined
+    allowedResources:
+      - listies
+    items:
+      - resourceRefId: my-drafts-page
+      - resourceRefId: my-drafts-page-published
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ ([(.items // [])[] | select(.kind == "page")] | length) as $n | "\($n) draft\(if $n == 1 then "" else "s" end) · only you see these" }'
+  resourcesRefs:
+    items:
+      - id: my-drafts-page
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: my-drafts-page
+        namespace: {{ .Release.Namespace }}
+        resource: listies
+        verb: GET
+      - id: my-drafts-page-published
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: my-drafts-page-published
+        namespace: {{ .Release.Namespace }}
+        resource: listies
+        verb: GET

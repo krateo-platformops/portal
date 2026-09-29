@@ -1,0 +1,54 @@
+{{/* "Unowned drafts" on /portal-builder — page previews from before drafts had owners */}}
+{{/* (restaction.unowned-drafts). The decision on them was to delete none: they may be someone's */}}
+{{/* half-finished page, so they stay listed until a person adopts or discards each one. The copy */}}
+{{/* is the approved mockup's, less its "Discard several" line: there is no multi-select list to */}}
+{{/* point at, and a sentence about a control that does not exist would be false. */}}
+{{/* */}}
+{{/* The header says how many and over which days — "101 drafts · 16–24 Sep" — computed from the */}}
+{{/* roots' creation times, so a person can see at a glance that this is a closed, old set. The */}}
+{{/* month names are spelled out in jq rather than strftime'd: %b follows the process locale, and */}}
+{{/* the header must not read "Set" on an Italian machine. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: unowned-drafts-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: unowned-drafts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Unowned drafts
+    headerLeft: >-
+      Page previews made before drafts had owners. Nothing here is deleted until someone chooses
+      to. Adopt a draft to make it yours and resume it, or discard it.
+    extra: none left
+    variant: outlined
+    allowedResources:
+      - listies
+    items:
+      - resourceRefId: unowned-drafts
+  widgetDataTemplate:
+    - forPath: extra
+      expression: >
+        ${ (.items // []) as $items | ($items | length) as $n
+           | [ $items[] | (.created // "") | (try (fromdateiso8601 | gmtime) catch empty) ] as $times
+           | def day: .[2] | floor | tostring;
+             def mon: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][.[1]];
+             (if ($times | length) == 0 then ""
+              else ($times | min) as $a | ($times | max) as $b
+                | if $a[0:3] == $b[0:3] then "\($b | day) \($b | mon)"
+                  elif $a[0:2] == $b[0:2] then "\($a | day)–\($b | day) \($b | mon)"
+                  else "\($a | day) \($a | mon) – \($b | day) \($b | mon)" end end) as $range
+           | if $n == 0 then "none left"
+             else "\($n) draft\(if $n == 1 then "" else "s" end)" + (if $range == "" then "" else " · " + $range end) end }
+  resourcesRefs:
+    items:
+      - id: unowned-drafts
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: unowned-drafts
+        namespace: {{ .Release.Namespace }}
+        resource: listies
+        verb: GET
