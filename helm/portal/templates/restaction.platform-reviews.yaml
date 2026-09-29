@@ -59,7 +59,7 @@ spec:
     | ([ $all[] | select((.status.phase // "") != "Superseded"
                          or (((.metadata.name | rv_root($up; 0)) as $r | $live | rv_has($r)) | not)) ]) as $visible
     | def row:
-        (.status.phase // "Proposed") as $ph
+        rv_phase as $ph | rv_decision as $d
         | { name: .metadata.name,
             title: (.spec.title // .metadata.name),
             subject: (.spec.subject // "—"),
@@ -71,16 +71,16 @@ spec:
             superseded: (($under[.metadata.name] // 0) | if . == 0 then "—" else (tostring + " earlier") end),
             created: (.metadata.creationTimestamp // ""),
             target: (.spec.target.repo // "—"),
-            decidedBy: (.status.decidedBy // "—"),
-            decidedAt: (.status.decidedAt // ""),
+            decidedBy: (if $d.by == "" then "—" else $d.by end),
+            decidedAt: $d.at,
             outcome: (if (.status.pullRequest.url // "") != "" then .status.pullRequest.url
-                      else (.status.reason // .status.error // "—") end) };
+                      elif $d.reason != "" then $d.reason else (.status.error // "—") end) };
       def grouped:
         group_by(.spec.subject // ("~" + .metadata.name))
         | map(sort_by(.metadata.creationTimestamp // "") | reverse)
         | sort_by(.[0].metadata.creationTimestamp // "") | reverse | add // [];
-      ([ $visible[] | select(((.status.phase // "Proposed") as $p | $p == "Proposed" or $p == "PrOpen")) ] | grouped | map(row)) as $open
-    | ([ $visible[] | select(((.status.phase // "") as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed")) ] | grouped | map(row)) as $decided
+      ([ $visible[] | select(rv_phase as $p | $p == "Proposed" or $p == "PrOpen") ] | grouped | map(row)) as $open
+    | ([ $visible[] | select(rv_phase as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed") ] | grouped | map(row)) as $decided
     | ([ ((.runs.items) // [])[] ] | sort_by(.status.startedAt // .metadata.creationTimestamp // "") | reverse) as $runs
     | ($runs[0] // null) as $last
     | { installed: ($perr | test("404|not found|could not find"; "i") | not),

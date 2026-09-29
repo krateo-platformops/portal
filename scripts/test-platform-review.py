@@ -15,7 +15,10 @@ reader would see:
   - Refused (historical) is excluded from both tabs, and the caption says so;
   - a Failed run's Result is status.error; evidence[].query is never rendered;
   - the change-request claim, as the form would POST it, satisfies builder-publish's values schema
-    with builder review and repository.create false, and the action retires once the claim exists.
+    with builder review and repository.create false, and the action retires once the claim exists;
+  - decisions: Reject PATCHes exactly {spec: {decision: {phase: Rejected, reason}}} and Open change
+    request follows the claim with {spec: {decision: {phase: PrOpen, claim}}}; neither sends
+    decidedBy/decidedAt; spec.decision is read before status, except a phase only the service writes.
 
 HOW. helm/portal is rendered (test-builder-install.py's render), and each RESTAction is resolved
 over fixtures shaped like the krateo-057 objects (nightly-review 0.1.22) by a model of snowplow's
@@ -247,6 +250,25 @@ def expect(f, what, got, want):
         f.append(f'{what}: got {got!r}, want {want!r}')
 
 
+def apply_overrides(payload, overrides, values):
+    """The frontend's buildPayload step 3-4: each `${ … }` evaluated over {json: values}, then set."""
+    body = copy.deepcopy(payload)
+    for o in overrides or []:
+        v = tbi.jq(expr(o['value']), {'json': values})
+        keys = [int(k) if k.isdigit() else k for k in o['name'].replace('[', '.').replace(']', '').split('.')]
+        tgt = body
+        for k in keys[:-1]:
+            tgt = tgt[k] if isinstance(tgt, list) else tgt.setdefault(k, {})
+        tgt[keys[-1]] = v
+    return body
+
+
+def ref_template(chart, kind, name, ref_id, output):
+    doc = chart.get(kind, name)
+    t = [x['template'] for x in doc['spec']['resourcesRefsTemplate'] if x['template']['id'] == ref_id][0]
+    return {k: (tbi.jq(expr(v), output) if isinstance(v, str) and expr(v) is not None else v) for k, v in t.items()}
+
+
 def cells(row):
     return {c['valueKey']: c for c in row}
 
@@ -363,7 +385,7 @@ def check_proposal_detail(chart):
     expect(f, 'page items', [i['resourceRefId'] for i in w['page-review-proposal']['items']],
            ['review-proposal-header', 'review-proposal-kind', 'review-proposal-lineage', 'review-proposal-body'])
     expect(f, 'actions', [i['resourceRefId'] for i in w['review-proposal-actions']['items']],
-           ['review-proposal-run', 'review-proposal-ask', 'review-proposal-open-pr'])
+           ['review-proposal-run', 'review-proposal-ask', 'review-proposal-reject', 'review-proposal-open-pr'])
     expect(f, 'run link', w['review-proposal-run']['actions']['navigate'][0]['path'], '/reviews/runs/rr-20260929-1328')
     expect(f, 'ask stays on the page', w['review-proposal-ask']['actions']['navigate'][0]['path'].startswith(
         '/reviews/proposals/p-cccc000000000003?ask='), True)
@@ -403,15 +425,16 @@ def check_change_request_claim(chart):
     act = w['actions']['rest'][0]
     expect(f, 'initial values', w['initialValues'], {'repository': 'krateo-platformops/snowplow',
                                                      'file': 'deploy/p-cccc000000000003.yaml'})
-    body = copy.deepcopy(act['payload'])
+    expect(f, 'two writes: the claim, then the decision', [o['resourceRefId'] for o in act['ops']],
+           ['create-builder-publish', 'decide-pr-open'])
     values = {'repository': 'krateo-platformops/observability', 'file': 'alerts/sar.yaml'}
-    for o in act['payloadToOverride']:
-        v = tbi.jq(expr(o['value']), {'json': values})
-        keys = [int(k) if k.isdigit() else k for k in o['name'].replace('[', '.').replace(']', '').split('.')]
-        tgt = body
-        for k in keys[:-1]:
-            tgt = tgt[k]
-        tgt[keys[-1]] = v
+    body = apply_overrides(act['ops'][0]['payload'], act['ops'][0].get('payloadToOverride'), values)
+    decision = apply_overrides(act['ops'][1]['payload'], act['ops'][1].get('payloadToOverride'), values)
+    expect(f, 'PrOpen body, no decidedBy/decidedAt', decision,
+           {'spec': {'decision': {'phase': 'PrOpen', 'claim': 'review-cccc000000000003'}}})
+    ref = ref_template(chart, 'Form', 'review-open-pr-form', 'decide-pr-open', out)
+    expect(f, 'PrOpen target', (ref['apiVersion'], ref['resource'], ref['name'], ref['verb']),
+           ('review.krateo.io/v1alpha1', 'proposals', 'p-cccc000000000003', 'PATCH'))
     spec = body['spec']
     expect(f, 'claim name', (body['metadata']['name'], spec['name']), ('review-cccc000000000003',) * 2)
     expect(f, 'builder', spec['builder'], 'review')
@@ -470,6 +493,47 @@ def check_run_detail(chart):
     return f
 
 
+def check_decisions(chart):
+    f = []
+    ex = {'name': 'p-cccc000000000003'}
+    out = resolved(chart, 'review-proposal', detail_responses(ex['name']), ex)
+    w = resolve_widgets(chart, 'review-proposal', out, ex, 'reject')
+    expect(f, 'undecided: Reject offered', 'review-proposal-reject' in [i['resourceRefId'] for i in w['review-proposal-actions']['items']], True)
+    act = w['review-reject-form']['actions']['rest'][0]
+    body = apply_overrides(act['payload'], act.get('payloadToOverride'), {'reason': 'Alerts here are Alert CRs'})
+    expect(f, 'Reject body, no decidedBy/decidedAt', body,
+           {'spec': {'decision': {'phase': 'Rejected', 'reason': 'Alerts here are Alert CRs'}}})
+    expect(f, 'Reject is a merge-patch', act['headers'], ['Content-Type: application/merge-patch+json'])
+    ref = ref_template(chart, 'Form', 'review-reject-form', 'reject-proposal', out)
+    expect(f, 'Reject target', (ref['apiVersion'], ref['resource'], ref['name'], ref['namespace'], ref['verb']),
+           ('review.krateo.io/v1alpha1', 'proposals', 'p-cccc000000000003', NS, 'PATCH'))
+
+    rejected = copy.deepcopy(PROPOSALS)
+    c = [p for p in rejected if p['metadata']['name'] == 'p-cccc000000000003'][0]
+    c['spec']['decision'] = {'phase': 'Rejected', 'reason': 'not here', 'decidedBy': 'admin', 'decidedAt': '2026-09-29T22:00:00Z'}
+    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': rejected}), {})
+    expect(f, 'spec.decision read before status: moves to Decided', [r['name'] for r in out['decided']], ['p-cccc000000000003'])
+    expect(f, 'decided row', (out['decided'][0]['decidedBy'], out['decided'][0]['outcome']), ('admin', 'not here'))
+    resolve_widgets(chart, 'platform-reviews', out, {}, 'rejected-list')
+    out = resolved(chart, 'review-proposal', detail_responses(ex['name'], all={'items': rejected}, proposal=c), ex)
+    facts = {x['label']: x['value'] for x in out['facts']}
+    expect(f, 'decision row', facts['Decision'], 'Rejected by admin · 2026-09-29 22:00 UTC · not here')
+    expect(f, 'rejected: no Reject, no Open change request', (out['canReject'], out['canOpen']), (False, False))
+    resolve_widgets(chart, 'review-proposal', out, ex, 'rejected')
+
+    c['spec']['decision'] = {'phase': 'Rejected', 'reason': 'not here'}
+    out = resolved(chart, 'review-proposal', detail_responses(ex['name'], proposal=c), ex)
+    expect(f, 'before the admission policy stamps it', {x['label']: x['value'] for x in out['facts']}['Decision'], 'Rejected · not here')
+
+    c['spec']['decision'] = {'phase': 'PrOpen', 'claim': 'review-cccc000000000003'}
+    out = resolved(chart, 'review-proposal', detail_responses(ex['name'], proposal=c), ex)
+    expect(f, 'PrOpen from spec.decision', (out['phase'], out['canReject'], out['canOpen']), ('PrOpen', True, False))
+    c['status']['phase'] = 'Merged'
+    out = resolved(chart, 'review-proposal', detail_responses(ex['name'], proposal=c), ex)
+    expect(f, 'a phase only the service writes wins', out['phase'], 'Merged')
+    return f
+
+
 CHECKS = [
     check_list_groups_by_finding_newest_first,
     check_kind_and_target_checks,
@@ -478,6 +542,7 @@ CHECKS = [
     check_proposal_detail,
     check_change_request_claim,
     check_run_detail,
+    check_decisions,
 ]
 
 

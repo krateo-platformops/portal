@@ -16,6 +16,11 @@
   Target check. status.conditions[TargetResolved], written from nightly-review 0.1.21. NotFoundOrPrivate
   is "unverified" and never more: an anonymous GitHub check cannot tell a missing repository from a
   private one. Unknown (CheckFailed / CheckDisabled) renders nothing.
+
+  Decision. The portal records a decision in spec.decision (a main-resource merge-PATCH, as the
+  caller; decidedBy/decidedAt are stamped by nightly-review's admission policy, never sent). It is
+  read FIRST so the page changes at once; status is the nightly mirror. A phase only the service
+  writes (Merged, Failed, Superseded) wins over a decision it has since moved past.
 */}}
 {{- define "portal.reviewDefs" -}}
 def rv_ts: if (. // "") == "" then null else (.[0:19] + "Z") end;
@@ -31,6 +36,16 @@ def rv_dur($a; $b):
     end;
 def rv_num: tostring as $s
   | if ($s | test("^[0-9]{4,}$")) then ([ range(($s | length); 0; -3) | $s[([. - 3, 0] | max):.] ] | reverse | join(",")) else $s end;
+def rv_phase:
+  (.status.phase // "") as $s
+  | if $s == "Merged" or $s == "Failed" or $s == "Superseded" then $s
+    else (.spec.decision.phase // (if $s == "" then "Proposed" else $s end)) end;
+def rv_decision:
+  { phase: rv_phase,
+    by: (.spec.decision.decidedBy // .status.decidedBy // ""),
+    at: (.spec.decision.decidedAt // .status.decidedAt // ""),
+    reason: (.spec.decision.reason // .status.reason // ""),
+    claim: (.spec.decision.claim // "") };
 def rv_has($x): any(.[]?; . == $x);
 def rv_gvk:
   if ((.spec.change.format // "") != "yaml") then null

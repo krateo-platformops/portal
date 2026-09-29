@@ -3,8 +3,11 @@
 {{/* spec.target and editable; everything else is fixed and templated from review-proposal. The */}}
 {{/* POST target is the discovered BuilderPublish GVR (it tracks the portal chart version). */}}
 {{/* */}}
-{{/* The proposal's status is NOT written here: /call cannot address the status subresource. The */}}
-{{/* proposal page reads the claim back by name instead, and retires this action once it exists. */}}
+{{/* TWO WRITES, ONE CONFIRM (`ops`, applied in order, stopping at the first failure): the claim, */}}
+{{/* then spec.decision {phase: PrOpen, claim} on the proposal by merge-PATCH as the caller. The */}}
+{{/* decision is recorded only once the claim exists. decidedBy/decidedAt are not sent: */}}
+{{/* nightly-review's admission policy stamps them from the request identity. A 403 on either write, */}}
+{{/* or a CRD that does not serve spec.decision yet, reaches the person as the apiserver's message. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -41,21 +44,28 @@ spec:
       rest:
         - id: open-pr
           type: rest
+          {{/* Required by the dispatcher; with `ops` the entries carry everything. */}}
           resourceRefId: create-builder-publish
           headers:
             - 'Content-Type: application/json'
           successMessage: The change request was requested. Its pull request opens when the publish chain has run.
-          payload: {}
-          {{/* The two fields a person may correct, from the form (`.json`, all this jq can see). */}}
-          payloadToOverride:
-            - { name: spec.target.namespace, value: '${ .json.repository | split("/")[0] }' }
-            - { name: spec.target.repo,      value: '${ .json.repository | split("/")[1] }' }
-            - { name: 'spec.files[0].path',  value: '${ .json.file }' }
+          ops:
+            - resourceRefId: create-builder-publish
+              payload: {}
+              {{/* The two fields a person may correct, from the form (`.json`, all this jq can see). */}}
+              payloadToOverride:
+                - { name: spec.target.namespace, value: '${ .json.repository | split("/")[0] }' }
+                - { name: spec.target.repo,      value: '${ .json.repository | split("/")[1] }' }
+                - { name: 'spec.files[0].path',  value: '${ .json.file }' }
+            - resourceRefId: decide-pr-open
+              payload: {}
   widgetDataTemplate:
     - forPath: initialValues
       expression: '${ { repository: (.repository // ""), file: (.file // "") } }'
+    - forPath: actions.rest[0].ops[1].payload
+      expression: '${ { spec: { decision: { phase: "PrOpen", claim: (.claimName // "") } } } }'
     {{/* The fixed half of the claim, from the proposal. */}}
-    - forPath: actions.rest[0].payload
+    - forPath: actions.rest[0].ops[0].payload
       expression: >-
         ${ { metadata: { name: (.claimName // ""), namespace: "{{ .Release.Namespace }}",
                          labels: { "review.krateo.io/proposal": (.name // "") } },
@@ -75,3 +85,10 @@ spec:
         resource: '${ .bpResource }'
         namespace: {{ .Release.Namespace }}
         verb: POST
+    - template:
+        id: decide-pr-open
+        apiVersion: review.krateo.io/v1alpha1
+        resource: proposals
+        name: '${ .name }'
+        namespace: {{ .Release.Namespace }}
+        verb: PATCH

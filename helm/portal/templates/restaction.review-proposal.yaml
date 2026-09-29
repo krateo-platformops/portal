@@ -2,11 +2,12 @@
 {{/* the proposals it superseded (and the one that superseded it), the kind check, and the change */}}
 {{/* request, if one was opened. */}}
 {{/* */}}
-{{/* THE CHANGE REQUEST IS READ, NOT RECORDED. Opening one writes a BuilderPublish claim named */}}
-{{/* review-<id>. The proposal's status is not written from the portal (snowplow's /call cannot */}}
-{{/* address the status subresource), so the page finds the claim by that name, and its PullRequest */}}
-{{/* by the krateo.io/publish label, and reports those instead. The claim's presence also retires the */}}
-{{/* Open change request button: a second POST of the same name is a 409. */}}
+{{/* DECISIONS. Reject and Open change request record the decision in spec.decision by a merge-PATCH */}}
+{{/* of the proposal as the caller (snowplow's /call cannot address the status subresource). It is */}}
+{{/* read before status (portal.reviewDefs rv_phase / rv_decision), so the page changes at once. */}}
+{{/* The claim is also found by name, and its PullRequest by the krateo.io/publish label, so an */}}
+{{/* opened change request shows even where spec.decision is not served yet; the claim's presence */}}
+{{/* retires Open change request, since a second POST of the same name is a 409. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -71,7 +72,8 @@ spec:
     | (if $p == null then null else ($p.status.supersededBy // "") end) as $by
     | ([ $all[] | select(.metadata.name == $by) ][0] // null) as $byP
     | (if (.claim.kind // "") != "" and (.claim.metadata.name // "") != "" then .claim else null end) as $claim
-    | ([ ((.prs.items) // [])[] | select(((.metadata.labels["krateo.io/publish"]) // "") == ("review-" + ($name | ltrimstr("p-")))) ][0] // null) as $pr
+    | (if $p == null then "" else ($p.spec.decision.claim // ($p | rv_claim)) end) as $claimRef
+    | ([ ((.prs.items) // [])[] | select(((.metadata.labels["krateo.io/publish"]) // "") == $claimRef) ][0] // null) as $pr
     | if $p == null then
         { found: false, name: $name,
           title: (if ($perr | test("403|forbidden"; "i")) then "You cannot read this proposal"
@@ -79,14 +81,15 @@ spec:
           message: (if ($perr | test("403|forbidden"; "i")) then "Reading review.krateo.io proposals was refused for your account."
                     else ("No proposal named " + $name + " exists. It may have expired after being decided.") end) }
       else
-        ($p.status.phase // "Proposed") as $ph
+        ($p | rv_phase) as $ph
+        | ($p | rv_decision) as $d
         | ($p | rv_kindcheck($served; $kinds)) as $kc
         | ($p | rv_target) as $tc
         | ($p.spec.target.repo // "") as $repo
         | ($p.spec.change.format // "yaml") as $fmt
         | ($p.spec.change.content // "") as $content
         | (if ($content | test("```")) then "~~~~" else "```" end) as $fence
-        | ($p | rv_claim) as $claimName
+        | $claimRef as $claimName
         | ("review/" + (($p.spec.kind // "change") | ascii_downcase) + "-" + ($name | ltrimstr("p-") | .[0:12])) as $branch
         | { found: true,
             name: $name,
@@ -114,8 +117,15 @@ spec:
               { label: "Model says", value: (($p.spec.confidence // "—") + " (unverified)") },
               { label: "Produced by", value: (($p.spec.producedBy.runRef // "—") + (if ($p.spec.producedBy.agent // "") != "" then " · " + $p.spec.producedBy.agent else "" end)) },
               { label: "Decision", value: (
-                  if ($p.status.decidedBy // "") != "" then ($ph + " by " + $p.status.decidedBy + " · " + ($p.status.decidedAt | rv_when) + (if ($p.status.reason // "") != "" then " · " + $p.status.reason else "" end))
-                  elif $claim != null then "Change request opened (" + $claimName + "); decided when its pull request is merged or closed"
+                  if $ph == "Rejected" then ("Rejected" + (if $d.by != "" then " by " + $d.by else "" end)
+                                             + (if $d.at != "" then " · " + ($d.at | rv_when) else "" end)
+                                             + (if $d.reason != "" then " · " + $d.reason else "" end))
+                  elif $ph == "Merged" or $ph == "Failed" then ($ph + (if $d.by != "" then " · change request opened by " + $d.by else "" end))
+                  elif $ph == "PrOpen" or $claim != null then ("Change request opened (" + $claimName + ")"
+                                             + (if $d.by != "" then " by " + $d.by else "" end)
+                                             + (if $d.at != "" then " · " + ($d.at | rv_when) else "" end)
+                                             + "; decided when its pull request is merged or closed")
+                  elif $ph == "Superseded" then "Superseded before a decision"
                   else "Not decided" end) }
             ] + (if $claim != null then [
               { label: "Change request", value: ($claimName + " · branch " + ($claim.spec.branch // $branch)
@@ -144,6 +154,8 @@ spec:
                                           created: (.metadata.creationTimestamp // ""), target: (.spec.target.repo // "—") } ],
             {{/* Open change request: offered only while undecided and before a claim exists. */}}
             canOpen: (($ph == "Proposed") and $claim == null and ((.bpError // null) == null)),
+            {{/* Reject: while undecided, a proposal whose pull request is open included. */}}
+            canReject: ($ph == "Proposed" or $ph == "PrOpen"),
             claimName: $claimName,
             branch: $branch,
             prTitle: ("review: " + ($p.spec.title // $name)),

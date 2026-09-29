@@ -1,7 +1,6 @@
 {{/* The proposal's actions: its run, its replacement (when superseded), Ask Autopilot, and Open */}}
 {{/* change request, the one primary, offered only while the proposal is undecided and no claim */}}
-{{/* exists. Reject is not here: it needs a status write snowplow's /call cannot address. */}}
-{{/* "Open in alert form" is not here: /alerts/new takes no prefill. */}}
+{{/* exists. Reject while undecided. "Open in alert form" is not here: /alerts/new takes no prefill. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,9 +28,16 @@ spec:
         ${ (if (.runPath // "") != "" then [ { resourceRefId: "review-proposal-run" } ] else [] end)
         + (if (.supersededByPath // "") != "" then [ { resourceRefId: "review-proposal-replacement" } ] else [] end)
         + [ { resourceRefId: "review-proposal-ask" } ]
+        + (if (.canReject // false) then [ { resourceRefId: "review-proposal-reject" } ] else [] end)
         + (if (.canOpen // false) then [ { resourceRefId: "review-proposal-open-pr" } ] else [] end) }
   resourcesRefs:
     items:
+    - id: review-proposal-reject
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-reject
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
     - id: review-proposal-run
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: review-proposal-run
