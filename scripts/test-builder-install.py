@@ -825,10 +825,15 @@ def check_unowned_drafts_are_the_legacy_roots(chart):
         listy_placeholders_resolve(f, chart, 'unowned-drafts', doc['spec']['widgetData']['dataSource'], label)
     listed = resolved_widget(chart, 'Listy', 'unowned-drafts', out, {}, 'unowned-drafts (three, again)')['spec']['widgetData']['dataSource']
     expect(f, 'list: widget counts read as words', [r['widgetsLabel'] for r in listed], ['4 widgets', '2 widgets', '1 widget'])
+    # Discard hands the WHOLE set to the composer (root and every child it names, behind the
+    # standard confirm); a rest DELETE from here could only reach the root and orphan the rest.
     spec = chart.get('Listy', 'unowned-drafts')['spec']
-    ref = spec['resourcesRefs']['items'][0]
-    expect(f, 'Discard deletes a Flex in the sandbox, never by a root\'s own name', [ref['verb'], ref['resource'], ref['namespace'], ref['name'].startswith('page-')],
-           ['DELETE', 'flexes', 'krateo-preview', False])
+    actions = spec['widgetData']['actions']
+    navigate = {a['id']: a['path'] for a in actions.get('navigate') or []}
+    expect(f, 'Adopt and Discard are routes into the page composer', navigate,
+           {'adopt': '/portal-builder/compose?adopt=${rootName}', 'discard': '/portal-builder/compose?discard-legacy=${rootName}'})
+    expect(f, 'the list writes nothing itself: no rest action, no refs', [actions.get('rest'), spec['resourcesRefs']['items'], spec.get('resourcesRefsTemplate')],
+           [None, [], None])
     return f
 
 

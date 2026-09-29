@@ -502,11 +502,6 @@ def rule_missing_target(crs):
             # Only widget CRs live in this chart's template set; anything else is out of scope.
             if not plural or not name or 'widgets.templates.krateo.io' not in api:
                 continue
-            # Only GET refs are children. A write ref is an action's TARGET — e.g. the unowned
-            # drafts' Discard, a DELETE of a sandbox Flex this chart never ships — and a parent
-            # does not render it, so its absence from the chart deletes nothing from any page.
-            if str(ref.get('verb') or 'GET').upper() != 'GET':
-                continue
             # PRIMARY — plural-INDEPENDENT. Does a widget CR with this name exist at all? This is
             # the deletion hazard, and needing no plural knowledge means a stale or missing mapping
             # cannot silence it. An earlier version gated this on the plural and inverted the rule:
