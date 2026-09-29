@@ -1,0 +1,74 @@
+{{/* Page root for /reviews/proposals/{name}: one proposal. The header with its actions, then notices */}}
+{{/* only where they apply (kind not served, target unverified, superseded lineage), then two columns: */}}
+{{/* why, evidence and facts on the left, the change on the right, stacking below the lg breakpoint. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-review-proposal
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/nav-order": "941"
+    "krateo.io/nav-path": "/reviews/proposals/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - alerts
+    - rows
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: review-proposal-header
+    - resourceRefId: review-proposal-body
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "review-proposal-header" } ]
+        + (if (.found // false) | not then [ { resourceRefId: "review-proposal-missing" } ]
+           else ((if (.kindAlert // "") != "" then [ { resourceRefId: "review-proposal-kind" } ] else [] end)
+               + (if (.targetAlert // "") != "" then [ { resourceRefId: "review-proposal-target" } ] else [] end)
+               + (if (.lineageAlert // "") != "" then [ { resourceRefId: "review-proposal-lineage" } ] else [] end)
+               + [ { resourceRefId: "review-proposal-body" } ]) end) }
+  resourcesRefs:
+    items:
+    - id: review-proposal-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-header
+      namespace: {{ .Release.Namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: review-proposal-missing
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-missing
+      namespace: {{ .Release.Namespace }}
+      resource: alerts
+      verb: GET
+    - id: review-proposal-kind
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-kind
+      namespace: {{ .Release.Namespace }}
+      resource: alerts
+      verb: GET
+    - id: review-proposal-target
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-target
+      namespace: {{ .Release.Namespace }}
+      resource: alerts
+      verb: GET
+    - id: review-proposal-lineage
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-lineage
+      namespace: {{ .Release.Namespace }}
+      resource: alerts
+      verb: GET
+    - id: review-proposal-body
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-body
+      namespace: {{ .Release.Namespace }}
+      resource: rows
+      verb: GET

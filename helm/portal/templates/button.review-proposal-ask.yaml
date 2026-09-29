@@ -1,0 +1,28 @@
+{{/* Ask Autopilot about this proposal. ?ask= is consumed on any route, so it stays on this page. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-ask
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Ask Autopilot
+    type: default
+    icon: fa-wand-magic-sparkles
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /reviews
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/reviews" end) } ] } }'
+  resourcesRefs:
+    items: []

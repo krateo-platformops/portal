@@ -1,0 +1,50 @@
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-left
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: review-proposal-why
+    - resourceRefId: review-proposal-evidence
+    - resourceRefId: review-proposal-facts
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "review-proposal-why" }, { resourceRefId: "review-proposal-evidence" }, { resourceRefId: "review-proposal-facts" } ]
+        + (if ((.earlierRows // []) | length) > 0 then [ { resourceRefId: "review-proposal-earlier" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: review-proposal-why
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-why
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-proposal-evidence
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-evidence
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-proposal-facts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-facts
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET
+    - id: review-proposal-earlier
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-earlier
+      namespace: {{ .Release.Namespace }}
+      resource: cards
+      verb: GET

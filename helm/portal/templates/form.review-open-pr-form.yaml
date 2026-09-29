@@ -1,0 +1,77 @@
+{{/* Writes the BuilderPublish claim for one proposal: builder review, one file, repository.create */}}
+{{/* false (a model-chosen repository is never created). Repository and File are pre-filled from */}}
+{{/* spec.target and editable; everything else is fixed and templated from review-proposal. The */}}
+{{/* POST target is the discovered BuilderPublish GVR (it tracks the portal chart version). */}}
+{{/* */}}
+{{/* The proposal's status is NOT written here: /call cannot address the status subresource. The */}}
+{{/* proposal page reads the claim back by name instead, and retires this action once it exists. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-open-pr-form
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    layout: vertical
+    submitActionId: open-pr
+    schema:
+      type: object
+      required: [repository, file]
+      properties:
+        repository:
+          type: string
+          title: Repository
+          description: Proposed by the model. Correct it if the change belongs elsewhere.
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
+        file:
+          type: string
+          title: File
+          description: Path of the file in that repository.
+          pattern: '^[^/].*[^/]$'
+    buttonConfig:
+      primary:
+        label: Open change request
+    actions:
+      rest:
+        - id: open-pr
+          type: rest
+          resourceRefId: create-builder-publish
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: The change request was requested. Its pull request opens when the publish chain has run.
+          payload: {}
+          {{/* The two fields a person may correct, from the form (`.json`, all this jq can see). */}}
+          payloadToOverride:
+            - { name: spec.target.namespace, value: '${ .json.repository | split("/")[0] }' }
+            - { name: spec.target.repo,      value: '${ .json.repository | split("/")[1] }' }
+            - { name: 'spec.files[0].path',  value: '${ .json.file }' }
+  widgetDataTemplate:
+    - forPath: initialValues
+      expression: '${ { repository: (.repository // ""), file: (.file // "") } }'
+    {{/* The fixed half of the claim, from the proposal. */}}
+    - forPath: actions.rest[0].payload
+      expression: >-
+        ${ { metadata: { name: (.claimName // ""), namespace: "{{ .Release.Namespace }}",
+                         labels: { "review.krateo.io/proposal": (.name // "") } },
+             spec: { name: (.claimName // ""),
+                     builder: "review",
+                     branch: (.branch // ""),
+                     target: { namespace: "", repo: "", base: "main" },
+                     files: [ { path: "", content: (.content // "") } ],
+                     repository: { create: false },
+                     pullRequest: { title: (.prTitle // ""), body: (.prBody // "") } } } }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: create-builder-publish
+        apiVersion: '${ .bpApiVersion }'
+        resource: '${ .bpResource }'
+        namespace: {{ .Release.Namespace }}
+        verb: POST

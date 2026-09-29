@@ -1,0 +1,23 @@
+{{/* status.steps[] (0.1.22): gather, ask, validate, publish (always Skipped: the service stays on */}}
+{{/* dry run and pull requests are opened from the portal), record. */}}
+kind: Steps
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-steps-list
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    size: small
+    items:
+    - title: Gather
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ .steps // [] }'
+  resourcesRefs:
+    items: []

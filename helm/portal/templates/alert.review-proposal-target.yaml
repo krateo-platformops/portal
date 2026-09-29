@@ -1,0 +1,24 @@
+{{/* TargetResolved=False. NotFoundOrPrivate is "unverified", never "missing": the check cannot tell a private repository from an absent one. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-target
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Proposal
+    type: info
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ if (.targetAlert // "") | test("not an owner/name") then "Target invalid" else "Target unverified" end }'
+    - forPath: description
+      expression: '${ .targetAlert // "" }'
+  resourcesRefs:
+    items: []

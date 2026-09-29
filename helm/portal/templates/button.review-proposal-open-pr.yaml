@@ -1,0 +1,32 @@
+{{/* Open change request: a drawer with the editable Repository and File, whose submit writes a */}}
+{{/* BuilderPublish claim (builder: review). A drawer rather than a modal because a successful write */}}
+{{/* closes a drawer and leaves a modal open. The write itself passes the portal's confirm gate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-open-pr
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  widgetData:
+    label: Open change request
+    type: primary
+    icon: fa-code-pull-request
+    clickActionId: open-dialog
+    actions:
+      openDrawer:
+        - id: open-dialog
+          type: openDrawer
+          resourceRefId: review-open-pr
+          title: Open a change request
+          size: large
+  resourcesRefs:
+    items:
+    - id: review-open-pr
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-open-pr
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

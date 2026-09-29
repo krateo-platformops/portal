@@ -1,11 +1,14 @@
-{{/* Lists the Proposal CRs (review.krateo.io) produced by the nightly platform review, plus the most */}}
-{{/* recent ReviewRun for context. Same per-user apiserver path pattern as obs-alerts. */}}
+{{/* /reviews — the nightly review's Proposals and ReviewRuns (review.krateo.io), shaped for both tabs. */}}
+{{/* Every join, sort and derivation is here; the widgets only place values. */}}
 {{/* */}}
-{{/* THE EVIDENCE COUNT IS A COLUMN, NOT A DETAIL. These rows are machine-authored suggestions, and */}}
-{{/* the only question that matters when triaging one is what it rests on. A proposal carrying a */}}
-{{/* single observation and one carrying three hundred look identical if the table shows only a title */}}
-{{/* and a confidence word — and the confidence word is the least trustworthy thing on the row, since */}}
-{{/* the model wrote it. So the count is surfaced beside it and the two can be compared at a glance. */}}
+{{/* GROUPED BY FINDING, NEWEST FIRST. spec.subject (0.1.21) names what a finding is about; a later */}}
+{{/* run's proposal for the same subject supersedes the earlier one (status.supersededBy). A superseded */}}
+{{/* proposal is not a row: it is counted on the row that replaced it, following the chain to its end. */}}
+{{/* Rows sharing a subject sit together; a legacy proposal without one stands alone. */}}
+{{/* */}}
+{{/* NO CONFIDENCE, NO OBSERVED COUNT. Both are model-authored and unverified (the Proposal CRD says */}}
+{{/* so), so neither is a column nor a sort key. They appear on the detail page, labelled as the */}}
+{{/* model's own claim. Refused is historical (no longer written) and is excluded from both tabs. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -25,9 +28,7 @@ spec:
         group: review.krateo.io
         resource: proposals
         namespaceFrom: .metadata.namespace
-      {{/* continueOnError so the page renders before the component is installed: a fresh cluster has */}}
-      {{/* no review.krateo.io CRDs at all, and a 404 here must degrade to an empty table with a */}}
-      {{/* message rather than a broken page. */}}
+      {{/* A cluster without the component has no review.krateo.io API: the page says so. */}}
       continueOnError: true
       errorKey: proposalsError
     - name: runs
@@ -42,30 +43,104 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: runsError
-  filter: >
-    {
-      rows: [ ((.proposals.items) // [])[]
-              | {
-                  routeNs:   (.metadata.namespace // ""),
-                  routeName: (.metadata.name // ""),
-                  kind:      (.spec.kind // "-"),
-                  title:     (.spec.title // .metadata.name // ""),
-                  confidence:(.spec.confidence // "low"),
-                  evidence:  ((.spec.evidence // []) | length),
-                  observed:  ([ ((.spec.evidence // [])[] | (.observedCount // 0)) ] | add // 0),
-                  repo:      ((.spec.target.repo) // "-"),
-                  phase:     ((.status.phase) // "Proposed"),
-                  pr:        ((.status.pullRequest.url) // "")
-                } ]
-              | sort_by(.phase == "Merged", .phase == "Rejected", -(.observed)),
-      {{/* Open means UNDECIDED — Proposed or PrOpen. It is the only number on the page anyone acts */}}
-      {{/* on, so it is computed here rather than left to a reader counting rows. */}}
-      open: ([ ((.proposals.items) // [])[]
-               | select(((.status.phase) // "Proposed") as $p | $p == "Proposed" or $p == "PrOpen") ] | length),
-      lastRun: ( [ ((.runs.items) // [])[] ]
-                 | sort_by(.status.startedAt // "") | last
-                 | if . == null then "no review has run yet"
-                   else ((.status.phase // "?") + " · " + ((.status.proposals.created // 0)|tostring)
-                         + " proposed · " + (.status.startedAt // "?"))
-                   end )
-    }
+    {{- include "portal.reviewDiscoverySteps" (dict "source" "proposals") | nindent 4 }}
+  filter: |
+    {{- include "portal.reviewDefs" . | nindent 4 }}
+    rv_served_gvs as $served
+    | rv_kinds_by_gv as $kinds
+    | ((.proposalsError // null) | if . == null then "" else tostring end) as $perr
+    | ([ ((.proposals.items) // [])[] | select((.status.phase // "Proposed") != "Refused") ]) as $all
+    | ([ ((.proposals.items) // [])[] | select((.status.phase // "") == "Refused") ] | length) as $refused
+    | ([ $all[] | select((.status.phase // "") == "Superseded" and (.status.supersededBy // "") != "")
+         | { key: .metadata.name, value: .status.supersededBy } ] | from_entries) as $up
+    | ([ $all[] | select((.status.phase // "") != "Superseded") | .metadata.name ]) as $live
+    | ([ $all[] | select((.status.phase // "") == "Superseded") | .metadata.name | rv_root($up; 0) ]
+       | map(select(. as $r | $live | rv_has($r))) | group_by(.) | map({ key: .[0], value: length }) | from_entries) as $under
+    | ([ $all[] | select((.status.phase // "") != "Superseded"
+                         or (((.metadata.name | rv_root($up; 0)) as $r | $live | rv_has($r)) | not)) ]) as $visible
+    | def row:
+        (.status.phase // "Proposed") as $ph
+        | { name: .metadata.name,
+            title: (.spec.title // .metadata.name),
+            subject: (.spec.subject // "—"),
+            kind: (.spec.kind // "—"),
+            sources: (rv_sources | if . == "" then "—" else . end),
+            checks: (rv_pills($served; $kinds) | tojson),
+            phase: $ph,
+            phaseColor: ($ph | rv_phase_color),
+            superseded: (($under[.metadata.name] // 0) | if . == 0 then "—" else (tostring + " earlier") end),
+            created: (.metadata.creationTimestamp // ""),
+            target: (.spec.target.repo // "—"),
+            decidedBy: (.status.decidedBy // "—"),
+            decidedAt: (.status.decidedAt // ""),
+            outcome: (if (.status.pullRequest.url // "") != "" then .status.pullRequest.url
+                      else (.status.reason // .status.error // "—") end) };
+      def grouped:
+        group_by(.spec.subject // ("~" + .metadata.name))
+        | map(sort_by(.metadata.creationTimestamp // "") | reverse)
+        | sort_by(.[0].metadata.creationTimestamp // "") | reverse | add // [];
+      ([ $visible[] | select(((.status.phase // "Proposed") as $p | $p == "Proposed" or $p == "PrOpen")) ] | grouped | map(row)) as $open
+    | ([ $visible[] | select(((.status.phase // "") as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed")) ] | grouped | map(row)) as $decided
+    | ([ ((.runs.items) // [])[] ] | sort_by(.status.startedAt // .metadata.creationTimestamp // "") | reverse) as $runs
+    | ($runs[0] // null) as $last
+    | { installed: ($perr | test("404|not found|could not find"; "i") | not),
+        denied: ($perr | test("403|forbidden"; "i")),
+        readError: $perr,
+        open: ($open | length),
+        rows: $open,
+        decided: $decided,
+        decidedCount: ($decided | length),
+        refused: $refused,
+        supersededHidden: ([ $under[] ] | add // 0),
+        openCaption: (
+          ([ (($open | length) | tostring) + " open"
+           , (if ([ $under[] ] | add // 0) > 0 then (([ $under[] ] | add | tostring) + " superseded, counted on the proposal that replaced them") else empty end)
+           , "newest first"
+           , (if $refused > 0 then ($refused | tostring) + " historical Refused records not listed" else empty end) ]
+           | join(" · "))
+          + (if $last == null then "" else
+              " · last review " + $last.metadata.name + " on " + ($last.status.startedAt | rv_when)
+              + " (" + ($last.status.phase // "Pending") + ")" end)),
+        decidedCaption: ([ ([ $decided[] | select(.phase == "Merged") ] | length | tostring) + " merged"
+                         , ([ $decided[] | select(.phase == "Rejected") ] | length | tostring) + " rejected"
+                         , ([ $decided[] | select(.phase == "Failed") ] | length | tostring) + " failed" ] | join(" · ")),
+        runRows: [ $runs[] | (.status.phase // "Pending") as $ph
+                   | { name: .metadata.name,
+                       phase: $ph,
+                       phaseColor: ($ph | rv_run_color),
+                       started: (.status.startedAt // "" | rv_ts // ""),
+                       took: rv_dur(.status.startedAt; .status.finishedAt),
+                       result: (if $ph == "Failed" then (.status.error // "failed, no error recorded")
+                                elif $ph == "Running" or $ph == "Pending" then "in progress"
+                                else (((.status.proposals.created // 0) | tostring) + " proposed"
+                                      + (if (.status.proposals.superseded // 0) > 0 then " · " + (.status.proposals.superseded | tostring) + " superseded" else "" end)
+                                      + (if (.status.proposals.deduplicated // 0) > 0 then " · " + (.status.proposals.deduplicated | tostring) + " duplicate" else "" end)) end),
+                       notRead: (rv_not_read | if . == "" then "—" else . end) } ],
+        runCaption: (([ $runs | group_by(.status.phase // "Pending")[] | ((length | tostring) + " " + (.[0].status.phase // "Pending")) ] | join(" · "))
+                     + (if ($runs | length) > 0 then " · since " + ($runs[-1].status.startedAt | rv_when) else "" end)),
+        runCount: ($runs | length),
+        {{/* The one line above the tabs, when the latest run is not a clean Completed. */}}
+        banner: (
+          if ($perr | test("404|not found|could not find"; "i")) then
+            { type: "info", title: "The nightly review is not installed on this cluster",
+              description: "This page lists review.krateo.io proposals and review runs, and this cluster serves no such API. Once the nightly review component is installed, its first run's proposals appear here." }
+          elif ($perr | test("403|forbidden"; "i")) then
+            { type: "warning", title: "Your role cannot read review proposals",
+              description: "Listing review.krateo.io proposals in this namespace was refused for your account. An administrator can grant read access to proposals and reviewruns." }
+          elif $last == null then
+            { type: "info", title: "No review has run yet",
+              description: "The nightly review reads the last 24 hours of this platform's telemetry and agent sessions. Its proposals appear here, and nothing is applied." }
+          elif (($last.status.phase // "Pending") == "Running" or ($last.status.phase // "Pending") == "Pending") then
+            { type: "info", title: ("A review is running: " + $last.metadata.name),
+              description: ("Started " + ($last.status.startedAt | rv_when)
+                            + ([ ($last.status.steps // [])[] | select(.phase == "Running") | " · current step: " + .name ][0] // "")
+                            + ". The proposals below come from runs that finished.") }
+          elif ($last.status.phase // "") == "Failed" then
+            { type: "error", title: ("The last review failed: " + $last.metadata.name),
+              description: ("It stopped after " + rv_dur($last.status.startedAt; $last.status.finishedAt) + ": "
+                            + ($last.status.error // "no error recorded") + ". The proposals below come from earlier runs.") }
+          elif ($last.status.phase // "") == "PartiallyCompleted" then
+            { type: "warning", title: ("The last review saw part of the platform: " + $last.metadata.name),
+              description: (($last | rv_not_read | if . == "" then "Some evidence sources were not read." else . end)
+                            + ". Anything it proposed rests on incomplete evidence.") }
+          else null end) }

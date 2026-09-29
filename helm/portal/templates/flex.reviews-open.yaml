@@ -1,0 +1,32 @@
+{{/* Open proposals: the caption (counts, ordering, what is not listed, the last run), then the table. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-open
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - tables
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: reviews-open-caption
+    - resourceRefId: platform-proposals
+  resourcesRefs:
+    items:
+    - id: reviews-open-caption
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-open-caption
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: platform-proposals
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: platform-proposals
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

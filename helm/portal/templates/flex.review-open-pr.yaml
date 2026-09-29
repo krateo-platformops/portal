@@ -1,0 +1,58 @@
+{{/* The Open change request drawer: what will happen, the fixed facts, the kind warning when it */}}
+{{/* applies, and the form with the two fields a person may correct (Repository, File). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-open-pr
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+    - paragraphs
+    - descriptions
+    - alerts
+    - forms
+    items:
+    - resourceRefId: review-open-pr-intro
+    - resourceRefId: review-open-pr-facts
+    - resourceRefId: review-open-pr-form
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "review-open-pr-intro" }, { resourceRefId: "review-open-pr-facts" } ]
+        + (if (.kindAlert // "") != "" then [ { resourceRefId: "review-proposal-kind" } ] else [] end)
+        + [ { resourceRefId: "review-open-pr-form" } ] }
+  resourcesRefs:
+    items:
+    - id: review-open-pr-intro
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-open-pr-intro
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: review-open-pr-facts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-open-pr-facts
+      namespace: {{ .Release.Namespace }}
+      resource: descriptions
+      verb: GET
+    - id: review-proposal-kind
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-kind
+      namespace: {{ .Release.Namespace }}
+      resource: alerts
+      verb: GET
+    - id: review-open-pr-form
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-open-pr-form
+      namespace: {{ .Release.Namespace }}
+      resource: forms
+      verb: GET

@@ -1,0 +1,28 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-sources
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Evidence sources
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    extra: "counts only; no telemetry is stored on the run"
+    items:
+    - resourceRefId: review-run-sources-table
+  resourcesRefs:
+    items:
+    - id: review-run-sources-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-sources-table
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

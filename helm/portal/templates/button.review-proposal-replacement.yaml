@@ -1,0 +1,27 @@
+{{/* Superseded proposals only: link to the proposal that replaced this one. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-replacement
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Open the replacement
+    type: default
+    clickActionId: open-replacement
+    actions:
+      navigate:
+        - id: open-replacement
+          type: navigate
+          path: /reviews
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open-replacement", type: "navigate", path: (if (.supersededByPath // "") != "" then .supersededByPath else "/reviews" end) } ] } }'
+  resourcesRefs:
+    items: []

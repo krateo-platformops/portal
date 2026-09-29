@@ -1,0 +1,24 @@
+{{/* Superseded lineage: what replaced this proposal, or how many earlier proposals for the same finding it replaced. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-lineage
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Proposal
+    type: info
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ if (.supersededByPath // "") != "" then "Superseded" else "Supersedes earlier proposals" end }'
+    - forPath: description
+      expression: '${ .lineageAlert // "" }'
+  resourcesRefs:
+    items: []

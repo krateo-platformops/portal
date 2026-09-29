@@ -1,0 +1,41 @@
+{{/* Proposals tab: Open (Proposed or PrOpen, undecided) and Decided (Merged, Rejected, Failed). */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-proposal-state
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    type: card
+    size: small
+    allowedResources:
+    - flexes
+    items:
+    - label: Open
+      resourceRefId: reviews-open
+    - label: Decided
+      resourceRefId: reviews-decided
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { label: ("Open " + ((.open // 0) | tostring)), resourceRefId: "reviews-open" },
+             { label: ("Decided " + ((.decidedCount // 0) | tostring)), resourceRefId: "reviews-decided" } ] }
+  resourcesRefs:
+    items:
+    - id: reviews-open
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-open
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET
+    - id: reviews-decided
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-decided
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

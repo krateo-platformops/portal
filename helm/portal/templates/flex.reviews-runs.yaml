@@ -1,0 +1,32 @@
+{{/* Runs tab: the caption (phase counts since the oldest kept run), then one row per ReviewRun. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-runs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - tables
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: reviews-runs-caption
+    - resourceRefId: reviews-runs-table
+  resourcesRefs:
+    items:
+    - id: reviews-runs-caption
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-runs-caption
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-runs-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-runs-table
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

@@ -1,0 +1,24 @@
+{{/* Shown instead of the body when the proposal cannot be read: not found, or refused for this account. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-missing
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Proposal
+    type: warning
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .title // "Proposal not found" }'
+    - forPath: description
+      expression: '${ .message // "" }'
+  resourcesRefs:
+    items: []

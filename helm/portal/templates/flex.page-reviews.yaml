@@ -1,11 +1,10 @@
-{{/* Convention page root for /reviews — the nightly platform review's output. */}}
+{{/* Convention page root for /reviews: the nightly review's proposals and the runs that produced them. */}}
 {{/* */}}
-{{/* THIS PAGE IS THE DELIVERY SURFACE, NOT A DASHBOARD. The review opens pull requests across */}}
-{{/* several repositories; without one place that lists them, the proposals scatter and rot unread, */}}
-{{/* and a review loop nobody reads is a review loop that has quietly stopped mattering. Everything */}}
-{{/* here is a suggestion — the page applies nothing and offers no approve action in this release, */}}
-{{/* deliberately: approving from the portal would mean the portal holding pull-request merge */}}
-{{/* authority, which is a far larger grant than rendering, and it deserves its own decision. */}}
+{{/* NOTHING HERE IS APPLIED. The review writes Proposal CRs and never opens a change request itself; */}}
+{{/* a person opens one from a proposal's page, and the pull request is where it is decided. */}}
+{{/* */}}
+{{/* Header, then a status line only when the latest run is not a clean Completed (exception-only), */}}
+{{/* then the Proposals (default) and Runs tabs. `?tab=Runs` lands on the runs. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,18 +18,25 @@ metadata:
     "krateo.io/nav-path": "/reviews"
     "krateo.io/verbose": "true"
 spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
     - pageheaders
-    - flexes
-    - tables
-    - listies
-    - rows
+    - alerts
+    - tabs
     vertical: true
     gap: middle
     items:
     - resourceRefId: reviews-page-header
-    - resourceRefId: platform-proposals
+    - resourceRefId: reviews-tabs
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "reviews-page-header" } ]
+        + (if (.banner // null) != null then [ { resourceRefId: "reviews-banner" } ] else [] end)
+        + (if (.installed != false) and (.denied != true) then [ { resourceRefId: "reviews-tabs" } ] else [] end) }
   resourcesRefs:
     items:
     - id: reviews-page-header
@@ -39,9 +45,15 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
       verb: GET
-    - id: platform-proposals
+    - id: reviews-banner
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: platform-proposals
+      name: reviews-banner
       namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: alerts
+      verb: GET
+    - id: reviews-tabs
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-tabs
+      namespace: {{ .Release.Namespace }}
+      resource: tabs
       verb: GET
