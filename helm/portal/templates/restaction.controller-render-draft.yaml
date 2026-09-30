@@ -1,0 +1,121 @@
+{{/* controller-render-draft — preview the CRDs a Controller Builder draft would generate. */}}
+{{/* */}}
+{{/* WHY. A controller draft is RestDefinitions plus the OAS documents they point at, and an OAS */}}
+{{/* document alone passes the 16 KB header limit a GET's ?extras rides in (see */}}
+{{/* blueprint-render-draft). So the builder does what the composer's Preview does: it POSTs the */}}
+{{/* draft into the preview sandbox as a ConfigMap (a request BODY, under the user's identity, */}}
+{{/* through the audited write path), and this RESTAction renders it BY NAME. Only the ConfigMap's */}}
+{{/* namespace and name ride in ?extras. The builder deletes the ConfigMap once the render answers. */}}
+{{/* */}}
+{{/* INPUT (?extras): .namespace, .name — the ConfigMap. Its data["draft.json"] is */}}
+{{/* { restDefinitions: [RestDefinition], oas: { "<spec.oasPath, spelled exactly>": "<doc text>" } } */}}
+{{/* — the body oasgen-render's POST /render reads (oasgen-provider docs/api.md, "Preview"). */}}
+{{/* OUTPUT: blueprint-render-draft's contract, so the frontend's verdict handling reads it as is, */}}
+{{/* plus what only a controller preview has: */}}
+{{/* { objects: [ {apiVersion, kind, name, namespace, yaml} ], error?, problems: [sentence], */}}
+{{/*   warnings: [sentence], crds: [CRD], configurationCrds: [CRD], */}}
+{{/*   errors: [ {restDefinition, field, message, severity} ], skipped: [ {restDefinition, scheme} ] } */}}
+{{/* `objects` lists every generated CRD (yaml = the CRD as JSON, which is YAML); `problems` are the */}}
+{{/* sentences that fail the preview (an input problem, the service, a severity:error finding — the */}}
+{{/* controller would apply nothing for that RestDefinition) and `error` is them joined, as */}}
+{{/* blueprint-render-draft's. `warnings` are what the controller logs and applies anyway. */}}
+{{/* */}}
+{{/* The ConfigMap is read with NO endpointRef: under the caller's own identity, so a person who */}}
+{{/* could not have written it cannot render it either. The render call is the in-cluster */}}
+{{/* oasgen-render-endpoint (secret.oasgen-render-endpoint.yaml), as blueprint-render-draft's is */}}
+{{/* helm-render-endpoint; oasgen-render reads nothing from the cluster. It exists only with */}}
+{{/* oasgen-provider >= 0.25.0 installed with render.enabled=true — without it the render call */}}
+{{/* fails and the answer says so, as a problem. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: controller-render-draft
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py). */}}
+    - name: draft
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: ((.namespace // "") | tostring), name: ((.name // "") | tostring) } | select(.namespace != "" and .name != "") ]'
+      path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .name }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: draftError
+    {{/* GATED ON a draft to render — the same test the final filter's $argErr makes: at least one */}}
+    {{/* RestDefinition, and an oas map. The iterator's one element is the whole resolve dict, so */}}
+    {{/* the payload below reads what it did. */}}
+    - name: render
+      dependsOn:
+        name: draft
+        iterator: '[ select(((try (.draft.data["draft.json"] | fromjson) catch null) | if type == "object" then ((((.restDefinitions // null) | type) == "array" and (.restDefinitions | length) > 0) and ((.oas // null) | type) == "object") else false end)) ]'
+      endpointRef:
+        name: oasgen-render-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: /render
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+      continueOnError: true
+      errorKey: renderError
+      {{/* The body is the ConfigMap's draft.json, narrowed to what /render reads. */}}
+      payload: |-
+        ${ ((try (.draft.data["draft.json"] | fromjson) catch null) // {}) as $d
+           | { restDefinitions: (($d.restDefinitions // []) | if type == "array" then . else [] end),
+               oas: (($d.oas // {}) | if type == "object" then . else {} end) }
+           | tojson }
+  {{/* 1. no ConfigMap named, it could not be read (403/404) or it holds no draft → that sentence; */}}
+  {{/* 2. no answer from oasgen-render (not installed, disabled, too old, the body too large) → */}}
+  {{/*    that sentence; 3. the CRDs, with every severity:error finding as a problem. */}}
+  filter: |
+    def errtext: if type == "array" then (map(errtext) | join("; "))
+                 elif type == "object" then ((.message // .error // tojson) | tostring)
+                 else tostring end;
+    def finding: ((.restDefinition // "") | tostring) as $rd | ((.field // "") | tostring) as $f
+                 | ([ $rd, $f ] | map(select(. != "")) | join(" ")) as $at
+                 | (if $at != "" then $at + ": " else "" end) + ((.message // "") | tostring);
+    def arr: if type == "array" then . else [] end;
+    (((.namespace // "") != "") and ((.name // "") != "")) as $named
+    | ((try (.draft.data["draft.json"] | fromjson) catch null) // null) as $draft
+    | (if ($named | not) then "no draft named — provide the ConfigMap's namespace and name"
+       elif (.draftError != null) then ("the controller draft could not be read: " + (.draftError | errtext))
+       elif ($draft | type) != "object" then "the draft ConfigMap holds no controller draft (data[\"draft.json\"])"
+       elif ((($draft.restDefinitions // null) | type) != "array") or (($draft.restDefinitions | length) == 0) then "the controller draft has no RestDefinition (data[\"draft.json\"].restDefinitions)"
+       elif (($draft.oas // null) | type) != "object" then "the controller draft has no OAS documents (data[\"draft.json\"].oas)"
+       else "" end) as $argErr
+    | (.render // null) as $r
+    | (if $argErr != "" then ""
+       elif (.renderError != null) then
+         ((.renderError | errtext) as $e
+          | if ($e | test("413|too large"; "i")) then "the controller draft is too large for oasgen-render: " + $e
+            else "Controller preview needs oasgen-render (oasgen-provider ≥0.25.0 with render.enabled): " + $e end)
+       elif ($r | type) != "object" or (($r.crds // null) | type) != "array" then
+         "Controller preview needs oasgen-render (oasgen-provider ≥0.25.0 with render.enabled): the render service gave no CRDs"
+       else "" end) as $svcErr
+    | (if $argErr != "" or $svcErr != "" then {} else $r end) as $ok
+    | ($ok.crds // [] | arr) as $crds
+    | ($ok.configurationCrds // [] | arr) as $confs
+    | ($ok.errors // [] | arr | map(select(type == "object"))) as $errors
+    | ($ok.skippedSecuritySchemes // [] | arr | map(select(type == "object"))) as $skipped
+    | ([ $argErr, $svcErr ] | map(select(. != ""))
+       + [ $errors[] | select((.severity // "error") != "warning") | finding ]) as $problems
+    | ([ $errors[] | select(.severity == "warning") | finding ]
+       + [ $skipped[] | (((.restDefinition // "") | tostring) + ": security scheme not supported, skipped: " + ((.scheme // "") | tostring)) ]) as $warnings
+    | ([ ($crds + $confs)[] | select(type == "object")
+         | { apiVersion: (.apiVersion // "apiextensions.k8s.io/v1"),
+             kind: (.kind // "CustomResourceDefinition"),
+             name: (.metadata.name // ""),
+             namespace: "",
+             yaml: tojson } ]) as $objects
+    | { objects: (if ($problems | length) > 0 then [] else $objects end),
+        problems: $problems,
+        warnings: $warnings,
+        crds: $crds,
+        configurationCrds: $confs,
+        errors: $errors,
+        skipped: $skipped }
+      + (if ($problems | length) > 0 then { error: ($problems | join("; ")) } else {} end)

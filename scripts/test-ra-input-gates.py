@@ -194,6 +194,8 @@ COMP = {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'KeystoneDemo',
         'status': {'managed': [], 'conditions': []}}
 DRAFT = {'data': {'chart.json': json.dumps({'rawTemplates': {'templates/cm.yaml': 'kind: ConfigMap'},
                                             'values': {'a': 1}})}}
+CONTROLLER_DRAFT = {'data': {'draft.json': json.dumps({'restDefinitions': [{'kind': 'RestDefinition'}],
+                                                          'oas': {'configmap://ns/cm/k': 'openapi: 3.0.0'}})}}
 EMPTY = {'items': []}
 
 # RESTAction -> {gated: its gated steps, free: responses of its input-free steps,
@@ -278,6 +280,16 @@ GATES = {
                 ('render', '/render', {'rawTemplates': {'templates/cm.yaml': 'kind: ConfigMap'}, 'values': {'a': 1}})]),
             ('a draft with no chart is not rendered (the filter already said so)', {'namespace': NS, 'name': 'draft-1'},
              {'draft': {'data': {}}}, [('draft', f'/api/v1/namespaces/{NS}/configmaps/draft-1')])],
+    },
+    'controller-render-draft': {
+        'gated': ['draft', 'render'],
+        'free': {},
+        'cases': [
+            ('named', {'namespace': NS, 'name': 'ctl-1'}, {'draft': CONTROLLER_DRAFT, 'render': {'crds': []}}, [
+                ('draft', f'/api/v1/namespaces/{NS}/configmaps/ctl-1'),
+                ('render', '/render', {'restDefinitions': [{'kind': 'RestDefinition'}], 'oas': {'configmap://ns/cm/k': 'openapi: 3.0.0'}})]),
+            ('a draft with no RestDefinition is not rendered (the filter already said so)', {'namespace': NS, 'name': 'ctl-1'},
+             {'draft': {'data': {}}}, [('draft', f'/api/v1/namespaces/{NS}/configmaps/ctl-1')])],
     },
     'component-detail': {
         'gated': ['dep'],

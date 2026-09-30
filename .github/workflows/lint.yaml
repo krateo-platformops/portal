@@ -260,3 +260,31 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-ra-input-gates.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # The Controller Builder's preview (controller-render-draft) answers with blueprint-render-draft's
+  # `objects`/`error`, so the frontend's verdict handling reads it unchanged. Every way it can go —
+  # CRDs, a severity:error finding, oasgen-render missing or down, no draft — must be a sentence
+  # there, never a jq error or an empty success. Resolved on /render answers shaped as
+  # oasgen-provider 0.25.0 documents them.
+  controller-render-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Controller preview, resolved on every answer
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-controller-render-draft.py
