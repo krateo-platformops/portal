@@ -191,3 +191,28 @@ def builderChart($bp):
   | { url: ($file | cdField("url")),
       version: ($file | cdField("version") | if . == "CHART_VERSION" then "" else . end) };
 {{- end -}}
+
+{{/*
+  portal.draftBuilders — the builders whose draft records "Your drafts" lists, keyed by the
+  record's krateo.io/draft-kind: the route its composer lives under, and whether its tree is a
+  chart (a Chart.yaml whose version the row shows) or a page set (the row says "page").
+
+  ONE DECLARATION, read by restaction.my-drafts (which kinds are records at all, and where Resume
+  goes) and by list.my-drafts (one pair of Listys per kind). Until they read it, the kinds were
+  written out three times — a select, a resume-path branch and a range — and a new builder had to
+  find all three; the controller builder is the first to arrive that way. When the Builder CR
+  (krateo-platformops/frontend#407) carries route and draft kind, this is what it replaces.
+
+  Emits YAML; read it with: include "portal.draftBuilders" . | fromYaml
+*/}}
+{{- define "portal.draftBuilders" -}}
+blueprint:
+  route: /blueprint-builder
+  chart: true
+controller:
+  route: /controller-builder
+  chart: true
+page:
+  route: /portal-builder
+  chart: false
+{{- end -}}

@@ -1,5 +1,6 @@
-{{/* "Your drafts" rows — four Listys from one template: {blueprint, page} × {open, published}. */}}
-{{/* Each reads restaction.my-drafts (the caller's own records) and keeps its kind and state. */}}
+{{/* "Your drafts" rows — two Listys per builder from one template: each kind portal.draftBuilders */}}
+{{/* declares (_builder.tpl) × {open, published}. Each reads restaction.my-drafts (the caller's own */}}
+{{/* records) and keeps its kind and state. */}}
 {{/* */}}
 {{/* WHY A LISTY AND NOT A TABLE. Every row carries its own actions — Resume and Discard, or */}}
 {{/* Remove from list — and a Table has no per-row action: its only affordance is rowNavigateTo, */}}
@@ -25,7 +26,7 @@
 {{/* not deleted here: they are derived from the record, and the composer sweeps them by owner and */}}
 {{/* slug before any apply. */}}
 {{- $sandbox := .Values.previewSandbox.namespace }}
-{{- range $kind := list "blueprint" "page" }}
+{{- range $kind, $builder := include "portal.draftBuilders" . | fromYaml }}
 {{- range $state := list "open" "published" }}
 ---
 kind: Listy
@@ -89,7 +90,7 @@ spec:
           type: navigate
           {{/* The composer route (frontend RoutesContext) with the record's name; the composer */}}
           {{/* reads ?resume=, loads the record's tree and re-arms Publish by its hash. */}}
-          path: {{ printf "/%s-builder/compose?resume=${recordName}" (ternary "portal" "blueprint" (eq $kind "page")) }}
+          path: {{ printf "%s/compose?resume=${recordName}" $builder.route }}
       {{- end }}
       rest:
         - id: discard
@@ -122,7 +123,7 @@ spec:
                             elif .statusLabel == "Previewed · ready to publish" then "previewed"
                             else "preview-needed" end),
                 meta: ([
-                  {{- if eq $kind "blueprint" }}
+                  {{- if $builder.chart }}
                   (if (.version // "") != "" then .version else empty end),
                   {{- else }}
                   "page",
