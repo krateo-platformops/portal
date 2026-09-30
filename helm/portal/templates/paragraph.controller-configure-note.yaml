@@ -1,0 +1,33 @@
+{{/* What a half-finished save leaves behind, under the Configure form. A save is two writes, the */}}
+{{/* Secret first; when the second fails, the first stays (runRestSet's toast says so, and names */}}
+{{/* the op that failed, but not what to do next). Saving again as it is would stop at once: the */}}
+{{/* Secret's name is taken. So the note names the way out — delete that Secret, or give the */}}
+{{/* Secret another name — and names the Secret by the default the form pre-fills. It is built */}}
+{{/* from the formdef's output only, never from anything typed into the form. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-configure-note
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: controller-configure-formdef
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    type: secondary
+    text: >-
+      Saving writes the Secret first, then the configuration. If the configuration fails, the
+      Secret stays: before saving again, delete it or give the Secret another name.
+  widgetDataTemplate:
+    - forPath: text
+      expression: >-
+        ${ if .ready then
+             "Saving writes the Secret first, then the " + .kind + ". If the " + .kind + " fails, the Secret stays: "
+             + "before saving again, delete Secret " + .namespace + "/" + .secretName
+             + " (or the name you gave it), or give the Secret another name."
+           else "Saving writes the Secret first, then the configuration. If the configuration fails, the Secret stays: before saving again, delete it or give the Secret another name." end }
+  resourcesRefs:
+    items: []

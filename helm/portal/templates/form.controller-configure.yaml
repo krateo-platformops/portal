@@ -3,19 +3,24 @@
 {{/* Secret dispatches no Configuration, so nothing ever points at a Secret that is not there). */}}
 {{/* Both POST through /call as the caller, into the install's namespace. */}}
 {{/* */}}
-{{/* The schema comes from restaction.controller-configure-formdef: the Configuration CRD's own */}}
-{{/* spec, the Configuration's name, and the Secret's name, key and value. */}}
+{{/* The schema comes from restaction.controller-configure-formdef: the Configuration's name, the */}}
+{{/* CRD's own spec fields minus the references this form fills, and the Secret's name, key and */}}
+{{/* value. */}}
 {{/* */}}
-{{/* THE CREDENTIAL IS HANDLED AS ONE. Needs the frontend release that honours format: password */}}
-{{/* and writeOnly (a masked input, masked in the confirm, never shipped to /jq except where an */}}
-{{/* override reads it). So: */}}
-{{/*  - no reviewBeforeSubmit and no draftActionId — no summary page, no localStorage copy; */}}
-{{/*  - every message and the navigate target on the action are static strings, so neither the */}}
-{{/*    body nor the apiserver's response (a Secret carries its data back) is ever evaluated; */}}
-{{/*  - only the stringData override reads the value, and only the Secret op carries it; the */}}
-{{/*    Configuration's spec override names its fields one by one (widgetDataTemplate below), so */}}
-{{/*    it never reads the whole form; */}}
-{{/*  - stringData, not data: the apiserver encodes it, nothing here handles the bytes. */}}
+{{/* THE CREDENTIAL (frontend >= 1.6.83, krateo-platformops/frontend#424). The value field is */}}
+{{/* format: password + writeOnly: masked, never prefilled, and never sent to /jq. #424 refuses */}}
+{{/* the whole submit if any override could reach it other than as a plain path, so EVERY */}}
+{{/* override here is in #424's local grammar (.json.<field>, or an object of those) or a plain */}}
+{{/* string — none goes to /jq at all: */}}
+{{/*  - the Secret: name and key from their fields, stringData {(<key field>): <value field>}; */}}
+{{/*  - the Configuration: its name; its spec as { <field>: .json.<field>, … } over the fields it */}}
+{{/*    shows (none, on every 057 kind); then each first-scheme reference field set on its own — */}}
+{{/*    spec.authentication.<scheme>.<ref>.name and .key from the Secret's fields, .namespace */}}
+{{/*    the install's — so the reference follows whatever name and key were typed. */}}
+{{/* No reviewBeforeSubmit and no draftActionId. No success or error message either: a set of */}}
+{{/* ops reports through its own toast (runRestSet), which names the op that failed and says the */}}
+{{/* ones before it stay applied; card.controller-configure's note says what to do then. The */}}
+{{/* navigate target is a plain string. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -46,8 +51,6 @@ spec:
           resourceRefId: create-secret
           headers:
             - 'Content-Type: application/json'
-          successMessage: Credentials saved
-          errorMessage: "Saving failed. A 409 means a Secret or configuration with that name already exists: pick another name."
           onSuccessNavigateTo: /controller-builder
           loading:
             display: true
@@ -57,21 +60,20 @@ spec:
                 apiVersion: v1
                 kind: Secret
                 type: Opaque
+                metadata:
+                  labels:
+                    krateo.io/managed-by: controller-builder
               {{/* The referenced resource's payload base is merged over this one with an empty */}}
               {{/* metadata.name, so name and namespace are set here. The namespace is a plain */}}
-              {{/* string the widgetDataTemplate writes (the install's namespace), not a ${ }. */}}
+              {{/* string the widgetDataTemplate writes (the install's namespace). */}}
               payloadToOverride:
                 - { name: metadata.name,      value: '${ .json.__secret_name__ }' }
                 - { name: metadata.namespace, value: '' }
-                - { name: metadata.labels,    value: '${ {"krateo.io/managed-by":"controller-builder"} }' }
                 - { name: stringData,         value: '${ { (.json.__secret_key__): .json.__secret_value__ } }' }
             - resourceRefId: create-configuration
               payload: {}
-              payloadToOverride:
-                - { name: metadata.name,      value: '${ .json.__configuration_name__ }' }
-                - { name: metadata.namespace, value: '' }
-                {{/* Replaced by widgetDataTemplate with the spec built field by field. */}}
-                - { name: spec,               value: '${ {} }' }
+              {{/* Written whole by widgetDataTemplate: the ref overrides depend on the kind. */}}
+              payloadToOverride: []
   widgetDataTemplate:
     - forPath: schema
       expression: '${ .schemaSpec }'
@@ -83,21 +85,18 @@ spec:
       expression: '${ .namespace // "" }'
     - forPath: actions.rest[0].ops[1].payload
       expression: '${ if .ready then { apiVersion: .apiVersion, kind: .kind } else {} end }'
-    - forPath: actions.rest[0].ops[1].payloadToOverride[1].value
-      expression: '${ .namespace // "" }'
-    {{/* The Configuration's spec: each of the CRD's own spec fields by name (.json.<field>, the */}}
-    {{/* path form frontend#424 recognises), never `.json` whole */}}
-    {{/* (that would read the credential too). Every Secret reference in it (an object with */}}
-    {{/* name, namespace and key) is pointed at the Secret this submit creates, and empty */}}
-    {{/* values are pruned bottom-up, as form.blueprint-install prunes, so an untouched optional */}}
-    {{/* scheme is not sent half-filled. Emitted as ONE string: the Form CRD types it so. */}}
-    - forPath: actions.rest[0].ops[1].payloadToOverride[2].value
+    - forPath: actions.rest[0].ops[1].payloadToOverride
       expression: >-
-        ${ "${ .json.__secret_name__ as $sn | { "
-           + ([ (.specKeys // [])[] | tojson + ": " + (if test("^[A-Za-z_][A-Za-z0-9_]*$") then ".json." + . else ".json[" + tojson + "]" end) ] | join(", "))
-           + " } | walk(if type == \"object\" and has(\"name\") and has(\"namespace\") and has(\"key\") then .name = $sn | .namespace = "
-           + ((.namespace // "") | tojson)
-           + " else . end) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end) }" }
+        ${ (.namespace // "") as $ns
+           | [ { name: "metadata.name", value: "${ .json.__configuration_name__ }" },
+               { name: "metadata.namespace", value: $ns } ]
+           + (if ((.specKeys // []) | length) > 0
+              then [ { name: "spec", value: ("${ { " + ([ (.specKeys // [])[] | . + ": .json." + . ] | join(", ")) + " } }") } ]
+              else [] end)
+           + [ (.refPaths // [])[] as $r
+               | { name: ($r + ".name"), value: "${ .json.__secret_name__ }" },
+                 { name: ($r + ".key"), value: "${ .json.__secret_key__ }" },
+                 { name: ($r + ".namespace"), value: $ns } ] }
   resourcesRefs:
     items: []
   resourcesRefsTemplate:

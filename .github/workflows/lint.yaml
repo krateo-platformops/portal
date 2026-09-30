@@ -154,6 +154,17 @@ jobs:
           python-version: "3.12"
 
       # Every Form the checks resolve is validated, as resolved, against the NEWEST RELEASED Form CRD:
+      # The frontend's own secret-field rules (frontend#424, vendored in scripts/frontend-secretjq):
+      # test-controller-builder asks them, not a model of them, whether the Configure form's
+      # overrides are refused, resolved in the browser, or sent to /jq.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Frontend secret-field rules
+        run: npm ci --prefix scripts/frontend-secretjq --no-audit --no-fund
+
       # snowplow refuses a resolved widget its CRD does not admit, and portal 1.8.45 shipped one.
       - name: Builder Install step, evaluated and validated
         run: |
@@ -165,7 +176,7 @@ jobs:
           python3 scripts/test-builder-install.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           # /controller-builder: the deliverables ladder (claim -> PR -> definition -> install ->
           # RestDefinitions -> credentials) on 057-shaped fixtures, and the page's alignment with
-          # /blueprint-builder, widget for widget.
+          # /blueprint-builder, widget for widget; the Configure form under the frontend's rules.
           python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the

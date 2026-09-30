@@ -29,6 +29,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -379,31 +380,59 @@ def check_mirrors_the_blueprint_builder():
 # Configure credentials (/controller-builder/configure/{namespace}/{name})
 # ---------------------------------------------------------------------------------------------
 
-def config_crd(kind='PetConfiguration', group='petstore.example.io'):
-    """A <Kind>Configuration CRD as oasgen 0.23.0 generates it (AutolinkConfiguration on krateo-057)."""
+def config_crd(kind='PetConfiguration', group='petstore.example.io', schemes=None, extra=None):
+    """A <Kind>Configuration CRD as oasgen 0.23.0 generates it: spec.authentication.bearer.tokenRef
+    on all 35 of krateo-057's. `schemes` and `extra` (more spec fields) exercise the general case."""
     ref = {'type': 'object', 'required': ['key', 'name', 'namespace'],
            'properties': {'key': {'type': 'string'}, 'name': {'type': 'string'}, 'namespace': {'type': 'string'}}}
-    spec = {'type': 'object', 'properties': {'authentication': {
-        'type': 'object', 'description': 'The authentication methods available for this API.',
-        'properties': {'bearer': {'type': 'object', 'required': ['tokenRef'], 'properties': {'tokenRef': ref}}}}}}
+    schemes = schemes or {'bearer': ['tokenRef']}
+    auth = {'type': 'object', 'description': 'The authentication methods available for this API.',
+            'properties': {s: {'type': 'object', 'required': refs, 'properties': {r: ref for r in refs}} for s, refs in schemes.items()}}
+    spec = {'type': 'object', 'properties': dict({'authentication': auth}, **(extra or {}))}
     return {'metadata': {'name': kind.lower() + 's.' + group},
             'spec': {'group': group, 'versions': [{'name': 'v1alpha1', 'served': True,
                                                    'schema': {'openAPIV3Schema': {'properties': {'spec': spec}}}}]}}
 
 
 SECRET = 'correct-horse-battery-staple'
+SECRETJQ = os.path.join(HERE, 'frontend-secretjq')
 
 
-def payload_for(op, values):
-    """What useHandleActions.buildPayload sends for one op: the op payload, then each override —
-    a ${ } evaluated over {json: <form values>}, anything else verbatim."""
-    body = copy.deepcopy(op.get('payload') or {})
-    for o in op.get('payloadToOverride') or []:
-        v = o['value']
-        if isinstance(v, str) and v.startswith('${'):
-            v = tbi.jq(v[2:-1], {'json': values})
-        tbi.set_path(body, o['name'], v)
-    return body
+def frontend_plans(widget_data, values):
+    """The frontend's OWN verdict on every override (frontend#424 secretJq.planOverride, vendored in
+    scripts/frontend-secretjq): local / jq (with the exact data sent) / refused. Needs
+    `npm ci --prefix scripts/frontend-secretjq` (the CI job does it)."""
+    tsx = os.path.join(SECRETJQ, 'node_modules', '.bin', 'tsx')
+    if not os.path.exists(tsx):
+        raise RuntimeError(f'{tsx} is missing: run `npm ci --prefix scripts/frontend-secretjq`')
+    proc = subprocess.run([tsx, os.path.join(SECRETJQ, 'plan.ts')], input=json.dumps({'widgetData': widget_data, 'values': values}),
+                          capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(f'plan.ts failed: {proc.stderr.strip()[:500]}')
+    return json.loads(proc.stdout)
+
+
+def bodies(widget_data, values):
+    """The bodies a submit sends, built as buildPayload builds them — each override resolved the way
+    the frontend resolves it (locally, or by /jq over the secret-free data it would send) — and
+    every refusal, which would stop the whole submit before any request."""
+    plans = frontend_plans(widget_data, values)
+    action = widget_data['actions']['rest'][0]
+    out, refused, sent = [], [], []
+    for op, planned in zip(action['ops'], plans['actions'][0]['ops']):
+        body = copy.deepcopy(op.get('payload') or {})
+        for o in planned['overrides']:
+            if o['mode'] == 'refused':
+                refused.append(o['name'] + ': ' + o['error'])
+                continue
+            if o['mode'] == 'jq':
+                sent.append((o['name'], o['data']))
+                value = tbi.jq(o['expression'].strip()[2:-1], o['data'])
+            else:
+                value = o['value']
+            tbi.set_path(body, o['name'], value)
+        out.append(body)
+    return out, refused, sent, plans['secretPaths']
 
 
 def check_configure_credentials():
@@ -416,33 +445,36 @@ def check_configure_credentials():
            [('rd', '/apis/ogen.krateo.io/v1alpha1/namespaces/team-a/restdefinitions/pets-pet'),
             ('crd', '/apis/apiextensions.k8s.io/v1/customresourcedefinitions/petconfigurations.petstore.example.io')])
     schema = json.loads(out['stringSchema'])
-    expect(f, 'field order: the configuration, its spec, then the Secret', list(schema['properties']),
-           ['__configuration_name__', 'authentication', '__secret_name__', '__secret_key__', '__secret_value__'])
+    # The token reference is DERIVED from the Secret's fields, not shown: on every 057 kind the
+    # form is the configuration's name and the Secret.
+    expect(f, 'field order: the configuration, then the Secret; the reference is not a field', list(schema['properties']),
+           ['__configuration_name__', '__secret_name__', '__secret_key__', '__secret_value__'])
     expect(f, 'the credential is a password field, write-only', {k: schema['properties']['__secret_value__'].get(k) for k in ('format', 'writeOnly')},
            {'format': 'password', 'writeOnly': True})
     expect(f, 'everything a save needs is required', sorted(schema['required']),
-           sorted(['__configuration_name__', 'authentication', '__secret_name__', '__secret_key__', '__secret_value__']))
-    expect(f, 'pre-filled: the Secret, and the reference pointing at it', out['initialValues'],
-           {'__configuration_name__': 'pets-pet', '__secret_name__': 'pets-pet-credentials', '__secret_key__': 'token',
-            'authentication': {'bearer': {'tokenRef': {'name': 'pets-pet-credentials', 'namespace': 'team-a', 'key': 'token'}}}})
+           sorted(['__configuration_name__', '__secret_name__', '__secret_key__', '__secret_value__']))
+    expect(f, 'pre-filled: the configuration and the Secret, never the credential', out['initialValues'],
+           {'__configuration_name__': 'pets-pet', '__secret_name__': 'pets-pet-credentials', '__secret_key__': 'token'})
     expect(f, 'no credential value anywhere in what the RA serves', SECRET in json.dumps(out), False)
 
     form = tbi.resolved_widget(CHART, 'Form', 'controller-configure', out, extras, 'controller-configure (named)')
     wd = form['spec']['widgetData']
     expect(f, 'no review page, no local draft', [wd.get('reviewBeforeSubmit', False), 'draftActionId' in wd], [False, False])
     action = wd['actions']['rest'][0]
-    expect(f, 'messages and the navigate target are static', [('${' in str(action.get(k, ''))) for k in ('successMessage', 'errorMessage', 'onSuccessNavigateTo')],
+    expect(f, 'no templated message or navigate target', [('${' in str(action.get(k, ''))) for k in ('successMessage', 'errorMessage', 'onSuccessNavigateTo')],
            [False, False, False])
     ops = action['ops']
     expect(f, 'Secret first, then the configuration', [o['resourceRefId'] for o in ops], ['create-secret', 'create-configuration'])
-    readers = [(i, o['name']) for i, op in enumerate(ops) for o in op['payloadToOverride'] if '__secret_value__' in str(o['value'])]
-    expect(f, 'only the Secret\'s stringData reads the credential', readers, [(0, 'stringData')])
-    wholes = [o['name'] for op in ops for o in op['payloadToOverride'] if re.search(r'\.json\s*(\||\)|\}|$)', str(o['value']))]
-    expect(f, 'no override reads the whole form', wholes, [])
 
-    # The two bodies the submit sends, for a person who kept the pre-fill and typed the token.
+    # THE FRONTEND'S VERDICT (frontend#424, run from its own code): nothing refused, nothing sent
+    # to /jq, the credential only ever a value in the Secret's stringData.
     values = dict(out['initialValues'], __secret_value__=SECRET)
-    secret, config = (payload_for(op, values) for op in ops)
+    (secret, config), refused, sent, secret_paths = bodies(wd, values)
+    expect(f, 'frontend: the credential is the one secret field', secret_paths, [['__secret_value__']])
+    expect(f, 'frontend: no override is refused', refused, [])
+    if refused:
+        return f            # the browser would stop the submit here; there are no bodies to check
+    expect(f, 'frontend: no override goes to /jq', [n for n, _ in sent], [])
     expect(f, 'the Secret body', secret, {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
                                           'metadata': {'name': 'pets-pet-credentials', 'namespace': 'team-a',
                                                        'labels': {'krateo.io/managed-by': 'controller-builder'}},
@@ -450,14 +482,45 @@ def check_configure_credentials():
     expect(f, 'the configuration body', config, {'apiVersion': 'petstore.example.io/v1alpha1', 'kind': 'PetConfiguration',
                                                  'metadata': {'name': 'pets-pet', 'namespace': 'team-a'},
                                                  'spec': {'authentication': {'bearer': {'tokenRef': {'name': 'pets-pet-credentials', 'namespace': 'team-a', 'key': 'token'}}}}})
-    # A renamed Secret: the reference follows it, whatever the reference field still says.
-    renamed = payload_for(ops[1], dict(values, __secret_name__='petstore-token'))
-    expect(f, 'the reference follows a renamed Secret', renamed['spec']['authentication']['bearer']['tokenRef']['name'], 'petstore-token')
-    refs = {r['id']: r for r in form['spec'].get('resourcesRefsTemplate') and [
+    expect(f, 'the credential is only in the Secret\'s stringData', [SECRET in json.dumps(config), SECRET in json.dumps({k: v for k, v in secret.items() if k != 'stringData'})],
+           [False, False])
+    # A renamed Secret AND a renamed key: the reference follows both.
+    (secret2, config2), _, _, _ = bodies(wd, dict(values, __secret_name__='petstore-token', __secret_key__='apiKey'))
+    expect(f, 'a renamed Secret and key: the Secret uses them', (secret2['metadata']['name'], secret2['stringData']), ('petstore-token', {'apiKey': SECRET}))
+    expect(f, 'a renamed Secret and key: the reference follows both', config2['spec']['authentication']['bearer']['tokenRef'],
+           {'name': 'petstore-token', 'namespace': 'team-a', 'key': 'apiKey'})
+    refs = {r['id']: r for r in [
         {k: (tbi.jq(v[2:-1], out) if isinstance(v, str) and v.startswith('${') else v) for k, v in t['template'].items()}
-        for t in form['spec']['resourcesRefsTemplate']] or []}
+        for t in form['spec']['resourcesRefsTemplate']]}
     expect(f, 'both write into the install\'s namespace', [(r['resource'], r['namespace'], r['verb']) for r in refs.values()],
            [('secrets', 'team-a', 'POST'), ('petconfigurations', 'team-a', 'POST')])
+
+    # The general case: a second scheme and another spec field stay in the form and are sent as
+    # typed (plain paths — still nothing to /jq); only the first scheme's reference is derived.
+    crd = config_crd(schemes={'bearer': ['tokenRef'], 'basic': ['passwordRef']},
+                     extra={'baseUrl': {'type': 'string', 'title': 'Base URL'}})
+    _, _, out2 = gates.resolve(ra, extras, {'rd': rd, 'crd': crd})
+    s2 = json.loads(out2['stringSchema'])
+    expect(f, 'general: the other scheme and field stay; the first scheme\'s reference goes',
+           (list(s2['properties']), list(s2['properties']['authentication']['properties'])),
+           (['__configuration_name__', 'authentication', 'baseUrl', '__secret_name__', '__secret_key__', '__secret_value__'], ['bearer']))
+    wd2 = tbi.resolved_widget(CHART, 'Form', 'controller-configure', out2, extras, 'controller-configure (two schemes)')['spec']['widgetData']
+    typed = dict(out2['initialValues'], __secret_value__=SECRET, baseUrl='https://api.example.io',
+                 authentication={'bearer': {'tokenRef': {'name': 'x', 'namespace': 'y', 'key': 'z'}}})
+    (_, config3), refused3, sent3, _ = bodies(wd2, typed)
+    expect(f, 'general: nothing refused, nothing to /jq', (refused3, [n for n, _ in sent3]), ([], []))
+    expect(f, 'general: the typed fields go through; the first scheme\'s reference is the Secret\'s',
+           (config3['spec']['baseUrl'], config3['spec']['authentication']['basic']['passwordRef']),
+           ('https://api.example.io', {'name': 'pets-pet-credentials', 'namespace': 'team-a', 'key': 'password'}))
+    # The FIRST scheme is the first by name (basic before bearer), whichever jq runs the RA.
+    expect(f, 'general: the untouched scheme is sent as typed', config3['spec']['authentication']['bearer'],
+           {'tokenRef': {'name': 'x', 'namespace': 'y', 'key': 'z'}})
+
+    # The note names the Secret a half-finished save leaves, from the formdef output only.
+    note = tbi.resolved_widget(CHART, 'Paragraph', 'controller-configure-note', out, extras, 'controller-configure-note (named)')
+    expect(f, 'partial write: the note names the Secret and the way out', note['spec']['widgetData']['text'],
+           'Saving writes the Secret first, then the PetConfiguration. If the PetConfiguration fails, the Secret stays: '
+           'before saving again, delete Secret team-a/pets-pet-credentials (or the name you gave it), or give the Secret another name.')
 
     # Nothing to configure: no route params (the prewarm), a kind with no security scheme, a CRD
     # not served yet. A form with no fields, no write target, never a failed resolve.
@@ -470,9 +533,11 @@ def check_configure_credentials():
             expect(f, 'prewarm: no request', requests, [])
         tbi.resolved_widget(CHART, 'Form', 'controller-configure', o, ex, f'controller-configure ({label})')
         tbi.resolved_widget(CHART, 'PageHeader', 'controller-configure-page-header', o, ex, f'controller-configure-page-header ({label})')
+        tbi.resolved_widget(CHART, 'Paragraph', 'controller-configure-note', o, ex, f'controller-configure-note ({label})')
     for kind, name in (('Flex', 'page-controller-configure'), ('Card', 'controller-configure-card')):
         tbi.RESOLVED.append((f'{name} (as authored)', copy.deepcopy(CHART.get(kind, name))))
     return f
+
 
 CHECKS = [check_the_ladder, check_only_controller_publishes, check_iterators_request_what_they_need,
           check_registry_groups_by_api, check_mirrors_the_blueprint_builder, check_configure_credentials]

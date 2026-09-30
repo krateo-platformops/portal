@@ -13,7 +13,8 @@
 {{/* THE SECRET VALUE NEVER PASSES THROUGH HERE. This RA only describes the form: the value field is */}}
 {{/* declared format: password + writeOnly, and the value itself goes from the browser to the */}}
 {{/* apiserver in the /call body and nowhere else. The Secret's NAME and KEY are ordinary fields; */}}
-{{/* the Configuration's *Ref objects are pointed at them on submit (form.controller-configure). */}}
+{{/* the Configuration's first-scheme *Ref objects are not shown, and are written from them on */}}
+{{/* submit (form.controller-configure, one override per ref field). */}}
 {{/* */}}
 {{/* FIELD ORDER rides in stringSchema, built as a string: gojq sorts object keys, so a schema */}}
 {{/* object would reach the browser alphabetical (the Secret's key before its name). The fenced */}}
@@ -73,44 +74,65 @@ spec:
                                     else "oasgen has not served the " + $cfgKind + " kind yet. This usually takes under a minute — reload the page." end) },
         initialValues: {},
         ready: false,
-        namespace: "", rdName: "", kind: "", apiVersion: "", plural: "", specKeys: [] }
+        namespace: "", rdName: "", kind: "", apiVersion: "", plural: "", specKeys: [], refPaths: [], secretName: "" }
     else
       ($rd.metadata.namespace // "") as $ns
       | ($rd.metadata.name // "") as $rdName
       | (($v.schema.openAPIV3Schema.properties.spec // {}) | if type == "object" then . else {} end) as $spec
-      | (($spec.properties // {}) | keys) as $specKeys
       # The Secret references the Configuration declares: every *Ref object under one scheme of
-      # spec.authentication (bearer.tokenRef on every kind krateo-057 generates). The first scheme's
-      # are pre-filled to point at the Secret this form writes; the rest are left to the person.
+      # spec.authentication (bearer.tokenRef on every kind krateo-057 generates). The FIRST
+      # scheme's are the ones this form fills — each points at the Secret it writes, by the name
+      # and key typed below — so they are DERIVED, not shown: a ref's own name/key/namespace
+      # fields would be the Secret's name and key a second time, and could disagree with it.
+      # Other schemes are left in the form, untouched.
       # OUT OF SCOPE: a scheme with two references (basic: usernameRef + passwordRef). Both point
       # at the one Secret, and the form writes one key; the other key must already be there.
-      | ([ (($spec.properties.authentication.properties // {}) | to_entries[])
+      # In key order, explicitly: jq keeps a map's insertion order and gojq sorts it, so without
+      # the sort "the first scheme" would depend on which one runs this.
+      | ([ (($spec.properties.authentication.properties // {}) | to_entries | sort_by(.key))[]
            | .key as $scheme
-           | ((.value.properties // {}) | to_entries[] | select(.key | endswith("Ref")) | { scheme: $scheme, ref: .key }) ]) as $refs
+           | (((.value.properties // {}) | to_entries | sort_by(.key))[] | select(.key | endswith("Ref")) | { scheme: $scheme, ref: .key }) ]) as $allRefs
+      | ([ $allRefs[] | select(.scheme == ($allRefs[0].scheme // "")) ]) as $refs
+      # The spec the person sees: the first scheme's refs removed, then any object left with no
+      # fields (that scheme, then authentication itself) — on every 057 kind, nothing is left.
+      | (reduce $refs[] as $r ($spec; del(.properties.authentication.properties[$r.scheme].properties[$r.ref])
+                                      | .properties.authentication.properties[$r.scheme].required
+                                          = (((.properties.authentication.properties[$r.scheme].required // []) - [$r.ref]))))
+        as $trimmed
+      | ($trimmed
+         | (if ($refs | length) > 0 and (((.properties.authentication.properties[$refs[0].scheme].properties // {}) | length) == 0)
+            then del(.properties.authentication.properties[$refs[0].scheme])
+                 | .properties.authentication.required = (((.properties.authentication.required // []) - [$refs[0].scheme]))
+            else . end)
+         | (if (.properties.authentication != null) and (((.properties.authentication.properties // {}) | length) == 0)
+            then del(.properties.authentication) else . end)) as $display
+      # Only identifier keys: the Form's spec override names each one as a plain path
+      # (.json.<key>), the only form frontend#424 evaluates without the /jq round-trip.
+      | ([ ($display.properties // {}) | keys[] | select(test("^[A-Za-z_][A-Za-z0-9_]*$")) ]) as $specKeys
       | ($rdName + "-credentials") as $secretName
       | (if ($refs | length) > 0 then ($refs[0].ref | sub("Ref$"; "")) else "token" end) as $secretKey
       | ([ ("__configuration_name__" | tojson) + ":" + ({ type: "string", title: "Configuration name",
              description: ("The " + $cfgKind + " to create in " + $ns + ". A resource of this kind names it in spec.configurationRef.") } | tojson) ]
-         + [ ($spec.properties // {}) | to_entries[] | (.key | tojson) + ":" + (.value | tojson) ]
-         + [ ("__secret_name__" | tojson) + ":" + (secretField("Secret name"; ("The Secret created in " + $ns + " to hold the credential. The references above point at it.")) | tojson),
+         + [ ($display.properties // {}) | to_entries | sort_by(.key) | .[] | select(.key as $k | $specKeys | index($k)) | (.key | tojson) + ":" + (.value | tojson) ]
+         + [ ("__secret_name__" | tojson) + ":" + (secretField("Secret name"; ("The Secret created in " + $ns + " to hold the credential. The " + $cfgKind + " points at it.")) | tojson),
              ("__secret_key__" | tojson) + ":" + (secretField("Secret key"; "The key the credential is stored under in that Secret.") | tojson),
              ("__secret_value__" | tojson) + ":" + (secretField("Credential"; "The token or password itself. Sent once, to the cluster, when you save; it is never shown again.")
                                                     + { format: "password", writeOnly: true } | tojson) ]) as $props
-      | (["__configuration_name__"] + ($spec.required // []) + (if ($specKeys | index("authentication")) then ["authentication"] else [] end)
+      | (["__configuration_name__"] + [ ($display.required // [])[] | select(. as $k | $specKeys | index($k)) ]
          + ["__secret_name__", "__secret_key__", "__secret_value__"] | unique) as $required
       | { stringSchema: ("{\"type\":\"object\",\"properties\":{" + ($props | join(",")) + "},\"required\":" + ($required | tojson) + "}"),
-          schemaSpec: ($spec | .type = "object"
-                       | .properties = ((.properties // {}) + { __configuration_name__: { type: "string", title: "Configuration name" },
-                                                                __secret_name__: secretField("Secret name"; ""),
-                                                                __secret_key__: secretField("Secret key"; ""),
-                                                                __secret_value__: (secretField("Credential"; "") + { format: "password", writeOnly: true }) })
+          schemaSpec: ($display | .type = "object"
+                       | .properties = (((.properties // {}) | with_entries(select(.key as $k | $specKeys | index($k))))
+                                        + { __configuration_name__: { type: "string", title: "Configuration name" },
+                                            __secret_name__: secretField("Secret name"; ""),
+                                            __secret_key__: secretField("Secret key"; ""),
+                                            __secret_value__: (secretField("Credential"; "") + { format: "password", writeOnly: true }) })
                        | .required = $required),
-          initialValues: ({ __configuration_name__: $rdName, __secret_name__: $secretName, __secret_key__: $secretKey }
-                          + (if ($refs | length) > 0
-                             then { authentication: { ($refs[0].scheme): ([ $refs[] | select(.scheme == $refs[0].scheme)
-                                                                           | { (.ref): { name: $secretName, namespace: $ns, key: (.ref | sub("Ref$"; "")) } } ] | add) } }
-                             else {} end)),
+          initialValues: { __configuration_name__: $rdName, __secret_name__: $secretName, __secret_key__: $secretKey },
           ready: true,
           namespace: $ns, rdName: $rdName, kind: $cfgKind, apiVersion: $cfgApi,
-          plural: (($cfgKind | ascii_downcase) + "s"), specKeys: $specKeys }
+          plural: (($cfgKind | ascii_downcase) + "s"), specKeys: $specKeys,
+          # Where the Secret's name and key land in the Configuration: spec.authentication.<scheme>.<ref>.
+          refPaths: [ $refs[] | "spec.authentication.\(.scheme).\(.ref)" ],
+          secretName: $secretName }
     end
