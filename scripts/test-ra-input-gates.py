@@ -23,6 +23,15 @@ RESTAction is resolved by a model of snowplow's resolver: steps in dependsOn ord
 iterator yields its elements, none for a non-array; path, payload and headers are evaluated against
 the element; a step filter sees {extras, <stage>: response}; the first response is stored as-is,
 later filter-produced arrays are spliced; an unserved request fails, recorded under the errorKey.
+Two things snowplow does to the requests are modelled too, because the page broke on them while
+this test passed (portal 1.8.56: the composition detail page resolved no composition):
+  - the cluster-list collapse (resolvers/restactions/api/cluster_list.go:156): an iterator whose
+    FIRST element renders a namespaced LIST (/…/namespaces/<ns>/<plural>) is replaced, for a caller
+    who may list that kind cluster-wide, by ONE cluster-scope list of that first element's kind
+    (the GVR is derived from element 0 alone, :664-740). Its cell is warm on a running portal
+    (compositions-list keeps one per kind), so the collapse is taken;
+  - a userAccessFilter keeps only the items in namespaces the caller may read (refilter.go).
+Each case runs as an admin (collapse on, every namespace) unless it names a tenant's namespaces.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it.
 Usage: test-ra-input-gates.py [--crds DIR]. Exit code = failed checks.
@@ -70,7 +79,51 @@ def store(d, key, value, filtered):
     d[key] = got + value if (filtered and isinstance(value, list)) else got + [value]
 
 
-def resolve(ra, extras, responses):
+def apiserver_path(path):
+    """(prefix, namespace, resource, name) of an apiserver path, None for any other
+    (cache.ParseAPIServerPathToDep)."""
+    p = (path or '').split('?')[0].rstrip('/').split('/')
+    if len(p) < 3 or p[0] != '' or p[1] not in ('api', 'apis'):
+        return None
+    head = 3 if p[1] == 'api' else 4           # /api/<v> | /apis/<g>/<v>
+    prefix, rest = '/'.join(p[:head]), p[head:]
+    if not rest:
+        return None
+    if rest[0] == 'namespaces' and len(rest) >= 3:
+        return prefix, rest[1], rest[2], (rest[3] if len(rest) > 3 else '')
+    return prefix, '', rest[0], (rest[1] if len(rest) > 1 else '')
+
+
+def collapsed(step, paths, caller):
+    """The requests snowplow makes for an iterator stage's `paths` (cluster_list.go:156, :664)."""
+    first = apiserver_path(paths[0]) if paths else None
+    if caller['namespaces'] is not None or step.get('endpointRef') or first is None:
+        return paths
+    prefix, ns, resource, name = first
+    if ns == '' or name != '':                 # already cluster-scope, or a GET by name
+        return paths
+    return [f'{prefix}/{resource}']
+
+
+ADMIN = {'namespaces': None}
+
+
+def tenant(grants):
+    """A caller who may list each API group only in the namespaces given: {group: [namespace]}."""
+    return {'namespaces': {g: set(ns) for g, ns in grants.items()}}
+
+
+def refiltered(step, resp, caller):
+    """userAccessFilter: the items in namespaces where the caller may read the filter's group."""
+    uaf = step.get('userAccessFilter')
+    if not uaf or caller['namespaces'] is None or not isinstance(resp, dict):
+        return resp
+    allowed = caller['namespaces'].get(uaf.get('group'), set())
+    return dict(resp, items=[i for i in resp.get('items') or []
+                             if (i.get('metadata') or {}).get('namespace') in allowed])
+
+
+def resolve(ra, extras, responses, caller=ADMIN):
     """(requests, dict, output). `responses` maps a step to its response for any path, or to
     {path: response}; a request with no response fails."""
     d, requests = copy.deepcopy(extras), []
@@ -88,12 +141,17 @@ def resolve(ra, extras, responses):
             items = items if isinstance(items, list) else []
         else:
             items = [d]
+        calls = []
         for item in items:
             expr = query(step.get('path'))
             path = tbi.jq(expr, item) if expr is not None else step['path']
             payload = step.get('payload')
             if payload is not None and query(payload) is not None:
                 payload = json.loads(tbi.jq(query(payload), item))
+            calls.append((path, payload))
+        if it and (step.get('verb') or 'GET') == 'GET':
+            calls = [(p, None) for p in collapsed(step, [p for p, _ in calls], caller)]
+        for path, payload in calls:
             requests.append((name, path, payload))
             resp = responses.get(name)
             if isinstance(resp, dict) and resp and all(k.startswith('/') for k in resp):
@@ -103,7 +161,7 @@ def resolve(ra, extras, responses):
                     return requests, d, None       # snowplow truncates the resolve (R-3)
                 d.setdefault(step.get('errorKey', 'error'), []).append(f'{path}: not found')
                 continue
-            pig = {name: copy.deepcopy(resp)}
+            pig = {name: refiltered(step, copy.deepcopy(resp), caller)}
             if extras:
                 pig['extras'] = extras
             store(d, name, tbi.jq(step['filter'], pig) if step.get('filter') else resp, bool(step.get('filter')))
@@ -274,20 +332,74 @@ GATES = {
     },
 }
 
-# composition-detail and the three RESTActions shaped like it: the per-kind LIST now carries the
-# route's namespace (it read /namespaces//<plural>, every namespace, before).
+# composition-detail and the three RESTActions shaped like it find the composition by listing every
+# composition kind. The fixture is what snowplow serves on a running portal: more than one kind, the
+# composition's own NOT first (on krateo-057 it is one of 46), a composition of the same name in
+# another namespace, and every list readable cluster-wide by an admin and per namespace by a tenant.
+# 1.8.56 listed each kind per namespace; the collapse turned that into one list of the first kind,
+# and the page found nothing while the requests this test checked were all generated.
+CD_OTHER = compdef('aaa-other', api='composition.krateo.io/v0-0-9', resource='agentgatewaycontrollers')
+CD_OTHER['status']['kind'] = 'AgentgatewayController'
+OTHER = {'apiVersion': 'composition.krateo.io/v0-0-9', 'kind': 'AgentgatewayController',
+         'metadata': {'name': 'gw', 'namespace': NS, 'uid': '11111111-2222-4333-8444-555555555555'}}
+MANAGED = '/api/v1/namespaces/team-a/configmaps/c1-values'
+COMP_MANAGED = dict(COMP, status={'managed': [{'apiVersion': 'v1', 'resource': 'configmaps', 'name': 'c1-values',
+                                                'path': MANAGED}], 'conditions': []})
+TWIN = {'apiVersion': COMP['apiVersion'], 'kind': COMP['kind'],
+        'metadata': {'name': 'c1', 'namespace': 'team-b', 'uid': '99999999-8888-4777-8666-555555555555'},
+        'status': {'managed': [{'path': '/api/v1/namespaces/team-b/configmaps/c1-values'}], 'conditions': []}}
+FOUND = {
+    '/apis/composition.krateo.io/v0-0-9/agentgatewaycontrollers': {'items': [OTHER]},
+    f'/apis/composition.krateo.io/v0-0-9/namespaces/{NS}/agentgatewaycontrollers': {'items': [OTHER]},
+    '/apis/composition.krateo.io/v0-0-9/namespaces/team-a/agentgatewaycontrollers': EMPTY,
+    '/apis/composition.krateo.io/v0-1-0/keystonedemoes': {'items': [COMP_MANAGED, TWIN]},
+    '/apis/composition.krateo.io/v0-1-0/namespaces/team-a/keystonedemoes': {'items': [COMP_MANAGED]},
+}
+LISTS = [('found', '/apis/composition.krateo.io/v0-0-9/agentgatewaycontrollers'),
+         ('found', '/apis/composition.krateo.io/v0-1-0/keystonedemoes')]
+
+
+def found_subject(ra, extras, out, caller=ADMIN):
+    """composition-detail's output is the composition the extras name, or nothing when the caller may
+    not read it; the other three show what they found in their requests."""
+    if ra != 'composition-detail':
+        return None
+    subject = next((c for c in (COMP_MANAGED, TWIN) if c['metadata']['namespace'] == extras['namespace']), None)
+    if caller['namespaces'] is not None and \
+            extras['namespace'] not in caller['namespaces'].get('composition.krateo.io', set()):
+        subject = None
+    meta, gvr = (out.get('detail') or {}).get('metadata') or {}, out.get('gvr') or {}
+    want = (subject['metadata']['uid'], 'keystonedemoes', 'keystone') if subject else (None, '', '')
+    if (meta.get('uid'), gvr.get('resource'), out.get('blueprintName')) != want:
+        return f'resolved {meta.get("namespace")}/{meta.get("name")} {meta.get("uid")}, gvr {gvr}'
+    return None
+
+
+TENANT = tenant({'core.krateo.io': [NS], 'composition.krateo.io': ['team-a']})
 for _ra, _gated, _more in (('composition-detail', ['found'], {}),
                            ('composition-editdef', ['found', 'jsonschema'], {}),
                            ('composition-events', ['found', 'getEvents'], {'allcrds': EMPTY}),
                            ('composition-resources', ['found', 'resources'], {})):
-    _want = [('found', '/apis/composition.krateo.io/v0-1-0/namespaces/team-a/keystonedemoes')]
+    _then = []
     if _ra == 'composition-events':
-        _want.append(('getEvents', f'/events?limit=200&composition_id={UID}'))
+        _then.append(('getEvents', f'/events?limit=200&composition_id={UID}'))
     if _ra == 'composition-editdef':
-        _want.append(('jsonschema', f'/api/v1/namespaces/{NS}/configmaps/keystonedemoes-v0-1-0-jsonschema-configmap'))
-    GATES[_ra] = {'gated': _gated, 'free': dict({'crds': {'items': [CD]}}, **_more),
-                  'cases': [('named', {'namespace': 'team-a', 'name': 'c1'},
-                             {'found': {'items': [COMP]}, 'getEvents': {'events': []}}, _want)]}
+        _then.append(('jsonschema', f'/api/v1/namespaces/{NS}/configmaps/keystonedemoes-v0-1-0-jsonschema-configmap'))
+    if _ra == 'composition-resources':
+        _then.append(('resources', MANAGED))
+    _then_b = [(s, p.replace(UID, TWIN['metadata']['uid']).replace('team-a', 'team-b')) for s, p in _then]
+    _then_none = [(s, '/events?limit=200') for s, _ in _then if s == 'getEvents']
+    _responses = {'found': FOUND, 'getEvents': {'events': []},
+                  'resources': {MANAGED: {}, MANAGED.replace('team-a', 'team-b'): {}}}
+    GATES[_ra] = {'gated': _gated, 'free': dict({'crds': {'items': [CD_OTHER, CD]}}, **_more),
+                  'check': found_subject,
+                  'cases': [('named, as an admin', {'namespace': 'team-a', 'name': 'c1'}, _responses, LISTS + _then),
+                            ('named, as a tenant of team-a', {'namespace': 'team-a', 'name': 'c1'}, _responses,
+                             LISTS + _then, TENANT),
+                            ("another namespace's composition of that name, as an admin",
+                             {'namespace': 'team-b', 'name': 'c1'}, _responses, LISTS + _then_b),
+                            ("another namespace's composition of that name, as a tenant of team-a: not read",
+                             {'namespace': 'team-b', 'name': 'c1'}, _responses, LISTS + _then_none, TENANT)]}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -328,12 +440,13 @@ def check_no_input(charts):
 
 
 def check_with_input(charts):
-    """With the page's extras: exactly the requests listed, each well-formed."""
+    """With the page's extras: exactly the requests listed, each well-formed, and what they find is
+    the page's subject."""
     f = []
     for name, spec in sorted(GATES.items()):
         ra = charts[name].get('RESTAction', name)
-        for label, extras, responses, want in spec['cases']:
-            reqs, _, out = resolve(ra, extras, dict(spec['free'], **responses))
+        for label, extras, responses, want, *caller in spec['cases']:
+            reqs, _, out = resolve(ra, extras, dict(spec['free'], **responses), *caller)
             got = gated_requests(ra, reqs, spec['gated'])
             if want is None:      # a ClickHouse query: one request, naming both inputs
                 ok = len(got) == 1 and "%27c1%27" in got[0][1] and "%27team-a%27" in got[0][1]
@@ -343,6 +456,8 @@ def check_with_input(charts):
                 f.append(f'{name} {label}:\n          got  {got}\n          want {want}')
             if out is None:
                 f.append(f'{name} {label}: the resolve was truncated')
+            elif spec.get('check') and spec['check'](name, extras, out, *caller):
+                f.append(f'{name} {label}: {spec["check"](name, extras, out, *caller)}')
     return f
 
 

@@ -58,7 +58,9 @@ See [docs/configuration.md](docs/configuration.md). Most used:
 Authoring rules for chart contributors: [docs/authoring-keyextras.md](docs/authoring-keyextras.md)
 (`spec.keyExtras`, CI-enforced), and a RESTAction step that needs a route param is gated on it
 rather than given a `//` default — the idiom is in [scripts/lint-ra-paths.py](scripts/lint-ra-paths.py),
-which CI runs.
+which CI runs. An iterator never fans out per-namespace LISTs (`/namespaces/<ns>/<plural>`) over
+different kinds: snowplow's cluster-list collapse reads only the first element's kind for an admin.
+List each kind cluster-scope under a `userAccessFilter` instead (see `restaction.composition-detail.yaml`).
 
 ## Develop & release
 

@@ -44,24 +44,29 @@ spec:
     - name: found
       dependsOn:
         name: crds
-        iterator: '(.namespace // "") as $ns | if $ns == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects | . + { namespace: $ns } ] end'
-      {{/* #74: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list */}}
-      {{/* (→ 403 for a namespace-scoped tenant). The composition is always in .namespace. */}}
-      {{/* The iterator CARRIES that namespace into each element: the path is evaluated against the */}}
-      {{/* element, not the dict (snowplow resolvers/restactions/api setup.go:44), and a .crds element */}}
-      {{/* has no `namespace`, so this read `/namespaces//<plural>` — every namespace — whatever the */}}
-      {{/* route said. GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): */}}
-      {{/* without them the step makes no call. */}}
-      path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
+        iterator: 'if (.namespace // "") == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects ] | unique_by([.version, .plural]) end'
+      {{/* One CLUSTER-SCOPE list per composition kind under a userAccessFilter, as composition-detail */}}
+      {{/* reads them (see its `found` for why not a per-namespace list: snowplow's cluster-list collapse */}}
+      {{/* read only the first kind for an admin, so nothing resolved on portal 1.8.56). snowplow lists */}}
+      {{/* as its SA and keeps the items in namespaces where the CALLER may list that kind, so a */}}
+      {{/* namespace-scoped tenant still resolves its own compositions (#72/#74). */}}
+      {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+      {{/* the step makes no call. */}}
+      path: ${ "/apis/composition.krateo.io/" + .version + "/" + .plural }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
       {{/* Guarded: a 404/odd body can make .found a non-object (string) — type-guard .items so it */}}
       {{/* yields [] (composition not found → empty form) instead of a "Cannot index" crash. `del` */}}
       {{/* is wrapped in `try` (bind the item, catch returns it unchanged) so an item with a scalar */}}
       {{/* .metadata survives rather than aborting the whole step. */}}
-      filter: "[(.found // {} | if type == \"object\" then .items else null end) // [] | .[]? | . as $it | (try ($it | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])) catch $it)]"
+      filter: "(.extras.name // \"\") as $n | (.extras.namespace // \"\") as $ns | [(.found // {} | if type == \"object\" then .items else null end) // [] | .[]? | select((try (.metadata.name == $n and .metadata.namespace == $ns) catch false)) | . as $it | (try ($it | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])) catch $it)]"
     {{/* #74: the form SCHEMA — the per-version jsonschema ConfigMap in the CD's OWN namespace */}}
     {{/* (namespaced, tenant-readable), keyed <resource>-<version>-jsonschema-configmap. Iterate ONLY the */}}
     {{/* CD whose kind matches THIS composition (from found), so exactly one CM is fetched. The */}}
