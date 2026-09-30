@@ -20,8 +20,13 @@ spec:
   api:
     {{/* 1) Discovery — the APIResourceList for this group/version (carries each resource's */}}
     {{/* `namespaced` flag + `kind`). No per-step filter: keep the raw list under .disco. */}}
+    {{/* GATED ON ?extras plural + name (the input gate, scripts/lint-ra-paths.py), like `object`: */}}
+    {{/* discovery only serves the object read, so without them neither step makes a call. */}}
     - name: disco
-      path: ${ (.group // "") as $g | (.version // "v1") as $v | (if ($g == "" or $g == "core") then ("/api/" + $v) else ("/apis/" + $g + "/" + $v) end) }
+      dependsOn:
+        name: ""
+        iterator: '[ { g: (.group // ""), v: (.version // "v1"), pl: (.plural // ""), nm: (.name // "") } | select(.pl != "" and .nm != "") | { base: (if (.g == "" or .g == "core") then ("/api/" + .v) else ("/apis/" + .g + "/" + .v) end) } ]'
+      path: ${ .base }
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -29,16 +34,25 @@ spec:
       errorKey: discoError
     {{/* 2) The object — path built from the DISCOVERED namespaced flag + the route's ns/name. */}}
     {{/* namespaced ⇒ under /namespaces/<ns>/ ; cluster-scoped ⇒ the cluster path (ns ignored). */}}
+    {{/* ORDERED AFTER disco: without a dependsOn snowplow ran the two in random order */}}
+    {{/* (resolvers/restactions/api sort.go), and when `object` ran first a cluster-scoped kind was */}}
+    {{/* read under /namespaces/<ns>/. GATED ON plural + name, and on a namespace when the kind is */}}
+    {{/* (or may be) namespaced: without them the step makes no call — it used to GET */}}
+    {{/* `/api/v1/namespaces///`. The path is built in the iterator; its element is {path}. */}}
     - name: object
-      path: >
-        ${ (.group // "") as $g | (.version // "v1") as $v | (.plural // "") as $pl
-           | (.namespace // "") as $ns | (.name // "") as $nm
-           | (if ($g == "" or $g == "core") then ("/api/" + $v) else ("/apis/" + $g + "/" + $v) end) as $base
-           # NB jq `//` treats `false` as absent, so `.namespaced // true` would wrongly map a
-           # cluster-scoped resource (namespaced:false) to true. Use `!= false`: false→cluster,
-           # true→namespaced, null(unknown)→namespaced (the common default).
-           | (([ (.disco.resources // [])[] | select((.name // "") == $pl) ][0].namespaced) != false) as $nsd
-           | (if $nsd then ($base + "/namespaces/" + $ns + "/" + $pl + "/" + $nm) else ($base + "/" + $pl + "/" + $nm) end) }
+      dependsOn:
+        name: disco
+        iterator: |
+          (.group // "") as $g | (.version // "v1") as $v | (.plural // "") as $pl
+          | (.namespace // "") as $ns | (.name // "") as $nm
+          | (if ($g == "" or $g == "core") then ("/api/" + $v) else ("/apis/" + $g + "/" + $v) end) as $base
+          # NB jq `//` treats `false` as absent, so `.namespaced // true` would wrongly map a
+          # cluster-scoped resource (namespaced:false) to true. Use `!= false`: false→cluster,
+          # true→namespaced, null(unknown)→namespaced (the common default).
+          | (([ (.disco.resources // [])[] | select((.name // "") == $pl) ][0].namespaced) != false) as $nsd
+          | [ select($pl != "" and $nm != "" and ($ns != "" or ($nsd | not)))
+              | { path: (if $nsd then ($base + "/namespaces/" + $ns + "/" + $pl + "/" + $nm) else ($base + "/" + $pl + "/" + $nm) end) } ]
+      path: ${ .path }
       verb: GET
       headers:
         - 'Accept: application/json'

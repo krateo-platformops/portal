@@ -28,10 +28,15 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
+    {{/* .name is sanitised to DNS-1123-ish chars so an odd extras value can neither */}}
+    {{/* traverse the path nor fold the segment away into a cluster-wide LIST. GATED ON it (the */}}
+    {{/* input gate, scripts/lint-ra-paths.py): a missing or all-illegal name makes no call — it */}}
+    {{/* used to GET `…/deployments/`, every Deployment in the namespace. */}}
     - name: dep
-      {{/* .name is sanitised to DNS-1123-ish chars so an odd extras value can neither */}}
-      {{/* traverse the path nor fold the segment away into a cluster-wide LIST. */}}
-      path: '${ "/apis/apps/v1/namespaces/{{ .Release.Namespace }}/deployments/" + ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) }'
+      dependsOn:
+        name: ""
+        iterator: '[ { name: ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) } | select(.name != "") ]'
+      path: '${ "/apis/apps/v1/namespaces/{{ .Release.Namespace }}/deployments/" + .name }'
       verb: GET
       headers:
         - 'Accept: application/json'

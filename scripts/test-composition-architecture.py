@@ -549,8 +549,9 @@ def check_resolved_cases(ctx):
         for op in case.get('mutate', []):
             mutate(cluster, op)
         extras = extras_for(case['extras'], comp)
-        _, out = resolve(ra, extras, copy.deepcopy(cluster))
+        d, out = resolve(ra, extras, copy.deepcopy(cluster))
         _, out_rev = resolve(ra, extras, copy.deepcopy(cluster), reverse=True)
+        ctx.setdefault('dicts', {})[case['name']] = d
         expect(f, f'{case["name"]}: output depends on iterator order', out_rev, out)
         want = expected_file(f'expected.{case["name"]}.json', out, ctx['update'])
         expect(f, f'{case["name"]}: RESTAction output', out, want)
@@ -662,6 +663,10 @@ def check_what_the_page_says(ctx):
     expect(f, 'empty descriptor: body says there is nothing to draw', body('empty-descriptor'), [empty])
     for c in ('no-configmap', 'label-mismatch', 'no-extras', 'configmap-no-graph', 'graph-v2'):
         expect(f, f'{c}: no architecture', o[c], {'architecture': False, 'access': None})
+    # No extras (snowplow's Phase-1 walk): the arch step is gated on them, so nothing is requested —
+    # it used to GET /api/v1/namespaces//configmaps/-architecture and record the 404.
+    expect(f, 'no-extras: no stage ran, none failed',
+           sorted(k for k in ctx['dicts']['no-extras'] if k in ('arch', 'archErr', 'comp', 'compErr', 'objs', 'objErr')), [])
     return f
 
 

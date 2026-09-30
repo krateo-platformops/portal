@@ -24,7 +24,12 @@ spec:
   api:
     {{/* The installed blueprint = its CompositionDefinition (identity from extras — the detail */}}
     {{/* route /blueprints/{namespace}/{name}). Source of the chart context. */}}
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+    {{/* the step makes no call — it used to GET `…/namespaces//compositiondefinitions/`. */}}
     - name: compdef
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:

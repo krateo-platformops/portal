@@ -27,8 +27,14 @@ spec:
     {{/*    the result and WARN on every view of every composition that has no architecture. */}}
     {{/*    The step filter keeps the graph only when the ConfigMap is this composition's own (CDC stamps */}}
     {{/*    krateo.io/composition-name on everything it renders) and in a shape it knows (v: 1). */}}
+    {{/*    GATED ON the composition's namespace and name (the input gate, scripts/lint-ra-paths.py): */}}
+    {{/*    without them — snowplow's Phase-1 walk resolves the card with no extras — the step makes */}}
+    {{/*    no call. It used to GET `/api/v1/namespaces//configmaps/-architecture`, a 404 every time. */}}
     - name: arch
-      path: ${ "/api/v1/namespaces/" + ((.compositionNamespace // .namespace) // "") + "/configmaps/" + ((.compositionName // .name) // "") + "-architecture" }
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: ((.compositionNamespace // .namespace) // ""), name: ((.compositionName // .name) // "") } | select(.namespace != "" and .name != "") ]'
+      path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .name + "-architecture" }
       verb: GET
       headers:
         - 'Accept: application/json'
