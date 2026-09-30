@@ -100,7 +100,12 @@ spec:
               kind: ((.status.kind) // ""),
               apiVersion: ((.status.apiVersion) // ""),
               resource: ((.status.resource) // ""),
-              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
+              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
+              # FAILED IS Synced=False ReconcileError, never Ready=False alone: core-provider and
+              # oasgen both write Ready=False reason Creating (and Unavailable while the generated
+              # CRD does not exist yet) for as long as they are still working.
+              failed: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {}
+                       | ((.status // "") == "False" and (.reason // "") == "ReconcileError")) } ]
     {{/* The install claims: one CLUSTER-SCOPE list per kind a controller's CompositionDefinition */}}
     {{/* generates (only the claims' charts — listing every CompositionDefinition's kind would be */}}
     {{/* forty calls for one page). Cluster scope, not per namespace: snowplow collapses an */}}
@@ -127,7 +132,12 @@ spec:
               cdNs: ((.metadata.labels["krateo.io/composition-definition-namespace"]) // ""),
               name: (.metadata.name // ""),
               namespace: (.metadata.namespace // ""),
-              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")) } ]
+              ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
+              # FAILED IS Synced=False ReconcileError, never Ready=False alone: core-provider and
+              # oasgen both write Ready=False reason Creating (and Unavailable while the generated
+              # CRD does not exist yet) for as long as they are still working.
+              failed: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {}
+                       | ((.status // "") == "False" and (.reason // "") == "ReconcileError")) } ]
     {{/* The RestDefinitions, as restaction.kog-restdefinitions reads them (cluster list, filtered */}}
     {{/* to the namespaces the caller may list them in). Joined to an install by the claim labels. */}}
     - name: restdefs
@@ -154,14 +164,19 @@ spec:
               genKind: (.status.resource.kind // ""),
               genApiVersion: (.status.resource.apiVersion // ""),
               ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
+              failed: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {}
+                       | ((.status // "") == "False" and (.reason // "") == "ReconcileError")),
               auth: (.status.hasSecuritySchemes == true),
               cfgKind: (.status.configuration.kind // ""),
               cfgApiVersion: (.status.configuration.apiVersion // "") } ]
     {{/* The <Kind>Configurations that exist, for the RestDefinitions of a controller install whose */}}
     {{/* API declares security schemes. One cluster list per configuration kind; oasgen names the */}}
     {{/* plural as the lower-cased kind plus "s" (actionsvariableorgconfigurations on krateo-057). */}}
-    {{/* Attributed by the items' own kind: an item that carries none attributes nothing, so the */}}
-    {{/* row keeps offering the step rather than claiming credentials that nothing showed. */}}
+    {{/* Attributed by the LIST, not by its items: an informer-served object may carry no kind, */}}
+    {{/* but every response is a list envelope whose apiVersion is the group/version asked for and */}}
+    {{/* whose kind names what was listed — "<Kind>List" from the apiserver, "<plural>List" when */}}
+    {{/* snowplow serves it from its cache (informer_dispatch.go listKindForResource). Both are */}}
+    {{/* read, lower-cased, as the configuration kind or its plural. */}}
     - name: configs
       dependsOn:
         name: restdefs
@@ -179,7 +194,10 @@ spec:
       continueOnError: true
       errorKey: configsError
       filter: >
-        [ (.configs.items // [])[] | { kind: (.kind // ""), apiVersion: (.apiVersion // "") } ]
+        [ .configs | objects
+          | { list: ((.kind // "") | ascii_downcase | sub("list$"; "")),
+              apiVersion: (.apiVersion // ""),
+              count: ((.items // []) | length) } ]
   {{/* The ladder, the Next step cell and the per-row destination, computed HERE, server-side. */}}
   {{/* Rows are newest-first. A LITERAL block (|): see restaction.blueprint-builder-deliverables. */}}
   filter: |
@@ -195,8 +213,12 @@ spec:
     | (.prs // []) as $prs
     | (.installs // []) as $installs
     | (.restdefs // []) as $rds
-    | ([ (.configs // [])[] | "\(.apiVersion)|\(.kind)" ]) as $configured
-    | ([ (.publishes // []) | group_by(.publish)[]
+    | ((.installsError // null) == null) as $installsRead
+    # "<apiVersion>|<lower-case kind or plural>" of every configuration list that is not empty.
+    | ([ (.configs // [])[] | select(.count > 0) | "\(.apiVersion)|\(.list)" ]) as $configured
+    | def configured($rd): ($rd.cfgKind | ascii_downcase) as $k
+        | ($configured | index("\($rd.cfgApiVersion)|\($k)") or index("\($rd.cfgApiVersion)|\($k)s"));
+    ([ (.publishes // []) | group_by(.publish)[]
          | select((.[0].publish // "") != "")
          | .[0] as $p0
          | ($p0.publish | sub("^publish-"; "")) as $chart
@@ -212,12 +234,15 @@ spec:
          | ( [ $ins[] as $i | $rds[]
                | select(.compName == $i.name and .compNs == $i.namespace and (.compKind == "" or .compKind == $cd.kind)) ] ) as $mine
          | (($mine | length) > 0 and all($mine[]; .ready == "True")) as $allReady
-         | (any($mine[]; .ready == "False")) as $rdFailed
+         | (any($mine[]; .failed) or any($ins[]; .failed) or ($cd != null and $cd.failed)) as $broken
+         # Install is offered only when the install claims could be READ: a denied list is not
+         # evidence that there is none (as $cdsRead gates Register).
+         | ($installsRead and $cd != null and $cd.ready == "True" and ($ins | length) == 0) as $installable
          # A Ready RestDefinition whose API needs credentials and whose <Kind>Configuration does
          # not exist yet. Only when the configurations could be read: an unread list is not
          # evidence that there are none.
          | ( [ $mine[] | select(.ready == "True" and .auth and .cfgKind != "")
-               | select(("\(.cfgApiVersion)|\(.cfgKind)") as $k | $configured | index($k) | not) ] ) as $unconfigured
+               | select(configured(.) | not) ] ) as $unconfigured
          | ($configsRead and ($unconfigured | length) > 0) as $needsCreds
          | ([ $mine[] | select(.genKind != "") | .genKind + " · " + .genApiVersion ] | unique) as $gvks
          | { chart: $chart,
@@ -225,18 +250,20 @@ spec:
              pr: (if (($pr.number) // 0) > 0 then ("#" + ($pr.number | tostring)) else ($p0.branch // "") end),
              url: (($pr.url) // ""),
              version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
-             status: (if $rdFailed then "Failed"
+             status: (if $broken then "Failed"
                       elif $allReady then "Ready"
+                      # Installed while its RestDefinitions are still being created.
                       elif ($ins | length) > 0 then "Installed"
                       elif ($cd != null and $cd.ready == "True") then "Registered"
-                      elif ($cd != null and $cd.ready == "False") then "Failed"
+                      # Any other state of a definition that exists — Creating, Unavailable while
+                      # its CRD is generated, no condition yet — is progress.
                       elif ($cd != null) then "Registering"
                       elif $end == "merged" then "Merged"
                       elif ($end == "closed" or $end == "closed?") then "Closed"
                       elif ($pr != null and (($pr.number) // 0) > 0) then "Change request open"
                       elif $pushed then "Pushed"
                       elif $failed then "Publish failed" else "Publishing" end),
-             statusColor: (if ($rdFailed or ($cd != null and $cd.ready == "False" and ($ins | length) == 0)) then "red"
+             statusColor: (if $broken then "red"
                            elif $allReady then "green"
                            elif (($ins | length) == 0 and $cd != null and $cd.ready == "True") then "green"
                            elif ($cd == null and $end == "merged") then "green"
@@ -245,19 +272,18 @@ spec:
                            else "orange" end),
              # The person's next step, when there is one; empty otherwise (exception-only).
              next: (if registerable($cd; $end; $hasReg) then (if $end == "merged" then "Register" else "Register if merged" end)
-                    elif ($cd != null and $cd.ready == "True" and ($ins | length) == 0) then "Install"
+                    elif $installable then "Install"
                     elif ($allReady and $needsCreds) then "Configure credentials"
                     else "" end),
-             # The generated kinds: the first, and how many more. Hidden cells carry the rest.
+             # The generated kinds: the first, and how many more.
              gvk: (if ($gvks | length) == 0 then "—"
                    elif ($gvks | length) == 1 then $gvks[0]
                    else "\($gvks[0]) +\(($gvks | length) - 1)" end),
-             kinds: ($gvks | join(", ")),
              ns: "{{ .Release.Namespace }}",
              # Per-row destination, the Table takes it whole. The step the Next cell names first;
              # then the install, once there is one; then the change request; else nothing.
              rowHref: (if registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")
-                       elif ($cd != null and $cd.ready == "True" and ($ins | length) == 0) then ("/blueprints/" + $cd.namespace + "/" + $chart + "/new")
+                       elif $installable then ("/blueprints/" + $cd.namespace + "/" + $chart + "/new")
                        elif ($allReady and $needsCreds) then ("/resources/" + $unconfigured[0].namespace + "/ogen.krateo.io/v1alpha1/restdefinitions/" + $unconfigured[0].name)
                        elif ($ins | length) > 0 then ("/compositions/" + $ins[0].namespace + "/" + $ins[0].name)
                        elif $cd != null then ("/blueprints/" + $cd.namespace + "/" + $chart)

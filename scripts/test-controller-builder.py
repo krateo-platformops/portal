@@ -74,28 +74,39 @@ def pr(publish, number=7, state='open', merged=tbi.ABSENT):
             'spec': {'title': f'feat(controller): {publish[8:]}'}, 'status': status}
 
 
-def cd(name, ready=None, kind='Pet', resource='pets', ns=NS):
+def conditions(ready, reason=None, synced=None, message=''):
+    """Ready (and Synced) as crossplane-runtime writes them. Creating() is Ready=False reason
+    Creating; a reconcile that errors is Synced=False reason ReconcileError."""
+    out = [] if ready is None else [{'type': 'Ready', 'status': ready,
+                                     'reason': reason or {'True': 'Available', 'False': 'Creating'}.get(ready, ''),
+                                     'message': message}]
+    if synced is not None:
+        out.append({'type': 'Synced', 'status': synced, 'reason': 'ReconcileSuccess' if synced == 'True' else 'ReconcileError'})
+    return out
+
+
+def cd(name, ready=None, kind='Pet', resource='pets', ns=NS, reason=None, synced=None, message=''):
     status = {'kind': kind, 'apiVersion': 'composition.krateo.io/v0-1-0', 'resource': resource}
-    if ready is not None:
-        status['conditions'] = [{'type': 'Ready', 'status': ready}]
+    if ready is not None or synced is not None:
+        status['conditions'] = conditions(ready, reason, synced, message)
     return {'metadata': {'name': name, 'namespace': ns}, 'spec': {'chart': {'version': '0.1.0'}}, 'status': status}
 
 
-def claim(name, cd_name, ns='team-a', kind='Pet'):
+def claim(name, cd_name, ns='team-a', kind='Pet', synced='True'):
     # No .kind: an informer-served object may carry none, and the join must not need it.
     return {'metadata': {'name': name, 'namespace': ns,
                          'labels': {'krateo.io/composition-definition-name': cd_name,
                                     'krateo.io/composition-definition-namespace': NS}},
-            'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+            'status': {'conditions': conditions('True' if synced == 'True' else 'False', None, synced)}}
 
 
-def restdef(name, claim_name, ready='True', auth=False, ns='team-a', comp_kind='Pet', gen='Pet'):
+def restdef(name, claim_name, ready='True', auth=False, ns='team-a', comp_kind='Pet', gen='Pet', reason=None, synced=None):
     rd = {'metadata': {'name': name, 'namespace': ns,
                        'labels': {'krateo.io/composition-kind': comp_kind, 'krateo.io/composition-name': claim_name,
                                   'krateo.io/composition-namespace': ns}},
           'spec': {'resourceGroup': 'petstore.example.io'},
           'status': {'resource': {'kind': gen, 'apiVersion': 'petstore.example.io/v1'},
-                     'conditions': [{'type': 'Ready', 'status': ready}]}}
+                     'conditions': conditions(ready, reason, synced)}}
     if auth:
         rd['status']['hasSecuritySchemes'] = True
         rd['status']['configuration'] = {'kind': gen + 'Configuration', 'apiVersion': 'petstore.example.io/v1alpha1'}
@@ -104,6 +115,15 @@ def restdef(name, claim_name, ready='True', auth=False, ns='team-a', comp_kind='
 
 def items(*objs):
     return {'items': list(objs)}
+
+
+def config_list(*objs, served_by='apiserver', kind='PetConfiguration', plural='petconfigurations',
+                api='petstore.example.io/v1alpha1'):
+    """A configuration LIST as /call returns it: from the apiserver ("<Kind>List"), or from
+    snowplow's informer cache ("<plural>List", informer_dispatch.go listKindForResource), whose
+    items may carry no kind at all."""
+    list_kind = kind + 'List' if served_by == 'apiserver' else plural[0].upper() + plural[1:] + 'List'
+    return {'apiVersion': api, 'kind': list_kind, 'items': list(objs)}
 
 
 def resolve(responses, extras=None):
@@ -146,11 +166,27 @@ def check_the_ladder():
          ('Merged', 'green', '', 'https://github.com/krateo-platformops/pet/pull/7')),
         ('registering', {'prs': items(pr(P, state='closed', merged=True)), 'cds': items(cd('pet'))},
          ('Registering', 'orange', '', f'/blueprints/{NS}/pet')),
-        ('definition failed', {'cds': items(cd('pet', ready='False'))}, ('Failed', 'red', '', f'/blueprints/{NS}/pet')),
+        # core-provider writes Ready=False reason Creating while it works, and Unavailable while
+        # the generated CRD does not exist yet: progress, never red.
+        ('registering, Creating', {'cds': items(cd('pet', ready='False', synced='True'))}, ('Registering', 'orange', '', f'/blueprints/{NS}/pet')),
+        ('registering, CRD not generated yet', {'cds': items(cd('pet', ready='False', reason='Unavailable', synced='True',
+                                                                message='crd pets.composition.krateo.io does not exists yet'))},
+         ('Registering', 'orange', '', f'/blueprints/{NS}/pet')),
+        ('definition failed', {'cds': items(cd('pet', ready='False', synced='False'))}, ('Failed', 'red', '', f'/blueprints/{NS}/pet')),
         ('registered', {'cds': items(cd('pet', ready='True'))}, ('Registered', 'green', 'Install', f'/blueprints/{NS}/pet/new')),
+        ('registered, install claims unreadable: no Install', {'cds': items(cd('pet', ready='True')), 'installs': None},
+         ('Registered', 'green', '', f'/blueprints/{NS}/pet')),
         ('installed, kinds not ready yet', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                             'restdefs': items(restdef('pets-pet', 'pets', ready='Unknown'))},
          ('Installed', 'orange', '', '/compositions/team-a/pets')),
+        ('installed, a kind still Creating', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+                                              'restdefs': items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', ready='False', gen='Store', synced='True'))},
+         ('Installed', 'orange', '', '/compositions/team-a/pets')),
+        ('installed, a kind Unavailable', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+                                           'restdefs': items(restdef('pets-pet', 'pets', ready='False', reason='Unavailable'))},
+         ('Installed', 'orange', '', '/compositions/team-a/pets')),
+        ('install failed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet', synced='False'))},
+         ('Failed', 'red', '', '/compositions/team-a/pets')),
         ('installed, nothing rendered yet', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet'))},
          ('Installed', 'orange', '', '/compositions/team-a/pets')),
         ('ready', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
@@ -161,14 +197,28 @@ def check_the_ladder():
          ('Ready', 'green', 'Configure credentials', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-pet')),
         ('ready, credentials configured', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                            'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
-                                           'configs': items({'kind': 'PetConfiguration', 'apiVersion': 'petstore.example.io/v1alpha1',
-                                                             'metadata': {'name': 'default', 'namespace': 'team-a'}})},
+                                           'configs': config_list({'kind': 'PetConfiguration', 'apiVersion': 'petstore.example.io/v1alpha1',
+                                                                   'metadata': {'name': 'default', 'namespace': 'team-a'}})},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
+        ('ready, credentials configured, served from the cache with no item kind', {
+            'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+            'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
+            'configs': config_list({'metadata': {'name': 'default', 'namespace': 'team-a'}}, served_by='informer')},
+         ('Ready', 'green', '', '/compositions/team-a/pets')),
+        ('ready, another kind\'s configuration is not this one\'s', {
+            'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+            'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
+            'configs': config_list({'metadata': {'name': 'x'}}, served_by='informer', kind='StoreConfiguration', plural='storeconfigurations')},
+         ('Ready', 'green', 'Configure credentials', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-pet')),
+        ('ready, an empty configuration list', {
+            'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+            'restdefs': items(restdef('pets-pet', 'pets', auth=True)), 'configs': config_list()},
+         ('Ready', 'green', 'Configure credentials', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-pet')),
         ('ready, configurations unreadable: no claim either way', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                                                    'restdefs': items(restdef('pets-pet', 'pets', auth=True)), 'configs': None},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
         ('a kind failed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
-                           'restdefs': items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', ready='False', gen='Store'))},
+                           'restdefs': items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', ready='False', gen='Store', synced='False'))},
          ('Failed', 'red', '', '/compositions/team-a/pets')),
     ]
     for label, over, (status, color, nxt, href) in cases:
@@ -187,13 +237,12 @@ def check_the_ladder():
                (status, color, nxt, href))
         tbi.resolved_widget(CHART, 'Table', RA, out, {}, f'{RA} ({label})')
 
-    # The generated kinds: the first and how many more, the full list in a hidden cell.
+    # The generated kinds: the first and how many more.
     _, out = resolve(dict(base, cds=items(cd('pet', ready='True')), installs=items(claim('pets', 'pet')),
                           restdefs=items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', gen='Store'),
                                          restdef('other', 'someone-else', gen='Other'))))
     row = the_row(out)
-    expect(f, 'generated kinds: this install\'s only', (row['gvk'], row['kinds']),
-           ('Pet · petstore.example.io/v1 +1', 'Pet · petstore.example.io/v1, Store · petstore.example.io/v1'))
+    expect(f, 'generated kinds: this install\'s only', row['gvk'], 'Pet · petstore.example.io/v1 +1')
     expect(f, 'version from the definition', row['version'], 'v0.1.0')
     return f
 
@@ -289,6 +338,23 @@ def check_mirrors_the_blueprint_builder():
     # The widgets with nothing to resolve are served as authored: validated as they are.
     for kind, name in [(k, c) for k, _, c, _ in ALIGNED] + [('Card', 'controller-builder-registry-card')]:
         tbi.RESOLVED.append((f'{name} (as authored)', copy.deepcopy(CHART.get(kind, name))))
+    # The Table's CELLS, not only its columns: each table's dataSource jq, run on one row, gives
+    # the cell list the frontend renders. Same cells in the same order with the same kind, type,
+    # format and colour presence; only the sixth may differ — Marketplace there, Generated kinds
+    # here, the controller-specific column.
+    row = {k: 'x' for k in ('chart', 'title', 'version', 'status', 'statusColor', 'next', 'gvk', 'pr', 'age', 'ns', 'url', 'rowHref', 'marketLabel')}
+
+    def cells(name):
+        got = tbi.jq(CHART.expression('Table', name, 'dataSource'), {'rows': [row]})[0]
+        return [{k: (v if k in ('kind', 'type', 'format') else '') for k, v in c.items() if k != 'valueKey'} for c in got]
+    bp_cells, ctl_cells = cells('blueprint-builder-deliverables'), cells('controller-builder-deliverables')
+    expect(f, 'deliverables Table: the same number of cells', len(ctl_cells), len(bp_cells))
+    expect(f, 'deliverables Table: the same cell structure, bar the controller\'s own column',
+           [c for i, c in enumerate(ctl_cells) if i != 5], [c for i, c in enumerate(bp_cells) if i != 5])
+    cols = [c['valueKey'] for c in CHART.get('Table', 'controller-builder-deliverables')['spec']['widgetData']['columns']]
+    hidden = [c['valueKey'] for c in tbi.jq(CHART.expression('Table', 'controller-builder-deliverables', 'dataSource'), {'rows': [row]})[0]
+              if c['valueKey'] not in cols]
+    expect(f, 'hidden cells: the same three the blueprint table carries', hidden, ['ns', 'url', 'rowHref'])
     page = CHART.get('Flex', 'page-kog-builder')['spec']['widgetData']
     expect(f, 'page order: header, drafts, deliverables, then the registry', [i['resourceRefId'] for i in page['items']],
            ['controller-builder-page-header', 'controller-builder-drafts-card', 'controller-builder-deliverables-card',
