@@ -451,7 +451,10 @@ def detail_for(portal, comp, resource, rendered):
     d = {'name': comp['metadata']['name'], 'namespace': comp['metadata']['namespace'],
          'crds': [{'plural': resource, 'version': version, 'kind': comp['kind'], 'group': group,
                    'cdName': 'x', 'cdNamespace': NS}],
-         'found': jq(found['filter'], {'found': {'items': [comp]}})}
+         # snowplow hands a step filter the request extras beside its response (handler.go pig["extras"])
+         'found': jq(found['filter'], {'found': {'items': [comp]},
+                                       'extras': {'name': comp['metadata']['name'],
+                                                  'namespace': comp['metadata']['namespace']}})}
     return jq(ra['filter'], d)
 
 

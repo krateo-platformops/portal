@@ -53,20 +53,30 @@ spec:
     - name: found
       dependsOn:
         name: crds
-        iterator: '(.namespace // "") as $ns | if $ns == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects | . + { namespace: $ns } ] end'
-      {{/* Namespace-scoped (the composition is always in ?extras .namespace) — never a cluster-wide */}}
-      {{/* list, so this stays fast even when other namespaces hold tens of thousands of compositions. */}}
-      {{/* The iterator CARRIES that namespace into each element: the path is evaluated against the */}}
-      {{/* element, not the dict (snowplow resolvers/restactions/api setup.go:44), and a .crds element */}}
-      {{/* has no `namespace`, so this read `/namespaces//<plural>` — every namespace — whatever the */}}
-      {{/* route said. GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): */}}
-      {{/* without them the step makes no call. */}}
-      path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
+        iterator: 'if (.namespace // "") == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects ] | unique_by([.version, .plural]) end'
+      {{/* One CLUSTER-SCOPE list per composition kind, as compositions-list reads them, under a */}}
+      {{/* userAccessFilter: snowplow lists as its SA and keeps the items in namespaces where the CALLER */}}
+      {{/* may list that kind, so a namespace-scoped tenant still resolves its own compositions (#72). */}}
+      {{/* The step filter keeps only THIS composition (the extras' name + namespace). */}}
+      {{/* NOT a per-namespace list (/namespaces/<ns>/<plural>): snowplow's cluster-list collapse */}}
+      {{/* (resolvers/restactions/api/cluster_list.go:156, the GVR from the FIRST element at :664) */}}
+      {{/* replaces an iterator of namespaced lists with ONE cluster list of the first element's kind */}}
+      {{/* for a caller allowed to list it cluster-wide, so every other kind went unread and the page */}}
+      {{/* resolved nothing (portal 1.8.56). A cluster-scope path is not collapsed (:715). Nor a GET */}}
+      {{/* by name per kind: every kind but one 404s, and a stage error declines the L1 refresh. */}}
+      {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+      {{/* the step makes no call. */}}
+      path: ${ "/apis/composition.krateo.io/" + .version + "/" + .plural }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      filter: "[.found.items[]? | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])]"
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
+      filter: "(.extras.name // \"\") as $n | (.extras.namespace // \"\") as $ns | [.found.items[]? | select(.metadata.name == $n and .metadata.namespace == $ns) | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])]"
   filter: >
     .name as $n
     | .namespace as $ns
