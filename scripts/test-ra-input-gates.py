@@ -346,6 +346,30 @@ def check_with_input(charts):
     return f
 
 
+def check_degraded_reads(charts):
+    """A read the page cannot do still resolves to something it can render (a filter with no value
+    fails the whole resolve): alert-editdef with its CRD read failing is a form that says why."""
+    f = []
+    chart = charts['alert-editdef']
+    ra = chart.get('RESTAction', 'alert-editdef')
+    extras = {'name': 'a1', 'namespace': 'team-a'}
+    alert = {'metadata': {'name': 'a1', 'namespace': 'team-a'}, 'spec': {'displayName': 'x'}}
+    for label, crd in (('CRD read failed', None), ('CRD serves no v1alpha1', {'spec': {'versions': [{'name': 'v2'}]}})):
+        responses = {'alert': alert} if crd is None else {'alert': alert, 'crd': crd}
+        try:
+            _, _, out = resolve(ra, extras, responses)
+        except RuntimeError as exc:
+            f.append(f'alert-editdef, {label}: {exc}')
+            continue
+        schema = (out or {}).get('schemaSpec') or {}
+        if schema.get('title') != 'The Alert schema could not be read' or not schema.get('description'):
+            f.append(f'alert-editdef, {label}: schemaSpec {schema}')
+        if out.get('values') != alert['spec'] or out.get('gvr', {}).get('name') != 'a1':
+            f.append(f'alert-editdef, {label}: values/gvr {out.get("values")} {out.get("gvr")}')
+        tbi.resolved_widget(chart, 'Form', 'alert-edit', out, extras, f'alert-editdef, {label}: Form alert-edit')
+    return f
+
+
 def main():
     args = sys.argv[1:]
     crds_dir = None
@@ -357,7 +381,7 @@ def main():
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}
     failed, total = 0, 0
-    for check in (check_no_input, check_with_input):
+    for check in (check_no_input, check_with_input, check_degraded_reads):
         total += 1
         try:
             problems = check(charts)
