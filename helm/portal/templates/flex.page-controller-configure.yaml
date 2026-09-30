@@ -1,0 +1,38 @@
+{{/* Convention page root for /controller-builder/configure/{namespace}/{name} — the "Configure */}}
+{{/* credentials" step of a controller-builder deliverable row, for RestDefinition {name} in */}}
+{{/* {namespace}. Laid out as /blueprints/{namespace}/{name}/new is: a header, then the form in a */}}
+{{/* card. Label-less: reached from the row, never from the menu. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-controller-configure
+  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  annotations:
+    "krateo.io/nav-order": "915"
+    "krateo.io/nav-path": "/controller-builder/configure/{namespace}/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+      - pageheaders
+      - cards
+    vertical: true
+    gap: middle
+    items:
+      - resourceRefId: controller-configure-page-header
+      - resourceRefId: controller-configure-card
+  resourcesRefs:
+    items:
+      - id: controller-configure-page-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-configure-page-header
+        namespace: {{ .Release.Namespace }}
+        resource: pageheaders
+        verb: GET
+      - id: controller-configure-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-configure-card
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET

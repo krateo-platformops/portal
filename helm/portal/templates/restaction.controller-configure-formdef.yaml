@@ -1,0 +1,141 @@
+{{/* CONFIGURE CREDENTIALS — the form definition for /controller-builder/configure/{namespace}/{name}, */}}
+{{/* where {name} is a RestDefinition whose API declares security schemes (the deliverables row's */}}
+{{/* "Configure credentials" step). oasgen generates a <Kind>Configuration next to each kind it */}}
+{{/* generates; a controller's kind cannot call its API until one exists, holding a reference to a */}}
+{{/* Secret with the credential. This builds ONE form that writes both, Secret first. */}}
+{{/* */}}
+{{/* Discovered from data, as restaction.blueprint-formdef discovers a composition's CRD: */}}
+{{/*   1. GET the RestDefinition; status.configuration is the Configuration's apiVersion + kind. */}}
+{{/*   2. GET that CRD (<plural>.<group>; oasgen names the plural as the lower-cased kind plus "s"). */}}
+{{/*      Its spec schema IS the Configuration part of the form. */}}
+{{/* Both GETs as the caller, both gated on their input (scripts/lint-ra-paths.py). */}}
+{{/* */}}
+{{/* THE SECRET VALUE NEVER PASSES THROUGH HERE. This RA only describes the form: the value field is */}}
+{{/* declared format: password + writeOnly, and the value itself goes from the browser to the */}}
+{{/* apiserver in the /call body and nowhere else. The Secret's NAME and KEY are ordinary fields; */}}
+{{/* the Configuration's first-scheme *Ref objects are not shown, and are written from them on */}}
+{{/* submit (form.controller-configure, one override per ref field). */}}
+{{/* */}}
+{{/* FIELD ORDER rides in stringSchema, built as a string: gojq sorts object keys, so a schema */}}
+{{/* object would reach the browser alphabetical (the Secret's key before its name). The fenced */}}
+{{/* __…__ keys can never collide with a Configuration's own spec property. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: controller-configure-formdef
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    - name: rd
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
+      path: ${ "/apis/ogen.krateo.io/v1alpha1/namespaces/" + .namespace + "/restdefinitions/" + .name }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: rdError
+    - name: crd
+      dependsOn:
+        name: rd
+        iterator: >-
+          [ .rd | objects | ((.status.configuration // {}) | if type == "object" then . else {} end)
+            | { kind: (.kind // ""), group: (((.apiVersion // "") | split("/"))[0] // "") }
+            | select(.kind != "" and .group != "")
+            | { name: ((.kind | ascii_downcase) + "s." + .group) } ]
+      path: ${ "/apis/apiextensions.k8s.io/v1/customresourcedefinitions/" + .name }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: crdError
+  filter: |
+    (.rd | if type == "object" then . else null end) as $rd
+    | (($rd.status.configuration // {}) | if type == "object" then . else {} end) as $cfg
+    | (($cfg.apiVersion // "") | tostring) as $cfgApi
+    | (($cfg.kind // "") | tostring) as $cfgKind
+    | ($cfgApi | split("/")) as $gv
+    | ([ (.crd.spec.versions // [])[]? | select(.name == ($gv[1] // "")) ] | first // null) as $v
+    | def secretField($title; $desc): { type: "string", title: $title, description: $desc };
+    if $rd == null or $cfgKind == "" or ($gv | length) != 2 or $v == null then
+      # NOTHING TO CONFIGURE (yet): no RestDefinition named, it declares no security scheme, or its
+      # Configuration CRD is not served yet. A form with no fields that says which, never a failed
+      # resolve — and no write target, so nothing can be submitted.
+      { stringSchema: "",
+        schemaSpec: { type: "object",
+                      title: (if $rd == null then "No controller kind selected"
+                              elif $cfgKind == "" then "This kind needs no credentials"
+                              else "This kind's configuration is still being generated" end),
+                      description: (if $rd == null then "Open this page from a row on the Controller Builder."
+                                    elif $cfgKind == "" then "Its API declares no security scheme, so there is nothing to configure."
+                                    else "oasgen has not served the " + $cfgKind + " kind yet. This usually takes under a minute — reload the page." end) },
+        initialValues: {},
+        ready: false,
+        namespace: "", rdName: "", kind: "", apiVersion: "", plural: "", specKeys: [], refPaths: [], secretName: "" }
+    else
+      ($rd.metadata.namespace // "") as $ns
+      | ($rd.metadata.name // "") as $rdName
+      | (($v.schema.openAPIV3Schema.properties.spec // {}) | if type == "object" then . else {} end) as $spec
+      # The Secret references the Configuration declares: every *Ref object under one scheme of
+      # spec.authentication (bearer.tokenRef on every kind krateo-057 generates). The FIRST
+      # scheme's are the ones this form fills — each points at the Secret it writes, by the name
+      # and key typed below — so they are DERIVED, not shown: a ref's own name/key/namespace
+      # fields would be the Secret's name and key a second time, and could disagree with it.
+      # Other schemes are left in the form, untouched.
+      # OUT OF SCOPE: a scheme with two references (basic: usernameRef + passwordRef). Both are
+      # pointed at the one Secret AND the one key this form writes; such a kind needs its
+      # Configuration edited after saving. Every Configuration CRD on 057 is bearer.tokenRef.
+      # Also left out of the form: a spec field whose key is not an identifier (it cannot be a
+      # plain .json.<key> path) — none exists on 057.
+      # In key order, explicitly: jq keeps a map's insertion order and gojq sorts it, so without
+      # the sort "the first scheme" would depend on which one runs this.
+      | ([ (($spec.properties.authentication.properties // {}) | to_entries | sort_by(.key))[]
+           | .key as $scheme
+           | (((.value.properties // {}) | to_entries | sort_by(.key))[] | select(.key | endswith("Ref")) | { scheme: $scheme, ref: .key }) ]) as $allRefs
+      | ([ $allRefs[] | select(.scheme == ($allRefs[0].scheme // "")) ]) as $refs
+      # The spec the person sees: the first scheme's refs removed, then any object left with no
+      # fields (that scheme, then authentication itself) — on every 057 kind, nothing is left.
+      | (reduce $refs[] as $r ($spec; del(.properties.authentication.properties[$r.scheme].properties[$r.ref])
+                                      | .properties.authentication.properties[$r.scheme].required
+                                          = (((.properties.authentication.properties[$r.scheme].required // []) - [$r.ref]))))
+        as $trimmed
+      | ($trimmed
+         | (if ($refs | length) > 0 and (((.properties.authentication.properties[$refs[0].scheme].properties // {}) | length) == 0)
+            then del(.properties.authentication.properties[$refs[0].scheme])
+                 | .properties.authentication.required = (((.properties.authentication.required // []) - [$refs[0].scheme]))
+            else . end)
+         | (if (.properties.authentication != null) and (((.properties.authentication.properties // {}) | length) == 0)
+            then del(.properties.authentication) else . end)) as $display
+      # Only identifier keys: the Form's spec override names each one as a plain path
+      # (.json.<key>), the only form frontend#424 evaluates without the /jq round-trip.
+      | ([ ($display.properties // {}) | keys[] | select(test("^[A-Za-z_][A-Za-z0-9_]*$")) ]) as $specKeys
+      | ($rdName + "-credentials") as $secretName
+      | (if ($refs | length) > 0 then ($refs[0].ref | sub("Ref$"; "")) else "token" end) as $secretKey
+      | ([ ("__configuration_name__" | tojson) + ":" + ({ type: "string", title: "Configuration name",
+             description: ("The " + $cfgKind + " to create in " + $ns + ". A resource of this kind names it in spec.configurationRef.") } | tojson) ]
+         + [ ($display.properties // {}) | to_entries | sort_by(.key) | .[] | select(.key as $k | $specKeys | index($k)) | (.key | tojson) + ":" + (.value | tojson) ]
+         + [ ("__secret_name__" | tojson) + ":" + (secretField("Secret name"; ("The Secret created in " + $ns + " to hold the credential. The " + $cfgKind + " points at it.")) | tojson),
+             ("__secret_key__" | tojson) + ":" + (secretField("Secret key"; "The key the credential is stored under in that Secret.") | tojson),
+             ("__secret_value__" | tojson) + ":" + (secretField("Credential"; "The token or password itself. Sent once, to the cluster, when you save; it is never shown again.")
+                                                    + { format: "password", writeOnly: true } | tojson) ]) as $props
+      | (["__configuration_name__"] + [ ($display.required // [])[] | select(. as $k | $specKeys | index($k)) ]
+         + ["__secret_name__", "__secret_key__", "__secret_value__"] | unique) as $required
+      | { stringSchema: ("{\"type\":\"object\",\"properties\":{" + ($props | join(",")) + "},\"required\":" + ($required | tojson) + "}"),
+          schemaSpec: ($display | .type = "object"
+                       | .properties = (((.properties // {}) | with_entries(select(.key as $k | $specKeys | index($k))))
+                                        + { __configuration_name__: { type: "string", title: "Configuration name" },
+                                            __secret_name__: secretField("Secret name"; ""),
+                                            __secret_key__: secretField("Secret key"; ""),
+                                            __secret_value__: (secretField("Credential"; "") + { format: "password", writeOnly: true }) })
+                       | .required = $required),
+          initialValues: { __configuration_name__: $rdName, __secret_name__: $secretName, __secret_key__: $secretKey },
+          ready: true,
+          namespace: $ns, rdName: $rdName, kind: $cfgKind, apiVersion: $cfgApi,
+          plural: (($cfgKind | ascii_downcase) + "s"), specKeys: $specKeys,
+          # Where the Secret's name and key land in the Configuration: spec.authentication.<scheme>.<ref>.
+          refPaths: [ $refs[] | "spec.authentication.\(.scheme).\(.ref)" ],
+          secretName: $secretName }
+    end
