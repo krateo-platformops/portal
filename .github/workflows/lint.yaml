@@ -163,6 +163,10 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-builder-install.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          # /controller-builder: the deliverables ladder (claim -> PR -> definition -> install ->
+          # RestDefinitions -> credentials) on 057-shaped fixtures, and the page's alignment with
+          # /blueprint-builder, widget for widget.
+          python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the
   # nightly review's Proposals and ReviewRuns. This resolves them on fixtures shaped like krateo-057

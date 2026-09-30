@@ -1,0 +1,35 @@
+{{/* card.blueprint-builder-deliverables for controllers: a Table cannot render a heading, so the */}}
+{{/* deliverables Table and the note that says what it lists ride in a titled Card. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-deliverables-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* Where the rows come from, not what state they are in (Publishing … Ready, and Failed). */}}
+    title: Controllers from this builder
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - paragraphs
+      - tables
+    items:
+      - resourceRefId: controller-builder-deliverables-note
+      - resourceRefId: controller-builder-deliverables
+  resourcesRefs:
+    items:
+      - id: controller-builder-deliverables-note
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-builder-deliverables-note
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: controller-builder-deliverables
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-builder-deliverables
+        namespace: {{ .Release.Namespace }}
+        resource: tables
+        verb: GET

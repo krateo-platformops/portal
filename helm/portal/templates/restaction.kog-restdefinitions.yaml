@@ -1,4 +1,4 @@
-{{/* /kog-builder data source — one row per RestDefinition CR (ogen.krateo.io, the KOG */}}
+{{/* /controller-builder registry data source — one row per RestDefinition CR (ogen.krateo.io, the KOG */}}
 {{/* mapping objects oasgen-provider compiles into a generated CRD + controller). All */}}
 {{/* derivation is server-side: */}}
 {{/* rows   : name/namespace, the Ready condition rolled to a verdict chip (True → */}}
@@ -50,17 +50,20 @@ spec:
               namespace: (.metadata.namespace // ""),
               created: (.metadata.creationTimestamp // ""),
               readyCond: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {}),
+              group: (.spec.resourceGroup // ((.status.resource.apiVersion // "") | split("/")[0]) // ""),
               genKind: (.status.resource.kind // ""),
               genApiVersion: (.status.resource.apiVersion // ""),
               oasPath: (.status.oasPath // .spec.oasPath // ""),
               hasAuth: (.status.hasSecuritySchemes // false) } ]
-  {{/* Build the registry rows (newest first) + counts. The Ready verdict and its chip colour */}}
+  {{/* Build the registry rows (by API group, then name — the group is the API a controller */}}
+  {{/* onboarded, so its kinds read together) + counts. The Ready verdict and its chip colour */}}
   {{/* are computed HERE (server-side), never client-side. */}}
   filter: >
     ([ (.restdefs // [])[]
         | (.readyCond.status // "") as $rs
         | { name: .name,
             namespace: .namespace,
+            group: (if (.group // "") != "" then .group else "—" end),
             ready: (if $rs == "True" then "Ready" elif $rs == "False" then "Failed" else "Pending" end),
             readyColor: (if $rs == "True" then "green" elif $rs == "False" then "red" else "orange" end),
             readyReason: (.readyCond.reason // "—"),
@@ -68,7 +71,7 @@ spec:
             oasPath: (if (.oasPath // "") != "" then .oasPath else "—" end),
             auth: (.hasAuth // false),
             age: (.created // "") }
-      ] | sort_by(.age // "") | reverse) as $rows
+      ] | sort_by(.name) | sort_by(.group)) as $rows
     | {
         rows: $rows,
         counts: {
