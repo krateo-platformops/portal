@@ -59,10 +59,15 @@ spec:
     - name: found
       dependsOn:
         name: crds
-        iterator: .crds
+        iterator: '(.namespace // "") as $ns | if $ns == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects | . + { namespace: $ns } ] end'
       {{/* #72: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list */}}
       {{/* (no /namespaces/ segment) → 403 for a tenant. This composition is always in .namespace and the */}}
       {{/* final filter selects it by name+namespace, so scoping loses nothing and is tenant-authorizable. */}}
+      {{/* The iterator CARRIES that namespace into each element: the path is evaluated against the */}}
+      {{/* element, not the dict (snowplow resolvers/restactions/api setup.go:44), and a .crds element */}}
+      {{/* has no `namespace`, so this read `/namespaces//<plural>` — every namespace — whatever the */}}
+      {{/* route said. GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): */}}
+      {{/* without them the step makes no call. */}}
       path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
       verb: GET
       headers:
@@ -75,6 +80,7 @@ spec:
         namespace: {{ .Release.Namespace }}
       dependsOn:
         name: found
+        iterator: '[ select((.name // "") != "" and (.namespace // "") != "") | { path: (.name as $n | .namespace as $ns | ([(.found // empty) | .. | objects | select(.name? == $n and .namespace? == $ns)] | first | (.uid? // "") | tostring) as $uid | "/events?limit=200" + (if ($uid | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) then "&composition_id=" + $uid else "" end)) } ]'
       {{/* SERVER-SIDE scoping by this composition's own uid (#231). */}}
       {{/* */}}
       {{/* WAS: a static /events?limit=200 scoped CLIENT-SIDE in the final filter. That cannot */}}
@@ -105,7 +111,11 @@ spec:
       {{/* padding: a jq ERROR here fails the stage, continueOnError swallows it, and the feed */}}
       {{/* goes empty for EVERY composition. Degrading to the unfiltered path is recoverable; */}}
       {{/* erroring is not. Every branch was exercised against 13 input shapes. */}}
-      path: ${ .name as $n | .namespace as $ns | ([(.found // empty) | .. | objects | select(.name? == $n and .namespace? == $ns)] | first | (.uid? // "") | tostring) as $uid | "/events?limit=200" + (if ($uid | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) then "&composition_id=" + $uid else "" end) }
+      {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+      {{/* there is no composition to scope to, and it used to fetch the unscoped cluster-wide window */}}
+      {{/* for a page that shows none of it. The path is built in the iterator, unchanged; its */}}
+      {{/* element is {path}. */}}
+      path: ${ .path }
       verb: GET
       headers:
         - 'Accept: application/json'

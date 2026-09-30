@@ -17,8 +17,14 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py). Without one — snowplow's */}}
+    {{/* Phase-1 walk resolves this page with no extras — the step makes no call; with the old */}}
+    {{/* `(.name // "")` it listed every proposal instead. `.proposal` is then absent: found: false. */}}
     - name: proposal
-      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/proposals/" + (.name // "") }
+      dependsOn:
+        name: ""
+        iterator: '[ { name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/proposals/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -41,10 +47,15 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: bpError
+    {{/* The claim, by name. GATED on both inputs: a proposal name, and the BuilderPublish GVR from */}}
+    {{/* `bp`. Without either the step makes no call and `.claim` is absent (no claim). It used to */}}
+    {{/* dial `…/builderpublishes/review-` for a missing name, and a guessed `v1` for a missing */}}
+    {{/* `bp`, which is not the version the chart serves: both were 404s, every resolve. */}}
     - name: claim
       dependsOn:
         name: bp
-      path: ${ "/apis/" + (.bp.status.apiVersion // "composition.krateo.io/v1") + "/namespaces/{{ .Release.Namespace }}/" + (.bp.status.resource // "builderpublishes") + "/review-" + ((.name // "") | ltrimstr("p-")) }
+        iterator: '[ { apiVersion: (.bp.status.apiVersion // ""), resource: (.bp.status.resource // ""), claim: ("review-" + ((.name // "") | ltrimstr("p-"))) } | select(.apiVersion != "" and .resource != "" and .claim != "review-") ]'
+      path: ${ "/apis/" + .apiVersion + "/namespaces/{{ .Release.Namespace }}/" + .resource + "/" + .claim }
       verb: GET
       headers:
         - 'Accept: application/json'

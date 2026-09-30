@@ -27,16 +27,25 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+    {{/* the step makes no call — it used to GET `/api/v1/namespaces//configmaps/`. */}}
     - name: draft
-      path: ${ "/api/v1/namespaces/" + ((.namespace // "") | tostring) + "/configmaps/" + ((.name // "") | tostring) }
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: ((.namespace // "") | tostring), name: ((.name // "") | tostring) } | select(.namespace != "" and .name != "") ]'
+      path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: draftError
+    {{/* GATED ON a chart to render — the same test the final filter's $argErr makes — so a missing */}}
+    {{/* or chartless draft POSTs nothing (it used to POST {values: {}} and discard the answer). The */}}
+    {{/* iterator's one element is the whole resolve dict, so the payload below reads what it did. */}}
     - name: render
       dependsOn:
         name: draft
+        iterator: '[ select(((try (.draft.data["chart.json"] | fromjson) catch null) | if type == "object" then (.rawTemplates | type) else "null" end) == "object") ]'
       endpointRef:
         name: helm-render-endpoint
         namespace: {{ .Release.Namespace }}

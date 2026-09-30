@@ -44,9 +44,14 @@ spec:
     - name: found
       dependsOn:
         name: crds
-        iterator: .crds
+        iterator: '(.namespace // "") as $ns | if $ns == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects | . + { namespace: $ns } ] end'
       {{/* #74: NAMESPACE-SCOPED to the composition's ns (?extras .namespace) — was a cluster-wide list */}}
       {{/* (→ 403 for a namespace-scoped tenant). The composition is always in .namespace. */}}
+      {{/* The iterator CARRIES that namespace into each element: the path is evaluated against the */}}
+      {{/* element, not the dict (snowplow resolvers/restactions/api setup.go:44), and a .crds element */}}
+      {{/* has no `namespace`, so this read `/namespaces//<plural>` — every namespace — whatever the */}}
+      {{/* route said. GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): */}}
+      {{/* without them the step makes no call. */}}
       path: ${ "/apis/composition.krateo.io/" + .version + "/namespaces/" + .namespace + "/" + .plural }
       verb: GET
       headers:

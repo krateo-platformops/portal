@@ -36,8 +36,13 @@ spec:
     {{/* expression, NOT a `{name}` brace placeholder: snowplow only templates `${ }` in api[].path, */}}
     {{/* so a literal `{name}` reaches the apiserver verbatim ("not found") and the pre-fill silently */}}
     {{/* degrades to an empty spec. */}}
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py): without one the step makes */}}
+    {{/* no call — it used to GET `…/alerts/`, the whole list, and read it as this alert. */}}
     - name: alert
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/alerts/" + .name }
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ .Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'

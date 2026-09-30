@@ -12,8 +12,13 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py): no name, no call — it used to list */}}
+    {{/* every run instead. `.run` is then absent: found: false. */}}
     - name: run
-      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/reviewruns/" + (.name // "") }
+      dependsOn:
+        name: ""
+        iterator: '[ { name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/reviewruns/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'

@@ -20,7 +20,12 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+    {{/* the step makes no call — it used to GET `…/namespaces//compositiondefinitions/`. */}}
     - name: compdef
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:
@@ -37,19 +42,24 @@ spec:
     {{/* — NOT the portal release namespace. On the platform install the two are identical */}}
     {{/* (blueprints in krateo-system); for a tenant whose blueprints live in krateo-blueprints this */}}
     {{/* is what stops the CM GET 404 → null stringSchema → the Form's "stringSchema Invalid value null". */}}
+    {{/* GATED ON the compdef's status (the input gate, scripts/lint-ra-paths.py): an unreconciled */}}
+    {{/* CD, or none, makes no call — it used to GET `…/configmaps/--jsonschema-configmap`. */}}
     - name: jsonschema
-      path: ${ "/api/v1/namespaces/" + (.compdef.metadata.namespace // "{{ .Release.Namespace }}") + "/configmaps/" + (.compdef.status.resource // "") + "-" + (((.compdef.status.apiVersion // "") | split("/"))[1] // "") + "-jsonschema-configmap" }
+      path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .resource + "-" + .version + "-jsonschema-configmap" }
       verb: GET
       headers:
         - 'Accept: application/json'
       dependsOn:
         name: compdef
+        iterator: '[ .compdef | objects | { namespace: (.metadata.namespace // "{{ .Release.Namespace }}"), resource: (.status.resource // ""), version: (((.status.apiVersion // "") | split("/"))[1] // "") } | select(.resource != "" and .version != "") ]'
       continueOnError: true
       errorKey: jsonschemaError
+    {{/* Same gate: it used to GET `…/customresourcedefinitions/.` for an unreconciled CD. */}}
     - name: crd
       dependsOn:
         name: compdef
-      path: ${ "/apis/apiextensions.k8s.io/v1/customresourcedefinitions/" + (.compdef.status.resource // "") + "." + (((.compdef.status.apiVersion // "") | split("/"))[0] // "") }
+        iterator: '[ .compdef | objects | { resource: (.status.resource // ""), group: (((.status.apiVersion // "") | split("/"))[0] // "") } | select(.resource != "" and .group != "") ]'
+      path: ${ "/apis/apiextensions.k8s.io/v1/customresourcedefinitions/" + .resource + "." + .group }
       verb: GET
       headers:
         - 'Accept: application/json'

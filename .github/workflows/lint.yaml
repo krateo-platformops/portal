@@ -227,3 +227,36 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-composition-architecture.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
+  # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
+  # logged 601 GETs of `…/builderpublishes/review-`, 358 of `/apis/none.krateo.io/v1/none` and 67 of
+  # `/api/v1/namespaces//configmaps/-architecture` in 20 minutes, all 404s continueOnError hid. A step
+  # that needs its input is gated on it (a dependsOn.iterator that yields nothing without it). The
+  # lint checks every RESTAction; the test resolves the gated ones with and without their input and
+  # validates the widgets they feed, as resolved, against the newest released frontend CRDs.
+  ra-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: No RESTAction step dials a half-built path
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          python3 scripts/lint-ra-paths.py
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-ra-input-gates.py --crds "$RUNNER_TEMP/crds/frontend-crds"

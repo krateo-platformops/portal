@@ -88,7 +88,7 @@ v0.13.0` and a `main` that calls `cli.Run()` builds it. Upstream gojq is a diffe
 | `label-mismatch` | A ConfigMap of that name that another composition rendered is not this one's architecture, and not a denial. |
 | `configmap-no-graph` | A ConfigMap with no graph (the frontend <= 1.6.59 composer wrote `<release>-architecture` without one): no architecture, not a denial. |
 | `graph-v2` | A graph shape this portal does not know (`v: 2`): no architecture, and no one, admins included, is told their access is the problem. |
-| `no-extras` | No extras: `architecture: false`, not a denial. |
+| `no-extras` | No extras (snowplow's Phase-1 walk): `architecture: false`, not a denial, and no stage runs — the `arch` step is gated on the extras, so nothing is requested. |
 | `empty-descriptor` | A chart that declares no resources: `nodes: []`, all ready, level null. The body says so in one sentence rather than leaving an empty titled card. |
 | `demo-no-pull-request` | `pullRequest.create=false` (stop at the pushed branch): the PullRequest is absent, the composition is all ready at S3 `committing`, and the strip draws S1–S3 only, never a change request that does not exist. |
 | `v1b-no-source` | No source to seed from: the Repo is absent, so the strip draws S1, S3, S4, each with its level's own number, and `current` points at S3 among the steps drawn. |

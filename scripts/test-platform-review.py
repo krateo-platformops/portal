@@ -62,9 +62,22 @@ def expr(s):
     return s[2:-1] if s.startswith('${') and s.endswith('}') else None
 
 
+# Every path a resolve requested, as (RESTAction, step, path), in order.
+DIALS = []
+
+
+def by_path(response):
+    """An iterator step's response keyed by the path it answers, or None when it answers any path."""
+    if isinstance(response, dict) and response and all(k.startswith('/') for k in response):
+        return response
+    return None
+
+
 def resolve(chart, name, responses, extras, reverse=False):
     """`responses` maps a step to its raw response, 'ERROR:<message>' for a failed call, or, for an
-    iterator step, a dict of path -> response / 'ERROR:<message>'. A step with no entry is not served."""
+    iterator step, a dict of path -> response / 'ERROR:<message>'. A step with no entry is not served.
+    An iterator (an input gate included) yields its elements, and none for a non-array, as snowplow's
+    createRequestOptions does (resolvers/restactions/api/setup.go:43-62)."""
     ra = chart.get('RESTAction', name)
     data = copy.deepcopy(extras)
     for step in ra['spec']['api']:
@@ -74,11 +87,15 @@ def resolve(chart, name, responses, extras, reverse=False):
         it = (step.get('dependsOn') or {}).get('iterator')
         if it:
             items = tbi.jq(it, data)
+            items = items if isinstance(items, list) else []
             if reverse:
                 items = list(reversed(items))
             for item in items:
                 path = tbi.jq(expr(step['path']), item)
-                raw = responses[sname].get(path, 'ERROR:the server could not find the requested resource')
+                DIALS.append((name, sname, path))
+                keyed = by_path(responses[sname])
+                raw = (keyed.get(path, 'ERROR:the server could not find the requested resource')
+                       if keyed is not None else responses[sname])
                 if isinstance(raw, str) and raw.startswith('ERROR:'):
                     data.setdefault(key, []).append(raw[6:])
                     continue
@@ -89,6 +106,7 @@ def resolve(chart, name, responses, extras, reverse=False):
                     data[sname] = out
             continue
         raw = responses[sname]
+        DIALS.append((name, sname, tbi.jq(expr(step['path']), data) if expr(step['path']) else step['path']))
         if isinstance(raw, str) and raw.startswith('ERROR:'):
             if not step.get('continueOnError'):
                 raise RuntimeError(f'{name}: step {sname} failed and does not continue on error')
@@ -497,6 +515,39 @@ def check_run_detail(chart):
     return f
 
 
+def check_steps_gated_on_input(chart):
+    """Without a name — snowplow's Phase-1 walk resolves these pages with no extras — the proposal,
+    the claim and the run are not requested at all (they used to GET …/proposals/, …/reviewruns/
+    and …/builderpublishes/review-), and the pages render their not-found state. With a name the
+    requests are the ones they always were; without `bp` the claim is not guessed at a version."""
+    f = []
+    gated = {('review-proposal', 'proposal'), ('review-proposal', 'claim'), ('review-run', 'run')}
+    for ex in ({}, {'name': ''}):
+        del DIALS[:]
+        out = resolved(chart, 'review-proposal', detail_responses('p-nope'), ex)
+        run = resolved(chart, 'review-run', {'run': RUNS[0], 'all': {'items': PROPOSALS}, 'apis': APIS, 'kinds': KINDS}, ex)
+        expect(f, f'{ex}: gated steps requested', sorted({d[1] for d in DIALS if d[:2] in gated}), [])
+        expect(f, f'{ex}: proposal page', (out['found'], out['title']), (False, 'Proposal not found'))
+        expect(f, f'{ex}: run page', (run['found'], run['title']), (False, 'Review run not found'))
+        w = resolve_widgets(chart, 'review-proposal', out, ex, f'no name {ex}')
+        expect(f, f'{ex}: proposal page items', [i['resourceRefId'] for i in w['page-review-proposal']['items']],
+               ['review-proposal-header', 'review-proposal-missing'])
+        resolve_widgets(chart, 'review-run', run, ex, f'run, no name {ex}')
+    del DIALS[:]
+    ex = {'name': 'p-cccc000000000003'}
+    resolve(chart, 'review-proposal', detail_responses(ex['name']), ex)
+    resolve(chart, 'review-run', {'run': RUNS[0], 'all': {'items': PROPOSALS}, 'apis': APIS, 'kinds': KINDS},
+            {'name': RUNS[0]['metadata']['name']})
+    expect(f, 'named: requests', sorted(d[2] for d in DIALS if d[:2] in gated), sorted([
+        f'/apis/review.krateo.io/v1alpha1/namespaces/{NS}/proposals/p-cccc000000000003',
+        f'/apis/composition.krateo.io/v1-8-53/namespaces/{NS}/builderpublishes/review-cccc000000000003',
+        f'/apis/review.krateo.io/v1alpha1/namespaces/{NS}/reviewruns/{RUNS[0]["metadata"]["name"]}']))
+    del DIALS[:]
+    resolve(chart, 'review-proposal', detail_responses(ex['name'], bp='ERROR:compositiondefinitions "builder-publish" not found'), ex)
+    expect(f, 'no bp: claim requested', [d[2] for d in DIALS if d[1] == 'claim'], [])
+    return f
+
+
 DECISION = json.load(open(os.path.join(HERE, 'fixtures', 'nightly-review-0.1.23-decision.json')))['schema']
 
 
@@ -618,6 +669,7 @@ CHECKS = [
     check_change_request_claim,
     check_run_detail,
     check_decisions,
+    check_steps_gated_on_input,
 ]
 
 
