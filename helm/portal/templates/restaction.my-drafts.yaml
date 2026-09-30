@@ -1,4 +1,4 @@
-{{/* YOUR DRAFTS — the draft records the caller owns, for "Your drafts" on both builder pages. */}}
+{{/* YOUR DRAFTS — the draft records the caller owns, for "Your drafts" on every builder page. */}}
 {{/* */}}
 {{/* A draft record is ONE ConfigMap per person and draft in the preview sandbox, */}}
 {{/* draft-<kind>-<owner>-<slug>, holding the whole held tree in data["draft.json"]. The composer */}}
@@ -31,6 +31,14 @@
 {{/* draft.json is parsed only for three scalars (the publish link, the thread, the file count) and */}}
 {{/* the chart version; the body itself — up to 512 KiB of tree — is never returned. `kind` in */}}
 {{/* extras narrows to one kind; each page's widgets also select their own. */}}
+{{/* */}}
+{{/* WHICH KINDS ARE RECORDS, AND WHERE EACH RESUMES, is portal.draftBuilders (_builder.tpl), not */}}
+{{/* this filter: a record whose kind no builder declares is not listed (nothing could resume it), */}}
+{{/* and Resume opens <route>/compose?resume=<record> for the kind that wrote it. */}}
+{{- $routes := dict }}
+{{- range $kind, $b := include "portal.draftBuilders" . | fromYaml }}
+{{- $_ := set $routes $kind $b.route }}
+{{- end }}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -48,7 +56,8 @@ spec:
       continueOnError: true
       errorKey: recordsError
   filter: >
-    ((.username // "") | if type == "string" then . else "" end) as $username
+    ({{ toJson $routes }}) as $routes
+    | ((.username // "") | if type == "string" then . else "" end) as $username
     | ($username | ascii_downcase | gsub("[^a-z0-9-]+"; "-") | gsub("^-+|-+$"; "") | .[0:40] | gsub("-+$"; "")
        | if . == "" then "unknown" else . end) as $owner
     | ((.kind // "") | if type == "string" then . else "" end) as $kind
@@ -63,7 +72,7 @@ spec:
             | ((.metadata.labels["krateo.io/draft-state"] // $body.state // "open") | tostring) as $state
             | (($body.publish // {}) | if type == "object" then . else {} end) as $publish
             | (($body.files // {}) | if type == "object" then . else {} end) as $files
-            | select($recordKind == "page" or $recordKind == "blueprint")
+            | select(($routes[$recordKind] // "") != "")
             | { recordName: (.metadata.name // ""),
                 kind: $recordKind,
                 name: ((.metadata.annotations["krateo.io/draft-name"] // $body.name // .metadata.name // "") | tostring),
@@ -78,6 +87,5 @@ spec:
                 files: ($files | length),
                 version: ((($files["Chart.yaml"] // "") | if type == "string" then . else "" end)
                           | [match("(?m)^version:[ \t]*[\"']?([^\"'\\s]+)").captures[0].string] | .[0] // ""),
-                resumePath: ((if $recordKind == "page" then "/portal-builder/compose" else "/blueprint-builder/compose" end)
-                             + "?resume=" + (.metadata.name // "")) }
+                resumePath: ($routes[$recordKind] + "/compose?resume=" + (.metadata.name // "")) }
           ) ] | sort_by(.updatedAt) | reverse end) }

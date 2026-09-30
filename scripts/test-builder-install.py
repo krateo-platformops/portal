@@ -655,7 +655,7 @@ def draft_record(kind, owner, name, updated, state='open', previewed=False, thre
     """A draft record ConfigMap as draftRecordConfigMap() writes it."""
     files = files if files is not None else (
         {'Chart.yaml': f'apiVersion: v2\nname: {name}\nversion: "0.2.0"\n', 'values.yaml': 'a: 1\n', 'templates/cm.yaml': 'kind: ConfigMap\n'}
-        if kind == 'blueprint' else {'page.yaml': 'kind: Flex\n', 'header.yaml': 'kind: PageHeader\n'})
+        if kind in ('blueprint', 'controller') else {'page.yaml': 'kind: Flex\n', 'header.yaml': 'kind: PageHeader\n'})
     body = {'version': 1, 'kind': kind, 'name': name, 'files': files, 'updatedAt': updated, 'state': state}
     if thread:
         body['threadId'] = thread
@@ -671,8 +671,9 @@ def draft_record(kind, owner, name, updated, state='open', previewed=False, thre
             'data': {'draft.json': json.dumps(body)}}
 
 
-MY_DRAFT_WIDGETS = [('Listy', f'my-drafts-{kind}{suffix}') for kind in ('blueprint', 'page') for suffix in ('', '-published')] \
-    + [('Card', 'blueprint-builder-drafts-card'), ('Card', 'portal-builder-drafts-card')]
+MY_DRAFT_WIDGETS = [('Listy', f'my-drafts-{kind}{suffix}') for kind in ('blueprint', 'controller', 'page') for suffix in ('', '-published')] \
+    + [('Card', 'blueprint-builder-drafts-card'), ('Card', 'controller-builder-drafts-card'), ('Card', 'portal-builder-drafts-card')]
+MY_DRAFT_LISTS = [(kind, name) for kind, name in MY_DRAFT_WIDGETS if kind == 'Listy']
 
 
 def listy_placeholders_resolve(f, chart, name, rows, label):
@@ -705,6 +706,9 @@ def check_my_drafts_are_the_callers_own(chart):
         draft_record('blueprint', owner, 'aws-vpc-network', '2026-09-26T09:10:00Z', state='published', previewed=True,
                      publish={'repo': 'krateo-blueprints/aws-vpc-network', 'prUrl': 'https://github.com/krateo-blueprints/aws-vpc-network/pull/1'}),
         draft_record('page', owner, 'service-catalog', '2026-09-29T10:50:00Z', previewed=True),
+        draft_record('controller', owner, 'petstore', '2026-09-27T08:00:00Z', thread='thread-2'),
+        # A kind no builder declares: nothing could resume it, so it is not listed.
+        draft_record('widget', owner, 'orphan-kind', '2026-09-29T12:00:00Z'),
         draft_record('blueprint', 'alice', 'catalog-service', '2026-09-29T11:00:00Z'),
         draft_record('page', 'unknown', 'pod-sizing', '2026-09-24T18:49:00Z'),
         {'metadata': {'name': 'bp-preview-big-x1', 'labels': {'krateo.io/purpose': 'blueprint-render'}},
@@ -717,7 +721,7 @@ def check_my_drafts_are_the_callers_own(chart):
     expect(f, 'named: the owner is the kernel\'s draftOwner of the username', out['owner'], owner)
     expect(f, 'named: only my records, newest first', [r['recordName'] for r in rows],
            [f'draft-blueprint-{owner}-catalog-service', f'draft-page-{owner}-service-catalog',
-            f'draft-blueprint-{owner}-payments-api', f'draft-blueprint-{owner}-aws-vpc-network'])
+            f'draft-blueprint-{owner}-payments-api', f'draft-controller-{owner}-petstore', f'draft-blueprint-{owner}-aws-vpc-network'])
     expect(f, 'named: another person\'s record with the same name is not mine',
            any('alice' in r['recordName'] for r in rows), False)
     by = {r['name'] + '/' + r['kind']: r for r in rows}
@@ -728,15 +732,20 @@ def check_my_drafts_are_the_callers_own(chart):
            [by['catalog-service/blueprint']['startedFrom'], by['payments-api/blueprint']['startedFrom']],
            ['Autopilot thread', 'Composed by hand'])
     expect(f, 'Resume opens each kind\'s composer on the record',
-           [by['catalog-service/blueprint']['resumePath'], by['service-catalog/page']['resumePath']],
+           [by['catalog-service/blueprint']['resumePath'], by['service-catalog/page']['resumePath'], by['petstore/controller']['resumePath']],
            [f'/blueprint-builder/compose?resume=draft-blueprint-{owner}-catalog-service',
-            f'/portal-builder/compose?resume=draft-page-{owner}-service-catalog'])
+            f'/portal-builder/compose?resume=draft-page-{owner}-service-catalog',
+            f'/controller-builder/compose?resume=draft-controller-{owner}-petstore'])
     expect(f, 'published: the PR link rides along', by['aws-vpc-network/blueprint']['prUrl'],
            'https://github.com/krateo-blueprints/aws-vpc-network/pull/1')
     expect(f, 'the chart version and file count, from the tree', [by['payments-api/blueprint']['version'], by['payments-api/blueprint']['files']], ['0.2.0', 3])
     expect(f, 'the body itself is never returned', any('body' in r or 'data' in r or isinstance(r.get('files'), dict) for r in rows), False)
     kinds = resolve(chart, 'my-drafts', responses, {'username': me, 'kind': 'page'})['items']
     expect(f, 'extras kind narrows to one kind', [r['kind'] for r in kinds], ['page'])
+    kinds = resolve(chart, 'my-drafts', responses, {'username': me, 'kind': 'controller'})['items']
+    expect(f, 'extras kind narrows to controller', [r['recordName'] for r in kinds], [f'draft-controller-{owner}-petstore'])
+    listed = resolve(chart, 'my-drafts', responses, {'username': me, 'kind': 'widget'})['items']
+    expect(f, 'a kind no builder declares is never listed, even asked for', listed, [])
 
     # The sanitizer, against the kernel, on names that exercise every step of it.
     for username in ('Diego.Braga@Example.com', 'ADMIN', '--a__b--', 'x' * 39 + '-yyyy', 'élodie', 'cyberjoker'):
@@ -764,18 +773,29 @@ def check_my_drafts_are_the_callers_own(chart):
            ['0.2.0 · published · krateo-blueprints/aws-vpc-network #1'])
     expect(f, 'page list: the page draft only', [(r['name'], r['meta']) for r in rendered['my-drafts-page']['dataSource']],
            [('service-catalog', 'page · 2 files · Composed by hand')])
-    expect(f, 'card counts: blueprint and page', [rendered['blueprint-builder-drafts-card']['extra'], rendered['portal-builder-drafts-card']['extra']],
-           ['3 drafts · only you see these', '1 draft · only you see these'])
+    expect(f, 'controller list: the controller draft only, a chart\'s meta line', [(r['name'], r['meta']) for r in rendered['my-drafts-controller']['dataSource']],
+           [('petstore', '0.2.0 · 3 files · Autopilot thread')])
+    expect(f, 'controller published list: empty, hidden', [rendered['my-drafts-controller-published']['dataSource'], chart.get('Listy', 'my-drafts-controller-published')['spec']['widgetData'].get('hideWhenEmpty')],
+           [[], True])
+    expect(f, 'controller Resume opens the controller composer', chart.get('Listy', 'my-drafts-controller')['spec']['widgetData']['actions']['navigate'],
+           [{'id': 'resume', 'type': 'navigate', 'path': '/controller-builder/compose?resume=${recordName}'}])
+    expect(f, 'card counts: blueprint, controller and page',
+           [rendered['blueprint-builder-drafts-card']['extra'], rendered['controller-builder-drafts-card']['extra'], rendered['portal-builder-drafts-card']['extra']],
+           ['3 drafts · only you see these', '1 draft · only you see these', '1 draft · only you see these'])
+    # The controller card IS the blueprint card with its kind changed: same copy, same children
+    # in the same order, differing only where the kind is named.
+    bp, ctl = (json.dumps(chart.get('Card', n)['spec'], sort_keys=True) for n in ('blueprint-builder-drafts-card', 'controller-builder-drafts-card'))
+    expect(f, 'controller drafts card mirrors the blueprint one', ctl, bp.replace('blueprint', 'controller'))
 
     # The mockup's buttons: visible at the row's end, the first primary, none red.
-    for kind, name in MY_DRAFT_WIDGETS[:4]:
+    for kind, name in MY_DRAFT_LISTS:
         tpl = chart.get('Listy', name)['spec']['widgetData']['itemTemplate']
         expect(f, f'{name}: row actions are visible buttons, none danger', [tpl.get('rowActionsDisplay'), [a.get('danger', False) for a in tpl['rowActions']]],
                ['buttons', [False] * len(tpl['rowActions'])])
         expect(f, f'{name}: the first (primary) button', tpl['rowActions'][0]['actionId'], 'discard' if name.endswith('-published') else 'resume')
 
     # Discard: a DELETE of the row's record in the sandbox, never of a name that could be one.
-    for kind, name in MY_DRAFT_WIDGETS[:4]:
+    for kind, name in MY_DRAFT_LISTS:
         spec = chart.get('Listy', name)['spec']
         ref = spec['resourcesRefs']['items'][0]
         rest = spec['widgetData']['actions']['rest'][0]
