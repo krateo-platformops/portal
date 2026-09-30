@@ -28,6 +28,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -194,7 +195,7 @@ def check_the_ladder():
          ('Ready', 'green', '', '/compositions/team-a/pets')),
         ('ready, credentials needed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                        'restdefs': items(restdef('pets-pet', 'pets', auth=True))},
-         ('Ready', 'green', 'Configure credentials', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-pet')),
+         ('Ready', 'green', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
         ('ready, credentials configured', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                            'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
                                            'configs': config_list({'kind': 'PetConfiguration', 'apiVersion': 'petstore.example.io/v1alpha1',
@@ -209,11 +210,11 @@ def check_the_ladder():
             'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
             'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
             'configs': config_list({'metadata': {'name': 'x'}}, served_by='informer', kind='StoreConfiguration', plural='storeconfigurations')},
-         ('Ready', 'green', 'Configure credentials', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-pet')),
+         ('Ready', 'green', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
         ('ready, an empty configuration list', {
             'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
             'restdefs': items(restdef('pets-pet', 'pets', auth=True)), 'configs': config_list()},
-         ('Ready', 'green', 'Configure credentials', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-pet')),
+         ('Ready', 'green', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
         ('ready, configurations unreadable: no claim either way', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                                                    'restdefs': items(restdef('pets-pet', 'pets', auth=True)), 'configs': None},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
@@ -373,8 +374,108 @@ def check_mirrors_the_blueprint_builder():
     return f
 
 
+
+# ---------------------------------------------------------------------------------------------
+# Configure credentials (/controller-builder/configure/{namespace}/{name})
+# ---------------------------------------------------------------------------------------------
+
+def config_crd(kind='PetConfiguration', group='petstore.example.io'):
+    """A <Kind>Configuration CRD as oasgen 0.23.0 generates it (AutolinkConfiguration on krateo-057)."""
+    ref = {'type': 'object', 'required': ['key', 'name', 'namespace'],
+           'properties': {'key': {'type': 'string'}, 'name': {'type': 'string'}, 'namespace': {'type': 'string'}}}
+    spec = {'type': 'object', 'properties': {'authentication': {
+        'type': 'object', 'description': 'The authentication methods available for this API.',
+        'properties': {'bearer': {'type': 'object', 'required': ['tokenRef'], 'properties': {'tokenRef': ref}}}}}}
+    return {'metadata': {'name': kind.lower() + 's.' + group},
+            'spec': {'group': group, 'versions': [{'name': 'v1alpha1', 'served': True,
+                                                   'schema': {'openAPIV3Schema': {'properties': {'spec': spec}}}}]}}
+
+
+SECRET = 'correct-horse-battery-staple'
+
+
+def payload_for(op, values):
+    """What useHandleActions.buildPayload sends for one op: the op payload, then each override —
+    a ${ } evaluated over {json: <form values>}, anything else verbatim."""
+    body = copy.deepcopy(op.get('payload') or {})
+    for o in op.get('payloadToOverride') or []:
+        v = o['value']
+        if isinstance(v, str) and v.startswith('${'):
+            v = tbi.jq(v[2:-1], {'json': values})
+        tbi.set_path(body, o['name'], v)
+    return body
+
+
+def check_configure_credentials():
+    f = []
+    ra = CHART.get('RESTAction', 'controller-configure-formdef')
+    rd = restdef('pets-pet', 'pets', auth=True)
+    extras = {'namespace': 'team-a', 'name': 'pets-pet'}
+    requests, _, out = gates.resolve(ra, extras, {'rd': rd, 'crd': config_crd()})
+    expect(f, 'reads the RestDefinition, then its configuration CRD, as the caller', [(s, p) for s, p, _ in requests],
+           [('rd', '/apis/ogen.krateo.io/v1alpha1/namespaces/team-a/restdefinitions/pets-pet'),
+            ('crd', '/apis/apiextensions.k8s.io/v1/customresourcedefinitions/petconfigurations.petstore.example.io')])
+    schema = json.loads(out['stringSchema'])
+    expect(f, 'field order: the configuration, its spec, then the Secret', list(schema['properties']),
+           ['__configuration_name__', 'authentication', '__secret_name__', '__secret_key__', '__secret_value__'])
+    expect(f, 'the credential is a password field, write-only', {k: schema['properties']['__secret_value__'].get(k) for k in ('format', 'writeOnly')},
+           {'format': 'password', 'writeOnly': True})
+    expect(f, 'everything a save needs is required', sorted(schema['required']),
+           sorted(['__configuration_name__', 'authentication', '__secret_name__', '__secret_key__', '__secret_value__']))
+    expect(f, 'pre-filled: the Secret, and the reference pointing at it', out['initialValues'],
+           {'__configuration_name__': 'pets-pet', '__secret_name__': 'pets-pet-credentials', '__secret_key__': 'token',
+            'authentication': {'bearer': {'tokenRef': {'name': 'pets-pet-credentials', 'namespace': 'team-a', 'key': 'token'}}}})
+    expect(f, 'no credential value anywhere in what the RA serves', SECRET in json.dumps(out), False)
+
+    form = tbi.resolved_widget(CHART, 'Form', 'controller-configure', out, extras, 'controller-configure (named)')
+    wd = form['spec']['widgetData']
+    expect(f, 'no review page, no local draft', [wd.get('reviewBeforeSubmit', False), 'draftActionId' in wd], [False, False])
+    action = wd['actions']['rest'][0]
+    expect(f, 'messages and the navigate target are static', [('${' in str(action.get(k, ''))) for k in ('successMessage', 'errorMessage', 'onSuccessNavigateTo')],
+           [False, False, False])
+    ops = action['ops']
+    expect(f, 'Secret first, then the configuration', [o['resourceRefId'] for o in ops], ['create-secret', 'create-configuration'])
+    readers = [(i, o['name']) for i, op in enumerate(ops) for o in op['payloadToOverride'] if '__secret_value__' in str(o['value'])]
+    expect(f, 'only the Secret\'s stringData reads the credential', readers, [(0, 'stringData')])
+    wholes = [o['name'] for op in ops for o in op['payloadToOverride'] if re.search(r'\.json\s*(\||\)|\}|$)', str(o['value']))]
+    expect(f, 'no override reads the whole form', wholes, [])
+
+    # The two bodies the submit sends, for a person who kept the pre-fill and typed the token.
+    values = dict(out['initialValues'], __secret_value__=SECRET)
+    secret, config = (payload_for(op, values) for op in ops)
+    expect(f, 'the Secret body', secret, {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
+                                          'metadata': {'name': 'pets-pet-credentials', 'namespace': 'team-a',
+                                                       'labels': {'krateo.io/managed-by': 'controller-builder'}},
+                                          'stringData': {'token': SECRET}})
+    expect(f, 'the configuration body', config, {'apiVersion': 'petstore.example.io/v1alpha1', 'kind': 'PetConfiguration',
+                                                 'metadata': {'name': 'pets-pet', 'namespace': 'team-a'},
+                                                 'spec': {'authentication': {'bearer': {'tokenRef': {'name': 'pets-pet-credentials', 'namespace': 'team-a', 'key': 'token'}}}}})
+    # A renamed Secret: the reference follows it, whatever the reference field still says.
+    renamed = payload_for(ops[1], dict(values, __secret_name__='petstore-token'))
+    expect(f, 'the reference follows a renamed Secret', renamed['spec']['authentication']['bearer']['tokenRef']['name'], 'petstore-token')
+    refs = {r['id']: r for r in form['spec'].get('resourcesRefsTemplate') and [
+        {k: (tbi.jq(v[2:-1], out) if isinstance(v, str) and v.startswith('${') else v) for k, v in t['template'].items()}
+        for t in form['spec']['resourcesRefsTemplate']] or []}
+    expect(f, 'both write into the install\'s namespace', [(r['resource'], r['namespace'], r['verb']) for r in refs.values()],
+           [('secrets', 'team-a', 'POST'), ('petconfigurations', 'team-a', 'POST')])
+
+    # Nothing to configure: no route params (the prewarm), a kind with no security scheme, a CRD
+    # not served yet. A form with no fields, no write target, never a failed resolve.
+    for label, ex, resp, title in (('prewarm', {}, {}, 'No controller kind selected'),
+                                   ('no security scheme', extras, {'rd': restdef('pets-pet', 'pets')}, 'This kind needs no credentials'),
+                                   ('CRD not served yet', extras, {'rd': rd}, 'This kind\'s configuration is still being generated')):
+        requests, _, o = gates.resolve(ra, ex, resp)
+        expect(f, f'{label}: says so', (o['ready'], o['schemaSpec'].get('title')), (False, title))
+        if label == 'prewarm':
+            expect(f, 'prewarm: no request', requests, [])
+        tbi.resolved_widget(CHART, 'Form', 'controller-configure', o, ex, f'controller-configure ({label})')
+        tbi.resolved_widget(CHART, 'PageHeader', 'controller-configure-page-header', o, ex, f'controller-configure-page-header ({label})')
+    for kind, name in (('Flex', 'page-controller-configure'), ('Card', 'controller-configure-card')):
+        tbi.RESOLVED.append((f'{name} (as authored)', copy.deepcopy(CHART.get(kind, name))))
+    return f
+
 CHECKS = [check_the_ladder, check_only_controller_publishes, check_iterators_request_what_they_need,
-          check_registry_groups_by_api, check_mirrors_the_blueprint_builder]
+          check_registry_groups_by_api, check_mirrors_the_blueprint_builder, check_configure_credentials]
 CHART = None
 
 

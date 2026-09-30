@@ -1,0 +1,115 @@
+{{/* CONFIGURE CREDENTIALS — one submit, two writes, as form.settings-user-create does it: the */}}
+{{/* Secret FIRST, then the <Kind>Configuration that references it (stop-on-first-error: a failed */}}
+{{/* Secret dispatches no Configuration, so nothing ever points at a Secret that is not there). */}}
+{{/* Both POST through /call as the caller, into the install's namespace. */}}
+{{/* */}}
+{{/* The schema comes from restaction.controller-configure-formdef: the Configuration CRD's own */}}
+{{/* spec, the Configuration's name, and the Secret's name, key and value. */}}
+{{/* */}}
+{{/* THE CREDENTIAL IS HANDLED AS ONE. Needs the frontend release that honours format: password */}}
+{{/* and writeOnly (a masked input, masked in the confirm, never shipped to /jq except where an */}}
+{{/* override reads it). So: */}}
+{{/*  - no reviewBeforeSubmit and no draftActionId — no summary page, no localStorage copy; */}}
+{{/*  - every message and the navigate target on the action are static strings, so neither the */}}
+{{/*    body nor the apiserver's response (a Secret carries its data back) is ever evaluated; */}}
+{{/*  - only the stringData override reads the value, and only the Secret op carries it; the */}}
+{{/*    Configuration's spec override names its fields one by one (widgetDataTemplate below), so */}}
+{{/*    it never reads the whole form; */}}
+{{/*  - stringData, not data: the apiserver encodes it, nothing here handles the bytes. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-configure
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: controller-configure-formdef
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    layout: vertical
+    submitActionId: submit
+    schema: {}
+    buttonConfig:
+      primary:
+        label: Save credentials
+      secondary:
+        label: Cancel
+        navigateTo: /controller-builder
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          {{/* Ignored for dispatch when ops is set, but must name a valid ref: the first op's. */}}
+          resourceRefId: create-secret
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: Credentials saved
+          errorMessage: "Saving failed. A 409 means a Secret or configuration with that name already exists: pick another name."
+          onSuccessNavigateTo: /controller-builder
+          loading:
+            display: true
+          ops:
+            - resourceRefId: create-secret
+              payload:
+                apiVersion: v1
+                kind: Secret
+                type: Opaque
+              {{/* The referenced resource's payload base is merged over this one with an empty */}}
+              {{/* metadata.name, so name and namespace are set here. The namespace is a plain */}}
+              {{/* string the widgetDataTemplate writes (the install's namespace), not a ${ }. */}}
+              payloadToOverride:
+                - { name: metadata.name,      value: '${ .json.__secret_name__ }' }
+                - { name: metadata.namespace, value: '' }
+                - { name: metadata.labels,    value: '${ {"krateo.io/managed-by":"controller-builder"} }' }
+                - { name: stringData,         value: '${ { (.json.__secret_key__): .json.__secret_value__ } }' }
+            - resourceRefId: create-configuration
+              payload: {}
+              payloadToOverride:
+                - { name: metadata.name,      value: '${ .json.__configuration_name__ }' }
+                - { name: metadata.namespace, value: '' }
+                {{/* Replaced by widgetDataTemplate with the spec built field by field. */}}
+                - { name: spec,               value: '${ {} }' }
+  widgetDataTemplate:
+    - forPath: schema
+      expression: '${ .schemaSpec }'
+    - forPath: stringSchema
+      expression: '${ .stringSchema }'
+    - forPath: initialValues
+      expression: '${ .initialValues }'
+    - forPath: actions.rest[0].ops[0].payloadToOverride[1].value
+      expression: '${ .namespace // "" }'
+    - forPath: actions.rest[0].ops[1].payload
+      expression: '${ if .ready then { apiVersion: .apiVersion, kind: .kind } else {} end }'
+    - forPath: actions.rest[0].ops[1].payloadToOverride[1].value
+      expression: '${ .namespace // "" }'
+    {{/* The Configuration's spec: each of the CRD's own spec fields by name (.json.<field>, the */}}
+    {{/* path form frontend#424 recognises), never `.json` whole */}}
+    {{/* (that would read the credential too). Every Secret reference in it (an object with */}}
+    {{/* name, namespace and key) is pointed at the Secret this submit creates, and empty */}}
+    {{/* values are pruned bottom-up, as form.blueprint-install prunes, so an untouched optional */}}
+    {{/* scheme is not sent half-filled. Emitted as ONE string: the Form CRD types it so. */}}
+    - forPath: actions.rest[0].ops[1].payloadToOverride[2].value
+      expression: >-
+        ${ "${ .json.__secret_name__ as $sn | { "
+           + ([ (.specKeys // [])[] | tojson + ": " + (if test("^[A-Za-z_][A-Za-z0-9_]*$") then ".json." + . else ".json[" + tojson + "]" end) ] | join(", "))
+           + " } | walk(if type == \"object\" and has(\"name\") and has(\"namespace\") and has(\"key\") then .name = $sn | .namespace = "
+           + ((.namespace // "") | tojson)
+           + " else . end) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end) }" }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: create-secret
+        apiVersion: v1
+        resource: secrets
+        namespace: '${ .namespace }'
+        verb: POST
+    - template:
+        id: create-configuration
+        apiVersion: '${ .apiVersion }'
+        resource: '${ .plural }'
+        namespace: '${ .namespace }'
+        verb: POST

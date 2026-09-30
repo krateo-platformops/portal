@@ -1,0 +1,26 @@
+{{/* The /controller-builder/configure form in a titled Card, as card.create-form-card holds the */}}
+{{/* blueprint create form. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-configure-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Credentials
+    titleVariant: eyebrow
+    variant: outlined
+    extra: 'Fields come from the generated configuration kind'
+    items:
+      - resourceRefId: controller-configure-form
+  resourcesRefs:
+    items:
+      - id: controller-configure-form
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-configure
+        namespace: {{ .Release.Namespace }}
+        resource: forms
+        verb: GET
