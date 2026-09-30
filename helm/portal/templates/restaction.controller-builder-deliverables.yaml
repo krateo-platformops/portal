@@ -29,8 +29,10 @@
 {{/* */}}
 {{/* "MERGED NEEDS EVIDENCE" holds here exactly as in the blueprint RA (portal.builderPrEnding). */}}
 {{/* So does "RELEASED": the chart is pushed to GHCR as OCI, which no step can read, so no row */}}
-{{/* claims a release. The first observable proof is the CompositionDefinition going Ready — core- */}}
-{{/* provider pulled the chart — and that row says Registered. */}}
+{{/* claims a release. A CompositionDefinition that exists and is not Ready yet says Registering */}}
+{{/* (core-provider may still be waiting for the chart to be pushed); the first observable proof of */}}
+{{/* a release is that definition going Ready — core-provider pulled the chart — and then the row */}}
+{{/* says Registered. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -228,7 +230,7 @@ spec:
                       elif ($ins | length) > 0 then "Installed"
                       elif ($cd != null and $cd.ready == "True") then "Registered"
                       elif ($cd != null and $cd.ready == "False") then "Failed"
-                      elif ($cd != null) then "Reconciling"
+                      elif ($cd != null) then "Registering"
                       elif $end == "merged" then "Merged"
                       elif ($end == "closed" or $end == "closed?") then "Closed"
                       elif ($pr != null and (($pr.number) // 0) > 0) then "Change request open"

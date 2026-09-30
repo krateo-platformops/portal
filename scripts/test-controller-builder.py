@@ -7,7 +7,7 @@ WHAT IT GUARDS.
   1. restaction.controller-builder-deliverables joins a controller's BuilderPublish claim to its
      change request, CompositionDefinition, install claim, RestDefinitions and their
      <Kind>Configurations. Each rung of the ladder — Publishing, Publish failed, Pushed, Change
-     request open, Merged, Closed, Reconciling, Registered, Installed, Ready, Failed — and each
+     request open, Merged, Closed, Registering, Registered, Installed, Ready, Failed — and each
      next step (Register, Install, Configure credentials) is a jq branch; every one is resolved
      here on fixtures shaped like the krateo-057 objects (publish-pet, github-provider-kog), with
      the row's destination. The prewarm (no extras, empty lists) resolves to no rows and makes no
@@ -144,8 +144,8 @@ def check_the_ladder():
          ('Merged', 'green', '', 'https://github.com/krateo-platformops/pet/pull/7')),
         ('merged, definitions unreadable: no Register', {'prs': items(pr(P, state='closed', merged=True)), 'cds': None},
          ('Merged', 'green', '', 'https://github.com/krateo-platformops/pet/pull/7')),
-        ('reconciling', {'prs': items(pr(P, state='closed', merged=True)), 'cds': items(cd('pet'))},
-         ('Reconciling', 'orange', '', f'/blueprints/{NS}/pet')),
+        ('registering', {'prs': items(pr(P, state='closed', merged=True)), 'cds': items(cd('pet'))},
+         ('Registering', 'orange', '', f'/blueprints/{NS}/pet')),
         ('definition failed', {'cds': items(cd('pet', ready='False'))}, ('Failed', 'red', '', f'/blueprints/{NS}/pet')),
         ('registered', {'cds': items(cd('pet', ready='True'))}, ('Registered', 'green', 'Install', f'/blueprints/{NS}/pet/new')),
         ('installed, kinds not ready yet', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
