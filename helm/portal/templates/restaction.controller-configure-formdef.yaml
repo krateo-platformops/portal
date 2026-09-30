@@ -85,8 +85,11 @@ spec:
       # and key typed below — so they are DERIVED, not shown: a ref's own name/key/namespace
       # fields would be the Secret's name and key a second time, and could disagree with it.
       # Other schemes are left in the form, untouched.
-      # OUT OF SCOPE: a scheme with two references (basic: usernameRef + passwordRef). Both point
-      # at the one Secret, and the form writes one key; the other key must already be there.
+      # OUT OF SCOPE: a scheme with two references (basic: usernameRef + passwordRef). Both are
+      # pointed at the one Secret AND the one key this form writes; such a kind needs its
+      # Configuration edited after saving. Every Configuration CRD on 057 is bearer.tokenRef.
+      # Also left out of the form: a spec field whose key is not an identifier (it cannot be a
+      # plain .json.<key> path) — none exists on 057.
       # In key order, explicitly: jq keeps a map's insertion order and gojq sorts it, so without
       # the sort "the first scheme" would depend on which one runs this.
       | ([ (($spec.properties.authentication.properties // {}) | to_entries | sort_by(.key))[]
