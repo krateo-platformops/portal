@@ -1,0 +1,52 @@
+{{/* The published-controllers registry — ONE row per controller published from this builder (the */}}
+{{/* composer or Autopilot), off controller-builder-deliverables. table.blueprint-builder- */}}
+{{/* deliverables with two columns changed for what a controller is: Controller (chart) / Change */}}
+{{/* request / Version / Status chip (the ladder, Publishing → Ready, green where a person's step */}}
+{{/* waits or the controller is Ready, red where it failed) / Next step (Register, Install or */}}
+{{/* Configure credentials — what the row click does) / Generated kinds (the kinds its */}}
+{{/* RestDefinitions generate, where the blueprint table has Marketplace: a controller is never in */}}
+{{/* a helm index, and the kinds are what it delivers) / Ref / Published age. */}}
+{{/* */}}
+{{/* Rows are linkable through the per-row destination the RA resolves (rowHref), passed through */}}
+{{/* verbatim by the whole-placeholder form (Table.tsx:35,45); an unresolved row stays inert. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-deliverables
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: '{rowHref}'
+    pagination:
+      defaultPageSize: 15
+    columns:
+    - valueKey: chart
+      title: Controller
+    - valueKey: title
+      title: Change request
+    - valueKey: version
+      title: Version
+    - valueKey: status
+      title: Status
+    - valueKey: next
+      title: Next step
+    - valueKey: gvk
+      title: Generated kinds
+    - valueKey: pr
+      title: Ref
+    - valueKey: age
+      title: Published
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"chart",kind:"jsonSchemaType",type:"string",stringValue:(.chart // "")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"version",kind:"jsonSchemaType",type:"string",stringValue:(.version // "—"),color:"#8c8c8c"}, {valueKey:"status",kind:"tag",stringValue:(.status // "Publishing"),color:(.statusColor // "orange")}, {valueKey:"next",kind:"jsonSchemaType",type:"string",stringValue:(.next // "")}, {valueKey:"gvk",kind:"jsonSchemaType",type:"string",stringValue:(.gvk // "—")}, {valueKey:"pr",kind:"jsonSchemaType",type:"string",stringValue:(.pr // ""),color:"#8c8c8c"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"kinds",kind:"jsonSchemaType",type:"string",stringValue:(.kinds // "")}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:(.ns // "")}, {valueKey:"url",kind:"jsonSchemaType",type:"string",stringValue:(.url // "")}, {valueKey:"rowHref",kind:"jsonSchemaType",type:"string",stringValue:(.rowHref // "")} ] ] }'
+  apiRef:
+    name: controller-builder-deliverables
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

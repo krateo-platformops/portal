@@ -1,0 +1,43 @@
+{{/* The /controller-builder page header — title, subtitle and both routes into the composer, in */}}
+{{/* one CR: pageheader.blueprint-builder's shape, with a controller's words. Replaces */}}
+{{/* pageheader.kog-builder (title and subtitle only) and flex.kog-builder-ask-cta, the wrapper */}}
+{{/* whose only job was to right-align the Autopilot button — which this action row already does. */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-page-header
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Controller Builder
+    {{/* What a controller is (an OpenAPI document mapped to Kubernetes kinds, shipped as a chart */}}
+    {{/* that registers with Krateo), what a person decides in it, and that the Autopilot route */}}
+    {{/* ends on the same canvas. The old subtitle described the RestDefinition table, which now */}}
+    {{/* has its own card and heading. */}}
+    subtitle: >-
+      Turn an OpenAPI document into Kubernetes kinds: which operations each kind maps, how it is
+      identified, and the credentials it calls with. It ships as a chart that registers with
+      Krateo. Describe it to Autopilot instead and it lands in the same composer.
+    {{/* TWO actions, ONE primary, in the /blueprint-builder order: the Autopilot link first, the */}}
+    {{/* composer last as the filled primary. */}}
+    allowedResources:
+      - buttons
+    items:
+      - resourceRefId: controller-builder-ask
+      - resourceRefId: controller-builder-compose
+  resourcesRefs:
+    items:
+      - id: controller-builder-ask
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-builder-ask
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: controller-builder-compose
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: controller-builder-compose
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
