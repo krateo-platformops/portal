@@ -22,8 +22,8 @@
 {{/* */}}
 {{/* The ConfigMap is read with NO endpointRef: under the caller's own identity, so a person who */}}
 {{/* could not have written it cannot render it either. The render call is the in-cluster */}}
-{{/* oasgen-render-endpoint (secret.oasgen-render-endpoint.yaml), as blueprint-render-draft's is */}}
-{{/* helm-render-endpoint; oasgen-render reads nothing from the cluster. It exists only with */}}
+{{/* controller-render-endpoint (shipped by oasgen-provider's render, render.snowplowEndpoint), as blueprint-render-draft's is */}}
+{{/* blueprint-render-endpoint; oasgen-render reads nothing from the cluster. It exists only with */}}
 {{/* oasgen-provider >= 0.25.0 installed with render.enabled=true — without it the render call */}}
 {{/* fails and the answer says so, as a problem. */}}
 apiVersion: templates.krateo.io/v1
@@ -54,7 +54,7 @@ spec:
         name: draft
         iterator: '[ select(((try (.draft.data["draft.json"] | fromjson) catch null) | if type == "object" then ((((.restDefinitions // null) | type) == "array" and (.restDefinitions | length) > 0) and ((.oas // null) | type) == "object") else false end)) ]'
       endpointRef:
-        name: oasgen-render-endpoint
+        name: controller-render-endpoint
         namespace: {{ .Release.Namespace }}
       path: /render
       verb: POST

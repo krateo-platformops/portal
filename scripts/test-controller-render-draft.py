@@ -55,15 +55,15 @@ ERRORS = {'crds': [crd('repoes.github.ogen.krateo.io')], 'configurationCrds': []
           'errors': [{'restDefinition': 'gh-system/gh-issue', 'field': 'spec.resource.verbsDescription[0].async.poll.path',
                       'message': 'poll path must be a path of the same API', 'severity': 'error'}],
           'skippedSecuritySchemes': []}
-DOWN = ['Post "http://oasgen-provider-render.krateo-system.svc:80/render": dial tcp: '
-        'lookup oasgen-provider-render.krateo-system.svc on 34.118.224.10:53: no such host']
+DOWN = ['Post "http://controller-render-service.krateo-system.svc:8080/render": dial tcp: '
+        'lookup controller-render-service.krateo-system.svc on 34.118.224.10:53: no such host']
 NEEDS = 'Controller preview needs oasgen-render (oasgen-provider ≥0.25.0 with render.enabled)'
 
 
 def check_the_payload_is_the_draft(chart):
     f = []
     step = [s for s in chart.get('RESTAction', RA)['spec']['api'] if s['name'] == 'render'][0]
-    tbi.expect(f, 'the render call is the in-cluster oasgen-render endpoint', step.get('endpointRef', {}).get('name'), 'oasgen-render-endpoint')
+    tbi.expect(f, 'the render call is the in-cluster oasgen-render endpoint', step.get('endpointRef', {}).get('name'), 'controller-render-endpoint')
     tbi.expect(f, 'it POSTs /render', (step['verb'], step['path']), ('POST', '/render'))
     draft = [s for s in chart.get('RESTAction', RA)['spec']['api'] if s['name'] == 'draft'][0]
     tbi.expect(f, 'the ConfigMap is read as the caller (no endpointRef)', 'endpointRef' in draft, False)
@@ -71,9 +71,9 @@ def check_the_payload_is_the_draft(chart):
     tbi.expect(f, 'the payload is one ${ } program', payload.startswith('${') and payload.endswith('}'), True)
     body = json.loads(tbi.jq(payload[2:-1], {'draft': DRAFT}))
     tbi.expect(f, 'the body is the RestDefinitions and their documents — nothing else', body, {'restDefinitions': [RD], 'oas': OAS})
-    endpoint = chart.get('Secret', 'oasgen-render-endpoint')
-    tbi.expect(f, 'the endpoint is the oasgen-provider chart\'s render Service', endpoint['stringData']['server-url'],
-               f'http://oasgen-provider-render.{tbi.NS}.svc:80')
+    # The endpoint Secret is the renderer's own (oasgen-provider render.snowplowEndpoint), as
+    # blueprint-render-endpoint is the blueprint renderer's: portal ships neither.
+    tbi.expect(f, 'portal does not ship the renderer\'s endpoint Secret', [d for d in chart.docs if d.get('kind') == 'Secret' and d.get('metadata', {}).get('name') in ('controller-render-endpoint', 'oasgen-render-endpoint')], [])
     return f
 
 

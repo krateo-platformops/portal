@@ -17,7 +17,7 @@
 {{/* */}}
 {{/* The ConfigMap is read with NO endpointRef: under the caller's own identity, so a person who */}}
 {{/* could not have written it cannot render it either. The render call is the in-cluster */}}
-{{/* helm-render-endpoint, as blueprint-render's. */}}
+{{/* blueprint-render-endpoint, as blueprint-render's. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -47,7 +47,7 @@ spec:
         name: draft
         iterator: '[ select(((try (.draft.data["chart.json"] | fromjson) catch null) | if type == "object" then (.rawTemplates | type) else "null" end) == "object") ]'
       endpointRef:
-        name: helm-render-endpoint
+        name: blueprint-render-endpoint
         namespace: {{ .Release.Namespace }}
       path: /render
       verb: POST

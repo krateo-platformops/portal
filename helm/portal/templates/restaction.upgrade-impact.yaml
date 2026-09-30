@@ -14,7 +14,7 @@
 {{/* either way the filter emits ONE honest error row + an error summary instead of widget data */}}
 {{/* silently vanishing. When ?to= is absent the head falls back to the installed version */}}
 {{/* (self-diff → empty; the impact widgets are only mounted when a differing ?to= is set, so */}}
-{{/* this is just a safety net). Endpoint: the helm-render-endpoint Secret (server-url = */}}
+{{/* this is just a safety net). Endpoint: the blueprint-render-endpoint Secret (server-url = */}}
 {{/* http://helm-render-service.krateo-system.svc:8080), shipped by the helm-render-service */}}
 {{/* chart with snowplowEndpoint.enabled=true — same-namespace convention as blueprints-endpoint. */}}
 apiVersion: templates.krateo.io/v1
@@ -51,7 +51,7 @@ spec:
         name: compdef
         iterator: '[ select((.compdef | objects | .spec.chart.url // "") != "") ]'
       endpointRef:
-        name: helm-render-endpoint
+        name: blueprint-render-endpoint
         namespace: {{ .Release.Namespace }}
       path: /diff
       verb: POST
