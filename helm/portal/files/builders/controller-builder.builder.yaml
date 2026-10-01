@@ -67,6 +67,11 @@ spec:
   # operationMapping.ts / restDefinitionBuild.ts).
   inspector:
     plugin: restdef-mapping
+  # draftStructure.ts summarizeController — what Autopilot is told about the held controller: the
+  # document's resource groups, each Kind's verbs and unsettled conflicts, identifiers, status
+  # fields, the publish lint and whether a preview stands (frontend#429).
+  summarizer:
+    plugin: controller-model
   # frontend#405: a controller preview RENDERS (oasgen-render generates the CRDs), it never applies.
   # The MODE is read (an edit disarms Publish); Preview writes the draft (RestDefinitions + the OAS
   # documents, `draft.json`) into the preview sandbox and calls this RESTAction by name over /call
@@ -104,10 +109,20 @@ spec:
     registration:
       kind: CompositionDefinition
       path: compositiondefinition.yaml
-  # actionBridge.ts previewRestDef, publishRestDef — publishRestDef is this Builder's publish verb, for
-  # the composer's Publish and the rail's alike.
+  # controllerVerbs.ts CONTROLLER_VERBS — Autopilot authoring a controller through this composer's own
+  # kernels (frontend#429): start it from a document, place resource groups as Kinds, map or leave out
+  # a verb (a conflict is settled only this way), set identifiers and status fields, remove a Kind.
+  # previewRestDef renders the HELD controller (the composer's Preview); publishRestDef is this
+  # Builder's publish verb, for the composer's Publish and the rail's alike — it publishes the held,
+  # previewed draft and nothing else.
   verbs:
     allowed:
+      - controllerStart
+      - controllerPlace
+      - controllerMapVerb
+      - controllerSetIdentifiers
+      - controllerSetStatusFields
+      - controllerRemoveKind
       - previewRestDef
       - publishRestDef
   # The portal chart's /controller-builder hub (portal#274).
