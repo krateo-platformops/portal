@@ -67,10 +67,12 @@ def files(publish, **kw):
     return [lr(publish, **kw), lr(publish, file_name='compositiondefinition.yaml', path='/', **kw)]
 
 
-def pr(publish, number=7, state='open', merged=tbi.ABSENT):
+def pr(publish, number=7, state='open', merged=tbi.ABSENT, merged_at=tbi.ABSENT):
     status = {'number': number, 'state': state, 'html_url': f'https://github.com/krateo-platformops/{publish[8:]}/pull/{number}'}
     if merged is not tbi.ABSENT:
         status['merged'] = merged
+    if merged_at is not tbi.ABSENT:
+        status['merged_at'] = merged_at
     return {'metadata': {'name': f'{publish}-pr', 'creationTimestamp': '2026-09-30T16:18:00Z',
                          'labels': {'krateo.io/builder': 'controller', 'krateo.io/publish': publish}},
             'spec': {'title': f'feat(controller): {publish[8:]}'}, 'status': status}
@@ -594,7 +596,37 @@ def check_configure_credentials():
     return f
 
 
-CHECKS = [check_the_ladder, check_only_controller_publishes, check_iterators_request_what_they_need,
+def check_merged_is_the_providers_word():
+    """github-provider-kog 0.3.2 reports `merged` and `merged_at`: merged=true is a merge (with its
+    date in the Merged column, also once the row has moved past Merged), merged=false a plain
+    Closed with no Register, and an absent field keeps the "Register if merged" hedge."""
+    f = []
+    P, at = 'publish-pet', '2026-09-30T14:02:11Z'
+    base = {'publishes': items(*files(P)), 'cds': items(), 'installs': items(), 'restdefs': items(), 'configs': items()}
+    cases = [
+        ('merged=true', [pr(P, state='closed', merged=True, merged_at=at)], ('Merged', 'Register', at)),
+        ('merged=true, state not closed', [pr(P, state='open', merged=True, merged_at=at)], ('Merged', 'Register', at)),
+        ('merged=true, registering', [pr(P, state='closed', merged=True, merged_at=at)], ('Registering', '', at)),
+        ('merged=false', [pr(P, state='closed', merged=False, merged_at=None)], ('Closed', '', '')),
+        ('merged=false, stray merged_at', [pr(P, state='closed', merged=False, merged_at=at)], ('Closed', '', '')),
+        ('merged absent', [pr(P, state='closed')], ('Closed', 'Register if merged', '')),
+    ]
+    for label, prs, want in cases:
+        resp = dict(base, prs=items(*prs))
+        if 'registering' in label:
+            resp['cds'] = items(cd('pet'))
+        _, out = resolve(resp)
+        row = the_row(out)
+        if row is None:
+            f.append(f'{label}: no row for pet')
+            continue
+        expect(f, f'{label}: status, next step, mergedAt', (row['status'], row['next'], row.get('mergedAt')), want)
+        cells = {c['valueKey']: c for c in tbi.resolved_widget(CHART, 'Table', RA, out, {}, f'{RA} (merged_at, {label})')['spec']['widgetData']['dataSource'][0]}
+        expect(f, f'{label}: Merged cell', (cells['merged']['stringValue'], cells['merged'].get('format')), (want[2], 'relative'))
+    return f
+
+
+CHECKS = [check_the_ladder, check_merged_is_the_providers_word, check_only_controller_publishes, check_iterators_request_what_they_need,
           check_registry_groups_by_api, check_mirrors_the_blueprint_builder, check_configure_credentials]
 CHART = None
 
