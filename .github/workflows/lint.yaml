@@ -234,7 +234,8 @@ jobs:
   # No RESTAction reads Secrets: snowplow serves a secrets GET or LIST from a cluster-wide informer
   # it registers on first touch, data included and the Accept header ignored, so one step that
   # only wanted to know a Secret exists would cache every Secret's data (scripts/lint-ra-secrets.py).
-  # Settings > Users is resolved on fixtures and validated against the newest released CRDs.
+  # Settings > Users and the data-driven reads (a composition's managed Secret, /resources on a
+  # Secret) are resolved on fixtures and validated against the newest released CRDs.
   ra-secrets:
     runs-on: ubuntu-latest
     steps:
@@ -259,6 +260,7 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-settings-users.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-no-secret-reads.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the
   # nightly review's Proposals and ReviewRuns. This resolves them on fixtures shaped like krateo-057

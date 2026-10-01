@@ -70,13 +70,17 @@ spec:
     - name: objs
       dependsOn:
         name: comp
+        {{/* Only paths fetchablePath accepts (_fetchable.tpl): a rendered Secret is never read — its */}}
+        {{/* node reads as an existence-only instance the composition rendered. */}}
         iterator: |
+          {{- include "portal.fetchableDefs" . | nindent 10 }}
           . as $r
           | ($r.comp[0].managed // []) as $m
           | [ ($r.arch.graph.nodes // [])[]
               | select(.present == true and ((.lifecycle // "") == "")) as $nd
               | $nd.names[] as $nm
-              | $m[] | select(.name == $nm and .apiVersion == $nd.apiVersion and .path != "") | {path} ]
+              | $m[] | select(.name == $nm and .apiVersion == $nd.apiVersion and .path != "")
+              | select(.path | fetchablePath) | {path} ]
           | unique
       path: ${ .path }
       verb: GET
