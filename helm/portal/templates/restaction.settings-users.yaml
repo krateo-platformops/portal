@@ -17,9 +17,11 @@
 {{/* Secret's creationTimestamp alone (and under-reported a refreshed session anyway). */}}
 {{/* */}}
 {{/* `.personas`: username, groups (the User CR's; "—" for an identity without one — */}}
-{{/* OIDC/LDAP groups live in the IdP) and the count of managed grants, joined on the */}}
-{{/* slugified subject label exactly as form.access-grant writes it. Both steps are reads a */}}
-{{/* non-admin may be denied: continueOnError, so the table degrades to what can be read. */}}
+{{/* OIDC/LDAP groups live in the IdP), the count of managed grants, joined on the */}}
+{{/* slugified subject label exactly as form.access-grant writes it, and `source` — which of */}}
+{{/* the two sets listed the user: "User CR", "Grant" (a raw User subject of a managed */}}
+{{/* grant) or "User CR · Grant". Both steps are reads a non-admin may be denied: */}}
+{{/* continueOnError, so the table degrades to what can be read (and so does `source`). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -61,12 +63,17 @@ spec:
     def slug: ascii_downcase | gsub("[^a-z0-9-]"; "-");
     ((if (.basicUsers // []) | type == "array" then .basicUsers else [] end) // []) as $users
     | ((if (.grantBindings // []) | type == "array" then .grantBindings else [] end) // []) as $grants
+    | [ $users[] | .name ] as $crNames
+    | [ $grants[] | (.users // [])[] ] as $grantNames
     | {
       personas: (
-        ([ $users[] | .name ] + [ $grants[] | (.users // [])[] ]) | map(select(. != "")) | unique
+        ($crNames + $grantNames) | map(select(. != "")) | unique
         | map(. as $u
               | { username: $u,
                   groups: ((([ $users[] | select(.name == $u) ] | first) | .groups) // []),
-                  grants: ([ $grants[] | select(.subject == ($u | slug)) ] | length) })
+                  grants: ([ $grants[] | select(.subject == ($u | slug)) ] | length),
+                  source: ([ (if any($crNames[]; . == $u) then "User CR" else empty end),
+                             (if any($grantNames[]; . == $u) then "Grant" else empty end) ]
+                           | join(" · ")) })
       )
     }

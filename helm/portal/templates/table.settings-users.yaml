@@ -2,7 +2,9 @@
 {{/* Secret: the basic-strategy User CRs and the User subjects of portal-managed access grants, */}}
 {{/* via the RA's `.personas` (#88 §0.7: merged with the former Access tab — same drill-down). */}}
 {{/* Groups join the basic-strategy User CR ("—" for OIDC/LDAP identities, unknowable from the */}}
-{{/* cluster); "Managed grants" = count of portal-access RoleBindings for that persona. */}}
+{{/* cluster); "Managed grants" = count of portal-access RoleBindings for that persona; */}}
+{{/* "Source" = which set listed the user (the RA's `source`; paragraph.settings-users-note */}}
+{{/* above the table says when an SSO identity shows up). */}}
 {{/* "Issued" and "Certificate expires" were dropped with the clientconfig Secret they came from */}}
 {{/* (see the RA's header). */}}
 kind: Table
@@ -40,6 +42,8 @@ spec:
       title: Groups
     - valueKey: grants
       title: Managed grants
+    - valueKey: source
+      title: Source
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
@@ -47,7 +51,8 @@ spec:
       ${ [ (.personas // [])[] | [
           {valueKey:"user",kind:"jsonSchemaType",type:"string",stringValue:(.username // "")},
           {valueKey:"groups",kind:"jsonSchemaType",type:"string",stringValue:(if ((.groups // [])|length) > 0 then (.groups|join(", ")) else "—" end)},
-          {valueKey:"grants",kind:"jsonSchemaType",type:"string",stringValue:((.grants // 0)|tostring)}
+          {valueKey:"grants",kind:"jsonSchemaType",type:"string",stringValue:((.grants // 0)|tostring)},
+          {valueKey:"source",kind:"jsonSchemaType",type:"string",stringValue:(.source // "")}
         ] ] }
   apiRef:
     name: settings-users

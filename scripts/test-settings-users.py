@@ -8,10 +8,12 @@ Secrets it used to LIST (lint-ra-secrets.py says why no RESTAction may). Resolve
 like krateo-057 (admin and cyberjoker User CRs; grants as form.access-grant writes them):
   1. Who is listed: the union, once each, sorted; an OIDC identity once it holds a grant; groups
      from the User CR; the grant count joined on the slugified subject label; a Group subject is
-     not a user.
+     not a user. Source names the set that listed each user: "User CR", "Grant" (a raw User
+     subject of a managed grant) or "User CR · Grant".
   2. Each read denied or absent (an OIDC-only cluster has no User CRD) degrades to what remains;
      the prewarm (nothing served) is an empty table, never an error.
   3. No step touches secrets, and the table has no column the Secret alone could fill.
+  4. The one-line note on who is listed sits right above the table, as a secondary Paragraph.
   Every resolved Table is validated against its CRD with --crds.
 
 Usage: test-settings-users.py [--crds DIR]. Exit code = failed checks.
@@ -68,28 +70,29 @@ def check_who_is_listed():
     f = []
     out = tbi.resolve(CHART, RA, {'basicUsers': USERS, 'grantBindings': GRANTS}, {})
     expect(f, 'personas', out['personas'], [
-        {'username': 'Jane.Doe@example.com', 'groups': [], 'grants': 1},
-        {'username': 'admin', 'groups': ['admins'], 'grants': 0},
-        {'username': 'cyberjoker', 'groups': ['devs'], 'grants': 2},
-        {'username': 's6-harness', 'groups': [], 'grants': 0}])
+        {'username': 'Jane.Doe@example.com', 'groups': [], 'grants': 1, 'source': 'Grant'},
+        {'username': 'admin', 'groups': ['admins'], 'grants': 0, 'source': 'User CR'},
+        {'username': 'cyberjoker', 'groups': ['devs'], 'grants': 2, 'source': 'User CR · Grant'},
+        {'username': 's6-harness', 'groups': [], 'grants': 0, 'source': 'User CR'}])
     expect(f, 'table rows', table(out, 'both read'), [
-        {'user': 'Jane.Doe@example.com', 'groups': '—', 'grants': '1'},
-        {'user': 'admin', 'groups': 'admins', 'grants': '0'},
-        {'user': 'cyberjoker', 'groups': 'devs', 'grants': '2'},
-        {'user': 's6-harness', 'groups': '—', 'grants': '0'}])
+        {'user': 'Jane.Doe@example.com', 'groups': '—', 'grants': '1', 'source': 'Grant'},
+        {'user': 'admin', 'groups': 'admins', 'grants': '0', 'source': 'User CR'},
+        {'user': 'cyberjoker', 'groups': 'devs', 'grants': '2', 'source': 'User CR · Grant'},
+        {'user': 's6-harness', 'groups': '—', 'grants': '0', 'source': 'User CR'}])
     return f
 
 
 def check_denied_reads_degrade():
     f = []
     cases = [('User CRs denied or absent (OIDC-only)', {'basicUsers': 'ERROR', 'grantBindings': GRANTS},
-              ['Jane.Doe@example.com', 'cyberjoker']),
-             ('grants denied', {'basicUsers': USERS, 'grantBindings': 'ERROR'}, ['admin', 'cyberjoker', 's6-harness']),
+              [('Jane.Doe@example.com', 'Grant'), ('cyberjoker', 'Grant')]),
+             ('grants denied', {'basicUsers': USERS, 'grantBindings': 'ERROR'},
+              [('admin', 'User CR'), ('cyberjoker', 'User CR'), ('s6-harness', 'User CR')]),
              ('both denied', {'basicUsers': 'ERROR', 'grantBindings': 'ERROR'}, []),
              ('prewarm, nothing served', {}, [])]
     for label, resp, want in cases:
         out = tbi.resolve(CHART, RA, resp, {})
-        expect(f, f'{label}: users', [p['username'] for p in out['personas']], want)
+        expect(f, f'{label}: users and sources', [(p['username'], p['source']) for p in out['personas']], want)
         table(out, label)
     return f
 
@@ -101,11 +104,32 @@ def check_no_secret_is_read():
            [st['name'] for st in ra['spec']['api'] if 'secrets' in (st.get('path') or '')
             or (st.get('userAccessFilter') or {}).get('resource') == 'secrets'], [])
     cols = [c['valueKey'] for c in CHART.get('Table', RA)['spec']['widgetData']['columns']]
-    expect(f, 'columns', cols, ['user', 'groups', 'grants'])
+    expect(f, 'columns', cols, ['user', 'groups', 'grants', 'source'])
     return f
 
 
-CHECKS = [check_who_is_listed, check_denied_reads_degrade, check_no_secret_is_read]
+NOTE = 'People who sign in through OIDC, LDAP or OAuth appear here once they hold a grant.'
+
+
+def check_note_above_the_table():
+    f = []
+    note = tbi.resolved_widget(CHART, 'Paragraph', 'settings-users-note', {}, {}, 'settings-users-note')
+    expect(f, 'note', {k: note['spec']['widgetData'].get(k) for k in ('text', 'type')},
+           {'text': NOTE, 'type': 'secondary'})
+    page = CHART.get('Flex', 'page-settings')['spec']
+    refs = {r['id']: r for r in page['resourcesRefs']['items']}
+    items = [i['resourceRefId'] for i in page['widgetData']['items']]
+    expect(f, 'note sits right above the table',
+           items[items.index('settings-users-note') + 1:][:1] if 'settings-users-note' in items else [],
+           ['settings-users'])
+    expect(f, 'note ref', {k: (refs.get('settings-users-note') or {}).get(k) for k in ('name', 'resource')},
+           {'name': 'settings-users-note', 'resource': 'paragraphs'})
+    if 'paragraphs' not in page['widgetData']['allowedResources']:
+        f.append('page-settings does not allow paragraphs')
+    return f
+
+
+CHECKS = [check_who_is_listed, check_denied_reads_degrade, check_no_secret_is_read, check_note_above_the_table]
 
 
 def main():
