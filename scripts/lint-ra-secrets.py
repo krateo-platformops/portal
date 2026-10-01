@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-lint-ra-secrets — no RESTAction in any chart here reads Secrets.
+lint-ra-secrets — no RESTAction step in any chart here NAMES Secrets.
 
 WHY. snowplow (1.12.30, cache on — the default) serves an api step's GET or LIST of core/v1
 secrets from a dynamic informer it registers lazily, CLUSTER-WIDE, on first touch
@@ -11,13 +11,19 @@ identity-free apistage L1 cache. snowplow's own secrets_snapshot.go calls wideni
 factory to Secrets catastrophic. So a step that only wanted to know a Secret EXISTS would pull
 every Secret's data into snowplow. Nothing in snowplow denylists it; this lint does, here.
 
-WHAT. Every chart under helm/ is rendered; every RESTAction api step fails the lint when its path
-names a `secrets` segment (static or inside a ${ } expression) or its userAccessFilter's resource
-is `secrets`. endpointRef is not a read of this kind (snowplow resolves endpoint Secrets through
-its own AUTHN-namespace-scoped informer), so it is not flagged.
+WHAT IT CATCHES. Every chart under helm/ is rendered, and every RESTAction api step fails when its
+path, its dependsOn.iterator, or its userAccessFilter's resource or resourcesFrom mentions
+"secret" — after percent-decoding (%73ecrets), lower-casing (SECRETS, ascii_downcase) and dropping
+every character that is not a letter, so a word assembled from pieces ("sec" + "rets",
+"s-e-c-r-e-t-s" | split("-") | join("")) still reads as one. A RESTAction a values flag leaves
+unrendered is checked as source instead: its template, comments removed, must not mention it at
+all. endpointRef is not flagged: snowplow resolves endpoint Secrets through its own
+AUTHN-namespace-scoped informer, not this path.
 
-A RESTAction a values flag leaves unrendered is still checked: every template that declares
-`kind: RESTAction` is also scanned as SOURCE for a path or userAccessFilter naming secrets.
+WHAT IT DOES NOT CATCH. A path built entirely from DATA — `${ ._getpath }` where _getpath comes
+from an object's status (restaction.composition-resources reads every status.managed[] path, and a
+composition can manage Secrets), or a resource name assembled from character codes. Such a step
+can still reach a Secret at runtime; the lint sees no word to match.
 
 ALLOWED lists the steps that predate this lint. Each is a known instance of the hazard, kept so
 the lint can gate everything new; removing one from the chart means removing it here.
@@ -31,12 +37,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NS = 'krateo-system'
-SECRETS = re.compile(r'(^|/|")secrets($|[/?"])')
 
 # (chart, RESTAction, step) — pre-existing, to be removed, never to be added to.
 ALLOWED = {
@@ -45,7 +51,21 @@ ALLOWED = {
     ('portal', 'settings-users', 'clientconfigs'),
 }
 ALLOWED_SOURCES = {('portal', 'restaction.settings-users.yaml')}
-SOURCE_LINE = re.compile(r'^\s*(-\s+)?(path:.*(/|")secrets($|[/?"\s])|resource:\s*["\']?secrets["\']?\s*$)')
+COMMENTS = re.compile(r'\{\{-?\s*/\*.*?\*/\s*-?\}\}|^\s*#.*$|\s#\s.*$', re.S | re.M)
+
+
+def names_secrets(text):
+    """Whether `text` spells "secret", however it is encoded, cased or cut into pieces."""
+    text = str(text or '')
+    for _ in range(3):
+        text = urllib.parse.unquote(text)
+    return 'secret' in re.sub(r'[^a-z]', '', text.lower())
+
+
+def step_fields(step):
+    uaf = step.get('userAccessFilter') or {}
+    return {'path': step.get('path'), 'iterator': (step.get('dependsOn') or {}).get('iterator'),
+            'userAccessFilter.resource': uaf.get('resource'), 'userAccessFilter.resourcesFrom': uaf.get('resourcesFrom')}
 
 
 def render(chart_dir):
@@ -68,28 +88,34 @@ def main():
     for meta in sorted(glob.glob(os.path.join(HERE, '..', 'helm', '*', 'Chart.yaml'))):
         chart_dir = os.path.dirname(meta)
         chart = os.path.basename(chart_dir)
+        rendered = set()
         for doc in render(chart_dir):
             if doc.get('kind') != 'RESTAction':
                 continue
             count += 1
             ra = (doc.get('metadata') or {}).get('name', '')
+            rendered.add(ra)
             for step in (doc.get('spec') or {}).get('api') or []:
-                path = step.get('path') or ''
-                uaf = (step.get('userAccessFilter') or {}).get('resource') or ''
-                if not (SECRETS.search(path) or uaf == 'secrets'):
+                hits = [k for k, v in step_fields(step).items() if names_secrets(v)]
+                if not hits:
                     continue
                 key = (chart, ra, step.get('name', ''))
                 if key in ALLOWED:
                     allowed_seen.add(key)
                     continue
-                violations.append(f'{chart}: RESTAction {ra} step {key[2]} reads Secrets ({path or "userAccessFilter secrets"})')
+                violations.append(f'{chart}: RESTAction {ra} step {key[2]} names Secrets in {", ".join(hits)}')
+        # A RESTAction the default values do not render: its source, comments removed.
         for tpl in sorted(glob.glob(os.path.join(chart_dir, 'templates', '*.yaml'))):
             text = open(tpl, encoding='utf-8').read()
-            if 'kind: RESTAction' not in text or (chart, os.path.basename(tpl)) in ALLOWED_SOURCES:
+            if not re.search(r'(?m)^kind:\s*RESTAction\s*$', text) or (chart, os.path.basename(tpl)) in ALLOWED_SOURCES:
                 continue
-            for n, line in enumerate(text.splitlines(), 1):
-                if SOURCE_LINE.search(line):
-                    violations.append(f'{chart}: {os.path.basename(tpl)}:{n} reads Secrets ({line.strip()})')
+            names = re.findall(r'(?m)^  name:\s*["\']?([^\s"\'{]+)', text)
+            if names and all(n in rendered for n in names):
+                continue
+            body = COMMENTS.sub('', text)
+            for n, line in enumerate(body.splitlines(), 1):
+                if names_secrets(line):
+                    violations.append(f'{chart}: {os.path.basename(tpl)} (not rendered by default) names Secrets: {line.strip()}')
     for key in sorted(ALLOWED - allowed_seen):
         violations.append(f'ALLOWED entry {key} no longer exists in the chart: remove it from lint-ra-secrets.py')
     for v in violations:

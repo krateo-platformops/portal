@@ -616,11 +616,16 @@ def check_register_sets_the_upgrade_policy(chart):
     expect(f, 'controller: policy and resync are up front', [('upgradePolicy' in schema['required']), ('controller' in schema['required']),
                                                              schema['properties']['controller'].get('required')], [True, True, ['resyncInterval']])
     expect(f, 'controller: the policy field defaults to Manual', schema['properties']['upgradePolicy'].get('default'), 'Manual')
-    for needle in ('Manual', 'krateo.io/upgrade-to-version', 'Automatic would migrate every live instance'):
+    for needle in ('Manual', 'krateo.io/upgrade-to-version', 'Automatic would migrate every live instance',
+                   "leaves the previous version's controller running until every instance has been moved"):
         if needle not in schema['properties']['upgradePolicy'].get('description', ''):
             f.append(f'controller policy help lacks {needle!r}')
-    if 'four hours' not in schema['properties']['controller']['properties']['resyncInterval'].get('description', ''):
-        f.append('controller resync help does not say four hours')
+    resync_help = schema['properties']['controller']['properties']['resyncInterval'].get('description', '')
+    for needle in ('can stay for up to four hours', 'edited or deleted by hand'):
+        if needle not in resync_help:
+            f.append(f'controller resync help lacks {needle!r}')
+    if 'every change arrives' in resync_help:
+        f.append('controller resync help still claims every change arrives as a watch event')
     # What the person sets wins.
     _, (plain, _) = submit(resp, 'petstore', {'name': 'petstore', 'namespace': NS, 'chart': chart_values,
                                               'upgradePolicy': 'Paused', 'controller': {'resyncInterval': '30m', 'workers': 2}})
@@ -632,8 +637,11 @@ def check_register_sets_the_upgrade_policy(chart):
         expect(f, f'{name}: POSTed policy and resync', [plain.get('upgradePolicy'), plain.get('controller'), projected.get('upgradePolicy')],
                ['Automatic', None, 'Automatic'])
         expect(f, f'{name}: no controller section required', 'controller' in out['schemaSpec']['required'], False)
-        if 'Automatic: every instance' not in out['schemaSpec']['properties']['upgradePolicy'].get('description', ''):
+        policy_help = out['schemaSpec']['properties']['upgradePolicy'].get('description', '')
+        if 'Automatic: every instance installed from this chart' not in policy_help:
             f.append(f'{name}: policy help does not explain Automatic')
+        if 'this blueprint' in policy_help:
+            f.append(f'{name}: policy help names a blueprint (page sets and index charts read it too)')
     # A CompositionDefinition CRD that predates both fields: nothing is added.
     out, (plain, _) = submit(old_crd, 'petstore', {'name': 'petstore', 'namespace': NS, 'chart': chart_values})
     expect(f, 'older CRD: neither key is sent', [plain.get('upgradePolicy'), plain.get('controller'), out['specBase']], [None, None, {}])

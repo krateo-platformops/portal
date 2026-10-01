@@ -132,8 +132,8 @@ spec:
     # Automatic — but written out, so the choice is visible in the form and in the object rather
     # than inherited from a default that could change.
     # A controller's CDC also resyncs every 4h instead of the chart-global 3m: its instances change
-    # rarely and watch events carry every change, so a full re-list every three minutes is
-    # near-idle churn. Each key only when the served CRD has it (an older core-provider does not).
+    # rarely, so a full re-list every three minutes is near-idle churn. The cost, said in the help:
+    # drift in what it renders (a hand-edited RestDefinition) waits for the resync. Each key only when the served CRD has it (an older core-provider does not).
     | ($spec.properties.upgradePolicy != null) as $hasPolicy
     | (($spec.properties.controller.properties.resyncInterval? // null) != null) as $hasResync
     | (if $noun == "controller" then "Manual" else "Automatic" end) as $policy
@@ -170,13 +170,13 @@ spec:
           | (if $hasPolicy
              then (.properties.upgradePolicy |= (. + { default: $policy, description:
                     (if $noun == "controller"
-                     then "Manual: a new version of this controller is served beside the old one, and an existing instance moves to it only when you annotate it krateo.io/upgrade-to-version. Automatic would migrate every live instance as soon as the chart version moves, with no approval."
-                     else "Automatic: every instance of this blueprint moves to a new chart version as soon as it is registered. Choose Manual to keep instances on their version until you annotate one krateo.io/upgrade-to-version, or Paused to never migrate them." end) }))
+                     then "Manual: a new version of this controller is served beside the old one, and an existing instance moves to it only when you annotate it krateo.io/upgrade-to-version. Each republish therefore leaves the previous version's controller running until every instance has been moved that way. Automatic would migrate every live instance as soon as the chart version moves, with no approval."
+                     else "Automatic: every instance installed from this chart moves to a new chart version as soon as it is registered. Choose Manual to keep instances on their version until you annotate one krateo.io/upgrade-to-version, or Paused to never migrate them." end) }))
                   | .required = ((.required // []) + ["upgradePolicy"])
              else . end)
           | (if $hasResync and $noun == "controller"
              then (.properties.controller.properties.resyncInterval |= (. + { description:
-                    "4h: how often this controller re-reads every instance to correct drift. Its instances change rarely and every change arrives as a watch event, so a full sweep every four hours replaces the default three minutes." }))
+                    "4h: how often this controller re-reads every instance and the resources it renders, to correct drift. A change to an instance is picked up when it is made, but a manual change to what it renders (a RestDefinition or Configuration edited or deleted by hand) can stay for up to four hours before it is corrected. The default is three minutes." }))
                   | .properties.controller.required = ["resyncInterval"]
                   | .required = ((.required // []) + ["controller"])
              else . end)),
