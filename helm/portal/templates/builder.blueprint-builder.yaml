@@ -1,0 +1,74 @@
+{{/* Copied from krateo-platformops/frontend ui/src/builders/fixtures/blueprint-builder.builder.yaml (comments dropped: they explain the frontend code). Keep spec in step: scripts/test-builder-crs.py compares it. */}}
+apiVersion: builders.templates.krateo.io/v1alpha1
+kind: Builder
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: blueprint-builder
+spec:
+  label: Blueprint Builder
+  route: /blueprint-builder/compose
+  draftKind: blueprint
+  start:
+    fields:
+      - name: name
+        label: Chart name
+        required: true
+        help: Lower-case, dashes. It becomes the repository name and the OCI chart name.
+        placeholder: builder-publish
+      - name: version
+        label: Version
+        required: true
+        initialValue: '0.1.0'
+      - name: description
+        label: Description
+        required: false
+        placeholder: What a consumer gets when they install it
+    maxDraftBytes: 524288
+  palette:
+    plugin: kinds
+    restActionRef:
+      name: blueprint-palette
+  canvas:
+    plugin: architecture-graph
+  inspector:
+    plugin: node
+  summarizer:
+    plugin: chart-files
+  preview:
+    mode: render
+    restActionRef:
+      name: blueprint-render-draft
+  files:
+    required:
+      - Chart.yaml
+      - values.schema.json
+      - templates/architecture.yaml
+    locked:
+      - compositiondefinition.yaml
+      - status-projection.json
+    heldBytes: 524288
+  lint:
+    - chart-lint
+    - gate-drift
+  gates:
+    - preview-before-publish
+    - publish-name
+  publish:
+    builder: blueprint
+    targetKey: AUTOPILOT_BLUEPRINT_BUILDER_REPO
+    templateKey: AUTOPILOT_BLUEPRINT_BUILDER_TEMPLATE
+    registration:
+      kind: CompositionDefinition
+      path: compositiondefinition.yaml
+  verbs:
+    allowed:
+      - chartPut
+      - chartDelete
+      - chartLink
+      - previewBlueprint
+      - publishBlueprint
+  portal:
+    draftsCard:
+      name: blueprint-builder-drafts-card
+    deliverablesRestActionRef:
+      name: blueprint-builder-deliverables

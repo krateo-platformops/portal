@@ -1,0 +1,63 @@
+{{/* Copied from krateo-platformops/frontend ui/src/builders/fixtures/portal-builder.builder.yaml (comments dropped: they explain the frontend code). Keep spec in step: scripts/test-builder-crs.py compares it. */}}
+apiVersion: builders.templates.krateo.io/v1alpha1
+kind: Builder
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: portal-builder
+spec:
+  label: Portal Builder
+  route: /portal-builder/compose
+  draftKind: page
+  start:
+    fields:
+      - name: slug
+        label: Page slug
+        required: true
+        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+        help: The page becomes /<slug> and the CR page-<slug>. Lower-case, dashes.
+        placeholder: fleet-health
+      - name: title
+        label: Title
+        required: false
+        help: Shown in the page header. Defaults to the slug, title-cased.
+        placeholder: Fleet health
+    maxDraftBytes: 524288
+  palette:
+    plugin: widgets
+  canvas:
+    plugin: page-grid
+  inspector:
+    plugin: object-tree
+  summarizer:
+    plugin: page-tree
+  preview:
+    mode: sandbox-apply
+  files:
+    required:
+      - Chart.yaml
+      - values.schema.json
+    locked:
+      - compositiondefinition.yaml
+    heldBytes: 524288
+  lint:
+    - chart-lint
+  gates:
+    - preview-before-publish
+    - publish-name
+  publish:
+    builder: page
+    targetKey: AUTOPILOT_PAGE_BUILDER_REPO
+    templateKey: AUTOPILOT_PAGE_BUILDER_TEMPLATE
+    registration:
+      kind: CompositionDefinition
+      path: compositiondefinition.yaml
+  verbs:
+    allowed:
+      - composeAdd
+      - composeMove
+      - composeBind
+      - previewPage
+      - publishPage
+  portal:
+    draftsCard:
+      name: portal-builder-drafts-card
