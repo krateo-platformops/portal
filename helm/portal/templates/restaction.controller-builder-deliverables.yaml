@@ -193,11 +193,29 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: configsError
+      {{/* One entry per Configuration: which Secrets its authentication refs NAME — every *Ref object */}}
+      {{/* under a scheme of spec.authentication with a name AND a key (bearer.tokenRef on krateo-057); */}}
+      {{/* a ref with no namespace means the Configuration's own. Only names: a Configuration holds */}}
+      {{/* references, never a credential. NO STEP IN THIS CHART READS A SECRET (scripts/lint-ra-secrets.py): */}}
+      {{/* snowplow serves a secrets GET or LIST from a lazily registered cluster-wide informer that */}}
+      {{/* ignores the Accept header, so even a metadata-only read would cache every Secret's data. */}}
       filter: >
         [ .configs | objects
-          | { list: ((.kind // "") | ascii_downcase | sub("list$"; "")),
-              apiVersion: (.apiVersion // ""),
-              count: ((.items // []) | length) } ]
+          | ((.kind // "") | ascii_downcase | sub("list$"; "")) as $list
+          | (.apiVersion // "") as $api
+          | (.items // [])[]
+          | (.metadata.namespace // "") as $ns
+          | { list: $list,
+              apiVersion: $api,
+              name: (.metadata.name // ""),
+              namespace: $ns,
+              secrets: [ ((.spec.authentication // {}) | if type == "object" then . else {} end) | to_entries[]
+                         | ((.value // {}) | if type == "object" then . else {} end) | to_entries[]
+                         | select(.key | endswith("Ref")) | .value
+                         | select(type == "object"
+                                  and ((.name // "") | type == "string" and . != "")
+                                  and ((.key // "") | type == "string" and . != ""))
+                         | "\((.namespace // "") | if . == "" then $ns else . end)/\(.name)" ] } ]
   {{/* The ladder, the Next step cell and the per-row destination, computed HERE, server-side. */}}
   {{/* Rows are newest-first. A LITERAL block (|): see restaction.blueprint-builder-deliverables. */}}
   filter: |
@@ -214,10 +232,15 @@ spec:
     | (.installs // []) as $installs
     | (.restdefs // []) as $rds
     | ((.installsError // null) == null) as $installsRead
-    # "<apiVersion>|<lower-case kind or plural>" of every configuration list that is not empty.
-    | ([ (.configs // [])[] | select(.count > 0) | "\(.apiVersion)|\(.list)" ]) as $configured
-    | def configured($rd): ($rd.cfgKind | ascii_downcase) as $k
-        | ($configured | index("\($rd.cfgApiVersion)|\($k)") or index("\($rd.cfgApiVersion)|\($k)s"));
+    # The Configurations of a RestDefinition's configuration kind (the list is attributed by its
+    # apiVersion and its lower-cased kind or plural), and whether one of them names a Secret.
+    # NAMES, NOT EXISTS: whether that Secret exists is not read here — no RESTAction reads Secrets
+    # (see the configs step) — so the row says which Secret it relies on, unverified, and the first
+    # reconcile is still where a missing one shows.
+    | ((.configs // []) | if type == "array" then . else [] end) as $configs
+    | def configsOf($rd): ($rd.cfgKind | ascii_downcase) as $k
+        | [ $configs[] | select(.apiVersion == $rd.cfgApiVersion and (.list == $k or .list == ($k + "s"))) ];
+    def configured($rd): any(configsOf($rd)[]; ((.secrets // []) | length) > 0);
     ([ (.publishes // []) | group_by(.publish)[]
          | select((.[0].publish // "") != "")
          | .[0] as $p0
@@ -244,6 +267,19 @@ spec:
          | ( [ $mine[] | select(.ready == "True" and .auth and .cfgKind != "")
                | select(configured(.) | not) ] ) as $unconfigured
          | ($configsRead and ($unconfigured | length) > 0) as $needsCreds
+         # The evidence, in the row: what is missing for the first such kind, or which Secret each
+         # credentialed kind relies on once every one names one.
+         | ( if $needsCreds then
+               ($unconfigured[0]) as $u | configsOf($u) as $cs
+               | (if ($cs | length) == 0 then ("no " + $u.cfgKind + " exists yet")
+                  else ($u.cfgKind + " " + $cs[0].namespace + "/" + $cs[0].name + " names no Secret") end)
+               + (if ($unconfigured | length) > 1 then " (+\(($unconfigured | length) - 1) more)" else "" end)
+             elif ($configsRead and $allReady) then
+               ([ $mine[] | select(.ready == "True" and .auth and .cfgKind != "") | configsOf(.)[] | .secrets[] ] | unique) as $named
+               | (if ($named | length) == 0 then ""
+                  elif ($named | length) == 1 then ("credentials configured (Secret " + $named[0] + " not verified)")
+                  else ("credentials configured (Secrets " + ($named | join(", ")) + " not verified)") end)
+             else "" end ) as $credNote
          | ([ $mine[] | select(.genKind != "") | .genKind + " · " + .genApiVersion ] | unique) as $gvks
          | { chart: $chart,
              title: (($pr.title) // ""),
@@ -251,6 +287,9 @@ spec:
              url: (($pr.url) // ""),
              version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
              status: (if $broken then "Failed"
+                      # Not Ready while a credentialed kind has no Configuration naming a Secret:
+                      # it would fail at its first reconcile, not here.
+                      elif ($allReady and $needsCreds) then "Configure credentials"
                       elif $allReady then "Ready"
                       # Installed while its RestDefinitions are still being created.
                       elif ($ins | length) > 0 then "Installed"
@@ -264,6 +303,7 @@ spec:
                       elif $pushed then "Pushed"
                       elif $failed then "Publish failed" else "Publishing" end),
              statusColor: (if $broken then "red"
+                           elif ($allReady and $needsCreds) then "orange"
                            elif $allReady then "green"
                            elif (($ins | length) == 0 and $cd != null and $cd.ready == "True") then "green"
                            elif ($cd == null and $end == "merged") then "green"
@@ -275,6 +315,8 @@ spec:
                     elif $installable then "Install"
                     elif ($allReady and $needsCreds) then "Configure credentials"
                     else "" end),
+             # The credential evidence (the Next step cell shows it beside the step).
+             nextNote: $credNote,
              # The generated kinds: the first, and how many more.
              gvk: (if ($gvks | length) == 0 then "—"
                    elif ($gvks | length) == 1 then $gvks[0]

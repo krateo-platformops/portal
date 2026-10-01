@@ -124,6 +124,21 @@ spec:
     | ($b.version // "") as $bVer
     # A controller is registered, not installed: the copy follows what the form holds.
     | installNoun($bp) as $noun
+    # HOW THE DEFINITION UPGRADES, SET EXPLICITLY. core-provider's upgradePolicy defaults to
+    # Automatic: every live instance is migrated onto a new chart version the moment the definition
+    # serves it, with no approval. A controller's instances are external resources a person
+    # depends on, so a controller registers Manual (new versions are served beside the old; an
+    # instance moves when annotated krateo.io/upgrade-to-version). A blueprint or page set keeps
+    # Automatic — but written out, so the choice is visible in the form and in the object rather
+    # than inherited from a default that could change.
+    # A controller's CDC also resyncs every 4h instead of the chart-global 3m: its instances change
+    # rarely, so a full re-list every three minutes is near-idle churn. The cost, said in the help:
+    # drift in what it renders (a hand-edited RestDefinition) waits for the resync. Each key only when the served CRD has it (an older core-provider does not).
+    | ($spec.properties.upgradePolicy != null) as $hasPolicy
+    | (($spec.properties.controller.properties.resyncInterval? // null) != null) as $hasResync
+    | (if $noun == "controller" then "Manual" else "Automatic" end) as $policy
+    | ((if $hasPolicy then { upgradePolicy: $policy } else {} end)
+       + (if $hasResync and $noun == "controller" then { controller: { resyncInterval: "4h" } } else {} end)) as $specBase
     | {
         schemaSpec: ($spec
           | .properties = ({
@@ -150,14 +165,31 @@ spec:
                   | (if $bVer == "" and ((.properties.chart.properties.version? // null) != null)
                      then (.properties.chart.properties.version |= (. + { description: "A page set's merge releases nothing. Push a semver tag on main in its repository (git tag 0.1.0 origin/main && git push origin 0.1.0), wait for that release to go green, then type the tag here." }))
                      else . end)
+             else . end)
+          # Up front, with the reason, beside the fields the person reviews.
+          | (if $hasPolicy
+             then (.properties.upgradePolicy |= (. + { default: $policy, description:
+                    (if $noun == "controller"
+                     then "Manual: a new version of this controller is served beside the old one, and an existing instance moves to it only when you annotate it krateo.io/upgrade-to-version. Each republish therefore leaves the previous version's controller running until every instance has been moved that way. Automatic would migrate every live instance as soon as the chart version moves, with no approval."
+                     else "Automatic: every instance installed from this chart moves to a new chart version as soon as it is registered. Choose Manual to keep instances on their version until you annotate one krateo.io/upgrade-to-version, or Paused to never migrate them." end) }))
+                  | .required = ((.required // []) + ["upgradePolicy"])
+             else . end)
+          | (if $hasResync and $noun == "controller"
+             then (.properties.controller.properties.resyncInterval |= (. + { description:
+                    "4h: how often this controller re-reads every instance and the resources it renders, to correct drift. A change to an instance is picked up when it is made, but a manual change to what it renders (a RestDefinition or Configuration edited or deleted by hand) can stay for up to four hours before it is corrected. The default is three minutes." }))
+                  | .properties.controller.required = ["resyncInterval"]
+                  | .required = ((.required // []) + ["controller"])
              else . end)),
-        initialValues: {
+        initialValues: ({
           name: $bp,
           namespace: "{{ .Release.Namespace }}",
           chart: (if $bUrl != "" then { url: $bUrl, version: $bVer }
                   elif ($rawUrl | startswith("oci://")) then { url: $rawUrl, version: $ver }
                   else { url: $repoUrl, repo: $bp, version: $ver } end)
-        },
+        } + $specBase),
+        # Merged UNDER the form's spec on submit (form.blueprint-install), so the policy and the
+        # resync are written even when the person never opens the section that shows them.
+        specBase: $specBase,
         noun: $noun,
         apiVersion: "core.krateo.io/v1alpha1",
         kind: "CompositionDefinition",

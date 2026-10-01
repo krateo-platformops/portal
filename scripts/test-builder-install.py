@@ -224,7 +224,12 @@ def compositiondefinition_crd():
                             'properties': {'username': {'type': 'string'}}}}},
         'deploy': {'type': 'object', 'properties': {'targetRef': {
             'type': 'object', 'required': ['name'], 'properties': {'name': {'type': 'string'}}}}},
-        'statusDataTemplate': {'type': 'array'}}}
+        'statusDataTemplate': {'type': 'array'},
+        # core-provider >= the upgrade-policy release, as krateo-057 serves it.
+        'upgradePolicy': {'type': 'string', 'default': 'Automatic', 'enum': ['Automatic', 'Manual', 'Paused']},
+        'controller': {'type': 'object', 'properties': {
+            'resyncInterval': {'type': 'string', 'pattern': '^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$'},
+            'workers': {'type': 'integer', 'minimum': 1}}}}}
     return {'spec': {'versions': [{'name': 'v1alpha1',
                                    'schema': {'openAPIV3Schema': {'properties': {'spec': spec}}}}]}}
 
@@ -570,6 +575,78 @@ def check_install_applies_the_status_projection(chart):
         if 'payloadToOverride' in t['forPath']:
             expect(f, f'template {t["forPath"]} targets a value', t['forPath'].endswith('.value'), True)
     return f
+
+def check_register_sets_the_upgrade_policy(chart):
+    """A controller registers with upgradePolicy Manual and a 4h CDC resync; a blueprint or page set
+    with upgradePolicy Automatic, written out. Both reach the POSTed spec even when the person never
+    opens the section that shows them (specBase, merged under the form), what the person sets wins,
+    the help says why, and an older CRD without the fields gets neither."""
+    f = []
+    resp = copy.deepcopy(MERGED)
+    for key in ('builderCds', 'publishes'):
+        resp[key]['items'] = resp[key]['items'] + [
+            local_resource('publish-petstore', 'controller', 'compositiondefinition.yaml', '/',
+                           registration_file('petstore', 'oci://ghcr.io/krateo-blueprints/charts/petstore', '0.1.0'))]
+    old_crd = copy.deepcopy(resp)
+    props = old_crd['crd']['spec']['versions'][0]['schema']['openAPIV3Schema']['properties']['spec']['properties']
+    del props['upgradePolicy'], props['controller']
+    PLAIN, PROJECTED = 'actions.rest[0].payloadToOverride[2].value', 'actions.rest[1].ops[1].payloadToOverride[2].value'
+
+    def submit(r, name, json_values):
+        extras = {'name': name}
+        out = resolve(chart, 'blueprint-install-formdef', r, extras)
+        resolved_widget(chart, 'Form', 'blueprint-install', out, extras, f'blueprint-install ({name}, policy)')
+        specs = []
+        for path in (PLAIN, PROJECTED):
+            expr = widget(chart, 'Form', 'blueprint-install', path, out, extras)
+            expect(f, f'{name}: {path} is a ${{ }} string', isinstance(expr, str) and expr.startswith('${') and expr.endswith('}'), True)
+            specs.append(jq(expr[2:-1], {'json': json_values}))
+        return out, specs
+
+    chart_values = {'url': 'oci://ghcr.io/krateo-blueprints/charts/petstore', 'version': '0.1.0'}
+    # The section is never opened: only the registered top fields reach the payload.
+    out, (plain, projected) = submit(resp, 'petstore', {'name': 'petstore', 'namespace': NS, 'chart': chart_values})
+    expect(f, 'controller: POSTed spec', {k: plain.get(k) for k in ('upgradePolicy', 'controller', 'chart')},
+           {'upgradePolicy': 'Manual', 'controller': {'resyncInterval': '4h'}, 'chart': chart_values})
+    expect(f, 'controller: the projected write carries the same choice',
+           {k: projected.get(k) for k in ('upgradePolicy', 'controller')}, {'upgradePolicy': 'Manual', 'controller': {'resyncInterval': '4h'}})
+    expect(f, 'controller: pre-filled as it is sent', {k: out['initialValues'].get(k) for k in ('upgradePolicy', 'controller')},
+           {'upgradePolicy': 'Manual', 'controller': {'resyncInterval': '4h'}})
+    schema = out['schemaSpec']
+    expect(f, 'controller: policy and resync are up front', [('upgradePolicy' in schema['required']), ('controller' in schema['required']),
+                                                             schema['properties']['controller'].get('required')], [True, True, ['resyncInterval']])
+    expect(f, 'controller: the policy field defaults to Manual', schema['properties']['upgradePolicy'].get('default'), 'Manual')
+    for needle in ('Manual', 'krateo.io/upgrade-to-version', 'Automatic would migrate every live instance',
+                   "leaves the previous version's controller running until every instance has been moved"):
+        if needle not in schema['properties']['upgradePolicy'].get('description', ''):
+            f.append(f'controller policy help lacks {needle!r}')
+    resync_help = schema['properties']['controller']['properties']['resyncInterval'].get('description', '')
+    for needle in ('can stay for up to four hours', 'edited or deleted by hand'):
+        if needle not in resync_help:
+            f.append(f'controller resync help lacks {needle!r}')
+    if 'every change arrives' in resync_help:
+        f.append('controller resync help still claims every change arrives as a watch event')
+    # What the person sets wins.
+    _, (plain, _) = submit(resp, 'petstore', {'name': 'petstore', 'namespace': NS, 'chart': chart_values,
+                                              'upgradePolicy': 'Paused', 'controller': {'resyncInterval': '30m', 'workers': 2}})
+    expect(f, 'controller: the person\'s values win', {k: plain.get(k) for k in ('upgradePolicy', 'controller')},
+           {'upgradePolicy': 'Paused', 'controller': {'resyncInterval': '30m', 'workers': 2}})
+    # Blueprints and page sets: Automatic, written out; no resync.
+    for name in ('my-bp', 'pages-a', 'aws-ec2-instance'):
+        out, (plain, projected) = submit(resp, name, {'name': name, 'namespace': NS, 'chart': {'url': 'x', 'version': '1.0.0'}})
+        expect(f, f'{name}: POSTed policy and resync', [plain.get('upgradePolicy'), plain.get('controller'), projected.get('upgradePolicy')],
+               ['Automatic', None, 'Automatic'])
+        expect(f, f'{name}: no controller section required', 'controller' in out['schemaSpec']['required'], False)
+        policy_help = out['schemaSpec']['properties']['upgradePolicy'].get('description', '')
+        if 'Automatic: every instance installed from this chart' not in policy_help:
+            f.append(f'{name}: policy help does not explain Automatic')
+        if 'this blueprint' in policy_help:
+            f.append(f'{name}: policy help names a blueprint (page sets and index charts read it too)')
+    # A CompositionDefinition CRD that predates both fields: nothing is added.
+    out, (plain, _) = submit(old_crd, 'petstore', {'name': 'petstore', 'namespace': NS, 'chart': chart_values})
+    expect(f, 'older CRD: neither key is sent', [plain.get('upgradePolicy'), plain.get('controller'), out['specBase']], [None, None, {}])
+    return f
+
 
 def check_create_form_says_when_the_blueprint_is_not_registered_yet(chart):
     """The create form (/blueprints/<ns>/<name>/create) right after an Install, before core-provider
@@ -941,6 +1018,7 @@ CHECKS = [
     check_install_header_has_no_lone_v,
     check_a_controller_is_registered,
     check_install_applies_the_status_projection,
+    check_register_sets_the_upgrade_policy,
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
     check_marketplace_detail_resolves_without_a_name,
