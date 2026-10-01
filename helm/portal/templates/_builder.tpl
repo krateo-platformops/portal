@@ -11,11 +11,13 @@
   offering to install a chart nobody released.
 
   The evidence: github-provider-kog writes status.state (open|closed), and a merge is only
-  observable as `merged: true` beside state closed. Up to 0.3.1 the PullRequest RestDefinition
-  does not list `merged` in additionalStatusFields at all (the CRD status is exactly
-  conditions/html_url/number/state), so today every merged PR reads as a plain close. The def
-  therefore keeps three endings apart instead of two:
-    "merged"  — closed, and the provider says merged: true;
+  observable as `merged: true`. Up to 0.3.1 the PullRequest RestDefinition does not list
+  `merged` in additionalStatusFields at all (the CRD status is exactly
+  conditions/html_url/number/state), so there every merged PR reads as a plain close; 0.3.2 adds
+  `merged` and `merged_at`. The def works on both, so a list reads the same before and after the
+  provider rolls, and keeps three endings apart instead of two:
+    "merged"  — the provider says merged: true. Authoritative: it wins over `state`, so a merge
+                reads as one even on a status whose state has not caught up;
     "closed?" — closed, and the provider does not report `merged` (absent or not a boolean) —
                 it may have merged, and nothing here knows;
     "closed"  — closed, and the provider says merged: false;
@@ -34,10 +36,22 @@
 */}}
 {{- define "portal.builderPrEnding" -}}
 def ending($pr):
-  if $pr == null or ((($pr.state) // "") != "closed") then ""
+  if $pr == null then ""
   elif (($pr.merged) // false) == true then "merged"
+  elif ((($pr.state) // "") != "closed") then ""
   elif ((($pr.mergedKnown) // false) | not) then "closed?"
   else "closed" end;
+{{- end -}}
+
+{{/*
+  portal.builderPrMergedAt — a jq string over one raw PullRequest CR: when it merged, as the
+  provider reports it (status.merged_at, RFC3339, github-provider-kog >= 0.3.2), or "". Only
+  beside merged: true, the signal portal.builderPrEnding trusts — a merged_at with no merge is
+  not a merge, and a provider below 0.3.2 reports neither, so its rows show no date. Each RA puts
+  it on its PR projection as `mergedAt`; a row shows it only when ending() says "merged".
+*/}}
+{{- define "portal.builderPrMergedAt" -}}
+(if ((.status.merged) == true) and (((.status.merged_at) | type) == "string") then .status.merged_at else "" end)
 {{- end -}}
 
 {{/*

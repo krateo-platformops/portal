@@ -185,12 +185,14 @@ def local_resource(publish, builder, file_name, path='/', content='x: 1\n'):
             'status': {'conditions': [{'type': 'Synced', 'status': 'True', 'reason': 'ReconcileSuccess'}]}}
 
 
-def pull_request(publish, number, state, merged=ABSENT, repo=None, head=None):
+def pull_request(publish, number, state, merged=ABSENT, repo=None, head=None, merged_at=ABSENT):
     chart = publish[8:] if publish else (head or '').replace('builder/', '')
     status = {'number': number, 'state': state,
               'html_url': f'https://github.com/krateo-blueprints/{repo or chart}/pull/{number}'}
     if merged is not ABSENT:
         status['merged'] = merged
+    if merged_at is not ABSENT:
+        status['merged_at'] = merged_at
     labels = {'krateo.io/publish': publish} if publish else {}
     return {'metadata': {'name': f'{publish or chart}-pr', 'namespace': NS, 'labels': labels,
                          'creationTimestamp': '2026-09-20T10:05:00Z'},
@@ -263,11 +265,11 @@ LOCAL_RESOURCES = [
 CLAIMS = ['publish-my-bp', 'publish-aws-ec2-instance', 'publish-old-bp', 'publish-pages-a', 'publish-pet']
 
 
-def prs(state, merged=ABSENT):
+def prs(state, merged=ABSENT, merged_at=ABSENT):
     """One PR per claim, all in the same state, plus one LEGACY PR (no krateo.io/publish label) to
     the krateo-blueprints repo, as the pre-claim builder opened them."""
-    items = [pull_request(p, n + 1, state, merged) for n, p in enumerate(CLAIMS)]
-    items.append(pull_request('', 40, state, merged, repo='krateo-blueprints', head='builder/legacy-bp'))
+    items = [pull_request(p, n + 1, state, merged, merged_at=merged_at) for n, p in enumerate(CLAIMS)]
+    items.append(pull_request('', 40, state, merged, repo='krateo-blueprints', head='builder/legacy-bp', merged_at=merged_at))
     return {'items': items}
 
 
@@ -290,6 +292,10 @@ def responses(pr_list, cds=()):
 CLOSED = responses(prs('closed'))                  # github-provider-kog 0.3.1: no `merged` field
 MERGED = responses(prs('closed', merged=True))     # a provider that reports it
 REJECTED = responses(prs('closed', merged=False))
+# github-provider-kog 0.3.2: merged + merged_at (RFC3339, null until merged).
+MERGED_AT = '2026-09-30T14:02:11Z'
+MERGED_DATED = responses(prs('closed', merged=True, merged_at=MERGED_AT))
+REJECTED_032 = responses(prs('closed', merged=False, merged_at=None))
 OPEN = responses(prs('open'))
 
 
@@ -425,6 +431,57 @@ def check_merged_is_one_colour(chart):
     p = row(chart, 'builder-prs', MERGED, 'name', 'publish-my-bp')
     expect(f, 'deliverables merged status', (d['status'], d['statusColor']), ('Merged', 'green'))
     expect(f, 'builder-prs merged status', (p['stateLabel'], p['stateColor']), ('Merged', 'green'))
+    return f
+
+
+def check_merged_is_the_providers_word(chart):
+    """github-provider-kog 0.3.2 reports `merged` and `merged_at`. merged=true is authoritative and
+    carries its date into each list's Merged column and the install note; merged=false is a plain
+    Closed with no date; an absent field (<= 0.3.1) keeps the "Closed" / "… if merged" inference."""
+    f = []
+    lists = (('blueprint-builder-deliverables', 'chart', 'my-bp', 'status'),
+             ('blueprint-builder-deliverables', 'chart', 'legacy-bp', 'status'),
+             ('builder-prs', 'name', 'publish-my-bp', 'stateLabel'),
+             ('builder-prs', 'name', 'legacy-bp-pr', 'stateLabel'))
+    cases = (('merged=true', MERGED_DATED, 'Merged', MERGED_AT),
+             ('merged=true, no merged_at', MERGED, 'Merged', ''),
+             ('merged=false', REJECTED_032, 'Closed', ''),
+             ('merged absent', CLOSED, 'Closed', ''),
+             # Authoritative: a merge reads as one even if the status's state has not caught up.
+             ('merged=true, state not closed', responses(prs('open', merged=True, merged_at=MERGED_AT)), 'Merged', MERGED_AT),
+             # A merged_at with no merge is no merge, and no date.
+             ('merged=false, stray merged_at', responses(prs('closed', merged=False, merged_at=MERGED_AT)), 'Closed', ''))
+    tables = {'blueprint-builder-deliverables': ('chart', 'Blueprint'), 'builder-prs': ('title', 'Change request')}
+    for label, resp, status, date in cases:
+        for ra, key, value, status_key in lists:
+            r = row(chart, ra, resp, key, value)
+            expect(f, f'{ra} {value} ({label}): status', r[status_key], status)
+            expect(f, f'{ra} {value} ({label}): mergedAt', r.get('mergedAt'), date)
+        for ra, (first, _) in tables.items():
+            out = resolve(chart, ra, resp, {})
+            doc = resolved_widget(chart, 'Table', ra, out, {}, f'{ra} ({label})')
+            cells = [{c['valueKey']: c for c in cr} for cr in doc['spec']['widgetData']['dataSource']]
+            got = sorted({c['merged']['stringValue'] for c in cells})
+            want = sorted({date} | ({''} if any(rw.get('mergedAt', '') == '' for rw in out['rows']) else set()))
+            expect(f, f'Table {ra} ({label}): Merged cells', got, want)
+            for c in cells:
+                if c['merged'].get('format') != 'relative':
+                    f.append(f'Table {ra} ({label}): Merged cell is not format relative: {c["merged"]!r}')
+    for ra in tables:
+        cols = [c['title'] for c in chart.get('Table', ra)['spec']['widgetData']['columns']]
+        expect(f, f'Table {ra}: Merged is the last column', cols[-1], 'Merged')
+    notes = ((MERGED_DATED, ', which merged on 2026-09-30. Install it once its release is green.'),
+             (MERGED, ', which merged. Install it once its release is green.'),
+             (REJECTED_032, ', which closed without merging: nothing was released, so there is nothing to install.'),
+             (CLOSED, ', now closed. Install it only if that change request merged and its release is green.'))
+    for resp, tail in notes:
+        out = resolve(chart, 'blueprint-install-origin', resp, {'name': 'my-bp'})
+        expect(f, f'install note ({tail[:24]}…)', widget(chart, 'Paragraph', 'blueprint-install-origin', 'text', out, {'name': 'my-bp'}),
+               'Published by ' + pr_url('my-bp', 1) + tail)
+    # Next steps: merged=true says Install outright, absent keeps the hedge, false offers nothing.
+    for resp, want in ((MERGED_DATED, 'Install'), (CLOSED, 'Install if merged'), (REJECTED_032, '')):
+        expect(f, f'deliverables my-bp next ({want or "none"})', row(chart, 'blueprint-builder-deliverables', resp, 'chart', 'my-bp')['next'], want)
+        expect(f, f'builder-prs my-bp next ({want or "none"})', row(chart, 'builder-prs', resp, 'name', 'publish-my-bp')['next'], want)
     return f
 
 
@@ -1014,6 +1071,7 @@ CHECKS = [
     check_install_needs_the_registration_file,
     check_page_set_next_step_is_a_tag,
     check_merged_is_one_colour,
+    check_merged_is_the_providers_word,
     check_the_step_is_called_install,
     check_install_header_has_no_lone_v,
     check_a_controller_is_registered,

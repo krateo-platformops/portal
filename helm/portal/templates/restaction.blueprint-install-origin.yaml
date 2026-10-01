@@ -38,7 +38,7 @@ spec:
     {{- include "portal.builderRegistrationStep" $ | nindent 4 }}
     {{/* The builder's change requests. builder-publish (>= 1.8.21) opens one per claim and labels */}}
     {{/* it krateo.io/publish: <claim name>; the provider writes html_url, state and — from the */}}
-    {{/* release that adds it — merged. Projected to what the note reads; `mergedKnown` separates */}}
+    {{/* release that adds it (github-provider-kog 0.3.2) — merged and merged_at. Projected to what the note reads; `mergedKnown` separates */}}
     {{/* "not reported" from "reported false", as on the lists. As the caller, continueOnError. */}}
     - name: builderPrs
       path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ .Release.Namespace }}/pullrequests
@@ -53,7 +53,8 @@ spec:
               url: ((.status.html_url) // ""),
               state: ((.status.state) // ""),
               merged: ((.status.merged) == true),
-              mergedKnown: (((.status.merged) | type) == "boolean") } ]
+              mergedKnown: (((.status.merged) | type) == "boolean"),
+              mergedAt: {{ include "portal.builderPrMergedAt" . }} } ]
   filter: |
     {{- include "portal.builderRegistrationDefs" . | nindent 4 }}
     {{- include "portal.builderPrEnding" . | nindent 4 }}
@@ -67,6 +68,8 @@ spec:
          | select(($fromBuilder or $indexName) and ((.publish) // "") == ("publish-" + $bp)) ] | first) as $pr
     | (($pr.url) // "") as $url
     | ending($pr) as $end
+    # "which merged on 2026-09-30" when the provider dated it; the day is enough for a sentence.
+    | (if $end == "merged" and ((($pr.mergedAt) // "") | length) >= 10 then (" on " + ($pr.mergedAt[0:10])) else "" end) as $on
     # A page set's merge releases nothing — its version comes from a tag the person pushes, as
     # the version field below says — so "its release" would send them waiting for one.
     | (if ($b.version // "") == "" then "a release you tagged on main is green" else "its release is green" end) as $released
@@ -80,12 +83,12 @@ spec:
         subtitle: ([ (($latest.annotations // {})["krateo.io/maturity"] // empty),
                      (if ($latest.version // "") != "" then ("v" + $latest.version) else empty end) ]
                    | map(select(. != null and . != "")) | join("  ·  ")),
-        changeRequest: { url: $url, state: (($pr.state) // ""), ending: $end },
+        changeRequest: { url: $url, state: (($pr.state) // ""), ending: $end, mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end) },
         note: (if $indexName
                then ((if $url != "" then ("Published by " + $url + " under") else "A builder publish uses" end)
                      + " a name the marketplace already has. This form installs the marketplace chart of that name, not the published one; to install that one, publish it under another name.")
                elif $url == "" then ""
-               elif $end == "merged" then ("Published by " + $url + ", which merged. " + $verb + " it once " + $released + ".")
+               elif $end == "merged" then ("Published by " + $url + ", which merged" + $on + ". " + $verb + " it once " + $released + ".")
                elif $end == "closed" then ("Published by " + $url + ", which closed without merging: nothing was released, so there is nothing to " + ($verb | ascii_downcase) + ".")
                elif $end == "closed?" then ("Published by " + $url + ", now closed. " + $verb + " it only if that change request merged and " + $released + ".")
                elif (($pr.state) // "") == "open" then ("Published by " + $url + ", still open. " + $verb + " it once it merges and " + $released + ".")

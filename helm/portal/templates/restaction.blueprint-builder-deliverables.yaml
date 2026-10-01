@@ -29,9 +29,10 @@
 {{/* legacy PR row, which has no krateo.io/publish label to find one by) keep linking to their */}}
 {{/* change request. The file test is portal.builderIsRegistrationFile, the one the form uses. */}}
 {{/* */}}
-{{/* "MERGED" NEEDS EVIDENCE, and today there is none: the PullRequest CR's status is exactly */}}
-{{/* conditions/html_url/number/state (github-provider-kog 0.3.1), so .status.merged is always */}}
-{{/* absent and a merged PR reads as state=closed. Guessing would call a rejected change merged. */}}
+{{/* "MERGED" NEEDS EVIDENCE: `.status.merged == true`, which github-provider-kog reports from */}}
+{{/* 0.3.2 (with merged_at, the Merged column's date). Up to 0.3.1 the status is exactly */}}
+{{/* conditions/html_url/number/state, so .status.merged is absent and a merged PR reads as */}}
+{{/* state=closed. Guessing would call a rejected change merged. */}}
 {{/* So a closed PR whose provider does not REPORT merged says "Closed", and its Next step says */}}
 {{/* "Install if merged" — the row still opens the install form, which links the change request */}}
 {{/* (restaction.blueprint-install-origin) so the person checks it there, and nothing claims a */}}
@@ -72,6 +73,8 @@ spec:
               # Whether the provider reports `merged` at all — distinct from reporting false. `// false`
               # folds "absent" into "not merged", and those two need opposite rows (see the header).
               mergedKnown: (((.status.merged) | type) == "boolean"),
+              # When it merged (portal.builderPrMergedAt): "" unless merged is true.
+              mergedAt: {{ include "portal.builderPrMergedAt" . }},
               url: ((.status.html_url) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
     {{/* The registered blueprints (CompositionDefinitions). The join key is metadata.name == */}}
@@ -189,6 +192,8 @@ spec:
              rowHref: (if $cd != null then ("/blueprints/{{ .Release.Namespace }}/" + $pr.chart)
                        elif registerable($cd; $end; false) then ("/marketplace/" + $pr.chart + "/install")
                        else (($pr.url) // "") end),
+             # The merge date, only beside the ending that says merged — never on a "Closed" row.
+             mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end),
              age: $pr.created } ]) as $prRows
     | ([ (.publishes // []) | group_by(.publish)[]
          | select((.[0].publish // "") != "")
@@ -238,6 +243,7 @@ spec:
              rowHref: (if $cd != null then ("/blueprints/{{ .Release.Namespace }}/" + $chart)
                        elif registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")
                        else (($pr.url) // "") end),
+             mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end),
              age: ($p0.created // "") } ]) as $claimRows
     | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows
     | { rows: $rows,

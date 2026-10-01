@@ -60,6 +60,7 @@ spec:
               state: ((.status.state) // "pending"),
               merged: ((.status.merged) == true),
               mergedKnown: (((.status.merged) | type) == "boolean"),
+              mergedAt: {{ include "portal.builderPrMergedAt" . }},
               url: ((.status.html_url) // ""),
               created: ((.metadata.creationTimestamp) // "") } ]
     {{/* The claims' files, one LocalResource per file, grouped per publish in the final filter. */}}
@@ -330,6 +331,8 @@ spec:
                        elif ($ins | length) > 0 then ("/compositions/" + $ins[0].namespace + "/" + $ins[0].name)
                        elif $cd != null then ("/blueprints/" + $cd.namespace + "/" + $chart)
                        else (($pr.url) // "") end),
+             # The merge date (portal.builderPrMergedAt), only when the change request merged.
+             mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end),
              age: ($p0.created // "") } ]) as $claimRows
     | ($claimRows | sort_by(.age // "") | reverse) as $rows
     | { rows: $rows,

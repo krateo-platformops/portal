@@ -5,8 +5,10 @@
 {{/* */}}
 {{/* STATE is GitHub-domain vocabulary, NOT k8s: a PR is open / merged / closed. The status */}}
 {{/* subresource the KOG github-provider writes carries state (open|closed), merged (bool) and */}}
-{{/* number/html_url; a MERGED PR reports state=closed + merged=true, so merged is derived HERE */}}
-{{/* (closed && merged → "merged") ahead of a plain close. The list.builder-prs Listy maps each */}}
+{{/* number/html_url (merged and merged_at from github-provider-kog 0.3.2); a MERGED PR reports */}}
+{{/* merged=true, which is authoritative, so merged is derived HERE ahead of a plain close, and */}}
+{{/* the Merged column carries merged_at. Without the field (<= 0.3.1) a closed PR stays "closed". */}}
+{{/* The list.builder-prs Listy maps each */}}
 {{/* state to a domain chip (open→blue Open / merged→green Merged / closed→slate Closed); green is */}}
 {{/* reserved for a genuinely-landed deliverable (merged), matching the health=green rule. */}}
 {{/* */}}
@@ -121,6 +123,7 @@ spec:
            merged: ((.status.merged) == true),
            # Reported at all, as opposed to reported false — see portal.builderPrEnding.
            mergedKnown: (((.status.merged) | type) == "boolean"),
+           mergedAt: {{ include "portal.builderPrMergedAt" . }},
            url: ((.status.html_url) // "") } ]) as $prIndex
     | ([ ((.prs.items) // [])[]
         # LEGACY PRs ONLY. Since builder-publish 1.8.21 a claim publish opens its own PullRequest,
@@ -130,10 +133,11 @@ spec:
         | (((.spec.owner) // "") + "/" + ((.spec.repo) // "")) as $repo
         | ((.spec.head) // "") as $head
         | ((.status.state) // "pending") as $rawState
-        | ((.status.merged) // false) as $merged
-        # Domain state: a closed PR that landed is "merged" (green), a closed-unmerged one is
-        # "closed" (slate); anything still open is "open" (blue); pre-reconcile is "pending".
-        | (if $rawState == "closed" and $merged then "merged" else $rawState end) as $state
+        | ((.status.merged) == true) as $merged
+        # Domain state: a PR the provider calls merged is "merged" (green) whatever its state, a
+        # closed-unmerged one is "closed" (slate); anything still open is "open" (blue);
+        # pre-reconcile is "pending".
+        | (if $merged then "merged" else $rawState end) as $state
         | {
             name:  (.metadata.name // ""),
             repo:  $repo,
@@ -157,6 +161,7 @@ spec:
             pr:    (if ((.status.number) // 0) > 0 then ("#" + ((.status.number) | tostring)) else "" end),
             # PR open age — the raw creationTimestamp; the Table formats it `relative` ("14d ago").
             created: (.metadata.creationTimestamp // ""),
+            mergedAt: {{ include "portal.builderPrMergedAt" . }},
             # The GitHub PR URL (status.html_url) — the Listy row's external navigateTo. A PR
             # with no URL yet (freshly created, pre-reconcile) gets "" → the row is inert.
             url:   ((.status.html_url) // "")
@@ -224,6 +229,7 @@ spec:
                     else "" end),
              pr: (if $prNum > 0 then ("#" + ($prNum | tostring)) else "" end),
              created: ($p0.created // ""),
+             mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end),
              # A per-row destination, replacing the hardcoded "" that made every claim row SILENTLY
                # un-clickable: rowNavigateTo "{url}" plus an empty cell makes Table.tsx drop the
                # handlers entirely — no cursor, no role, no error. The LocalResource behind a
