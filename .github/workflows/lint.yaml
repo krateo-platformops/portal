@@ -179,6 +179,33 @@ jobs:
           # /blueprint-builder, widget for widget; the Configure form under the frontend's rules.
           python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+  # The Builder CRs (templates/builder.*.yaml) are copies of the frontend's fixtures
+  # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with frontend main,
+  # checks they agree with the chart (draft kinds, drafts cards, preview RESTActions), and that every
+  # signed-in user (system:authenticated) may read them, demo users on or off. Red after a frontend
+  # fixture change means: copy it here.
+  builder-crs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Builder CRs match the frontend's fixtures
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-builder-crs.py
+
   # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the
   # nightly review's Proposals and ReviewRuns. This resolves them on fixtures shaped like krateo-057
   # (superseded chains, legacy proposals, unanswered discovery, failed and partial runs), checks the

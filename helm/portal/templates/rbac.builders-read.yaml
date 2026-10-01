@@ -1,0 +1,33 @@
+{{/* Every signed-in person may read the Builder CRs (templates/builders.yaml) — ADR 0001: the portal's */}}
+{{/* authenticated-user role carries this read. The frontend lists them AS THE CALLER (snowplow */}}
+{{/* /list?category=builders), so without it every builder page says the Builders could not be read. */}}
+{{/* Unconditional and bound to system:authenticated, not to a demo group: it must hold on an install */}}
+{{/* without the cyberjoker user and with OIDC/LDAP groups. Read-only, builders only — they are UI */}}
+{{/* metadata (labels, routes, plugin names), nothing sensitive. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: authenticated-get-list-builders
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - builders.templates.krateo.io
+  resources:
+  - builders
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: authenticated-get-list-builders
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: authenticated-get-list-builders
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
