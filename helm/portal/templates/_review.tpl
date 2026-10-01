@@ -123,11 +123,13 @@ def rv_claim: "review-" + ((.metadata.name // "") | ltrimstr("p-"));
   dependsOn:
     name: apis
     iterator: >-
+      {{- include "portal.fetchableDefs" . | nindent 6 }}
       {{ printf "(.apis // []) as $served | [ (.%s | if type == \"object\" and has(\"items\") then .items else [.] end)[]?" .source }}
         | select((.spec.change.format // "") == "yaml") | (.spec.change.content // "")
         | ([ match("(?m)^apiVersion:[ \\t]*[\"']?([^\\s\"'#]+)") ][0].captures[0].string // "") ]
       | unique | map(select(. != "" and (. as $g | any($served[]; . == $g))))
       | map({ gv: ., discovery: (if (. | contains("/")) then "/apis/" + . else "/api/" + . end) })
+      | map(select(.discovery | fetchablePath))
   path: ${ .discovery }
   verb: GET
   headers:
