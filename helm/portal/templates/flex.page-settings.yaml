@@ -30,6 +30,8 @@ spec:
     - resourceRefId: settings-page-header
     {{/* Add user — the CTA sits above the table it adds a row to. */}}
     - resourceRefId: settings-user-create-cta
+    {{/* Who the table can list: an SSO identity has no User CR, so it appears once granted. */}}
+    - resourceRefId: settings-users-note
     - resourceRefId: settings-users
     {{/* Audit log — the browsable trail of gated mutations (AuditRecord CRs). Emitted for every */}}
     {{/* gated write but previously shown only per-incident; surfaced here so it is actually visible. */}}
@@ -48,6 +50,12 @@ spec:
       name: settings-user-create-cta
       namespace: {{ .Release.Namespace }}
       resource: buttons
+      verb: GET
+    - id: settings-users-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: settings-users-note
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
       verb: GET
     - id: settings-users
       apiVersion: widgets.templates.krateo.io/v1beta1
