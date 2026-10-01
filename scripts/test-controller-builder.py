@@ -262,8 +262,8 @@ def check_the_ladder():
     for label, configs, note in (
             ('no configuration', items(), 'no PetConfiguration exists yet (+1 more)'),
             ('names no Secret', config_list(pet_config(ref=None)), 'PetConfiguration team-a/default names no Secret (+1 more)'),
-            ('both named', None, 'uses Secret team-a/pets-pet-credentials, team-a/store-creds (existence not checked)'),
-            ('a ref in another namespace', 'other-ns', 'uses Secret creds/shared, team-a/store-creds (existence not checked)')):
+            ('both named', None, 'credentials configured (Secrets team-a/pets-pet-credentials, team-a/store-creds not verified)'),
+            ('a ref in another namespace', 'other-ns', 'credentials configured (Secrets creds/shared, team-a/store-creds not verified)')):
         if configs is None or configs == 'other-ns':
             pet = pet_config(ref=('shared', 'creds')) if configs == 'other-ns' else pet_config()
             resp = dict(creds, configs={
@@ -278,9 +278,21 @@ def check_the_ladder():
         cells = {c['valueKey']: c for c in tbi.resolved_widget(CHART, 'Table', RA, out, {}, f'{RA} (credentials, {label})')['spec']['widgetData']['dataSource'][0]}
         want_next = (row['next'] + ' · ' + note) if row['next'] else note
         expect(f, f'Next step cell shows the evidence, {label}', cells['next']['stringValue'], want_next)
-    # No Secret is ever read: no step path names secrets.
-    paths = [st['path'] for st in CHART.get('RESTAction', RA)['spec']['api']]
-    expect(f, 'no step reads a Secret', [p for p in paths if 'secrets' in p], [])
+    # One configured kind: the singular wording.
+    _, out = resolve(dict(base, cds=items(cd('pet', ready='True')), installs=items(claim('pets', 'pet')),
+                          restdefs=items(restdef('pets-pet', 'pets', auth=True)), configs=config_list(pet_config())))
+    expect(f, 'credentials evidence, one Secret', the_row(out)['nextNote'], 'credentials configured (Secret team-a/pets-pet-credentials not verified)')
+    # A ref with a name but no key is not a configured credential.
+    _, out = resolve(dict(base, cds=items(cd('pet', ready='True')), installs=items(claim('pets', 'pet')),
+                          restdefs=items(restdef('pets-pet', 'pets', auth=True)),
+                          configs=config_list({'metadata': {'name': 'default', 'namespace': 'team-a'},
+                                               'spec': {'authentication': {'bearer': {'tokenRef': {'name': 'pets-pet-credentials'}}}}})))
+    expect(f, 'a ref with no key: not configured', (the_row(out)['status'], the_row(out)['nextNote']),
+           ('Configure credentials', 'PetConfiguration team-a/default names no Secret'))
+    # No Secret is ever read: no step path or access filter names secrets (lint-ra-secrets.py chart-wide).
+    steps = CHART.get('RESTAction', RA)['spec']['api']
+    expect(f, 'no step reads a Secret', [st['name'] for st in steps if 'secrets' in (st.get('path') or '')
+                                         or ((st.get('userAccessFilter') or {}).get('resource') == 'secrets')], [])
 
     # The generated kinds: the first and how many more.
     _, out = resolve(dict(base, cds=items(cd('pet', ready='True')), installs=items(claim('pets', 'pet')),

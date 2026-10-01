@@ -193,10 +193,12 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: configsError
-      {{/* One entry per Configuration: which Secrets its authentication refs NAME (every *Ref object */}}
-      {{/* under a scheme of spec.authentication with a name — bearer.tokenRef on krateo-057; a ref */}}
-      {{/* with no namespace means the Configuration's own). Only names: a Configuration holds */}}
-      {{/* references, never a credential, and no step here reads a Secret. */}}
+      {{/* One entry per Configuration: which Secrets its authentication refs NAME — every *Ref object */}}
+      {{/* under a scheme of spec.authentication with a name AND a key (bearer.tokenRef on krateo-057); */}}
+      {{/* a ref with no namespace means the Configuration's own. Only names: a Configuration holds */}}
+      {{/* references, never a credential. NO STEP IN THIS CHART READS A SECRET (scripts/lint-ra-secrets.py): */}}
+      {{/* snowplow serves a secrets GET or LIST from a lazily registered cluster-wide informer that */}}
+      {{/* ignores the Accept header, so even a metadata-only read would cache every Secret's data. */}}
       filter: >
         [ .configs | objects
           | ((.kind // "") | ascii_downcase | sub("list$"; "")) as $list
@@ -210,7 +212,9 @@ spec:
               secrets: [ ((.spec.authentication // {}) | if type == "object" then . else {} end) | to_entries[]
                          | ((.value // {}) | if type == "object" then . else {} end) | to_entries[]
                          | select(.key | endswith("Ref")) | .value
-                         | select(type == "object" and ((.name // "") | type == "string" and . != ""))
+                         | select(type == "object"
+                                  and ((.name // "") | type == "string" and . != "")
+                                  and ((.key // "") | type == "string" and . != ""))
                          | "\((.namespace // "") | if . == "" then $ns else . end)/\(.name)" ] } ]
   {{/* The ladder, the Next step cell and the per-row destination, computed HERE, server-side. */}}
   {{/* Rows are newest-first. A LITERAL block (|): see restaction.blueprint-builder-deliverables. */}}
@@ -230,9 +234,9 @@ spec:
     | ((.installsError // null) == null) as $installsRead
     # The Configurations of a RestDefinition's configuration kind (the list is attributed by its
     # apiVersion and its lower-cased kind or plural), and whether one of them names a Secret.
-    # NAMES, NOT EXISTS: whether that Secret exists is not read here — a GET of a Secret from a
-    # RESTAction would make snowplow's cache watch every Secret in the cluster — so the row says
-    # which Secret it relies on, and the first reconcile is still where a missing one shows.
+    # NAMES, NOT EXISTS: whether that Secret exists is not read here — no RESTAction reads Secrets
+    # (see the configs step) — so the row says which Secret it relies on, unverified, and the first
+    # reconcile is still where a missing one shows.
     | ((.configs // []) | if type == "array" then . else [] end) as $configs
     | def configsOf($rd): ($rd.cfgKind | ascii_downcase) as $k
         | [ $configs[] | select(.apiVersion == $rd.cfgApiVersion and (.list == $k or .list == ($k + "s"))) ];
@@ -273,7 +277,8 @@ spec:
              elif ($configsRead and $allReady) then
                ([ $mine[] | select(.ready == "True" and .auth and .cfgKind != "") | configsOf(.)[] | .secrets[] ] | unique) as $named
                | (if ($named | length) == 0 then ""
-                  else ("uses Secret " + ($named | join(", ")) + " (existence not checked)") end)
+                  elif ($named | length) == 1 then ("credentials configured (Secret " + $named[0] + " not verified)")
+                  else ("credentials configured (Secrets " + ($named | join(", ")) + " not verified)") end)
              else "" end ) as $credNote
          | ([ $mine[] | select(.genKind != "") | .genKind + " · " + .genApiVersion ] | unique) as $gvks
          | { chart: $chart,
