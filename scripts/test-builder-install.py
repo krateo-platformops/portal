@@ -444,16 +444,68 @@ def check_the_step_is_called_install(chart):
 
 
 def check_install_header_has_no_lone_v(chart):
-    """marketplace-detail resolves helm-index entries only; for any other chart `.version` is ""."""
+    """For a chart in no index (every builder chart) there is no version: no lone "v"."""
     f = []
-    cases = [({'name': 'pod-sizing-e3', 'version': ''}, ''),
-             ({'name': 'pod-sizing-e3'}, ''),
-             ({'name': 'x', 'maturity': 'beta', 'version': ''}, 'beta'),
-             ({'name': 'keystone', 'maturity': 'stable', 'version': '0.2.0'}, 'stable  ·  v0.2.0'),
-             ({'name': 'y', 'version': '1.0.0'}, 'v1.0.0')]
-    for data, want in cases:
-        got = widget(chart, 'PageHeader', 'blueprint-install-page-header', 'subtitle', data, {})
-        expect(f, f'install header subtitle for {data}', got, want)
+    def catalog(entries):
+        return {'apiVersion': 'v1', 'kind': 'ConfigMap',
+                'data': {'blueprints-index.json': json.dumps(index(entries)), 'operators-index.json': json.dumps(index({}))}}
+    cases = [('pod-sizing-e3', {}, ''),
+             ('x', {'x': [{'name': 'x', 'version': '', 'annotations': {'krateo.io/maturity': 'beta'}}]}, 'beta'),
+             ('keystone', {'keystone': [{'name': 'keystone', 'version': '0.2.0', 'annotations': {'krateo.io/maturity': 'stable'}}]}, 'stable  ·  v0.2.0'),
+             ('y', {'y': [{'name': 'y', 'version': '1.0.0'}]}, 'v1.0.0')]
+    for name, entries, want in cases:
+        out = resolve(chart, 'blueprint-install-origin', {'catalog': catalog(entries)}, {'name': name})
+        got = widget(chart, 'PageHeader', 'blueprint-install-page-header', 'subtitle', out, {'name': name})
+        expect(f, f'install header subtitle for {name}', got, want)
+    return f
+
+
+def check_a_controller_is_registered(chart):
+    """/marketplace/<name>/install is the Register step of a Controller Builder publish (the
+    controller deliverables row sends it there). For that chart the header, the button, the
+    success message, the field help and the change-request note say controller and Register;
+    for a blueprint, a page set and an index chart they say exactly what they said before."""
+    f = []
+    resp = copy.deepcopy(MERGED)
+    for key in ('builderCds', 'publishes'):
+        resp[key]['items'] = resp[key]['items'] + [
+            local_resource('publish-petstore', 'controller', 'compositiondefinition.yaml', '/',
+                           registration_file('petstore', 'oci://ghcr.io/krateo-blueprints/charts/petstore', '0.1.0')),
+            # A controller publish that shares a blueprints-index name: the form holds the index chart.
+            local_resource('publish-aws-ec2-instance', 'controller', 'compositiondefinition.yaml', '/',
+                           registration_file('aws-ec2-instance', 'oci://ghcr.io/x/charts/aws-ec2-instance', '0.1.0'))]
+    for key in ('builderPrs', 'prs'):
+        resp[key] = {'items': resp[key]['items'] + [pull_request('publish-petstore', 9, 'closed', True)]}
+    controller = {'noun': 'controller', 'title': 'Register petstore', 'button': 'Register controller',
+                  'success': 'Controller registered',
+                  'name': 'Name for the registered controller (the CompositionDefinition)',
+                  'namespace': 'Namespace to register the controller in',
+                  'note': 'Published by ' + pr_url('petstore', 9) + ', which merged. Register it once its release is green.'}
+    def blueprint(name, note):
+        return {'noun': 'blueprint', 'title': 'Install ' + name, 'button': 'Install blueprint', 'success': 'Blueprint installed',
+                'name': 'Name for the installed blueprint (the CompositionDefinition)',
+                'namespace': 'Namespace to install the blueprint into', 'note': note}
+    cases = [('petstore', controller),
+             ('my-bp', blueprint('my-bp', 'Published by ' + pr_url('my-bp', 1) + ', which merged. Install it once its release is green.')),
+             ('pages-a', blueprint('pages-a', 'Published by ' + pr_url('pages-a', 4) + ', which merged. Install it once a release you tagged on main is green.')),
+             ('aws-ec2-instance', blueprint('aws-ec2-instance', None)),
+             ('ec2-chart', blueprint('ec2-chart', ''))]
+    for name, want in cases:
+        extras = {'name': name}
+        origin = resolve(chart, 'blueprint-install-origin', resp, extras)
+        formdef = resolve(chart, 'blueprint-install-formdef', resp, extras)
+        header = resolved_widget(chart, 'PageHeader', 'blueprint-install-page-header', origin, extras, f'install header ({name})')
+        form = resolved_widget(chart, 'Form', 'blueprint-install', formdef, extras, f'install form ({name})')['spec']['widgetData']
+        props = formdef['schemaSpec']['properties']
+        got = {'noun': formdef['noun'], 'title': header['spec']['widgetData']['title'],
+               'button': form['buttonConfig']['primary']['label'], 'success': form['actions']['rest'][0]['successMessage'],
+               'name': props['name']['description'], 'namespace': props['namespace']['description'],
+               'note': origin['note'] if want['note'] is not None else None}
+        expect(f, f'install page copy for {name}', got, want)
+        expect(f, f'origin and formdef agree on {name}', origin['noun'], formdef['noun'])
+    # The prewarm (no name, no responses) is the blueprint page.
+    origin = resolve(chart, 'blueprint-install-origin', {}, {})
+    expect(f, 'prewarm header', widget(chart, 'PageHeader', 'blueprint-install-page-header', 'title', origin, {}), 'Install blueprint')
     return f
 
 
@@ -727,7 +779,9 @@ def check_my_drafts_are_the_callers_own(chart):
     by = {r['name'] + '/' + r['kind']: r for r in rows}
     expect(f, 'the three states say what the mockup says',
            [by['catalog-service/blueprint']['statusLabel'], by['payments-api/blueprint']['statusLabel'], by['aws-vpc-network/blueprint']['statusLabel']],
-           ['Preview needed', 'Previewed · ready to publish', 'Published · awaiting merge'])
+           ['Preview needed', 'Previewed · ready to publish', 'Published'])
+    # The record knows it was published, never whether the change request merged since.
+    expect(f, 'published never claims a merge state', [r['statusLabel'] for r in rows if 'merge' in r['statusLabel'].lower()], [])
     expect(f, 'started from: a thread, or by hand',
            [by['catalog-service/blueprint']['startedFrom'], by['payments-api/blueprint']['startedFrom']],
            ['Autopilot thread', 'Composed by hand'])
@@ -770,7 +824,16 @@ def check_my_drafts_are_the_callers_own(chart):
            [('catalog-service', '0.2.0 · 3 files · Autopilot thread', 'preview-needed'),
             ('payments-api', '0.2.0 · 3 files · Composed by hand', 'previewed')])
     expect(f, 'blueprint published list: the change request, named', [r['meta'] for r in rendered['my-drafts-blueprint-published']['dataSource']],
-           ['0.2.0 · published · krateo-blueprints/aws-vpc-network #1'])
+           ['0.2.0 · krateo-blueprints/aws-vpc-network #1 · follow it in Blueprints from this builder'])
+    # An open list that is empty above a published one is hidden, not an antd "No data" box; with
+    # nothing published it stays, as before. The published list hides when empty, always.
+    published_only = {'owner': owner, 'items': [r for r in rows if r['state'] == 'published']}
+    hidden = {name: resolved_widget(chart, 'Listy', name, published_only, {}, f'{name} (published only)')['spec']['widgetData'].get('hideWhenEmpty')
+              for name in ('my-drafts-blueprint', 'my-drafts-controller', 'my-drafts-page')}
+    expect(f, 'open lists hide when empty only beside published drafts', hidden,
+           {'my-drafts-blueprint': True, 'my-drafts-controller': False, 'my-drafts-page': False})
+    expect(f, 'open lists, named: blueprint has a published draft, the others do not',
+           [rendered[n].get('hideWhenEmpty') for n in ('my-drafts-blueprint', 'my-drafts-controller', 'my-drafts-page')], [True, False, False])
     expect(f, 'page list: the page draft only', [(r['name'], r['meta']) for r in rendered['my-drafts-page']['dataSource']],
            [('service-catalog', 'page · 2 files · Composed by hand')])
     expect(f, 'controller list: the controller draft only, a chart\'s meta line', [(r['name'], r['meta']) for r in rendered['my-drafts-controller']['dataSource']],
@@ -876,6 +939,7 @@ CHECKS = [
     check_merged_is_one_colour,
     check_the_step_is_called_install,
     check_install_header_has_no_lone_v,
+    check_a_controller_is_registered,
     check_install_applies_the_status_projection,
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
