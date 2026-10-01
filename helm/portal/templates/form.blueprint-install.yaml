@@ -111,8 +111,12 @@ spec:
       expression: '${ .projection.restaction.metadata.name // "" }'
     - forPath: actions.rest[1].ops[0].payloadToOverride[1].value
       expression: '${ .projection.restaction.metadata.namespace // "" }'
+    {{/* The formdef's specBase (upgradePolicy, and a controller's resyncInterval) goes UNDER the */}}
+    {{/* form's spec: what the person set wins, and an unopened section still writes the choice. */}}
+    - forPath: actions.rest[0].payloadToOverride[2].value
+      expression: '${ "${ " + ((.specBase // {}) | tojson) + " * ((.json | del(.name) | del(.namespace)) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end)) }" }'
     - forPath: actions.rest[1].ops[1].payloadToOverride[2].value
-      expression: '${ "${ ((.json | del(.name) | del(.namespace)) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end)) + " + ({ apiRef: (.projection.apiRef // null), statusDataTemplate: (.projection.statusDataTemplate // null) } | tojson) + " }" }'
+      expression: '${ "${ (" + ((.specBase // {}) | tojson) + " * ((.json | del(.name) | del(.namespace)) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end))) + " + ({ apiRef: (.projection.apiRef // null), statusDataTemplate: (.projection.statusDataTemplate // null) } | tojson) + " }" }'
   resourcesRefs:
     items:
       {{/* POST target — create a CompositionDefinition in the release namespace. snowplow infers */}}

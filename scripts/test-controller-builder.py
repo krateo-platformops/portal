@@ -128,6 +128,17 @@ def config_list(*objs, served_by='apiserver', kind='PetConfiguration', plural='p
     return {'apiVersion': api, 'kind': list_kind, 'items': list(objs)}
 
 
+def pet_config(name='default', ns='team-a', ref=('pets-pet-credentials', None), kind=False):
+    """A PetConfiguration as the Configure credentials form writes it: spec.authentication.bearer.tokenRef
+    naming the Secret (krateo-057's shape). ref=None: the authentication names no Secret."""
+    obj = {'metadata': {'name': name, 'namespace': ns}, 'spec': {'authentication': {'bearer': {}}}}
+    if ref is not None:
+        obj['spec']['authentication']['bearer']['tokenRef'] = {'name': ref[0], 'key': 'token', **({'namespace': ref[1]} if ref[1] else {})}
+    if kind:
+        obj.update(kind='PetConfiguration', apiVersion='petstore.example.io/v1alpha1')
+    return obj
+
+
 def resolve(responses, extras=None):
     ra = CHART.get('RESTAction', RA)
     requests, _, out = gates.resolve(ra, extras or {}, responses)
@@ -194,28 +205,34 @@ def check_the_ladder():
         ('ready', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                    'restdefs': items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', gen='Store'))},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
-        ('ready, credentials needed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
-                                       'restdefs': items(restdef('pets-pet', 'pets', auth=True))},
-         ('Ready', 'green', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
+        # A kind whose API needs credentials is NOT Ready until its Configuration names a Secret:
+        # without one it fails at its first reconcile, not here.
+        ('kinds ready, credentials needed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+                                             'restdefs': items(restdef('pets-pet', 'pets', auth=True))},
+         ('Configure credentials', 'orange', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
         ('ready, credentials configured', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                            'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
-                                           'configs': config_list({'kind': 'PetConfiguration', 'apiVersion': 'petstore.example.io/v1alpha1',
-                                                                   'metadata': {'name': 'default', 'namespace': 'team-a'}})},
+                                           'configs': config_list(pet_config(kind=True))},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
         ('ready, credentials configured, served from the cache with no item kind', {
             'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
             'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
-            'configs': config_list({'metadata': {'name': 'default', 'namespace': 'team-a'}}, served_by='informer')},
+            'configs': config_list(pet_config(), served_by='informer')},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
-        ('ready, another kind\'s configuration is not this one\'s', {
+        ('kinds ready, the configuration names no Secret', {
             'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
             'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
-            'configs': config_list({'metadata': {'name': 'x'}}, served_by='informer', kind='StoreConfiguration', plural='storeconfigurations')},
-         ('Ready', 'green', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
-        ('ready, an empty configuration list', {
+            'configs': config_list(pet_config(ref=None))},
+         ('Configure credentials', 'orange', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
+        ('kinds ready, another kind\'s configuration is not this one\'s', {
+            'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
+            'restdefs': items(restdef('pets-pet', 'pets', auth=True)),
+            'configs': config_list(pet_config(), served_by='informer', kind='StoreConfiguration', plural='storeconfigurations')},
+         ('Configure credentials', 'orange', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
+        ('kinds ready, an empty configuration list', {
             'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
             'restdefs': items(restdef('pets-pet', 'pets', auth=True)), 'configs': config_list()},
-         ('Ready', 'green', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
+         ('Configure credentials', 'orange', 'Configure credentials', '/controller-builder/configure/team-a/pets-pet')),
         ('ready, configurations unreadable: no claim either way', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                                                                    'restdefs': items(restdef('pets-pet', 'pets', auth=True)), 'configs': None},
          ('Ready', 'green', '', '/compositions/team-a/pets')),
@@ -238,6 +255,32 @@ def check_the_ladder():
         expect(f, f'{label}: status, colour, next step, destination', (row['status'], row['statusColor'], row['next'], row['rowHref']),
                (status, color, nxt, href))
         tbi.resolved_widget(CHART, 'Table', RA, out, {}, f'{RA} ({label})')
+
+    # The credential evidence, in the row and in its Next step cell.
+    creds = dict(base, cds=items(cd('pet', ready='True')), installs=items(claim('pets', 'pet')),
+                 restdefs=items(restdef('pets-pet', 'pets', auth=True), restdef('pets-store', 'pets', auth=True, gen='Store')))
+    for label, configs, note in (
+            ('no configuration', items(), 'no PetConfiguration exists yet (+1 more)'),
+            ('names no Secret', config_list(pet_config(ref=None)), 'PetConfiguration team-a/default names no Secret (+1 more)'),
+            ('both named', None, 'uses Secret team-a/pets-pet-credentials, team-a/store-creds (existence not checked)'),
+            ('a ref in another namespace', 'other-ns', 'uses Secret creds/shared, team-a/store-creds (existence not checked)')):
+        if configs is None or configs == 'other-ns':
+            pet = pet_config(ref=('shared', 'creds')) if configs == 'other-ns' else pet_config()
+            resp = dict(creds, configs={
+                '/apis/petstore.example.io/v1alpha1/petconfigurations': config_list(pet),
+                '/apis/petstore.example.io/v1alpha1/storeconfigurations': config_list(
+                    pet_config(ref=('store-creds', None)), kind='StoreConfiguration', plural='storeconfigurations')})
+        else:
+            resp = dict(creds, configs=configs)
+        _, out = resolve(resp)
+        row = the_row(out)
+        expect(f, f'credentials evidence, {label}', row['nextNote'], note)
+        cells = {c['valueKey']: c for c in tbi.resolved_widget(CHART, 'Table', RA, out, {}, f'{RA} (credentials, {label})')['spec']['widgetData']['dataSource'][0]}
+        want_next = (row['next'] + ' · ' + note) if row['next'] else note
+        expect(f, f'Next step cell shows the evidence, {label}', cells['next']['stringValue'], want_next)
+    # No Secret is ever read: no step path names secrets.
+    paths = [st['path'] for st in CHART.get('RESTAction', RA)['spec']['api']]
+    expect(f, 'no step reads a Secret', [p for p in paths if 'secrets' in p], [])
 
     # The generated kinds: the first and how many more.
     _, out = resolve(dict(base, cds=items(cd('pet', ready='True')), installs=items(claim('pets', 'pet')),
