@@ -95,6 +95,12 @@ spec:
   widgetDataTemplate:
     - forPath: schema
       expression: '${ .schemaSpec }'
+    {{/* A chart the Controller Builder published is registered, not installed (its builder calls */}}
+    {{/* the step Register); the formdef's `noun` says which this is. */}}
+    - forPath: buttonConfig.primary.label
+      expression: '${ if .noun == "controller" then "Register controller" else "Install blueprint" end }'
+    - forPath: actions.rest[0].successMessage
+      expression: '${ if .noun == "controller" then "Controller registered" else "Blueprint installed" end }'
     - forPath: initialValues
       expression: '${ .initialValues }'
     - forPath: submitActionId

@@ -96,6 +96,7 @@ def ending($pr):
     [ (.builderCds.items // [])[]
       | select({{ include "portal.builderIsRegistrationFile" . }})
       | { publish: ((.metadata.labels["krateo.io/publish"]) // ""),
+          builder: ((.metadata.labels["krateo.io/builder"]) // ""),
           cd: ((.spec.fromResource.fromString) // "") } ]
 {{- end -}}
 
@@ -114,6 +115,8 @@ def ending($pr):
                       "" when there is none.
     builderChart($bp) {url, version} from builderFile($bp) for a name no index carries; both ""
                       otherwise.
+    installNoun($bp)  "controller" when the Controller Builder published $bp and no index carries
+                      the name, else "blueprint" — what the page, the form and the note call it.
 
   AN INDEX NAME KEEPS ITS INDEX CHART. The same route is the official marketplace card, so a name
   either helm index carries never takes a builder pre-fill. Otherwise anyone who may create a
@@ -190,12 +193,22 @@ def builderChart($bp):
   | (if $indexUrl != "" then "" else builderFile($bp) end) as $file
   | { url: ($file | cdField("url")),
       version: ($file | cdField("version") | if . == "CHART_VERSION" then "" else . end) };
+# What the install form holds, in the person's words: "controller" for a chart the Controller
+# Builder published (krateo.io/builder on its registration file) and the form pre-fills, where the
+# step is called Register; "blueprint" for everything else, an index chart included.
+def installNoun($bp):
+  if (builderChart($bp).url // "") == "" then "blueprint"
+  else ([ ((.builderCds // []) | if type == "array" then . else [] end)[]
+          | select(((.publish) // "") == ("publish-" + $bp)) | ((.builder) // "") ] | first // "")
+       | if . == "controller" then "controller" else "blueprint" end end;
 {{- end -}}
 
 {{/*
   portal.draftBuilders — the builders whose draft records "Your drafts" lists, keyed by the
   record's krateo.io/draft-kind: the route its composer lives under, and whether its tree is a
-  chart (a Chart.yaml whose version the row shows) or a page set (the row says "page").
+  chart (a Chart.yaml whose version the row shows) or a page set (the row says "page"), and the
+  card on that builder's page where a published draft's change request is followed to the end
+  (the record knows only that it was published, never whether the change request merged).
 
   ONE DECLARATION, read by restaction.my-drafts (which kinds are records at all, and where Resume
   goes) and by list.my-drafts (one pair of Listys per kind). Until they read it, the kinds were
@@ -209,10 +222,13 @@ def builderChart($bp):
 blueprint:
   route: /blueprint-builder
   chart: true
+  followIn: Blueprints from this builder
 controller:
   route: /controller-builder
   chart: true
+  followIn: Controllers from this builder
 page:
   route: /portal-builder
   chart: false
+  followIn: Change requests from the builders
 {{- end -}}

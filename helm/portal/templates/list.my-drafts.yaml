@@ -15,7 +15,12 @@
 {{/* */}}
 {{/* WHY PUBLISHED IS ITS OWN LIST. rowActions are one set per list, not per row, and a published */}}
 {{/* draft offers different things: its change request, and Remove from list. It is hidden when */}}
-{{/* empty, so a person with nothing awaiting merge sees one list. */}}
+{{/* empty, so a person with nothing published sees one list — and the open list is hidden when */}}
+{{/* it is empty and the published one is not, so its antd "No data" never sits above a list. */}}
+{{/* */}}
+{{/* PUBLISHED SAYS ONLY THAT. The record knows it was published, never whether its change request */}}
+{{/* merged since, so the row does not guess: it names the change request and the card on this */}}
+{{/* builder's page that follows it to the end (portal.draftBuilders followIn). */}}
 {{/* */}}
 {{/* DISCARD IS A DELETE OF THE RECORD, AS THE PERSON. The ref below names a sentinel that is never */}}
 {{/* a record (records are draft-*): the row's recordName replaces it through payloadToOverride */}}
@@ -57,7 +62,7 @@ spec:
       formats:
         subSecondaryText: relative
       {{/* The mockup's three pills: amber until a Preview matches the tree, green once it does, */}}
-      {{/* grey once published — waiting on a merge is nobody's problem to fix here. */}}
+      {{/* grey once published — what happens to it next is followed elsewhere, not fixed here. */}}
       color:
         value: '{statusKey}'
         map:
@@ -109,6 +114,10 @@ spec:
           loading:
             display: true
   widgetDataTemplate:
+    {{- if eq $state "open" }}
+    - forPath: hideWhenEmpty
+      expression: '${ [ (.items // [])[] | select(.kind == {{ $kind | quote }} and .state == "published") ] | length > 0 }'
+    {{- end }}
     - forPath: dataSource
       expression: >
         ${ [ (.items // [])[]
@@ -131,10 +140,10 @@ spec:
                   {{- if eq $state "open" }}
                   "\(.files // 0) files", .startedFrom
                   {{- else }}
-                  "published",
                   ((.repo // "") as $repo | (.prUrl // "")
                    | [capture("github\\.com/(?<repo>[^/]+/[^/]+)/pull/(?<n>[0-9]+)")?]
-                   | if length > 0 then "\(.[0].repo) #\(.[0].n)" elif $repo != "" then $repo else empty end)
+                   | if length > 0 then "\(.[0].repo) #\(.[0].n)" elif $repo != "" then $repo else empty end),
+                  {{ printf "follow it in %s" $builder.followIn | toJson }}
                   {{- end }}
                 ] | join(" · ")) } ] }
   resourcesRefs:

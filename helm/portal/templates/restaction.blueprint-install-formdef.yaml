@@ -122,11 +122,13 @@ spec:
     | builderChart($bp) as $b
     | ($b.url // "") as $bUrl
     | ($b.version // "") as $bVer
+    # A controller is registered, not installed: the copy follows what the form holds.
+    | installNoun($bp) as $noun
     | {
         schemaSpec: ($spec
           | .properties = ({
-              name: { type: "string", title: "Name", description: "Name for the installed blueprint (the CompositionDefinition)" },
-              namespace: { type: "string", title: "Namespace", description: "Namespace to install the blueprint into", enum: $namespaces }
+              name: { type: "string", title: "Name", description: (if $noun == "controller" then "Name for the registered controller (the CompositionDefinition)" else "Name for the installed blueprint (the CompositionDefinition)" end) },
+              namespace: { type: "string", title: "Namespace", description: (if $noun == "controller" then "Namespace to register the controller in" else "Namespace to install the blueprint into" end), enum: $namespaces }
             } + (.properties // {}))
           | .required = (["name", "namespace"] + (.required // []))
           | (if (($targetNames | length) > 0) and ((.properties.deploy.properties.targetRef.properties.name? // null) != null)
@@ -156,6 +158,7 @@ spec:
                   elif ($rawUrl | startswith("oci://")) then { url: $rawUrl, version: $ver }
                   else { url: $repoUrl, repo: $bp, version: $ver } end)
         },
+        noun: $noun,
         apiVersion: "core.krateo.io/v1alpha1",
         kind: "CompositionDefinition",
         resource: "compositiondefinitions",
