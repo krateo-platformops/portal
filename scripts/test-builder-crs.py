@@ -9,9 +9,10 @@ WHAT IT GUARDS.
   declares them in ui/src/builders/fixtures/<name>.builder.yaml and its own tests run on those
   files; this chart ships them to the cluster. Two copies of one declaration drift unless something
   compares them, so this does:
-  1. Every fixture on krateo-platformops/frontend (main, or --frontend-ref) is rendered by the chart
-     as a Builder of the same name, in the release namespace, with an EQUAL spec — and the chart
-     renders no Builder the frontend does not declare.
+  1. helm/portal/files/builders/<name>.builder.yaml is BYTE-IDENTICAL to each fixture on
+     krateo-platformops/frontend (main, or --frontend-ref) — the frontend's builderFixtures.test.ts
+     pins those bytes by sha256 — and the chart renders each as a Builder of the same name, in the
+     release namespace, with an equal spec, and renders no Builder the frontend does not declare.
   2. The CRs agree with the chart: each draftKind is a portal.draftBuilders kind whose route the
      Builder's route sits under, each spec.portal.draftsCard names a widget the chart renders, and
      each preview.restActionRef names a RESTAction the chart renders.
@@ -23,6 +24,7 @@ WHAT IT GUARDS.
 
 Usage: test-builder-crs.py [--fixtures DIR | --frontend-ref REF]. Exit code = failed checks.
 """
+import hashlib
 import importlib.util
 import os
 import re
@@ -32,6 +34,7 @@ import urllib.request
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+CHART_FILES = os.path.join(HERE, '..', 'helm', 'portal', 'files', 'builders')
 FIXTURES = ('portal-builder', 'blueprint-builder', 'controller-builder')
 RAW = 'https://raw.githubusercontent.com/krateo-platformops/frontend/{ref}/ui/src/builders/fixtures/{name}.builder.yaml'
 GROUP = 'builders.templates.krateo.io'
@@ -57,7 +60,7 @@ def fixtures(fixtures_dir, ref):
         else:
             with urllib.request.urlopen(RAW.format(ref=ref, name=name), timeout=30) as resp:
                 text = resp.read().decode('utf-8')
-        out[name] = yaml.safe_load(text)
+        out[name] = text
     return out
 
 
@@ -77,7 +80,16 @@ def draft_builders():
 def check_the_crs_are_the_frontends(docs, fx):
     problems = []
     chart = builders(docs)
-    for name, want in fx.items():
+    for name, text in fx.items():
+        path = os.path.join(CHART_FILES, f'{name}.builder.yaml')
+        if not os.path.exists(path):
+            problems.append(f'{name}: no {os.path.relpath(path, os.path.join(HERE, ".."))}')
+        else:
+            mine = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+            theirs = hashlib.sha256(text.encode('utf-8')).hexdigest()
+            if mine != theirs:
+                problems.append(f'{name}: files/builders bytes sha256 {mine[:12]} != the frontend fixture {theirs[:12]} — copy it')
+        want = yaml.safe_load(text)
         got = chart.get(name)
         if got is None:
             problems.append(f'the frontend declares Builder {name}; the chart renders none')

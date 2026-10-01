@@ -1,0 +1,8 @@
+{{/* The Builder CRs — files/builders/*.builder.yaml, BYTE-IDENTICAL copies of krateo-platformops/frontend */}}
+{{/* ui/src/builders/fixtures/*.builder.yaml (the frontend's builderFixtures.test.ts pins their sha256, and */}}
+{{/* scripts/test-builder-crs.py compares them with the frontend's). Never edit them here: change the */}}
+{{/* frontend's fixture and copy it. The files carry no namespace; this places them in the release one. */}}
+{{- range $path, $_ := .Files.Glob "files/builders/*.builder.yaml" }}
+---
+{{ $.Files.Get $path | replace "\nmetadata:\n" (printf "\nmetadata:\n  namespace: %s\n" $.Release.Namespace) }}
+{{- end }}

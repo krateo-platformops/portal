@@ -1,0 +1,83 @@
+# The Portal Builder, DECLARED — today's /portal-builder/compose as a Builder CR (T1, frontend#407).
+#
+# THE ENGINE READS THIS (T2, frontend#408): builderRegistry.ts imports it statically — the draft
+# store, preview dispatch, lint, publish and verb gating take their per-builder values from here. It
+# lives in the bundle until Builders are read from the cluster over /call (a later task, needing RBAC).
+# builderFixtures.test.ts proves it parses, validates against the CRD and names plugins this frontend
+# ships. Each value names the code it describes, so a change to either shows as a disagreement.
+apiVersion: builders.templates.krateo.io/v1alpha1
+kind: Builder
+metadata:
+  name: portal-builder
+spec:
+  label: Portal Builder
+  # RoutesContext.tsx: the static shell child.
+  route: /portal-builder/compose
+  # draftRecord.ts: `draft-page-<owner>-<slug>`, label krateo.io/draft-kind=page.
+  draftKind: page
+  # StartDraftModal.tsx + startDraft.ts. The namespace is the composer's own, never asked.
+  start:
+    fields:
+      - name: slug
+        label: Page slug
+        required: true
+        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+        help: The page becomes /<slug> and the CR page-<slug>. Lower-case, dashes.
+        placeholder: fleet-health
+      - name: title
+        label: Title
+        required: false
+        help: Shown in the page header. Defaults to the slug, title-cased.
+        placeholder: Fleet health
+    # blueprintDraftStore.ts BLUEPRINT_DRAFT_MAX_BYTES — 512 KiB, the OAS-attachment discipline.
+    maxDraftBytes: 524288
+  # PalettePanel.tsx lists snowplow's `widgets` category as the person (placeableWidgets.ts): no RESTAction.
+  palette:
+    plugin: widgets
+  canvas:
+    plugin: page-grid
+  inspector:
+    plugin: object-tree
+  # draftStructure.ts summarizeDraft — the widget tree Autopilot is told.
+  summarizer:
+    plugin: page-tree
+  # previewSandbox.ts: the draft's widget CRs are applied into the preview sandbox and rendered live.
+  preview:
+    mode: sandbox-apply
+  files:
+    # pageDraft.ts pageDraftFiles. The page ROOT (templates/flex.page-<slug>.yaml) is required too,
+    # but its path depends on the slug, so the page code enforces it rather than this list.
+    required:
+      - Chart.yaml
+      - values.schema.json
+    # publishDraft.ts REGISTRATION_PATH — the portal writes it at publish.
+    locked:
+      - compositiondefinition.yaml
+    heldBytes: 524288
+  # proposedChart.ts lintHeldDraft(files, 'page').
+  lint:
+    - chart-lint
+  # blueprintGate (preview-before-publish, shared by both builders) and publishNameProblem.
+  gates:
+    - preview-before-publish
+    - publish-name
+  # publishDraft.ts runDraftPublish + builderTargets.ts: one BuilderPublish claim, destination from config.api.
+  publish:
+    builder: page
+    targetKey: AUTOPILOT_PAGE_BUILDER_REPO
+    templateKey: AUTOPILOT_PAGE_BUILDER_TEMPLATE
+    registration:
+      kind: CompositionDefinition
+      path: compositiondefinition.yaml
+  # actionBridge.ts COMPOSE_VERBS, previewPage, publishPage.
+  verbs:
+    allowed:
+      - composeAdd
+      - composeMove
+      - composeBind
+      - previewPage
+      - publishPage
+  # The portal chart's /portal-builder hub. The Portal Builder has no deliverables listing yet.
+  portal:
+    draftsCard:
+      name: portal-builder-drafts-card
