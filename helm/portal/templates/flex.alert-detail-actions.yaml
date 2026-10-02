@@ -4,6 +4,7 @@
 {{/* detail view gives direct lifecycle controls too. Buttons resolve their per-alert target from the */}}
 {{/* alert-detail RA (.gvr) / the edit drawer, so this Flex itself is data-agnostic. Mirrors */}}
 {{/* flex.composition-detail-actions. */}}
+{{/* Pause or Resume, by the alert's krateo.io/paused annotation (alert-detail's .paused). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,6 +15,9 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
   widgetData:
     vertical: false
     gap: small
@@ -23,7 +27,14 @@ spec:
     items:
       - resourceRefId: alert-detail-investigate
       - resourceRefId: alert-detail-edit
+      - resourceRefId: alert-detail-pause
       - resourceRefId: alert-detail-delete
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "alert-detail-investigate" }, { resourceRefId: "alert-detail-edit" },
+             { resourceRefId: (if (.paused // false) then "alert-detail-resume" else "alert-detail-pause" end) },
+             { resourceRefId: "alert-detail-delete" } ] }
   resourcesRefs:
     items:
       - id: alert-detail-investigate
@@ -35,6 +46,18 @@ spec:
       - id: alert-detail-edit
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: alert-detail-edit
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: alert-detail-pause
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-detail-pause
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
+      - id: alert-detail-resume
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-detail-resume
         namespace: {{ .Release.Namespace }}
         resource: buttons
         verb: GET

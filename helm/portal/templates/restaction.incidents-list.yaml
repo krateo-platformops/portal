@@ -58,6 +58,7 @@ spec:
     | ([ $items[] | select((.status.state // "Analyzing") as $s | ($s != "Resolved" and $s != "Closed")) | alertlabel ] | unique) as $openAlerts
     | ([ $alerts[]
          | select((.status.state // "") == "ALERT")
+         | select(((.metadata.annotations // {})["krateo.io/paused"] // "") != "true")
          | select((.metadata.name // "") as $a | ($openAlerts | index($a)) == null)
          | { name: (.spec.displayName // .metadata.name // ""),
              state: (.status.state // "ALERT"),

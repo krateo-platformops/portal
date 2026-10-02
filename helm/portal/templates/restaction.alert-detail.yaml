@@ -53,6 +53,8 @@ spec:
     | (.alert.status // {}) as $st
     | ($sp.displayName // .alert.metadata.name // $n) as $dn
     | ($st.state // "PENDING") as $state
+      # krateo.io/paused: "true" — the alert-provider skips this alert's firings.
+    | (((.alert.metadata.annotations // {})["krateo.io/paused"] // "") == "true") as $paused
     | ($st.hyperdxAlertId // "") as $haid
     | ($st.hyperdxDashboardId // "") as $hdid
       # This alert's incidents, newest first: the ones carrying its label.
@@ -87,6 +89,7 @@ spec:
         message: ($sp.message // ""),
         state: $state,
         phase: ($st.phase // "Pending"),
+        paused: $paused,
         # State tag — same map as the /alerts table, but OK→green (palette: green=health only,
         # and a quiet-OK alert IS the healthy default), ALERT→red (failure), PENDING→orange
         # (transitional). "OK" kept verbatim — the literal HyperDX state word.
@@ -130,10 +133,12 @@ spec:
             (if $haid == "" then empty
              elif $state == "ALERT" then "3. **Evaluated, and currently firing.** HyperDX reports state `ALERT`."
              elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
-             else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end),
+             else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end)
+             + (if $haid != "" and $paused then "\n    - **Paused.** The alert-provider skips its firings: no incident opens and none is counted. Open incidents keep their checks." else "" end),
             (if $haid == "" then empty
              elif ($shaped | length) > 1 then ("4. **Incidents were opened.** " + ($shaped | length | tostring) + " for this alert; the latest is `" + ($rep.name // "") + "`.")
              elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`.")
+             elif $state == "ALERT" and $paused then "4. No incident — this alert is paused, so its firings open none."
              elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The alert-provider's next pass (every 60 s) should open one; no Incident carries this alert's label. Either no pass has run since the alert fired, or the alert-provider could not create one; its logs say which."
              else "4. No incident — this alert has not fired, so none is expected." end),
             (if $rep == null then empty

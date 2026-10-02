@@ -1,0 +1,46 @@
+{{/* Pause: sets krateo.io/paused: "true" on the Alert (a merge-patch with the user's token). The */}}
+{{/* alert-provider then skips its firings: no incident opens and none is counted. It still syncs */}}
+{{/* the spec to HyperDX and mirrors its state. alert-detail-actions shows Resume instead once set. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-pause
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Pause
+    icon: fa-circle-pause
+    type: default
+    size: middle
+    clickActionId: pause
+    actions:
+      rest:
+        - id: pause
+          type: rest
+          resourceRefId: pause-alert
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          payload:
+            metadata:
+              annotations:
+                krateo.io/paused: "true"
+          successMessage: Alert paused
+          loading:
+            display: true
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: pause-alert
+        apiVersion: ${ .gvr.apiVersion }
+        resource: ${ .gvr.resource }
+        name: ${ .gvr.name }
+        namespace: ${ .gvr.namespace }
+        verb: PATCH
