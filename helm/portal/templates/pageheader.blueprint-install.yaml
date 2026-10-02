@@ -3,9 +3,10 @@
 {{/* This page had NO header at all — it opened straight onto the install Form, so the route gave no */}}
 {{/* indication of which chart was about to be installed. Every other page in the portal names itself. */}}
 {{/* */}}
-{{/* It reuses the `marketplace-detail` RESTAction rather than adding one: the route carries {name}, */}}
-{{/* the RA already resolves a catalog entry from exactly that key, and the page it is reached from */}}
-{{/* (/marketplace/{name}) reads the same cell — so the title costs no extra upstream call. */}}
+{{/* It reads `blueprint-install-origin`, which the page root already resolves for the change-request */}}
+{{/* note, so the title costs no extra upstream call. That RA rather than marketplace-detail because */}}
+{{/* the title must know what the form holds: a chart the Controller Builder published is REGISTERED */}}
+{{/* (its builder calls the step Register), everything else is installed (installNoun, _builder.tpl). */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,17 +17,20 @@ metadata:
 spec:
   keyExtras: [name]
   apiRef:
-    name: marketplace-detail
+    name: blueprint-install-origin
     namespace: {{ .Release.Namespace }}
   widgetData:
     title: Install blueprint
     subtitle: ""
   widgetDataTemplate:
     - forPath: title
-      expression: '${ "Install " + (.name // "blueprint") }'
+      expression: '${ .title // "Install blueprint" }'
     {{/* Version and maturity only — the reader is committing to a specific revision, and the */}}
-    {{/* category they already saw on the page they came from. */}}
+    {{/* category they already saw on the page they came from. Composed by the RA from the */}}
+    {{/* blueprints index entry, as marketplace-detail reads it; the version part only when there */}}
+    {{/* is a version (a chart in no index — every builder chart — has none, and once rendered a */}}
+    {{/* lone "v"). With no version and no maturity the subtitle is "", and PageHeader drops it. */}}
     - forPath: subtitle
-      expression: '${ ([ (.maturity // empty), ("v" + (.version // "?")) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
+      expression: '${ .subtitle // "" }'
   resourcesRefs:
     items: []

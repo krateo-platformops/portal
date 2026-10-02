@@ -1,0 +1,95 @@
+{{- /* Rendered per composition so the detail page can read the chart architecture through
+       snowplow /call under the caller's own RBAC. Edit data.architecture; the composer owns the rest. */}}
+{{- $g := .Values.global | default dict }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-architecture" ($g.compositionName | default .Release.Name) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    krateo.io/architecture: "builder-publish"
+data:
+  architecture: |
+    apiVersion: architecture.krateo.io/v1alpha1
+    kind: ChartArchitecture
+    chart: builder-publish
+    resources:
+      - id: repository
+        class: custom
+        apiVersion: github.krateo.io/v2022-11-28
+        kind: Repository
+        template: templates/repository.yaml
+        name: printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-"
+        when: .Values.repository.create
+        readyWhen: .status.default_branch
+      - id: repo
+        class: custom
+        apiVersion: git.krateo.io/v1alpha1
+        kind: Repo
+        template: templates/repo.yaml
+        name: printf "%s-source" .Values.name | trunc 63 | trimSuffix "-"
+        when: .Values.source.url
+        dependsOn:
+          - ref: repository
+            ready: true
+            when: .Values.repository.create
+        readyWhen: .status.targetCommitId
+      - id: localresources
+        class: custom
+        apiVersion: git.krateo.io/v1alpha1
+        kind: LocalResource
+        template: templates/localresources.yaml
+        name: printf "%s-%03d" $.Values.name (int $i) | trunc 63 | trimSuffix "-"
+        forEach: builder-publish.files
+        dependsOn:
+          - ref: repository
+            ready: true
+            when: .Values.repository.create
+          - ref: repo
+            ready: true
+            when: .Values.source.url
+        readyWhen: .status.targetCommitId
+      - id: pullrequest
+        class: custom
+        apiVersion: github.krateo.io/v2022-11-28
+        kind: PullRequest
+        template: templates/pullrequest.yaml
+        name: printf "%s-pr" .Values.name | trunc 63 | trimSuffix "-"
+        when: .Values.pullRequest.create
+        dependsOn:
+          - ref: localresources
+            ready: true
+            all: true
+      - id: username-secret
+        class: native
+        apiVersion: v1
+        kind: Secret
+        template: templates/username-secret.yaml
+        lifecycle: shim
+    states:
+      - name: repository-only
+      - name: seeding
+      - name: committing
+      - name: change-request-open
+{{- /* krateo:graph begin — generated from data.architecture; edit the descriptor, not this block. */}}
+{{- $v := .Values.AsMap }}
+{{- $nodes := list }}
+{{- $names := list }}
+{{- $present := not (empty (dig "repository" "create" "" $v)) }}
+{{- if $present }}{{- $names = append $names (printf "%s-repo" .Values.name | trunc 63 | trimSuffix "-") }}{{- end }}
+{{- $nodes = append $nodes (dict "id" "repository" "apiVersion" "github.krateo.io/v2022-11-28" "kind" "Repository" "class" "custom" "level" 0 "readyWhen" ".status.default_branch" "forEach" false "present" $present "names" $names "dependsOn" (list)) }}
+{{- $names = list }}
+{{- $present = not (empty (dig "source" "url" "" $v)) }}
+{{- if $present }}{{- $names = append $names (printf "%s-source" .Values.name | trunc 63 | trimSuffix "-") }}{{- end }}
+{{- $nodes = append $nodes (dict "id" "repo" "apiVersion" "git.krateo.io/v1alpha1" "kind" "Repo" "class" "custom" "level" 1 "readyWhen" ".status.targetCommitId" "forEach" false "present" $present "names" $names "dependsOn" (list (dict "ref" "repository" "ready" true "all" false "active" (not (empty (dig "repository" "create" "" $v)))))) }}
+{{- $names = list }}
+{{- $present = true }}
+{{- range $i, $f := (include "builder-publish.files" $ | fromYamlArray) }}{{- with $ }}{{- $names = append $names (printf "%s-%03d" $.Values.name (int $i) | trunc 63 | trimSuffix "-") }}{{- end }}{{- end }}
+{{- $nodes = append $nodes (dict "id" "localresources" "apiVersion" "git.krateo.io/v1alpha1" "kind" "LocalResource" "class" "custom" "level" 2 "readyWhen" ".status.targetCommitId" "forEach" true "present" $present "names" $names "dependsOn" (list (dict "ref" "repository" "ready" true "all" false "active" (not (empty (dig "repository" "create" "" $v)))) (dict "ref" "repo" "ready" true "all" false "active" (not (empty (dig "source" "url" "" $v)))))) }}
+{{- $names = list }}
+{{- $present = not (empty (dig "pullRequest" "create" "" $v)) }}
+{{- if $present }}{{- $names = append $names (printf "%s-pr" .Values.name | trunc 63 | trimSuffix "-") }}{{- end }}
+{{- $nodes = append $nodes (dict "id" "pullrequest" "apiVersion" "github.krateo.io/v2022-11-28" "kind" "PullRequest" "class" "custom" "level" 3 "forEach" false "present" $present "names" $names "dependsOn" (list (dict "ref" "localresources" "ready" true "all" true "active" true))) }}
+{{- $nodes = append $nodes (dict "id" "username-secret" "apiVersion" "v1" "kind" "Secret" "class" "native" "lifecycle" "shim" "forEach" false "present" true "names" (list) "dependsOn" (list)) }}
+  graph: {{ dict "v" 1 "chart" "builder-publish" "states" (list "repository-only" "seeding" "committing" "change-request-open") "composition" (dict "apiVersion" ($g.compositionApiVersion | default "") "resource" ($g.compositionResource | default "") "name" ($g.compositionName | default "") "namespace" .Release.Namespace "uid" ($g.compositionId | default "")) "nodes" $nodes | toJson | quote }}
+{{- /* krateo:graph end */}}

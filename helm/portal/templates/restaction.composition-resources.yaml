@@ -3,12 +3,12 @@
 {{/* FETCHES each to read its live ready state. */}}
 {{/* */}}
 {{/* Snowplow execution contract (verified against source): a step `filter` sees */}}
-{{/* ONLY that step's response (NOT extras); the `iterator` expression is evaluated */}}
+{{/* that step's response and the request extras (.extras); the `iterator` expression is evaluated */}}
 {{/* against the FULL dict (extras + prior stages) and must yield a JSON array; the */}}
 {{/* `path` template is evaluated per yielded element. So: */}}
 {{/* crds      → list composition.krateo.io CRDs. */}}
-{{/* found     → per CRD, emit EVERY composition's managed entries (the step */}}
-{{/* filter can't see extras), each TAGGED with its parent name/ns */}}
+{{/* found     → per CRD, emit THIS composition's managed entries (the step */}}
+{{/* filter selects it by the extras' name/ns), each TAGGED with its parent name/ns */}}
 {{/* (_cn/_cns) + a reconstructed fetchable GET path (_getpath). */}}
 {{/* core-provider's .status.managed[].path now INCLUDES /namespaces/ */}}
 {{/* <ns>/ for namespaced kinds (it used to omit it), so _getpath uses */}}
@@ -55,22 +55,32 @@ spec:
     - name: found
       dependsOn:
         name: crds
-        iterator: .crds
-      {{/* #72: NAMESPACE-SCOPED to the target's ns (?extras .namespace) — was a cluster-wide list */}}
-      {{/* (no /namespaces/ segment), which runs as the caller and 403s for a namespace-scoped tenant. */}}
-      {{/* The composition is always in .namespace, and the `resources` iterator already selects the */}}
-      {{/* target by _cn/_cns, so scoping here loses nothing and makes it tenant-authorizable. */}}
-      path: ${ "/apis/composition.krateo.io/" + (.version) + "/namespaces/" + (.namespace) + "/" + (.plural) }
+        iterator: 'if (.namespace // "") == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects ] | unique_by([.version, .plural]) end'
+      {{/* One CLUSTER-SCOPE list per composition kind under a userAccessFilter, as composition-detail */}}
+      {{/* reads them (see its `found` for why not a per-namespace list: snowplow's cluster-list collapse */}}
+      {{/* read only the first kind for an admin, so nothing resolved on portal 1.8.56). snowplow lists */}}
+      {{/* as its SA and keeps the items in namespaces where the CALLER may list that kind, so a */}}
+      {{/* namespace-scoped tenant still resolves its own compositions (#72/#74). */}}
+      {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+      {{/* the step makes no call. */}}
+      path: ${ "/apis/composition.krateo.io/" + (.version) + "/" + (.plural) }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      {{/* Emit ALL managed entries (every composition of this kind), each tagged */}}
-      {{/* with parent _cn/_cns + reconstructed _getpath. No extras here (the step */}}
-      {{/* filter can't see them) — the resources iterator selects the target. */}}
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
+      {{/* Emit THIS composition's managed entries (the list holds every composition of */}}
+      {{/* the kind the caller may list), each tagged with parent _cn/_cns + reconstructed */}}
+      {{/* _getpath; the resources iterator still selects the target by _cn/_cns. */}}
       filter: >
         (["clusterroles","clusterrolebindings","namespaces","customresourcedefinitions","clusterissuers","persistentvolumes","storageclasses","nodes","priorityclasses","validatingwebhookconfigurations","mutatingwebhookconfigurations","apiservices","certificatesigningrequests","podsecuritypolicies","ingressclasses","runtimeclasses","csidrivers","csinodes","volumeattachments"]) as $clusterKinds
+        | (.extras.name // "") as $n | (.extras.namespace // "") as $ns
         | [ .found.items[]?
+            | select(.metadata.name == $n and .metadata.namespace == $ns)
             | . as $comp
             | ($comp.metadata.name) as $cn
             | ($comp.metadata.namespace) as $cns
@@ -98,8 +108,12 @@ spec:
     - name: resources
       dependsOn:
         name: found
-        {{/* full-dict context: bind extras then select this composition's entries. */}}
-        iterator: '.name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns) ]'
+        {{/* full-dict context: bind extras then select this composition's entries — only those */}}
+        {{/* fetchablePath accepts (_fetchable.tpl): a managed Secret is listed from status.managed */}}
+        {{/* but never GET, since snowplow would serve that from a cluster-wide Secrets informer. */}}
+        iterator: |
+          {{- include "portal.fetchableDefs" . | nindent 10 }}
+          .name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns) | select(._getpath | fetchablePath) ]
       path: ${ ._getpath }
       verb: GET
       headers:
@@ -122,7 +136,12 @@ spec:
   {{/* LITERAL block (|), not folded (>): folding joins same-indent lines with spaces, */}}
   {{/* so a base-indent jq `#` comment would swallow the code joined after it (the */}}
   {{/* composition-events filter shipped broken exactly this way). */}}
+  {{/* A managed resource fetchablePath refuses (a Secret) is a row in state "unread": declared by the */}}
+  {{/* composition, never fetched, so neither healthy nor pending — and outside the convergence */}}
+  {{/* count (total/healthyCount are of the resources that were checked; unreadCount says how many */}}
+  {{/* were not). It does not link to /resources, which would not read it either. */}}
   filter: |
+    {{- include "portal.fetchableDefs" . | nindent 4 }}
     (.name) as $n | (.namespace) as $ns
     | ({"serviceaccounts":"ServiceAccount","configmaps":"ConfigMap","secrets":"Secret","services":"Service","endpoints":"Endpoints","persistentvolumeclaims":"PersistentVolumeClaim","deployments":"Deployment","replicasets":"ReplicaSet","statefulsets":"StatefulSet","daemonsets":"DaemonSet","pods":"Pod","jobs":"Job","cronjobs":"CronJob","clusterroles":"ClusterRole","clusterrolebindings":"ClusterRoleBinding","roles":"Role","rolebindings":"RoleBinding","ingresses":"Ingress","networkpolicies":"NetworkPolicy","namespaces":"Namespace"}) as $kindMap
     | ( [ .found[]? | select(._cn == $n and ._cns == $ns) ] ) as $managed
@@ -137,6 +156,7 @@ spec:
           | ($rc.status == "False") as $notready
           | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
           | (($c | length) == 0) as $noconds
+          | ($m._getpath | fetchablePath) as $readable
           | {
               kind: ($kindMap[$m._kind] // (if (($obj.rkind) // "") != "" then $obj.rkind else (($m._kind | .[0:1] | ascii_upcase) + ($m._kind[1:] | sub("s$"; ""))) end)),
               name: $m._name,
@@ -145,13 +165,15 @@ spec:
               # like ServiceAccount/ConfigMap that exists). A managed child we could NOT fetch
               # ($found=false — 404 / API error) is NOT healthy: report it "pending" (issue #152), so
               # it neither shows a green tag nor counts toward convergence.
-              state: (if ($found | not) then "pending"
+              state: (if ($readable | not) then "unread"
+                      elif ($found | not) then "pending"
                       elif $noconds then "healthy"
                       elif $ready and ($unsynced | not) then "healthy"
                       elif $ready and $unsynced then "drift"
                       elif $notready then "failed"
                       else "pending" end),
-              healthPercent: (if ($found | not) then 50
+              healthPercent: (if ($readable | not) then 0
+                              elif ($found | not) then 50
                               elif $noconds or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70
                               elif $notready then 20 else 50 end),
@@ -159,13 +181,15 @@ spec:
               # /compositions detail; EVERY other kind drills into the generic /resources view
               # (namespaced → its ns; cluster-scoped → the "cluster" filler; core group → "core").
               # The last-mile is now closed for every managed child, whatever its kind.
-              navHref: (if ($m._grp == "composition.krateo.io")
+              navHref: (if ($readable | not) then ""
+                        elif ($m._grp == "composition.krateo.io")
                         then ("/compositions/" + $m._cns + "/" + $m._name)
                         else ("/resources/" + (if $m._cluster then "cluster" else $m._cns end) + "/" + $m._grp + "/" + $m._ver + "/" + $m._kind + "/" + $m._name) end)
             } )
       ) as $rows
-    | ($rows | length) as $total
-    | ($rows | map(select(.state == "healthy")) | length) as $healthy
+    | ($rows | map(select(.state != "unread"))) as $checked
+    | ($checked | length) as $total
+    | ($checked | map(select(.state == "healthy")) | length) as $healthy
     # Workload projection of the COMPOSITION itself (ridden in on _wh/_whMsg): resources can
     # all match declared-vs-actual while the pods behind them crashloop — `converged` must not
     # claim full convergence then, and the rail widget caps/annotates from these two keys.
@@ -177,11 +201,12 @@ spec:
         resources: $rows,
         total: $total,
         healthyCount: $healthy,
+        unreadCount: (($rows | length) - $total),
         driftCount: ($rows | map(select(.state == "drift")) | length),
         failedCount: ($rows | map(select(.state == "failed")) | length),
         pendingCount: ($rows | map(select(.state == "pending")) | length),
         convergencePercent: (if $total > 0 then (($healthy * 100 / $total) | floor) else 0 end),
-        converged: ($total > 0 and $healthy == $total and ($whBad | not)),
+        converged: (($rows | length) > 0 and $healthy == $total and ($whBad | not)),
         workloadUnhealthy: $whBad,
         workloadMessage: $whMsg
       }

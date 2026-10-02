@@ -37,10 +37,14 @@ spec:
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
       filter: '[.compdefs.items[]? | {name: .metadata.name, version: (.spec.chart.version // ""), namespace: .metadata.namespace}]'
+  {{/* NULL-SAFE. With no ?extras.name — the background prewarm resolves this RESTAction with no */}}
+  {{/* route — `.entries[null]` and `$instVer[null]` raise "expected a string for object key but got: */}}
+  {{/* null" and every widget on it fails (~670/h on krateo-057). An absent name is found: false. */}}
+  {{/* An entry with no name (never a real CompositionDefinition) is dropped, not keyed as null. */}}
   filter: >
-    .name as $n
-    | ( [ (.compdefs // [])[] | {key: .name, value: .version} ] | from_entries ) as $instVer
-    | ( [ (.compdefs // [])[] | {key: .name, value: .namespace} ] | from_entries ) as $instNs
+    ((.name // "") | tostring) as $n
+    | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .version} ] | from_entries ) as $instVer
+    | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .namespace} ] | from_entries ) as $instNs
     | ( ((.catalog // {}).entries[$n]) // [] ) as $vers
     | ( $vers[0] // {} ) as $latest
     | ( [ $vers[] | .version | select(. != null and . != "") ] | unique ) as $availableVersions

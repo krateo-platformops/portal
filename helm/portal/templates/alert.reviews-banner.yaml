@@ -1,0 +1,27 @@
+{{/* The /reviews status line: not installed, no read access, no run yet, a run in progress, or the */}}
+{{/* latest run failed or saw only part of the platform. Rendered only when there is one: the page */}}
+{{/* root includes it when platform-reviews returns a banner. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-banner
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Platform review
+    type: info
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .banner.title // "Platform review" }'
+    - forPath: description
+      expression: '${ .banner.description // "" }'
+    - forPath: type
+      expression: '${ .banner.type // "info" }'
+  resourcesRefs:
+    items: []

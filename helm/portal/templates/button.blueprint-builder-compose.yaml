@@ -1,0 +1,42 @@
+{{/* THE PAGE'S PRIMARY ACTION, and the one that cannot fail. The same move the Portal Builder     */}}
+{{/* made (button.portal-builder-compose), for the same reason.                                   */}}
+{{/*                                                                                              */}}
+{{/* Until now /blueprint-builder ranked "Ask Autopilot" first. That button navigates to ?ask=,   */}}
+{{/* and on an install where Autopilot is not enabled the click produces a warning notice and     */}}
+{{/* strips the param — so the page's top-ranked action described a capability that was not      */}}
+{{/* there. The only other way in was form.author-blueprint: a JSON textarea into which a person  */}}
+{{/* pasted a whole chart tree, now retired. /blueprint-builder/compose is a static frontend      */}}
+{{/* route (frontend >= 1.6.59) behind no feature flag, so it is the door that always opens.      */}}
+{{/*                                                                                              */}}
+{{/* This is not a second door. It is the SAME door Autopilot delivers into — the composer claims */}}
+{{/* the preview surface for blueprints while it is mounted, so a chart previewed from the rail   */}}
+{{/* lands on the same canvas and goes through the same publish gate. What changes is which one   */}}
+{{/* the page ranks first.                                                                        */}}
+{{/*                                                                                              */}}
+{{/* The entry lives HERE, on the admin tier, and not on /blueprints: that page is where tenants  */}}
+{{/* INSTALL, and its header carries no actions by design.                                        */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-builder-compose
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* A verb and its object, as the approved entry mockup has it. "Open the composer" is the */}}
+    {{/* Portal Builder's label, and it works there because that page builds pages; here the    */}}
+    {{/* thing being made is the point of the page, so the label names it. No icon, also per    */}}
+    {{/* the mockup: the sparkle belongs to the Autopilot link beside it, and one glyph in the  */}}
+    {{/* action row keeps the two routes easy to tell apart at a glance.                         */}}
+    label: Compose a blueprint
+    size: middle
+    type: primary
+    clickActionId: blueprint-builder-compose
+    actions:
+      navigate:
+        - id: blueprint-builder-compose
+          type: navigate
+          path: /blueprint-builder/compose
+  resourcesRefs:
+    items: []

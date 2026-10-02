@@ -15,14 +15,10 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* THE COUNTER READS THE DRAFTS FEED. The same RESTAction the drafts table below uses, so the */}}
-  {{/* header can say how much unfinished work is waiting before anyone scrolls to find it. */}}
-  apiRef:
-    name: preview-drafts
-    namespace: {{ .Release.Namespace }}
-  widgetDataTemplate:
-    - forPath: counter
-      expression: ${ .items | length }
+  {{/* NO COUNTER. It read "N drafts in progress" from preview-drafts, every author's previews */}}
+  {{/* at once. Drafts now have owners, and "Your drafts" below says how many are yours in its own */}}
+  {{/* header, beside the rows it counts (the approved mockup's header carries none); a second */}}
+  {{/* count up here would need the caller's identity for a number already on the page. */}}
   widgetData:
     title: Portal Builder
     {{/* NAMES THE MEDIUM, THE GUARANTEE, THE OUTPUT AND THE GATE. The old subtitle opened "Ask */}}
@@ -35,7 +31,6 @@ spec:
       RESTActions that feed them. Preview it against your own cluster, with your own permissions,
       then publish the whole set as one change request. Nothing appears in this portal until that
       change request is merged.
-    counterLabel: drafts in progress
     {{/* ONE action, right-aligned in the title row. PageHeader affords exactly one and says so, */}}
     {{/* which is why flex.portal-builder-ask-cta — a wrapper whose only job was justify:flex-end */}}
     {{/* — is retired: it rebuilt one level down the affordance this widget exists to provide. */}}

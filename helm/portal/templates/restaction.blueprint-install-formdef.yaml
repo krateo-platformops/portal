@@ -1,10 +1,19 @@
 {{/* Install-form schema source — renders the CompositionDefinition CRD's spec (the FULL spec) */}}
 {{/* as the form schema, so "installing a blueprint" = filling a CompositionDefinition. The */}}
 {{/* blueprint `name` arrives via ?extras (route /marketplace/{name}/install). Pre-fills */}}
-{{/* chart.{url,repo,version} by looking the blueprint up in the helm index (needs */}}
-{{/* snowplow >= 1.4.0 for the external YAML fetch). Prepends a synthetic `name` (the */}}
+{{/* chart.{url,version} from the builder publish that produced the chart, when there is one, and */}}
+{{/* otherwise chart.{url,repo,version} from the helm index (needs snowplow >= 1.4.0 for the */}}
+{{/* external YAML fetch). Prepends a synthetic `name` (the */}}
 {{/* CompositionDefinition metadata.name; namespace is fixed to the release ns by the form). */}}
 {{/* Returns { schemaSpec, initialValues, apiVersion/kind/resource } — mirrors blueprint-formdef. */}}
+{{/* */}}
+{{/* THIS FORM IS ALSO THE INSTALL STEP of the builder publish chain. A builder deliverables row */}}
+{{/* whose change request was merged and which has no CompositionDefinition yet navigates here */}}
+{{/* (restaction.blueprint-builder-deliverables, restaction.builder-prs). Installing is a */}}
+{{/* PERSON's action: the write below is the form's own POST through snowplow /call, as the */}}
+{{/* caller, behind the blast-radius confirm — Autopilot never submits it. The change request */}}
+{{/* the chart came from is linked above the form (restaction.blueprint-install-origin), so the */}}
+{{/* person can check that it merged where they decide. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -30,6 +39,12 @@ spec:
     {{/* the two-index fetch of restaction.blueprints-catalog so the pre-fill covers both sources. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
+    {{/* The builder's registration files — the pre-fill for a chart published from the Portal or */}}
+    {{/* Blueprint builder, which is in no helm index. The step, and the rule for which file */}}
+    {{/* applies, are shared with the change-request note (_builder.tpl). */}}
+    {{- include "portal.builderRegistrationStep" $ | nindent 4 }}
+    {{/* The publish's status projection (S12), applied by Install beside the CompositionDefinition. */}}
+    {{- include "portal.builderProjectionStep" $ | nindent 4 }}
     {{/* Namespaces the user may create CompositionDefinitions in → the Namespace select's enum */}}
     {{/* (UAF SubjectAccessReview, mirrors blueprint-formdef). */}}
     - name: namespaces
@@ -65,6 +80,9 @@ spec:
         namespaceFrom: .metadata.namespace
       filter: "[.targets.items[]? | .metadata.name]"
   filter: |
+    # cdField / indexEntry / builderChart — portal.builderRegistrationDefs (_builder.tpl), shared
+    # with restaction.blueprint-install-origin so the note and the pre-fill cannot disagree.
+    {{- include "portal.builderRegistrationDefs" . | nindent 4 }}
     # Drop statusDataTemplate — it's a blueprint-author field (status projection), not something
     # the installer sets; remove it from the fetched CRD schema so it doesn't render in the form.
     (.crd.spec.versions[]? | select(.name == "v1alpha1") | .schema.openAPIV3Schema.properties.spec | del(.properties.statusDataTemplate)) as $spec0
@@ -90,26 +108,94 @@ spec:
     # OCI branch) is chart.url = the FULL oci ref (oci://<base>/<name>, NOT filename-stripped) and NO
     # chart.repo (appending the name to url would double it). So branch on the url scheme below: oci://
     # keeps the raw url + omits repo; a helm-repo url strips the filename + carries repo=name.
-    | (((.catalog.entries[$bp]?) // (.operators.entries[$bp]?) // [])[0]) as $entry
+    | indexEntry($bp) as $entry
     | ($entry.version // "") as $ver
     | ($entry.urls[0]? // "") as $rawUrl
     | ($rawUrl | sub("/[^/]+$"; "")) as $repoUrl
+    # The builder publish, when this chart came from one: builder-publish names the claim
+    # "publish-<chart>" and labels every file it commits with that claim, so the route's `name`
+    # selects the claim's own registration file. Only for a name no helm index carries: this route
+    # is also the official marketplace card, and an index name keeps its index chart — a builder
+    # claim that shares the name must not re-point it (builderChart, _builder.tpl). A builder chart
+    # is published to GHCR, never to an index, so for every other name the builder file is the
+    # only pre-fill there is. CHART_VERSION (a page set's placeholder) comes back as "".
+    | builderChart($bp) as $b
+    | ($b.url // "") as $bUrl
+    | ($b.version // "") as $bVer
+    # A controller is registered, not installed: the copy follows what the form holds.
+    | installNoun($bp) as $noun
+    # HOW THE DEFINITION UPGRADES, SET EXPLICITLY. core-provider's upgradePolicy defaults to
+    # Automatic: every live instance is migrated onto a new chart version the moment the definition
+    # serves it, with no approval. A controller's instances are external resources a person
+    # depends on, so a controller registers Manual (new versions are served beside the old; an
+    # instance moves when annotated krateo.io/upgrade-to-version). A blueprint or page set keeps
+    # Automatic — but written out, so the choice is visible in the form and in the object rather
+    # than inherited from a default that could change.
+    # A controller's CDC also resyncs every 4h instead of the chart-global 3m: its instances change
+    # rarely, so a full re-list every three minutes is near-idle churn. The cost, said in the help:
+    # drift in what it renders (a hand-edited RestDefinition) waits for the resync. Each key only when the served CRD has it (an older core-provider does not).
+    | ($spec.properties.upgradePolicy != null) as $hasPolicy
+    | (($spec.properties.controller.properties.resyncInterval? // null) != null) as $hasResync
+    | (if $noun == "controller" then "Manual" else "Automatic" end) as $policy
+    | ((if $hasPolicy then { upgradePolicy: $policy } else {} end)
+       + (if $hasResync and $noun == "controller" then { controller: { resyncInterval: "4h" } } else {} end)) as $specBase
     | {
         schemaSpec: ($spec
           | .properties = ({
-              name: { type: "string", title: "Name", description: "Name for the installed blueprint (the CompositionDefinition)" },
-              namespace: { type: "string", title: "Namespace", description: "Namespace to install the blueprint into", enum: $namespaces }
+              name: { type: "string", title: "Name", description: (if $noun == "controller" then "Name for the registered controller (the CompositionDefinition)" else "Name for the installed blueprint (the CompositionDefinition)" end) },
+              namespace: { type: "string", title: "Namespace", description: (if $noun == "controller" then "Namespace to register the controller in" else "Namespace to install the blueprint into" end), enum: $namespaces }
             } + (.properties // {}))
           | .required = (["name", "namespace"] + (.required // []))
           | (if (($targetNames | length) > 0) and ((.properties.deploy.properties.targetRef.properties.name? // null) != null)
              then (.properties.deploy.properties.targetRef.properties.name |= (. + { title: "Deploy to cluster", description: "Leave empty to deploy on this (hub) cluster; pick a registered spoke to deploy remotely.", enum: $targetNames }))
+             else . end)
+          # A builder chart is OCI, and for OCI the version is not optional (the CRD: "needed for
+          # oci charts"). The strip above made every chart field optional, which in the sectioned
+          # Form also files them under the chart section's collapsed "Advanced" group
+          # (SchemaFields partitions on each object's own `required`). So for a builder chart only,
+          # url and version are required again: both sit up-front where the person reviews them,
+          # and a page set cannot be installed until the person types its tag — instead of
+          # POSTing a CompositionDefinition with no version, which the pruning would let through.
+          # The empty version also says why it is empty and what to do about it, in the person's
+          # terms: a page set's merge releases nothing (the scaffold releases a placeholder
+          # version only from a tag), so the step before this one is pushing that tag. Every
+          # other install keeps exactly the schema it had.
+          | (if $bUrl != "" and ((.properties.chart.properties? // null) != null)
+             then (.properties.chart.required = ["url", "version"])
+                  | (if $bVer == "" and ((.properties.chart.properties.version? // null) != null)
+                     then (.properties.chart.properties.version |= (. + { description: "A page set's merge releases nothing. Push a semver tag on main in its repository (git tag 0.1.0 origin/main && git push origin 0.1.0), wait for that release to go green, then type the tag here." }))
+                     else . end)
+             else . end)
+          # Up front, with the reason, beside the fields the person reviews.
+          | (if $hasPolicy
+             then (.properties.upgradePolicy |= (. + { default: $policy, description:
+                    (if $noun == "controller"
+                     then "Manual: a new version of this controller is served beside the old one, and an existing instance moves to it only when you annotate it krateo.io/upgrade-to-version. Each republish therefore leaves the previous version's controller running until every instance has been moved that way. Automatic would migrate every live instance as soon as the chart version moves, with no approval."
+                     else "Automatic: every instance installed from this chart moves to a new chart version as soon as it is registered. Choose Manual to keep instances on their version until you annotate one krateo.io/upgrade-to-version, or Paused to never migrate them." end) }))
+                  | .required = ((.required // []) + ["upgradePolicy"])
+             else . end)
+          | (if $hasResync and $noun == "controller"
+             then (.properties.controller.properties.resyncInterval |= (. + { description:
+                    "4h: how often this controller re-reads every instance and the resources it renders, to correct drift. A change to an instance is picked up when it is made, but a manual change to what it renders (a RestDefinition or Configuration edited or deleted by hand) can stay for up to four hours before it is corrected. The default is three minutes." }))
+                  | .properties.controller.required = ["resyncInterval"]
+                  | .required = ((.required // []) + ["controller"])
              else . end)),
-        initialValues: {
+        initialValues: ({
           name: $bp,
           namespace: "{{ .Release.Namespace }}",
-          chart: (if ($rawUrl | startswith("oci://")) then { url: $rawUrl, version: $ver } else { url: $repoUrl, repo: $bp, version: $ver } end)
-        },
+          chart: (if $bUrl != "" then { url: $bUrl, version: $bVer }
+                  elif ($rawUrl | startswith("oci://")) then { url: $rawUrl, version: $ver }
+                  else { url: $repoUrl, repo: $bp, version: $ver } end)
+        } + $specBase),
+        # Merged UNDER the form's spec on submit (form.blueprint-install), so the policy and the
+        # resync are written even when the person never opens the section that shows them.
+        specBase: $specBase,
+        noun: $noun,
         apiVersion: "core.krateo.io/v1alpha1",
         kind: "CompositionDefinition",
-        resource: "compositiondefinitions"
+        resource: "compositiondefinitions",
+        # A builder chart's status projection (S12): the <chart>-status RESTAction and the apiRef and
+        # rows its CompositionDefinition carries. Null for every other install — the form then keeps
+        # its one plain write.
+        projection: (if $bUrl != "" then builderProjection($bp) else null end)
       }

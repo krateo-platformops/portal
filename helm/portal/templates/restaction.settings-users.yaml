@@ -1,34 +1,27 @@
-{{/* Settings → Users tab — STRATEGY-AGNOSTIC platform users. Not the basic-only */}}
-{{/* users CRD (that misses oidc/ldap/oauth identities): instead we list the */}}
-{{/* per-user `<username>-clientconfig` Secret that authn writes after EVERY login */}}
-{{/* regardless of strategy (internal/helpers/kube/config/storage/storage.go) — the */}}
-{{/* same artifact snowplow's UserConfig middleware reads. So this is "everyone who */}}
-{{/* has authenticated", by any strategy. */}}
+{{/* Settings → Users tab — the platform users the cluster KNOWS, read without a Secret. */}}
 {{/* */}}
-{{/* SECURITY: those Secrets hold the user's client cert + private key. The step */}}
-{{/* filter keeps ONLY name + creationTimestamp — .data NEVER leaves snowplow. */}}
+{{/* NO SECRETS. This used to LIST the release namespace's Secrets for the per-user */}}
+{{/* `<username>-clientconfig` that authn writes at every login. A RESTAction must never read */}}
+{{/* Secrets (scripts/lint-ra-secrets.py): snowplow serves such a read from a cluster-wide */}}
+{{/* informer it registers on first touch, data included and the Accept header ignored, so */}}
+{{/* even a names-only filter pulled every Secret's data into snowplow. authn writes nothing */}}
+{{/* else per login (its CSR is deleted once the certificate is issued — authn 0.27.3 */}}
+{{/* kube/config/gen.go), so "everyone who has authenticated" has no other source. */}}
 {{/* */}}
-{{/* The cert lifetime is authn's AUTHN_KUBECONFIG_CRT_EXPIRES_IN (flag cert-expires, */}}
-{{/* default 24h) → we read it from authn's own Deployment env (no hardcoding; falls */}}
-{{/* back to authn's compiled 24h default when unset). The Table computes the expiry */}}
-{{/* as creationTimestamp + this duration in its widgetDataTemplate. */}}
+{{/* The users are now the union of: */}}
+{{/*   - the basic-strategy User CRs (users.basic.authn.krateo.io), with their groups; */}}
+{{/*   - the User subjects of the RoleBindings the Access page manages */}}
+{{/*     (krateo.io/managed-by=portal-access; subjects[] keeps the RAW name). */}}
+{{/* An OIDC/LDAP/OAuth identity is listed once it holds a managed grant; one that has only */}}
+{{/* logged in is not. "Issued" and "Certificate expires" are gone: both came from the */}}
+{{/* Secret's creationTimestamp alone (and under-reported a refreshed session anyway). */}}
 {{/* */}}
-{{/* #88 §0.7: the former Access tab's persona view merged into this ONE Users */}}
-{{/* table (same clientconfig-Secret dataset, same /settings/access/{name} */}}
-{{/* drill-down — there was no real scope difference to separate). `.personas` — */}}
-{{/* one row per clientconfig user with the username (name minus "-clientconfig"), */}}
-{{/* the certificate expiry (creationTimestamp + certDuration, the same jq the */}}
-{{/* table used to do client-side, moved here so it can live next to grants/groups), */}}
-{{/* the groups joined from the basic-strategy User CR when one exists (OIDC/LDAP */}}
-{{/* groups live in the IdP, unknowable from cluster CRs → blank), and the count of */}}
-{{/* managed access grants (RoleBindings labeled krateo.io/managed-by=portal-access */}}
-{{/* whose krateo.io/subject label matches). The two extra stages are ADMIN reads */}}
-{{/* (per-user dispatch, no UAF): non-admins get a 403 → continueOnError → the */}}
-{{/* Users table keeps working with groups/grants blank. */}}
-{{/* */}}
-{{/* Label values must be RFC1123-safe, so the grant convention slugifies the */}}
-{{/* subject (lowercase, [a-z0-9-]) — the join here applies the SAME slug to the */}}
-{{/* username before matching krateo.io/subject (see form.access-grant). */}}
+{{/* `.personas`: username, groups (the User CR's; "—" for an identity without one — */}}
+{{/* OIDC/LDAP groups live in the IdP), the count of managed grants, joined on the */}}
+{{/* slugified subject label exactly as form.access-grant writes it, and `source` — which of */}}
+{{/* the two sets listed the user: "User CR", "Grant" (a raw User subject of a managed */}}
+{{/* grant) or "User CR · Grant". Both steps are reads a non-admin may be denied: */}}
+{{/* continueOnError, so the table degrades to what can be read (and so does `source`). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -38,33 +31,9 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    - name: clientconfigs
-      path: /api/v1/namespaces/{{ .Release.Namespace }}/secrets
-      verb: GET
-      headers:
-        - 'Accept: application/json'
-      continueOnError: true
-      userAccessFilter:
-        verb: list
-        group: ""
-        resource: secrets
-        namespaceFrom: .metadata.namespace
-      filter: >
-        [ .clientconfigs.items[]?
-          | select((.metadata.name // "") | endswith("-clientconfig"))
-          | { name: .metadata.name, creationTimestamp: .metadata.creationTimestamp } ]
-    - name: authnDeployments
-      path: /apis/apps/v1/namespaces/{{ .Release.Namespace }}/deployments
-      verb: GET
-      headers:
-        - 'Accept: application/json'
-      continueOnError: true
-      filter: >
-        ( [ .authnDeployments.items[]?.spec.template.spec.containers[]?.env[]?
-            | select(.name == "AUTHN_KUBECONFIG_CRT_EXPIRES_IN") | .value ][0] ) // "24h"
-    {{/* Basic-strategy User CRs — the only cluster-readable groups source (W3-2). */}}
+    {{/* Basic-strategy User CRs — users and the only cluster-readable groups source (W3-2). */}}
     {{/* Cluster-wide list; absent CRD (OIDC/LDAP-only clusters) degrades via */}}
-    {{/* continueOnError to groups-blank personas. */}}
+    {{/* continueOnError to grant subjects alone. */}}
     - name: basicUsers
       path: /apis/basic.authn.krateo.io/v1alpha1/users
       verb: GET
@@ -76,8 +45,8 @@ spec:
         [ .basicUsers.items[]?
           | { name: (.metadata.name // ""), groups: (.spec.groups // []) } ]
     {{/* Managed access grants — RoleBindings the Access page created (label-selected, */}}
-    {{/* cluster-wide list of the namespaced objects). Only the subject label + */}}
-    {{/* namespace survive; counting happens in the top-level filter. */}}
+    {{/* cluster-wide list of the namespaced objects). The subject label (the grant count's */}}
+    {{/* join key) and the raw User subject names (users known only by a grant). */}}
     - name: grantBindings
       path: /apis/rbac.authorization.k8s.io/v1/rolebindings?labelSelector=krateo.io%2Fmanaged-by%3Dportal-access
       verb: GET
@@ -88,28 +57,23 @@ spec:
       filter: >
         [ .grantBindings.items[]?
           | { subject: (((.metadata.labels // {})["krateo.io/subject"]) // ""),
-              namespace: (.metadata.namespace // "") } ]
+              namespace: (.metadata.namespace // ""),
+              users: [ (.subjects // [])[] | select((.kind // "") == "User") | (.name // "") | select(. != "") ] } ]
   filter: >
     def slug: ascii_downcase | gsub("[^a-z0-9-]"; "-");
-    def durSeconds:
-      . as $d
-      | ((($d|capture("(?<v>[0-9]+)h")) // {v:"0"} | .v|tonumber)*3600)
-      + ((($d|capture("(?<v>[0-9]+)m")) // {v:"0"} | .v|tonumber)*60)
-      + ((($d|capture("(?<v>[0-9]+)s")) // {v:"0"} | .v|tonumber));
     ((if (.basicUsers // []) | type == "array" then .basicUsers else [] end) // []) as $users
     | ((if (.grantBindings // []) | type == "array" then .grantBindings else [] end) // []) as $grants
-    | ((.authnDeployments // "24h") | durSeconds) as $secs
+    | [ $users[] | .name ] as $crNames
+    | [ $grants[] | (.users // [])[] ] as $grantNames
     | {
-      list: (.clientconfigs // []),
-      certDuration: (.authnDeployments // "24h"),
       personas: (
-        [ (.clientconfigs // [])[]
-          | ((.name // "") | rtrimstr("-clientconfig")) as $u
-          | { username: $u,
-              created: (.creationTimestamp // ""),
-              expires: (if .creationTimestamp then ((.creationTimestamp|fromdateiso8601) + $secs | todateiso8601) else "" end),
-              groups: ((([ $users[] | select(.name == $u) ] | first) | .groups) // []),
-              grants: ([ $grants[] | select(.subject == ($u | slug)) ] | length) }
-        ] | sort_by(.username)
+        ($crNames + $grantNames) | map(select(. != "")) | unique
+        | map(. as $u
+              | { username: $u,
+                  groups: ((([ $users[] | select(.name == $u) ] | first) | .groups) // []),
+                  grants: ([ $grants[] | select(.subject == ($u | slug)) ] | length),
+                  source: ([ (if any($crNames[]; . == $u) then "User CR" else empty end),
+                             (if any($grantNames[]; . == $u) then "Grant" else empty end) ]
+                           | join(" · ")) })
       )
     }

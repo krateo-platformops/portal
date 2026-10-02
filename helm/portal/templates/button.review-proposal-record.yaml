@@ -1,0 +1,42 @@
+{{/* Record as change request open: shown only when the claim exists and no decision is recorded */}}
+{{/* (a claim opened before nightly-review 0.1.23, or one whose PrOpen write failed). One merge-PATCH */}}
+{{/* of spec.decision {phase: PrOpen, claim} as the caller; an identical resend is a no-op. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-record
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Record as change request open
+    type: default
+    icon: fa-code-pull-request
+    clickActionId: record
+    actions:
+      rest:
+        - id: record
+          type: rest
+          resourceRefId: record-pr-open
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          successMessage: Recorded as change request open
+          payload: {}
+  widgetDataTemplate:
+    - forPath: actions.rest[0].payload
+      expression: '${ { spec: { decision: { phase: "PrOpen", claim: (.claimName // "") } } } }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: record-pr-open
+        apiVersion: review.krateo.io/v1alpha1
+        resource: proposals
+        name: '${ .name }'
+        namespace: {{ .Release.Namespace }}
+        verb: PATCH

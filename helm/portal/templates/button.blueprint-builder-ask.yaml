@@ -1,7 +1,18 @@
-{{/* "Ask Autopilot →" header CTA on /blueprint-builder — the page's SOLE entry into the authoring */}}
-{{/* flow (the redundant hint strip was removed; the three builder pages now share this single CTA). */}}
-{{/* Always visible, so there is always a way to start the next blueprint. Carries the ?ask= deep-link */}}
-{{/* and prompt text, encoded here with urlquery instead of the RA's jq @uri. */}}
+{{/* The Autopilot route onto /blueprint-builder's composer — SECONDARY, and deliberately. */}}
+{{/* */}}
+{{/* This used to be the page's primary and its only CTA. It navigates to ?ask=, and on an install */}}
+{{/* where Autopilot is not enabled the click produces a warning notice and strips the param — so */}}
+{{/* it cannot be the action a page ranks first. button.blueprint-builder-compose, a static route */}}
+{{/* behind no feature flag, now holds that position; this stays as the other way IN to the same */}}
+{{/* surface. Mirrors button.portal-builder-ask, which made the same move. */}}
+{{/* */}}
+{{/* IT DEEP-LINKS INTO THE COMPOSER, not back onto this page. The ?ask= handler lives in the shell, */}}
+{{/* so the rail opens on /blueprint-builder/compose seeded with the prompt below; Autopilot hands */}}
+{{/* the authoring to core-provider-agent, and the chart it returns is previewed onto the canvas the */}}
+{{/* composer has claimed — the person watches it land where they would have built it by hand. The */}}
+{{/* old path, /blueprint-builder?ask=, opened the rail over a deliverables table and previewed into */}}
+{{/* a drawer: a second surface for the same draft. urlquery does the encoding the RAs do with jq */}}
+{{/* @uri. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,17 +27,30 @@ spec:
     {{/* same mechanism — a Button navigating to ?ask=<prompt>. "Ask Autopilot" describes what */}}
     {{/* the BUTTON does; the other two described what the page was about, which is the page's */}}
     {{/* job, not the label's. The trailing arrow went with them: it implied navigation away. */}}
+    {{/* The entry mockup's "or describe it to Autopilot" survives in the subtitle, which is */}}
+    {{/* where a sentence belongs — as a label it would be the rule's fifth variant. */}}
     label: Ask Autopilot
     icon: fa-wand-magic-sparkles
-    {{/* #84 §0.1: the page's primary CTA — a filled primary button (was an outlined default), a */}}
-    {{/* comfortable middle size (was small), right-aligned via flex.blueprint-builder-ask-cta. */}}
     size: middle
-    type: primary
+    {{/* A link, not an outlined button: it sits beside the page's one primary in the header's */}}
+    {{/* action row, and P6 allows a container exactly one. */}}
+    type: link
     clickActionId: blueprint-builder-ask
     actions:
       navigate:
         - id: blueprint-builder-ask
           type: navigate
-          path: /blueprint-builder?ask={{ "I want to author a new blueprint (a Helm chart) with the Blueprint builder. Help me define its Chart.yaml, values.yaml, values.schema.json and templates, preview it with previewBlueprint, and publish it via a gated change request to the blueprints repo once I confirm." | urlquery }}
+          {{/* The prompt promises only what happens: the chart is drafted in the conversation, */}}
+          {{/* previewed onto this composer, and published as a change request the person confirms. */}}
+          {{/* It asks for values.schema.json by name because that file IS the install form — */}}
+          {{/* core-provider derives the generated CRD, and so the form, from it. */}}
+          {{/* */}}
+          {{/* IT IS THE PERSON'S OWN FIRST MESSAGE, so it is written in their words (P17). The */}}
+          {{/* shell's ?ask= handler opens a new thread and send()s this string verbatim — the rail */}}
+          {{/* shows it as something they typed. It used to name the agent's verb */}}
+          {{/* (`previewBlueprint`); no person says that, and it did no work — Autopilot's system */}}
+          {{/* prompt already tells it to preview a blueprint tree with that verb. */}}
+          {{/* button.portal-builder-ask names no verb for the same step either. */}}
+          path: /blueprint-builder/compose?ask={{ "I want to build a new blueprint in the Blueprint composer: a Helm chart that registers as a Krateo kind. Help me write its templates, values.yaml and the values.schema.json that becomes the form people fill in to install it, preview it live in the composer, and publish it as a gated change request once I confirm." | urlquery }}
   resourcesRefs:
     items: []

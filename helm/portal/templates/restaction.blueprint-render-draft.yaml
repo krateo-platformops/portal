@@ -1,0 +1,91 @@
+{{/* blueprint-render-draft — render a draft chart the composer has WRITTEN, not one it sends. */}}
+{{/* */}}
+{{/* WHY. blueprint-render takes the chart in ?extras, and a GET carries ?extras in its URL: the */}}
+{{/* gateway in front of snowplow refuses an HTTP/2 request whose headers pass 16 KB (431), and a */}}
+{{/* chart travels there as JSON in JSON in a URL, 1.6-2.6x its size — a 12 KB chart written by */}}
+{{/* core-provider-agent could not be previewed. So the composer does what the page builder's */}}
+{{/* preview does: it POSTs the draft into the preview sandbox (a request BODY, under the user's */}}
+{{/* identity, through the audited write path), and this RESTAction renders it BY NAME. Only the */}}
+{{/* ConfigMap's namespace and name ride in ?extras. The composer deletes the ConfigMap as soon as */}}
+{{/* the render has answered. */}}
+{{/* */}}
+{{/* INPUT (?extras): .namespace, .name — the ConfigMap. Its data["chart.json"] is */}}
+{{/* { rawTemplates: {path: content}, values?: {}, lookupStubs?: [] } — the same body */}}
+{{/* blueprint-render builds from ?extras (stubs: helm-render-service lookupStubs). */}}
+{{/* OUTPUT: blueprint-render's contract, unchanged: */}}
+{{/* { objects: [ {apiVersion, kind, name, namespace, yaml} ], valuesSchema?, lookups?, error? } */}}
+{{/* */}}
+{{/* The ConfigMap is read with NO endpointRef: under the caller's own identity, so a person who */}}
+{{/* could not have written it cannot render it either. The render call is the in-cluster */}}
+{{/* blueprint-render-endpoint, as blueprint-render's. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: blueprint-render-draft
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+    {{/* the step makes no call — it used to GET `/api/v1/namespaces//configmaps/`. */}}
+    - name: draft
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: ((.namespace // "") | tostring), name: ((.name // "") | tostring) } | select(.namespace != "" and .name != "") ]'
+      path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .name }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: draftError
+    {{/* GATED ON a chart to render — the same test the final filter's $argErr makes — so a missing */}}
+    {{/* or chartless draft POSTs nothing (it used to POST {values: {}} and discard the answer). The */}}
+    {{/* iterator's one element is the whole resolve dict, so the payload below reads what it did. */}}
+    - name: render
+      dependsOn:
+        name: draft
+        iterator: '[ select(((try (.draft.data["chart.json"] | fromjson) catch null) | if type == "object" then (.rawTemplates | type) else "null" end) == "object") ]'
+      endpointRef:
+        name: blueprint-render-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: /render
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+      continueOnError: true
+      errorKey: renderError
+      {{/* The body is the ConfigMap's chart.json, narrowed to what /render reads. With no */}}
+      {{/* readable chart the body is {} and the service answers 400 — the filter reports the */}}
+      {{/* ConfigMap's own error first, so that 400 is never what a person reads. */}}
+      payload: |-
+        ${ ((try (.draft.data["chart.json"] | fromjson) catch null) // {}) as $c
+           | (($c.rawTemplates // null) | if type == "object" and length > 0 then { rawTemplates: . } else {} end)
+             + { values: (($c.values // {}) | if type == "object" then . else {} end) }
+             + (($c.lookupStubs // null) | if type == "array" and length > 0 then { lookupStubs: . } else {} end)
+           | tojson }
+  {{/* 1. no ConfigMap named, or it could not be read (403/404) or holds no chart → that, as {error}; */}}
+  {{/* 2. a service {error} or a transport failure → that; 3. the objects (+ valuesSchema, lookups). */}}
+  filter: |
+    (((.namespace // "") != "") and ((.name // "") != "")) as $named
+    | ((try (.draft.data["chart.json"] | fromjson) catch null) // null) as $chart
+    | (if ($named | not) then "no draft named — provide the ConfigMap's namespace and name"
+       elif (.draftError != null) then ("the draft chart could not be read: " + ((.draftError.message? // .draftError) | tostring))
+       elif (($chart.rawTemplates // null) | type) != "object" then "the draft ConfigMap holds no chart (data[\"chart.json\"].rawTemplates)"
+       else "" end) as $argErr
+    | (.render // {}) as $r
+    | ((($r.error // "") | tostring) as $svc
+       | if $svc != "" then $svc
+         elif (.renderError != null) then (.renderError | tostring)
+         else "" end) as $svcErr
+    | (if $argErr != "" then $argErr else $svcErr end) as $err
+    | ([ ($r.objects // [])[]
+         | { apiVersion: (.apiVersion // ""),
+             kind: (.kind // "Object"),
+             name: (.name // ""),
+             namespace: (.namespace // ""),
+             yaml: (.yaml // "") } ]) as $objects
+    | ({ objects: (if $err != "" then [] else $objects end) }
+       + (if $err != "" then { error: $err } else {} end)
+       + (if ($err == "") and ($r.valuesSchema != null) then { valuesSchema: $r.valuesSchema } else {} end)
+       + (if ($err == "") and (($r.lookups // null) | type) == "array" then { lookups: $r.lookups } else {} end))

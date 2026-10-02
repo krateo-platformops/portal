@@ -12,6 +12,9 @@
 {{/* .values         : object (optional; the render values, defaults to {}) */}}
 {{/* .releaseName    : string (optional; a synthetic release name for the dry run) */}}
 {{/* .namespace      : string (optional; the render namespace) */}}
+{{/* .lookupStubs    : array (optional; PREVIEW ONLY — objects the chart's `lookup` gates see, */}}
+{{/*                  so gated resources render; needs helm-render-service with lookupStubs. */}}
+{{/*                  Forwarded only as a non-empty array; an older service ignores it.) */}}
 {{/* EXACTLY-ONE-OF is enforced client-side (parseBlueprintPreviewArgs) AND, defensively, here: */}}
 {{/* when both or neither source is present the filter emits {error} content (never a step call */}}
 {{/* with an ambiguous body). */}}
@@ -19,12 +22,14 @@
 {{/* OUTPUT (the compact contract the drawer already consumes — mirrors HelmRenderResult): */}}
 {{/* { objects: [ { apiVersion, kind, name, namespace, yaml } ], */}}
 {{/* valuesSchema?: <the chart's values.schema.json, verbatim>, */}}
+{{/* lookups?: [ { apiVersion, kind, namespace, name, stubbed } ] — every lookup the chart */}}
+{{/*          made; only when the request carried lookupStubs and the service reports it, */}}
 {{/* error?: <render-failure string — a bad chart is DATA, shown in the drawer> } */}}
 {{/* */}}
 {{/* HONESTY / error model: the render service answers 200 + {error} for a chart that fails to */}}
 {{/* fetch or render (data, not a step error), and continueOnError catches transport-level */}}
 {{/* failures — either way the filter emits {error} + an empty objects list, so the drawer shows */}}
-{{/* the string instead of the preview silently vanishing. Endpoint: the helm-render-endpoint */}}
+{{/* the string instead of the preview silently vanishing. Endpoint: the blueprint-render-endpoint */}}
 {{/* Secret (server-url = http://helm-render-service.krateo-system.svc:8080), shipped by the */}}
 {{/* helm-render-service chart with snowplowEndpoint.enabled=true — the SAME endpoint */}}
 {{/* restaction.upgrade-impact uses for /diff (here we POST /render). */}}
@@ -46,7 +51,7 @@ spec:
     {{/* repo-base-URL path; an empty version lets the service pick the latest/tag). */}}
     - name: render
       endpointRef:
-        name: helm-render-endpoint
+        name: blueprint-render-endpoint
         namespace: {{ .Release.Namespace }}
       path: /render
       verb: POST
@@ -68,7 +73,9 @@ spec:
            | ($src
               + { values: $vals }
               + (if (.releaseName // "") != "" then { releaseName: .releaseName } else {} end)
-              + (if (.namespace // "") != "" then { namespace: .namespace } else {} end))
+              + (if (.namespace // "") != "" then { namespace: .namespace } else {} end)
+              + (if ((.lookupStubs // null) | type) == "array" and ((.lookupStubs | length) > 0)
+                   then { lookupStubs: .lookupStubs } else {} end))
            | tojson }
   {{/* Shape the raw /render result into the drawer contract. Guards, in order: */}}
   {{/* 1. exactly-one-of source: both or neither → an {error} explaining the bad request */}}
@@ -98,4 +105,5 @@ spec:
              yaml: (.yaml // "") } ]) as $objects
     | ({ objects: (if $err != "" then [] else $objects end) }
        + (if $err != "" then { error: $err } else {} end)
-       + (if ($err == "") and ($r.valuesSchema != null) then { valuesSchema: $r.valuesSchema } else {} end))
+       + (if ($err == "") and ($r.valuesSchema != null) then { valuesSchema: $r.valuesSchema } else {} end)
+       + (if ($err == "") and (($r.lookups // null) | type) == "array" then { lookups: $r.lookups } else {} end))

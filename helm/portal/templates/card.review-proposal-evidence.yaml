@@ -1,0 +1,30 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-evidence
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Evidence
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    items:
+    - resourceRefId: review-proposal-evidence-table
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ ((.evidenceCount // 0) | tostring) + " items, as the model reported them" }'
+  resourcesRefs:
+    items:
+    - id: review-proposal-evidence-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-evidence-table
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET

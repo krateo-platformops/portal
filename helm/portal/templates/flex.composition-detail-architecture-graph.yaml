@@ -1,0 +1,35 @@
+{{/* The state strip over the graph: which state the composition is in (Steps), then the resources that */}}
+{{/* make it up in that state (FlowChart). One column, so the strip always spans the graph it names. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: flex-composition-detail-architecture-graph
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - steps
+      - flowcharts
+    items:
+      - resourceRefId: steps-composition-detail-architecture
+      - resourceRefId: flowchart-composition-detail-architecture
+  resourcesRefs:
+    items:
+      - id: steps-composition-detail-architecture
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: steps-composition-detail-architecture
+        namespace: {{ .Release.Namespace }}
+        resource: steps
+        verb: GET
+      - id: flowchart-composition-detail-architecture
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: flowchart-composition-detail-architecture
+        namespace: {{ .Release.Namespace }}
+        resource: flowcharts
+        verb: GET

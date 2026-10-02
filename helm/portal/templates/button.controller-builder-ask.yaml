@@ -1,0 +1,29 @@
+{{/* The Autopilot route onto /controller-builder's composer — a link beside the page's one */}}
+{{/* primary, as button.blueprint-builder-ask is on /blueprint-builder. It replaces */}}
+{{/* button.kog-builder-ask, which opened the rail over this page (/api-builder?ask=): the rail now */}}
+{{/* opens on /controller-builder/compose, so the controller Autopilot drafts is previewed onto the */}}
+{{/* canvas the person would have built it on. urlquery does the encoding the RAs do with @uri. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-ask
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    label: Ask Autopilot
+    icon: fa-wand-magic-sparkles
+    size: middle
+    type: link
+    clickActionId: controller-builder-ask
+    actions:
+      navigate:
+        - id: controller-builder-ask
+          type: navigate
+          {{/* The person's own first message (P17): what they want, in their words, and what */}}
+          {{/* happens — drafted in the conversation, previewed in the composer, published as a */}}
+          {{/* change request once they confirm. No agent verb names. */}}
+          path: /controller-builder/compose?ask={{ "I want to build a new controller in the Controller composer from an OpenAPI document I will paste or link. Help me map its operations to Kubernetes kinds, preview the generated kinds live in the composer, and publish it as a gated change request once I confirm." | urlquery }}
+  resourcesRefs:
+    items: []

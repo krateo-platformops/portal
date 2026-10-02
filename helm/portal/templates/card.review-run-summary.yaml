@@ -1,0 +1,28 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-summary
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: What the review saw
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    extra: "the model's own summary"
+    items:
+    - resourceRefId: review-run-summary-text
+  resourcesRefs:
+    items:
+    - id: review-run-summary-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-summary-text
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET

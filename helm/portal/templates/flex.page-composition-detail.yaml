@@ -29,6 +29,11 @@ spec:
       {{/* the Listy hideWhenEmpty renders nothing for a healthy composition (no incidents), and */}}
       {{/* the vertical Flex gap collapses around the absent child — the calm default shows no strip. */}}
       - resourceRefId: composition-incidents
+      {{/* The composition's topology and where it is in it (mockup 14), first thing under the */}}
+      {{/* header because it answers "what is this made of, and what is it waiting for". Only for a */}}
+      {{/* composition whose chart renders an architecture ConfigMap: for every other one the Row's */}}
+      {{/* items resolve to [] and it renders nothing, so this page looks exactly as it did before. */}}
+      - resourceRefId: composition-detail-architecture-row
       {{/* Rail wrapped in a full-width Row (composition-detail-rail-row) so it shares the grid's */}}
       {{/* gutter inset and aligns with the Spec/Health cards below (was a bare full-width card). */}}
       - resourceRefId: composition-detail-rail-row
@@ -52,6 +57,12 @@ spec:
         name: composition-incidents
         namespace: {{ .Release.Namespace }}
         resource: listies
+        verb: GET
+      - id: composition-detail-architecture-row
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-architecture-row
+        namespace: {{ .Release.Namespace }}
+        resource: rows
         verb: GET
       - id: composition-detail-rail-row
         apiVersion: widgets.templates.krateo.io/v1beta1

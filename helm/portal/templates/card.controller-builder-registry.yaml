@@ -1,0 +1,31 @@
+{{/* The RestDefinition registry on /controller-builder, in a titled Card for the reason */}}
+{{/* card.controller-builder-deliverables is one: a Table has no heading. It used to sit bare */}}
+{{/* under the deliverables, and only the page subtitle said what it listed. */}}
+{{/* */}}
+{{/* It is the whole cluster's RestDefinitions, not this builder's output — a controller installed */}}
+{{/* from a chart built elsewhere (github-provider-kog) is here and not above — so it follows the */}}
+{{/* deliverables, grouped by the API each one maps. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-registry-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: RestDefinitions by API group
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - tables
+    items:
+      - resourceRefId: kog-restdefinitions
+  resourcesRefs:
+    items:
+      - id: kog-restdefinitions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: kog-restdefinitions
+        namespace: {{ .Release.Namespace }}
+        resource: tables
+        verb: GET

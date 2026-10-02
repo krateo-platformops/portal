@@ -33,8 +33,13 @@ spec:
     {{/* (Manifest "No data", State "Pending", stage errors on the title/tag/buttons). */}}
     {{/* Namespace comes off the route too (.namespace); the release ns is only the fallback when */}}
     {{/* the extras carry none — so nothing changes where the alert already lives there. */}}
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py): without one the step makes */}}
+    {{/* no call — it used to GET `…/alerts/`, the whole list, and read it as this alert. */}}
     - name: alert
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/alerts/" + .name }
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ .Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
       verb: GET
       continueOnError: true
       errorKey: alertError

@@ -1,0 +1,57 @@
+{{/* "Your drafts" on /blueprint-builder — the caller's blueprint draft records (restaction.my-drafts). */}}
+{{/* */}}
+{{/* Until records, a composed chart lived only in the tab: close it, or let it crash, and the */}}
+{{/* chart was gone. Now every edit is saved as a record the person owns, and this is where they */}}
+{{/* come back to it. The copy is the approved mockup's, and it can promise what it promises */}}
+{{/* because the record holds the whole tree: nothing here is lost with a tab, and nothing is */}}
+{{/* deleted on a timer. */}}
+{{/* */}}
+{{/* The Card reads the RA itself only for its count, so it declares the caller's identity for the */}}
+{{/* same reason the lists do: the count is of THIS person's drafts, keyed to them. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-builder-drafts-card
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  identityContext: [username]
+  apiRef:
+    name: my-drafts
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Your drafts
+    headerLeft: Saved as you work. A closed tab or a crash loses nothing — resume any draft here.
+    extra: only you see these
+    variant: outlined
+    allowedResources:
+      - listies
+      - paragraphs
+    items:
+      - resourceRefId: my-drafts-blueprint
+      - resourceRefId: my-drafts-blueprint-published
+      - resourceRefId: drafts-no-timer-note
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ ([(.items // [])[] | select(.kind == "blueprint")] | length) as $n | "\($n) draft\(if $n == 1 then "" else "s" end) · only you see these" }'
+  resourcesRefs:
+    items:
+      - id: my-drafts-blueprint
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: my-drafts-blueprint
+        namespace: {{ .Release.Namespace }}
+        resource: listies
+        verb: GET
+      - id: my-drafts-blueprint-published
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: my-drafts-blueprint-published
+        namespace: {{ .Release.Namespace }}
+        resource: listies
+        verb: GET
+      - id: drafts-no-timer-note
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: drafts-no-timer-note
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
+        verb: GET

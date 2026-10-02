@@ -36,8 +36,13 @@ spec:
     {{/* expression, NOT a `{name}` brace placeholder: snowplow only templates `${ }` in api[].path, */}}
     {{/* so a literal `{name}` reaches the apiserver verbatim ("not found") and the pre-fill silently */}}
     {{/* degrades to an empty spec. */}}
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py): without one the step makes */}}
+    {{/* no call — it used to GET `…/alerts/`, the whole list, and read it as this alert. */}}
     - name: alert
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/alerts/" + .name }
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ .Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -49,12 +54,18 @@ spec:
     "v1alpha1" as $ver
     | (.name // "") as $n
     | (.namespace // "{{ .Release.Namespace }}") as $ns
-    | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
+    # Collected into an array and indexed, so a CRD that could not be read (or that serves no
+    # v1alpha1) is null here. A bare `( … ) as $spec` yielded NOTHING then, and a filter with no
+    # value fails the whole resolve.
+    | ([ .crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec ][0]) as $spec
     | (.alert.spec // {}) as $curSpec
     | {
         # The CRD spec schema verbatim — no reserved identity fields (name/namespace are fixed on
-        # edit). Absent CRD → empty object schema (the form shows no fields rather than erroring).
-        schemaSpec: ($spec // { type: "object", properties: {} }),
+        # edit). No schema → a form with no fields that says why (the blueprint-formdef pattern).
+        schemaSpec: ($spec // { type: "object",
+                                title: "The Alert schema could not be read",
+                                description: ("The alerts.observability.krateo.io definition did not answer, so there is no form to edit this Alert with. Reload the page; if it persists, the CRD is missing or your account cannot read it."
+                                              + (if (.crdError // null) == null then "" else " (" + (.crdError | if type == "array" then .[0] else . end | if type == "object" then (.message // tostring) else tostring end) + ")" end)) }),
         propertiesToHide: [],
         # Pre-fill the form with the Alert's CURRENT spec.
         values: $curSpec,

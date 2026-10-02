@@ -1,0 +1,38 @@
+{{/* The composition's topology, for a composition whose chart ships templates/architecture.yaml. */}}
+{{/* THE GATE READS composition-detail, NOT composition-architecture. composition-detail is already */}}
+{{/* resolved for this page (ten widgets on it read it), and its `detail.status.managed` lists every */}}
+{{/* object the last render produced — the architecture ConfigMap included. So a composition without */}}
+{{/* one costs nothing: composition-architecture is never called for it, no 404 is ever issued, and */}}
+{{/* `items` resolves to [] so the Row renders nothing (frontend Row returns null with no visible */}}
+{{/* items — no empty card, no extra gap in the page's vertical Flex). */}}
+{{/* A 404 in composition-architecture would be a stage error: snowplow serves the result but declines */}}
+{{/* to cache it and WARNs, on every view. And because existence is known here, before the ConfigMap is */}}
+{{/* read, the body can say "not readable with your access" only when that is what happened. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-architecture-row
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+      - cards
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ ((.detail.metadata.name // "") + "-architecture") as $cm | if any((.detail.status.managed // [])[]; .resource == "configmaps" and .name == $cm) then [ {resourceRefId: "card-composition-detail-architecture", size: 24} ] else [] end }'
+  resourcesRefs:
+    items:
+      - id: card-composition-detail-architecture
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-architecture
+        namespace: {{ .Release.Namespace }}
+        resource: cards
+        verb: GET

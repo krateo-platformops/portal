@@ -20,8 +20,13 @@ metadata:
 spec:
   {{/* F6: the ConfigMap name partitions this widget's cache cell. */}}
   api:
+    {{/* GATED ON ?extras oas (the input gate, scripts/lint-ra-paths.py): without one the step makes */}}
+    {{/* no call — it used to GET `…/configmaps/`, every ConfigMap in the namespace. */}}
     - name: cm
-      path: ${ "/api/v1/namespaces/" + (.ns // "{{ .Release.Namespace }}") + "/configmaps/" + (.oas // "") }
+      dependsOn:
+        name: ""
+        iterator: '[ { ns: (.ns // "{{ .Release.Namespace }}"), oas: (.oas // "") } | select(.oas != "") ]'
+      path: ${ "/api/v1/namespaces/" + .ns + "/configmaps/" + .oas }
       verb: GET
       headers:
         - 'Accept: application/json'

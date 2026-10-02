@@ -1,0 +1,100 @@
+{{/* /reviews/runs/{name} — one ReviewRun, read as the caller: did this run actually see the platform? */}}
+{{/* Steps, the model's own summary, what each evidence source returned and the SQL it was sent, the */}}
+{{/* validation notes, token counts, and the proposals it wrote. status.model carries no model name */}}
+{{/* since 0.1.22, so none is shown. Every field is optional: runs before 0.1.22 have no steps, */}}
+{{/* summary or queries, and a Failed run has no proposal counts. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: review-run
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py): no name, no call — it used to list */}}
+    {{/* every run instead. `.run` is then absent: found: false. */}}
+    - name: run
+      dependsOn:
+        name: ""
+        iterator: '[ { name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/reviewruns/" + .name }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: runError
+    - name: all
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/proposals
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: allError
+    {{- include "portal.reviewDiscoverySteps" (dict "source" "all") | nindent 4 }}
+  filter: |
+    {{- include "portal.reviewDefs" . | nindent 4 }}
+    rv_served_gvs as $served
+    | rv_kinds_by_gv as $kinds
+    | (.name // "") as $name
+    | (if (.run.kind // "") == "ReviewRun" then .run else null end) as $r
+    | ((.runError // null) | if . == null then "" else tostring end) as $rerr
+    | if $r == null then
+        { found: false, name: $name,
+          title: (if ($rerr | test("403|forbidden"; "i")) then "You cannot read this review run" else "Review run not found" end),
+          message: (if ($rerr | test("403|forbidden"; "i")) then "Reading review.krateo.io review runs was refused for your account."
+                    else ("No review run named " + $name + " exists. Finished runs are kept until their expiry date.") end) }
+      else
+        ($r.status.phase // "Pending") as $ph
+        | ($r.status // {}) as $st
+        | ([ ($st.conditions // [])[] | select(.type == "ValidationNotes") | (.message // "") | split(" | ")[] | select(. != "") ]) as $notes
+        | ([ ($st.evidence // {}) | to_entries[] | select((.value.queries // null) != null)
+             | .key as $src | (.value.queries | to_entries[]) | { source: $src, name: .key, sql: .value } ]) as $queries
+        | { found: true,
+            name: $name,
+            phase: $ph,
+            phaseColor: ($ph | rv_run_color),
+            subtitle: ("Reviewed " + ($r.spec.window.from | rv_when) + " to " + ($r.spec.window.to | rv_when)
+                       + " · took " + rv_dur($st.startedAt; $st.finishedAt)
+                       + (if ($st.expiresAt // "") != "" then " · kept until " + ($st.expiresAt | .[0:10]) else "" end)),
+            alert: (if $ph == "Failed" then { type: "error", title: "This run failed", description: ($st.error // "No error was recorded.") }
+                    elif $ph == "PartiallyCompleted" then { type: "warning", title: "This run saw part of the platform",
+                         description: (($r | rv_not_read | if . == "" then "Some evidence sources were not read." else . end) + ". Anything it proposed rests on incomplete evidence.") }
+                    elif $ph == "Running" or $ph == "Pending" then { type: "info", title: "This run is in progress", description: "Steps and results fill in as it goes." }
+                    else null end),
+            summary: ($st.summary // ""),
+            steps: [ ($st.steps // [])[] | {
+                       title: ((.name // "step") | if . == "gather" then "Gather" elif . == "ask" then "Ask Autopilot" elif . == "validate" then "Validate"
+                               elif . == "publish" then "Publish" elif . == "record" then "Record" else . end),
+                       subTitle: (.phase // ""),
+                       description: ((.message // "") + (if (.startedAt // "") != "" and (.finishedAt // "") != "" then (if (.message // "") != "" then " · " else "" end) + rv_dur(.startedAt; .finishedAt) else "" end)),
+                       status: ((.phase // "") | if . == "Succeeded" then "finish" elif . == "Failed" then "error" elif . == "Running" then "process" else "wait" end) } ],
+            sourceRows: [ ($st.evidence // {}) | to_entries[] | .key as $k | .value as $v
+                          | { source: $k,
+                              state: (if $v.ok == false then "Not read" elif $v.empty == true then "Empty" else "Read" end),
+                              stateColor: (if $v.ok == false then "red" elif $v.empty == true then "orange" else "gray" end),
+                              queried: (($v.queried // 0) | tostring),
+                              returned: (($v.returned // 0) | tostring),
+                              detail: ([ ($v.error // empty | rtrimstr("; ")), ($v.note // empty),
+                                         (if $k == "kagent-sessions" and ($v.agentsDeployed // null) != null then
+                                            (($v.agentsDeployed | tostring) + " agents deployed · " + (($v.agentsActiveInWindow // 0) | tostring) + " active in window · "
+                                             + (($v.agentsIdle7d // 0) | tostring) + " idle 7 days · " + (($v.agentsNeverUsed // 0) | tostring) + " never used") else empty end),
+                                         (if ($v.scope // "") != "" then "Scope: " + $v.scope else empty end),
+                                         (if $v.truncated == true then "Truncated at " + (($v.truncatedAtChars // 0) | tostring) + " characters" else empty end) ]
+                                       | join(" · ") | if . == "" then "—" else . end) } ],
+            queriesMarkdown: ([ $queries[] | "**" + .source + " · " + .name + "**\n\n```sql\n" + .sql + "\n```" ] | join("\n\n")),
+            notesMarkdown: ([ $notes[] | "- " + . ] | join("\n")),
+            proposalRows: [ ((.all.items) // [])[] | select((.spec.producedBy.runRef // "") == $name) | (.status.phase // "Proposed") as $pph
+                            | { name: .metadata.name, title: (.spec.title // .metadata.name), kind: (.spec.kind // "—"),
+                                phase: $pph, phaseColor: ($pph | rv_phase_color), checks: (rv_pills($served; $kinds) | tojson) } ],
+            facts: [
+              { label: "Started", value: ($st.startedAt | rv_when) },
+              { label: "Finished", value: ($st.finishedAt | rv_when) },
+              { label: "Sources", value: (($r.spec.sources // []) | if length == 0 then "all" else join(", ") end) },
+              { label: "Proposals", value: (if $st.proposals == null then "none recorded"
+                  else ((($st.proposals.created // 0) | tostring) + " written · " + (($st.proposals.superseded // 0) | tostring) + " superseded · "
+                        + (($st.proposals.deduplicated // 0) | tostring) + " duplicate" + (if ($st.proposals.refused // 0) > 0 then " · " + ($st.proposals.refused | tostring) + " refused" else "" end)) end) },
+              { label: "Tokens", value: (if ($st.model.totalTokens // 0) > 0 then
+                  ((($st.model.inputTokens // 0) | tostring) + " in · " + (($st.model.outputTokens // 0) | tostring) + " out · " + ($st.model.totalTokens | tostring) + " total")
+                  else "not recorded" end) } ] }
+      end

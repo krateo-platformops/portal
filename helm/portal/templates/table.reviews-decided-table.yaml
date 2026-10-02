@@ -1,0 +1,51 @@
+{{/* Decided proposals: who decided, when, and the pull request or the reason. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-decided-table
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    rowNavigateTo: /reviews/proposals/{name}
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: title
+      title: Proposal
+      minWidth: 300
+    - valueKey: kind
+      title: Kind
+    - valueKey: phase
+      title: Status
+    - valueKey: decidedBy
+      title: Decided by
+    - valueKey: decidedAt
+      title: Decided
+      minWidth: 110
+    - valueKey: outcome
+      title: Pull request or reason
+      minWidth: 240
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: >-
+      ${ [ (.decided // [])[] | [
+        {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name},
+        {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:.title},
+        {valueKey:"kind",kind:"tag",stringValue:.kind,color:"gray"},
+        {valueKey:"phase",kind:"tag",stringValue:.phase,color:.phaseColor},
+        {valueKey:"decidedBy",kind:"jsonSchemaType",type:"string",stringValue:.decidedBy},
+        {valueKey:"decidedAt",kind:"jsonSchemaType",type:"string",stringValue:(if .decidedAt == "" then "—" else .decidedAt end),format:(if .decidedAt == "" then null else "relative" end)},
+        {valueKey:"outcome",kind:"jsonSchemaType",type:"string",stringValue:.outcome} ] | map(with_entries(select(.value != null))) ] }
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

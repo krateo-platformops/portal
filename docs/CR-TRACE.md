@@ -49,7 +49,7 @@ Looked orphan to a static inbound-edge scan, but referenced at runtime:
 | **Compositions (list)** | `page-compositions` | `compositions-list` (table + status/range chip counts) |
 | **Composition detail** | `page-composition-detail` | `composition-detail` (header/metadata/spec/conditions/manifest + sync/pause/delete), `composition-events` (events List), `composition-resources` (rail + relations), `composition-editdef` (edit Form) |
 | **Blueprints (list)** | `page-blueprints` | `blueprints-cards` (`blueprints-grid`/`blueprints-list`) |
-| **Blueprint detail / create / install** | `page-blueprint-detail`, `page-blueprint-create`, `page-blueprint-install` | `blueprint-detail` (info/metadata/status/update + create/delete), `blueprint-formdef` (create Form), `blueprint-install-formdef` (install Form) |
+| **Blueprint detail / create / install** | `page-blueprint-detail`, `page-blueprint-create`, `page-blueprint-install` | `blueprint-detail` (info/metadata/status/update + create/delete), `blueprint-formdef` (create Form), `blueprint-install-formdef` (install Form), `blueprint-install-origin` (the change-request note above the install Form, builder charts only; also decides whether the page composes it) |
 | **Marketplace** | `marketplace-flex` | `blueprints-catalog` (`marketplace-grid` + category facet) |
 | **Create** | `create-header` / `create-wizard` (Steps) | (no RA; hosts blueprint create flow) |
 | **Settings** | `page-settings` (`settings-admin` Tabs) | `settings-krateo-status`, `settings-users` |

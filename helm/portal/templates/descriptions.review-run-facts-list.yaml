@@ -1,0 +1,24 @@
+{{/* Token counts from status.model; the model name was removed from the ReviewRun in 0.1.22. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-facts-list
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    column: 2
+    size: small
+    items:
+    - label: Started
+      value: '—'
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ .facts // [] }'
+  resourcesRefs:
+    items: []

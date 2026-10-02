@@ -1,0 +1,20 @@
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-notes-list
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    markdown: None recorded.
+    allowCopy: true
+  widgetDataTemplate:
+    - forPath: markdown
+      expression: '${ if (.notesMarkdown // "") == "" then "None recorded." else .notesMarkdown end }'
+  resourcesRefs:
+    items: []

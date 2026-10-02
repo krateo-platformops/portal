@@ -14,7 +14,7 @@
 {{/* either way the filter emits ONE honest error row + an error summary instead of widget data */}}
 {{/* silently vanishing. When ?to= is absent the head falls back to the installed version */}}
 {{/* (self-diff → empty; the impact widgets are only mounted when a differing ?to= is set, so */}}
-{{/* this is just a safety net). Endpoint: the helm-render-endpoint Secret (server-url = */}}
+{{/* this is just a safety net). Endpoint: the blueprint-render-endpoint Secret (server-url = */}}
 {{/* http://helm-render-service.krateo-system.svc:8080), shipped by the helm-render-service */}}
 {{/* chart with snowplowEndpoint.enabled=true — same-namespace convention as blueprints-endpoint. */}}
 apiVersion: templates.krateo.io/v1
@@ -28,7 +28,12 @@ spec:
   api:
     {{/* The installed blueprint = its CompositionDefinition; spec.chart carries the source */}}
     {{/* (url [+ repo for classic helm repos] + installed version) the diff bases on. */}}
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+    {{/* the step makes no call — it used to GET `…/namespaces//compositiondefinitions/`. */}}
     - name: compdef
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:
@@ -38,11 +43,15 @@ spec:
     {{/* The payload is jq-built from the compdef — both chart-source spellings supported: */}}
     {{/* OCI (url+version) and classic helm repo (url+repo+version); `repo` is only sent */}}
     {{/* when the compdef has one (an empty repo would break the repo-base-URL path). */}}
+    {{/* GATED ON the compdef's chart url (the input gate, scripts/lint-ra-paths.py): with no */}}
+    {{/* CompositionDefinition there is no chart to diff, and it used to POST {url: ""} anyway. The */}}
+    {{/* iterator's one element is the whole resolve dict, so the payload below reads what it did. */}}
     - name: impact
       dependsOn:
         name: compdef
+        iterator: '[ select((.compdef | objects | .spec.chart.url // "") != "") ]'
       endpointRef:
-        name: helm-render-endpoint
+        name: blueprint-render-endpoint
         namespace: {{ .Release.Namespace }}
       path: /diff
       verb: POST

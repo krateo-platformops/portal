@@ -55,8 +55,12 @@ See [docs/configuration.md](docs/configuration.md). Most used:
 - [docs/release.md](docs/release.md) — how a release ships
 - [docs/log.md](docs/log.md) — curated history
 
-Authoring rule for chart contributors: [docs/authoring-keyextras.md](docs/authoring-keyextras.md)
-(`spec.keyExtras`, CI-enforced).
+Authoring rules for chart contributors: [docs/authoring-keyextras.md](docs/authoring-keyextras.md)
+(`spec.keyExtras`, CI-enforced), and a RESTAction step that needs a route param is gated on it
+rather than given a `//` default — the idiom is in [scripts/lint-ra-paths.py](scripts/lint-ra-paths.py),
+which CI runs. An iterator never fans out per-namespace LISTs (`/namespaces/<ns>/<plural>`) over
+different kinds: snowplow's cluster-list collapse reads only the first element's kind for an admin.
+List each kind cluster-scope under a `userAccessFilter` instead (see `restaction.composition-detail.yaml`).
 
 ## Develop & release
 
@@ -65,6 +69,7 @@ Authoring rule for chart contributors: [docs/authoring-keyextras.md](docs/author
 cp -r helm/portal /tmp/portal-render && sed -i 's/CHART_VERSION/0.0.0-dev/g' /tmp/portal-render/Chart.yaml
 helm lint /tmp/portal-render && helm template smoke /tmp/portal-render
 python3 scripts/lint-keyextras.py   # F6 cache-key declaration gate (does its own tempdir render)
+python3 scripts/lint-ra-paths.py    # no RESTAction step dials a half-built path (needs jq)
 ```
 
 Tag `X.Y.Z` (no `v` prefix) — CI packages `helm/portal/` and publishes to

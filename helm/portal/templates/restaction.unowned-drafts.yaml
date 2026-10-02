@@ -1,0 +1,49 @@
+{{/* UNOWNED DRAFTS — page previews made before drafts had owners, for "Unowned drafts" on */}}
+{{/* /portal-builder. */}}
+{{/* */}}
+{{/* Until draft records, a live page preview applied its widget CRs straight into the sandbox as */}}
+{{/* page-<slug> plus its children, labelled krateo.io/purpose=preview-draft and nothing else. */}}
+{{/* About a hundred of those roots sit on krateo-057 (09-16 → 09-24), and nobody can tell whose */}}
+{{/* they are. They may be real half-finished work, so the decision was to delete none of them: */}}
+{{/* this lists them, and a person either adopts one (the composer turns it into a record of */}}
+{{/* their own) or discards it. Nothing here removes anything on its own. */}}
+{{/* */}}
+{{/* A ROOT WITH AN OWNER IS NOT UNOWNED. Previews written since records exist carry */}}
+{{/* krateo.io/draft-owner and are rebuilt from their owner's record; they belong to that person's */}}
+{{/* "Your drafts", never here. SCOPE is page roots only (flexes named page-*): the children are */}}
+{{/* rows nobody wants to see, and the root is the page's identity. The widget count is the root's */}}
+{{/* resourcesRefs — the children the root itself names. A page-* Flex that another Flex names is */}}
+{{/* a child, not a root (a nested layout Flex can carry the page's prefix), so it is left out. */}}
+{{/* */}}
+{{/* The same list for everyone, so it declares no identity. continueOnError so an absent or */}}
+{{/* unreadable sandbox is an empty list, and the prewarm (no extras) resolves it like anyone else. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: unowned-drafts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: roots
+      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ .Values.previewSandbox.namespace }}/flexes
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: rootsError
+  filter: >
+    ([ (.roots.items // [])[] | ((.spec.resourcesRefs.items) // [])[]
+       | select((.resource // "") == "flexes") | (.name // "") ]) as $children
+    | { items: ([ ((.roots.items // [])[]
+        | select((.metadata.labels["krateo.io/purpose"] // "") == "preview-draft")
+        | select((.metadata.name // "") as $name | $children | any(. == $name) | not)
+        | select(((.metadata.labels // {}) | has("krateo.io/draft-owner")) | not)
+        | select((.metadata.name // "") | startswith("page-"))
+        | { rootName: .metadata.name,
+            slug: (.metadata.name | sub("^page-"; "")),
+            created: (.metadata.creationTimestamp // ""),
+            widgets: (((.spec.resourcesRefs.items) // []) | length),
+            adoptPath: ("/portal-builder/compose?adopt=" + .metadata.name) }) ]
+        | sort_by(.created) | reverse) }

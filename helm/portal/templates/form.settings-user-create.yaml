@@ -23,9 +23,10 @@ metadata:
 spec:
   widgetData:
     layout: vertical
-    {{/* Review before submit: this form grants access, and the review step is where a human sees
-         the group they are about to hand out before it is handed out. */}}
-    reviewBeforeSubmit: true
+    {{/* NO review page: it printed every value, the password included, in clear. The group a */}}
+    {{/* person is about to hand out is still shown before anything is written — every write */}}
+    {{/* passes the blast-radius confirm, which lists both bodies (the frontend masks a */}}
+    {{/* password-format field there) — and the Group field's options name their effect. */}}
     submitActionId: submit
     buttonConfig:
       primary:
@@ -46,8 +47,12 @@ spec:
           type: string
           title: Display name
           description: "Shown in the portal header and on the Users list."
+        {{/* A password field: masked as it is typed and in the confirm, and never sent anywhere */}}
+        {{/* but the /call body (the frontend honours format: password + writeOnly). */}}
         password:
           type: string
+          format: password
+          writeOnly: true
           title: Password
           description: "Stored in a kubernetes.io/basic-auth Secret alongside the username. Give the person a way to change it; the portal has no self-service password reset."
         avatarURL:

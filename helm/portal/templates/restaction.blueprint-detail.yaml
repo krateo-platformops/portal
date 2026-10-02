@@ -25,7 +25,12 @@ spec:
     {{/* NOTE: no per-step filter — a per-step filter's output REPLACES this step's key, so a */}}
     {{/* `del(.compdef…)` (which returns the whole accumulated root) would nest it as */}}
     # {compdef:{compdef:…}}. The managedFields strip happens in the top-level filter instead.
+    {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+    {{/* the step makes no call — it used to GET `…/namespaces//compositiondefinitions/`. */}}
     - name: compdef
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
       path: ${ "/apis/core.krateo.io/v1alpha1/namespaces/" + .namespace + "/compositiondefinitions/" + .name }
       verb: GET
       headers:
@@ -35,19 +40,24 @@ spec:
     {{/* IA correlation (blueprint → running instances): the compositions CREATED FROM this */}}
     {{/* blueprint are the instances of the CD's GENERATED kind — its status.apiVersion + */}}
     {{/* status.resource (e.g. composition.krateo.io/v0-1-0 + keystonedemoes). Listed */}}
-    {{/* cluster-wide (a blueprint's instances can live in any namespace). continueOnError + */}}
-    {{/* a 404-safe fallback path: an unreconciled CD (no status.apiVersion) or a kind with */}}
-    {{/* zero instances degrades to an empty "Running compositions" card, never a failed widget. */}}
+    {{/* cluster-wide (a blueprint's instances can live in any namespace). */}}
+    {{/* ORDERED AFTER compdef AND GATED ON ITS STATUS: an unreconciled CD (no status.apiVersion), */}}
+    {{/* or no CD at all, makes no call, and the card reads "no running compositions". It had no */}}
+    {{/* dependsOn, so snowplow ran it in random order against compdef (resolvers/restactions/api */}}
+    {{/* sort.go), and its `// "none.krateo.io/v1"` fallback then dialled `/apis/none.krateo.io/v1/none`. */}}
     - name: comps
-      path: ${ "/apis/" + ((.compdef.status.apiVersion) // "none.krateo.io/v1") + "/" + ((.compdef.status.resource) // "none") }
+      dependsOn:
+        name: compdef
+        iterator: '[ .compdef | objects | { apiVersion: (.status.apiVersion // ""), resource: (.status.resource // "") } | select(.apiVersion != "" and .resource != "") ]'
+      path: ${ "/apis/" + .apiVersion + "/" + .resource }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: compsError
   filter: |
-    .name as $n
-    | .namespace as $ns
+    (.name // "") as $n
+    | (.namespace // "") as $ns
     | ((.compdef // {}) | del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) as $d
     | ($d.spec.chart // {}) as $chart
     | ($chart.repo // "") as $bp

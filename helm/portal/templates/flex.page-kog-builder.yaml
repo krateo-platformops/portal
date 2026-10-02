@@ -1,14 +1,18 @@
-{{/* Convention page root for /api-builder (page slug stays kog-builder — internal; route renamed */}}
-{{/* from /kog-builder, issue #29) — the KOG builder's post-publish verification surface */}}
-{{/* (w4-kog-builder spec §2.5 + CHART-K1): pagehead, the always-visible "Ask Autopilot →" CTA */}}
-{{/* (the page's own entry into the flow), the PR-published DELIVERABLES table (blueprint-builder */}}
-{{/* parity, issue #30 — the API mappings shipped via a gated PR, joined to their generated */}}
-{{/* RestDefinition Ready status), the RestDefinition REGISTRY table (READY / generated */}}
-{{/* kind+apiVersion / OAS source, all derived server-side — the full live-CRD state). The route is */}}
-{{/* hidden (label-less nav item) — Autopilot navigates here after a gated publish; the authoring flow */}}
-{{/* itself lives in the rail, not on this page (the create Form is the deferred CHART-K2). The */}}
-{{/* redundant "author with Autopilot" hint strip was removed — the three builder pages share the */}}
-{{/* single Ask-Autopilot CTA. */}}
+{{/* Convention page root for /controller-builder — the Controller Builder's home, built as */}}
+{{/* flex.page-blueprint-builder is: a header that says what a controller is and carries both */}}
+{{/* routes into the composer ("Build a controller", primary; "Ask Autopilot", a link that lands */}}
+{{/* in the same composer), the person's drafts (each resumes in the composer), and a titled Card */}}
+{{/* holding a note and the deliverables table (each row opens its next step). Then one card the */}}
+{{/* blueprint page has no counterpart for: the cluster's RestDefinitions, by API group. */}}
+{{/* */}}
+{{/* Authoring does not happen on this page. It happens at /controller-builder/compose, a static */}}
+{{/* frontend route; this page is the way in and the record of what shipped. The two Forms that */}}
+{{/* used to author here (store an OpenAPI document, then define one RestDefinition from it) are */}}
+{{/* gone: they committed a single resources/<kind>.yaml file while the rail published a chart, */}}
+{{/* so the same controller came out as two different artifacts depending on the door. */}}
+{{/* */}}
+{{/* The CR keeps its name (the page slug has been kog-builder since /kog-builder) and its aliases, */}}
+{{/* so old /kog-builder and /api-builder links still land here. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,66 +30,37 @@ spec:
   widgetData:
     allowedResources:
     - pageheaders
-    - flexes
-    - tables
     - cards
     vertical: true
     gap: middle
     items:
-    - resourceRefId: kog-builder-page-header
-    {{/* #84 §0.1: CTA rides in a right-aligned wrapper Flex (was a bare left-aligned button). */}}
-    - resourceRefId: kog-builder-ask-cta
-    {{/* CHART-K2, delivered: the authoring flow now lives ON THE PAGE, not only in the rail. Two
-         steps — store the OpenAPI document (as a ConfigMap the user POSTs themselves), then define
-         the controller from the operations parsed out of it. Built entirely from widgets, so the
-         authoring knowledge ships in this chart rather than in frontend code.
-
-         This is also what makes A1 satisfiable for KOG: Autopilot must DRIVE a control, never write
-         a RestDefinition directly, so the control has to exist before the agent can comply. */}}
-    - resourceRefId: kog-author-paste
-    - resourceRefId: kog-author-define
-    {{/* The PR-published deliverables (KOG API mappings opened via a gated pull request), JOINED */}}
-    {{/* to their generated RestDefinition Ready status — the blueprint-builder-parity surface */}}
-    {{/* (issue #30). Above the raw restdef registry: the deliverables are the "what did I ship?" */}}
-    {{/* answer, the registry below is the full live-CRD state. Empty (zero KOG PRs) until the */}}
-    {{/* frontend KOG-publish-via-PR path ships — then it fills like the blueprint table. */}}
-    - resourceRefId: kog-deliverables
-    - resourceRefId: kog-restdefinitions
+    - resourceRefId: controller-builder-page-header
+    - resourceRefId: controller-builder-drafts-card
+    - resourceRefId: controller-builder-deliverables-card
+    - resourceRefId: controller-builder-registry-card
   resourcesRefs:
     items:
-    - id: kog-builder-page-header
+    - id: controller-builder-page-header
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-builder-page-header
+      name: controller-builder-page-header
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
       verb: GET
-    - id: kog-builder-ask-cta
+    - id: controller-builder-drafts-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-builder-ask-cta
-      namespace: {{ .Release.Namespace }}
-      resource: flexes
-      verb: GET
-    - id: kog-author-paste
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-author-paste
+      name: controller-builder-drafts-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
-    - id: kog-author-define
+    - id: controller-builder-deliverables-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-author-define
+      name: controller-builder-deliverables-card
       namespace: {{ .Release.Namespace }}
       resource: cards
       verb: GET
-    - id: kog-deliverables
+    - id: controller-builder-registry-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-deliverables
+      name: controller-builder-registry-card
       namespace: {{ .Release.Namespace }}
-      resource: tables
-      verb: GET
-    - id: kog-restdefinitions
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: kog-restdefinitions
-      namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET

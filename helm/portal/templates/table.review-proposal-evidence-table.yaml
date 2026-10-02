@@ -1,0 +1,38 @@
+{{/* spec.evidence as the model wrote it. observedCount is the model's own number, labelled so; */}}
+{{/* evidence[].query is historical and invented, and is never rendered. The queries the service */}}
+{{/* really issued are on the run's page. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-evidence-table
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: source
+      title: Source
+    - valueKey: summary
+      title: What the model says it saw
+      minWidth: 260
+    - valueKey: counted
+      title: Count
+      minWidth: 150
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: >-
+      ${ [ (.evidenceRows // [])[] | [
+        {valueKey:"source",kind:"tag",stringValue:.source,color:"gray"},
+        {valueKey:"summary",kind:"jsonSchemaType",type:"string",stringValue:.summary},
+        {valueKey:"counted",kind:"jsonSchemaType",type:"string",stringValue:.counted} ] ] }
+  resourcesRefs:
+    items: []

@@ -115,8 +115,9 @@ acceptance:
   s6Probe: false
 
 # --- Preview sandbox ---------------------------------------------------------
-# Where the Autopilot live preview applies its draft widget CRs. MUST match the frontend chart's
-# previewSandbox (which owns the namespace, its quota and its RBAC); the portal chart only READS it,
-# to list in-flight drafts on the Portal Builder page so a person can resume one.
+# Where the builders keep drafts: each person's draft records (ConfigMaps) and the page previews'
+# widget CRs. MUST match the frontend chart's previewSandbox, which owns the namespace and its RBAC.
+# The portal chart creates nothing there: it lists the caller's drafts (and the unowned legacy page
+# previews) on both builder pages, and their Discard deletes one AS THE PERSON, through /call.
 previewSandbox:
   namespace: krateo-preview

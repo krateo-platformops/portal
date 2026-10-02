@@ -1,0 +1,71 @@
+{{/* The proposal's actions: its run, its replacement (when superseded), Ask Autopilot, and Open */}}
+{{/* change request, the one primary, offered only while the proposal is undecided and no claim */}}
+{{/* exists. Reject while undecided. "Open in alert form" is not here: /alerts/new takes no prefill. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    vertical: false
+    wrap: true
+    gap: small
+    align: center
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: review-proposal-ask
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (if (.runPath // "") != "" then [ { resourceRefId: "review-proposal-run" } ] else [] end)
+        + (if (.supersededByPath // "") != "" then [ { resourceRefId: "review-proposal-replacement" } ] else [] end)
+        + [ { resourceRefId: "review-proposal-ask" } ]
+        + (if (.canReject // false) then [ { resourceRefId: "review-proposal-reject" } ] else [] end)
+        + (if (.canRecord // false) then [ { resourceRefId: "review-proposal-record" } ] else [] end)
+        + (if (.canOpen // false) then [ { resourceRefId: "review-proposal-open-pr" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: review-proposal-record
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-record
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: review-proposal-reject
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-reject
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: review-proposal-run
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-run
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: review-proposal-replacement
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-replacement
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: review-proposal-ask
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-ask
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: review-proposal-open-pr
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-open-pr
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET

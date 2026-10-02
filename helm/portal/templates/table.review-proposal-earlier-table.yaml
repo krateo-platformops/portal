@@ -1,0 +1,36 @@
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-earlier-table
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /reviews/proposals/{name}
+    columns:
+    - valueKey: title
+      title: Proposal
+      minWidth: 220
+    - valueKey: run
+      title: Run
+    - valueKey: created
+      title: Proposed
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: >-
+      ${ [ (.earlierRows // [])[] | [
+        {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name},
+        {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:.title},
+        {valueKey:"run",kind:"jsonSchemaType",type:"string",stringValue:.run},
+        {valueKey:"created",kind:"jsonSchemaType",type:"string",stringValue:.created,format:"relative"} ] ] }
+  resourcesRefs:
+    items: []

@@ -1,0 +1,81 @@
+{
+  "access": "error",
+  "allReady": null,
+  "architecture": true,
+  "chart": "builder-publish",
+  "composition": "publish-pod-sizing-demo",
+  "level": null,
+  "next": [],
+  "nodes": [
+    {
+      "apiVersion": "github.krateo.io/v2022-11-28",
+      "class": "custom",
+      "expected": 1,
+      "forEach": false,
+      "id": "repository",
+      "kind": "Repository",
+      "level": 0,
+      "parents": [],
+      "phase": "unknown",
+      "present": true,
+      "readyWhen": ".status.default_branch"
+    },
+    {
+      "apiVersion": "git.krateo.io/v1alpha1",
+      "class": "custom",
+      "expected": 1,
+      "forEach": false,
+      "id": "repo",
+      "kind": "Repo",
+      "level": 1,
+      "parents": [
+        "repository"
+      ],
+      "phase": "unknown",
+      "present": true,
+      "readyWhen": ".status.targetCommitId"
+    },
+    {
+      "apiVersion": "git.krateo.io/v1alpha1",
+      "class": "custom",
+      "expected": 10,
+      "forEach": true,
+      "id": "localresources",
+      "kind": "LocalResource",
+      "level": 2,
+      "parents": [
+        "repository",
+        "repo"
+      ],
+      "phase": "unknown",
+      "present": true,
+      "readyWhen": ".status.targetCommitId"
+    },
+    {
+      "apiVersion": "github.krateo.io/v2022-11-28",
+      "class": "custom",
+      "expected": 1,
+      "forEach": false,
+      "id": "pullrequest",
+      "kind": "PullRequest",
+      "level": 3,
+      "parents": [
+        "localresources"
+      ],
+      "phase": "unknown",
+      "present": true,
+      "readyWhen": null
+    }
+  ],
+  "progress": null,
+  "readable": false,
+  "since": null,
+  "state": null,
+  "states": [
+    "repository-only",
+    "seeding",
+    "committing",
+    "change-request-open"
+  ],
+  "waitingOn": []
+}

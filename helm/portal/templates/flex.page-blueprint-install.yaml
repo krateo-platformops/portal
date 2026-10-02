@@ -1,5 +1,12 @@
 {{/* Install page — the route /marketplace/{name}/install renders here (page-<slug> convention). */}}
 {{/* Hosts the blueprint-install Form, which deploys a CompositionDefinition from the CRD schema. */}}
+{{/* */}}
+{{/* The builder lists send a person here as the Install step of a publish */}}
+{{/* (restaction.builder-prs, restaction.blueprint-builder-deliverables). For those charts a note */}}
+{{/* between the header and the form names the change request the chart came from, so "Install */}}
+{{/* if merged" can be checked where the decision is made. The note is composed only when it has */}}
+{{/* something to say (restaction.blueprint-install-origin), so a marketplace card's page keeps */}}
+{{/* exactly the header-then-form it had unless a builder publish uses its name. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,9 +19,16 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name]
+  {{/* Bound only to decide whether the note is composed: an empty Paragraph would still take a */}}
+  {{/* gap in this Flex. Not the formdef — its `crd` step fails hard, and bound here that would */}}
+  {{/* take the header down with the form. */}}
+  apiRef:
+    name: blueprint-install-origin
+    namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
       - pageheaders
+      - paragraphs
       - forms
     vertical: true
     {{/* P9: one section step across every nav-declared page root — see G10, the gap between
@@ -23,6 +37,12 @@ spec:
     items:
       - resourceRefId: blueprint-install-page-header
       - resourceRefId: blueprint-install-form
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "blueprint-install-page-header" } ]
+        + (if ((.note // "") != "") then [ { resourceRefId: "blueprint-install-origin" } ] else [] end)
+        + [ { resourceRefId: "blueprint-install-form" } ] }
   resourcesRefs:
     items:
       - id: blueprint-install-page-header
@@ -30,6 +50,12 @@ spec:
         name: blueprint-install-page-header
         namespace: {{ .Release.Namespace }}
         resource: pageheaders
+        verb: GET
+      - id: blueprint-install-origin
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-install-origin
+        namespace: {{ .Release.Namespace }}
+        resource: paragraphs
         verb: GET
       - id: blueprint-install-form
         apiVersion: widgets.templates.krateo.io/v1beta1

@@ -1,0 +1,158 @@
+{{/* "Your drafts" rows — two Listys per builder from one template: each kind portal.draftBuilders */}}
+{{/* declares (_builder.tpl) × {open, published}. Each reads restaction.my-drafts (the caller's own */}}
+{{/* records) and keeps its kind and state. */}}
+{{/* */}}
+{{/* WHY A LISTY AND NOT A TABLE. Every row carries its own actions — Resume and Discard, or */}}
+{{/* Remove from list — and a Table has no per-row action: its only affordance is rowNavigateTo, */}}
+{{/* and a `widget` cell can only point at a CR that already exists, never at "this row". Listy's */}}
+{{/* rowActions dispatch one action definition with the row as its payload, so one Discard serves */}}
+{{/* every row. The default row keeps the mockup's reading order (name and what it is on the left, */}}
+{{/* when and in what state on the right), and rowActionsDisplay: buttons puts the actions at the */}}
+{{/* row's end as the mockup's buttons — the first primary. A click on the row itself is Resume too. */}}
+{{/* */}}
+{{/* DISCARD IS NOT `danger`: the mockup draws it as a neutral outline beside Resume. What guards */}}
+{{/* it is the blast-radius confirm every DELETE gets, which names the record — not a red button. */}}
+{{/* */}}
+{{/* WHY PUBLISHED IS ITS OWN LIST. rowActions are one set per list, not per row, and a published */}}
+{{/* draft offers different things: its change request, and Remove from list. It is hidden when */}}
+{{/* empty, so a person with nothing published sees one list — and the open list is hidden when */}}
+{{/* it is empty and the published one is not, so its antd "No data" never sits above a list. */}}
+{{/* */}}
+{{/* PUBLISHED SAYS ONLY THAT. The record knows it was published, never whether its change request */}}
+{{/* merged since, so the row does not guess: it names the change request and the card on this */}}
+{{/* builder's page that follows it to the end (portal.draftBuilders followIn). */}}
+{{/* */}}
+{{/* DISCARD IS A DELETE OF THE RECORD, AS THE PERSON. The ref below names a sentinel that is never */}}
+{{/* a record (records are draft-*): the row's recordName replaces it through payloadToOverride */}}
+{{/* metadata.name, which the action fabric writes into the /call URL — the same rule a create */}}
+{{/* form's name follows. A static name rather than none, because a DELETE with no name must never */}}
+{{/* be possible from here. The write is gated by the standard blast-radius confirm (every DELETE */}}
+{{/* is), which names the record, and the list refetches on success. A page's preview objects are */}}
+{{/* not deleted here: they are derived from the record, and the composer sweeps them by owner and */}}
+{{/* slug before any apply. */}}
+{{- $sandbox := .Values.previewSandbox.namespace }}
+{{- range $kind, $builder := include "portal.draftBuilders" . | fromYaml }}
+{{- range $state := list "open" "published" }}
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ printf "my-drafts-%s%s" $kind (ternary "" "-published" (eq $state "open")) }}
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The RA scopes to the caller from .username; declaring it is what makes snowplow inject the */}}
+  {{/* authenticated principal (and key the cache on it) instead of trusting the request. */}}
+  identityContext: [username]
+  apiRef:
+    name: my-drafts
+    namespace: {{ $.Release.Namespace }}
+  widgetData:
+    dataSource: []
+    {{- if eq $state "published" }}
+    hideWhenEmpty: true
+    {{- end }}
+    itemTemplate:
+      primaryText: '{name}'
+      subPrimaryText: '{meta}'
+      secondaryText: '{statusLabel}'
+      secondaryTextAsTag: true
+      subSecondaryText: '{updatedAt}'
+      formats:
+        subSecondaryText: relative
+      {{/* The mockup's three pills: amber until a Preview matches the tree, green once it does, */}}
+      {{/* grey once published — what happens to it next is followed elsewhere, not fixed here. */}}
+      color:
+        value: '{statusKey}'
+        map:
+          preview-needed: orange
+          previewed: green
+          published: gray
+        default: gray
+      rowActionsDisplay: buttons
+      {{- if eq $state "open" }}
+      navigateTo: '{resumePath}'
+      rowActions:
+        - actionId: resume
+          label: Resume
+          icon: fa-rotate-left
+        - actionId: discard
+          label: Discard
+          icon: fa-trash
+      {{- else }}
+      {{/* The change request is where a published draft goes next; the row opens it. */}}
+      navigateTo: '{prUrl}'
+      rowActions:
+        - actionId: discard
+          label: Remove from list
+          icon: fa-xmark
+      {{- end }}
+    actions:
+      {{- if eq $state "open" }}
+      navigate:
+        - id: resume
+          type: navigate
+          {{/* The composer route (frontend RoutesContext) with the record's name; the composer */}}
+          {{/* reads ?resume=, loads the record's tree and re-arms Publish by its hash. */}}
+          path: {{ printf "%s/compose?resume=${recordName}" $builder.route }}
+      {{- end }}
+      rest:
+        - id: discard
+          type: rest
+          resourceRefId: discard-draft-record
+          headers:
+            - 'Accept: application/json'
+          requireConfirmation: true
+          payloadToOverride:
+            - name: metadata.name
+              value: '${ .json.recordName }'
+            - name: metadata.namespace
+              value: {{ $sandbox | quote }}
+          successMessage: {{ ternary "Draft discarded" "Removed from your drafts" (eq $state "open") | quote }}
+          errorMessage: The draft could not be removed — it may already be gone; the list refreshes on its own
+          loading:
+            display: true
+  widgetDataTemplate:
+    {{- if eq $state "open" }}
+    - forPath: hideWhenEmpty
+      expression: '${ [ (.items // [])[] | select(.kind == {{ $kind | quote }} and .state == "published") ] | length > 0 }'
+    {{- end }}
+    - forPath: dataSource
+      expression: >
+        ${ [ (.items // [])[]
+            | select(.kind == {{ $kind | quote }})
+            {{- if eq $state "open" }}
+            | select(.state != "published")
+            {{- else }}
+            | select(.state == "published")
+            {{- end }}
+            | { recordName, name, updatedAt, statusLabel, resumePath, prUrl,
+                statusKey: (if .state == "published" then "published"
+                            elif .statusLabel == "Previewed · ready to publish" then "previewed"
+                            else "preview-needed" end),
+                meta: ([
+                  {{- if $builder.chart }}
+                  (if (.version // "") != "" then .version else empty end),
+                  {{- else }}
+                  "page",
+                  {{- end }}
+                  {{- if eq $state "open" }}
+                  "\(.files // 0) files", .startedFrom
+                  {{- else }}
+                  ((.repo // "") as $repo | (.prUrl // "")
+                   | [capture("github\\.com/(?<repo>[^/]+/[^/]+)/pull/(?<n>[0-9]+)")?]
+                   | if length > 0 then "\(.[0].repo) #\(.[0].n)" elif $repo != "" then $repo else empty end),
+                  {{ printf "follow it in %s" $builder.followIn | toJson }}
+                  {{- end }}
+                ] | join(" · ")) } ] }
+  resourcesRefs:
+    items:
+      - id: discard-draft-record
+        apiVersion: v1
+        resource: configmaps
+        name: select-a-draft
+        namespace: {{ $sandbox }}
+        verb: DELETE
+{{- end }}
+{{- end }}

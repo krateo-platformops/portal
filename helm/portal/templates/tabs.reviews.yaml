@@ -1,0 +1,33 @@
+{{/* /reviews: Proposals (default) and Runs. Plain labels so `?tab=Runs` deep-links; the counts sit in */}}
+{{/* each tab's caption. */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-tabs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - tabs
+    - flexes
+    items:
+    - label: Proposals
+      resourceRefId: reviews-proposal-state
+    - label: Runs
+      resourceRefId: reviews-runs
+  resourcesRefs:
+    items:
+    - id: reviews-proposal-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-proposal-state
+      namespace: {{ .Release.Namespace }}
+      resource: tabs
+      verb: GET
+    - id: reviews-runs
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-runs
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

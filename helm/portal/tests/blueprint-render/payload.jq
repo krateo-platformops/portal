@@ -11,4 +11,6 @@
 | ($src
    + { values: $vals }
    + (if (.releaseName // "") != "" then { releaseName: .releaseName } else {} end)
-   + (if (.namespace // "") != "" then { namespace: .namespace } else {} end))
+   + (if (.namespace // "") != "" then { namespace: .namespace } else {} end)
+   + (if ((.lookupStubs // null) | type) == "array" and ((.lookupStubs | length) > 0)
+        then { lookupStubs: .lookupStubs } else {} end))

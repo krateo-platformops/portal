@@ -132,3 +132,232 @@ jobs:
 
       - name: Table rowNavigateTo route derivation
         run: python3 scripts/test-rownavigateto-f8.py
+
+  # The builder publish chain's Install step is four RESTActions and three widgets of jq, and each
+  # defect found in it (a claim re-pointing an official marketplace card, Install offered for a
+  # publish the form could not pre-fill, a page set told to install a release that never happened)
+  # was a branch nobody had evaluated. This renders the chart and runs that jq on fixtures.
+  builder-install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Every Form the checks resolve is validated, as resolved, against the NEWEST RELEASED Form CRD:
+      # The frontend's own secret-field rules (frontend#424, vendored in scripts/frontend-secretjq):
+      # test-controller-builder asks them, not a model of them, whether the Configure form's
+      # overrides are refused, resolved in the browser, or sent to /jq.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Frontend secret-field rules
+        run: npm ci --prefix scripts/frontend-secretjq --no-audit --no-fund
+
+      # snowplow refuses a resolved widget its CRD does not admit, and portal 1.8.45 shipped one.
+      - name: Builder Install step, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-builder-install.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          # /controller-builder: the deliverables ladder (claim -> PR -> definition -> install ->
+          # RestDefinitions -> credentials) on 057-shaped fixtures, and the page's alignment with
+          # /blueprint-builder, widget for widget; the Configure form under the frontend's rules.
+          python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # The Builder CRs (files/builders/*.builder.yaml, rendered by templates/builders.yaml) are byte-identical copies of the frontend's fixtures
+  # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with frontend main,
+  # checks they agree with the chart (draft kinds, drafts cards, preview RESTActions), and that every
+  # signed-in user (system:authenticated) may read them, demo users on or off. Red after a frontend
+  # fixture change means: copy it here.
+  builder-crs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Builder CRs match the frontend's fixtures
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-builder-crs.py
+
+  # No RESTAction reads Secrets: snowplow serves a secrets GET or LIST from a cluster-wide informer
+  # it registers on first touch, data included and the Accept header ignored, so one step that
+  # only wanted to know a Secret exists would cache every Secret's data (scripts/lint-ra-secrets.py).
+  # Settings > Users and the data-driven reads (a composition's managed Secret, /resources on a
+  # Secret) are resolved on fixtures and validated against the newest released CRDs.
+  ra-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: No RESTAction reads Secrets
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          python3 scripts/lint-ra-secrets.py
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-settings-users.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-no-secret-reads.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the
+  # nightly review's Proposals and ReviewRuns. This resolves them on fixtures shaped like krateo-057
+  # (superseded chains, legacy proposals, unanswered discovery, failed and partial runs), checks the
+  # change-request claim against builder-publish's values schema, and validates every widget, as
+  # resolved, against the newest released frontend CRDs.
+  platform-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Platform Review pages, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-platform-review.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # A composition's topology on its detail page is one builder-publish template, one RESTAction of
+  # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's
+  # widget resolver — and `helm template` evaluates none of it. Drafts of it read correctly and were
+  # wrong on realistic input (an informer-served object with no apiVersion, a denial whose object
+  # name snowplow does not keep in `details`). This renders both charts and runs that jq
+  # on krateo-057 objects, then validates every topology widget CR, as authored and as resolved,
+  # against the NEWEST RELEASED frontend-crds: snowplow refuses a resolved widget its CRD does not
+  # admit (HTTP 400), so this job stays red until a frontend release carries the FlowChart CRD with
+  # `variant: architecture` — which is the first half of this chart's merge order, not a flake.
+  composition-architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Composition topology, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-composition-architecture.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
+  # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
+  # logged 601 GETs of `…/builderpublishes/review-`, 358 of `/apis/none.krateo.io/v1/none` and 67 of
+  # `/api/v1/namespaces//configmaps/-architecture` in 20 minutes, all 404s continueOnError hid. A step
+  # that needs its input is gated on it (a dependsOn.iterator that yields nothing without it). The
+  # lint checks every RESTAction; the test resolves the gated ones with and without their input and
+  # validates the widgets they feed, as resolved, against the newest released frontend CRDs.
+  ra-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: No RESTAction step dials a half-built path
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          python3 scripts/lint-ra-paths.py
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-ra-input-gates.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # The Controller Builder's preview (controller-render-draft) answers with blueprint-render-draft's
+  # `objects`/`error`, so the frontend's verdict handling reads it unchanged. Every way it can go —
+  # CRDs, a severity:error finding, oasgen-render missing or down, no draft — must be a sentence
+  # there, never a jq error or an empty success. Resolved on /render answers shaped as
+  # oasgen-provider 0.25.0 documents them.
+  controller-render-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Controller preview, resolved on every answer
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-controller-render-draft.py

@@ -1,0 +1,30 @@
+{{/* Reject: a drawer asking for the reason, whose submit records the decision on the proposal. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-reject
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  widgetData:
+    label: Reject
+    type: default
+    icon: fa-xmark
+    clickActionId: open-reject
+    actions:
+      openDrawer:
+        - id: open-reject
+          type: openDrawer
+          resourceRefId: review-reject
+          title: Reject this proposal
+          size: default
+  resourcesRefs:
+    items:
+    - id: review-reject
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-reject
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

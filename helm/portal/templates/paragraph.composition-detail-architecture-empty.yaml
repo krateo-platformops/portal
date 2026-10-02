@@ -1,0 +1,18 @@
+{{/* The chart declares no resources for this composition: an empty descriptor, or one whose every */}}
+{{/* `when` is false for its current values, so there is no node to draw. The gate knows the ConfigMap */}}
+{{/* exists but not whether any node is present (it reads composition-detail, which cannot see node */}}
+{{/* counts), so the card is already on the page — and a titled card with an empty body would read as */}}
+{{/* a failed load. One sentence says what is there. It is an empty state, not a status marker. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: paragraph-composition-detail-architecture-empty
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    text: This composition's chart declares no resources for its current values.
+    type: secondary

@@ -1,13 +1,7 @@
-{{/* The nightly review's proposals, from restaction.platform-reviews. */}}
-{{/* */}}
-{{/* EVIDENCE SITS NEXT TO CONFIDENCE ON PURPOSE. Every row here was written by a model, so the */}}
-{{/* confidence word is the least trustworthy thing on it — it is the model's own claim about its own */}}
-{{/* work. The observation count is not: it comes from the queries the service ran. Putting them side */}}
-{{/* by side lets a reader see "high, 1 observation" for what it is, and that pairing is the entire */}}
-{{/* reason this is a table rather than a list of titles. */}}
-{{/* */}}
-{{/* Sorted undecided-first, then by weight of evidence — the ordering a triager actually wants, */}}
-{{/* rather than newest-first which buries a well-grounded proposal under last night's noise. */}}
+{{/* Open proposals, grouped by finding (spec.subject) and newest first, from restaction.platform-reviews. */}}
+{{/* A row opens the proposal. The target is the model's claim, so it is plain text, never a link. */}}
+{{/* Checks are exception-only pills: Kind not served (yaml only), Target unverified or invalid, and a */}}
+{{/* neutral Kind check n/a for markdown and diff. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,30 +15,50 @@ spec:
     bordered: false
     size: small
     fitContent: true
+    rowNavigateTo: /reviews/proposals/{name}
     pagination:
-      defaultPageSize: 10
+      defaultPageSize: 20
+      hideOnSinglePage: true
     columns:
-    - valueKey: kind
-      title: Kind
     - valueKey: title
       title: Proposal
-      minWidth: 320
-    - valueKey: evidence
-      title: Evidence
-      minWidth: 130
-    - valueKey: confidence
-      title: Confidence
-      minWidth: 110
+      minWidth: 300
+    - valueKey: subject
+      title: Subject
+      minWidth: 180
+    - valueKey: kind
+      title: Kind
+    - valueKey: sources
+      title: Evidence sources
+      minWidth: 150
+    - valueKey: checks
+      title: Checks
+      minWidth: 150
     - valueKey: phase
       title: Status
+    - valueKey: superseded
+      title: Superseded
+    - valueKey: created
+      title: Proposed
       minWidth: 110
-    - valueKey: repo
-      title: Target
-      minWidth: 200
+    - valueKey: target
+      title: Proposed target
+      minWidth: 180
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"kind",kind:"tag",stringValue:(.kind // "-"),color:((.kind // "") | if . == "Alert" then "red" elif . == "Widget" then "blue" elif . == "Prompt" then "purple" elif . == "Policy" then "orange" else "gray" end)}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:(.title // "")}, {valueKey:"evidence",kind:"jsonSchemaType",type:"string",stringValue:(((.evidence // 0)|tostring) + " src · " + ((.observed // 0)|tostring) + " seen"),color:(if (.observed // 0) < 2 then "#d4380d" else "#8c8c8c" end)}, {valueKey:"confidence",kind:"tag",stringValue:(.confidence // "low"),color:((.confidence // "low") | if . == "high" then "green" elif . == "medium" then "blue" else "gray" end)}, {valueKey:"phase",kind:"tag",stringValue:(.phase // "Proposed"),color:((.phase // "Proposed") | if . == "Merged" then "green" elif . == "Rejected" then "gray" elif . == "PrOpen" then "blue" elif . == "Failed" then "red" else "orange" end)}, {valueKey:"repo",kind:"jsonSchemaType",type:"string",stringValue:(.repo // "-"),color:"#8c8c8c"} ] ] }'
+    expression: >-
+      ${ [ (.rows // [])[] | [
+        {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name},
+        {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:.title},
+        {valueKey:"subject",kind:"jsonSchemaType",type:"string",stringValue:.subject},
+        {valueKey:"kind",kind:"tag",stringValue:.kind,color:"gray"},
+        {valueKey:"sources",kind:"jsonSchemaType",type:"string",stringValue:.sources},
+        {valueKey:"checks",kind:"conditions",stringValue:.checks},
+        {valueKey:"phase",kind:"tag",stringValue:.phase,color:.phaseColor},
+        {valueKey:"superseded",kind:"jsonSchemaType",type:"string",stringValue:.superseded},
+        {valueKey:"created",kind:"jsonSchemaType",type:"string",stringValue:.created,format:"relative"},
+        {valueKey:"target",kind:"jsonSchemaType",type:"string",stringValue:.target,color:"#8c8c8c"} ] ] }
   apiRef:
     name: platform-reviews
     namespace: {{ .Release.Namespace }}

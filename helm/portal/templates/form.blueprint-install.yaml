@@ -52,11 +52,71 @@ spec:
             - { name: metadata.name, value: '${ .json.name }' }
             - { name: metadata.namespace, value: '${ .json.namespace }' }
             - { name: spec, value: '${ (.json | del(.name) | del(.namespace)) | walk(if type == "object" then with_entries(select(.value != null and .value != "" and .value != {} and .value != [])) else . end) }' }
+        {{/* S12 — a builder blueprint that publishes a status projection installs as TWO writes in one */}}
+        {{/* confirmed set: the <chart>-status RESTAction its apiRef names, then the CompositionDefinition */}}
+        {{/* carrying that apiRef and its statusDataTemplate rows (decision D1: Install applies it). The */}}
+        {{/* RESTAction goes first — a CompositionDefinition whose apiRef names a missing RESTAction puts */}}
+        {{/* every composition into ApiRefRBACIncomplete. widgetDataTemplate below fills the RESTAction */}}
+        {{/* and the two spec fields from blueprint-install-formdef's `projection`, and picks this action */}}
+        {{/* only when there is one; every other install keeps `submit`, byte for byte. The two spec */}}
+        {{/* fields are merged into the form's spec by the one `spec` override (a JSON literal the */}}
+        {{/* template writes into it), so they are not form fields a person could drop. */}}
+        - id: submit-projected
+          type: rest
+          resourceRefId: create-status-restaction
+          headers:
+            - 'Content-Type: application/json'
+          onSuccessNavigateTo: '/blueprints/${namespace}/${name}'
+          successMessage: Blueprint installed, with its status projection
+          ops:
+            - resourceRefId: create-status-restaction
+              payload: {}
+              {{/* The referenced resource's payload base is merged OVER this op's payload, and its */}}
+              {{/* metadata.name is empty — so the RESTAction's name and namespace are set again here, */}}
+              {{/* as the CompositionDefinition's are below. Plain strings (not ${ }) are used verbatim; */}}
+              {{/* widgetDataTemplate writes the bundle's into them. */}}
+              payloadToOverride:
+                - { name: metadata.name, value: '' }
+                - { name: metadata.namespace, value: '' }
+            - resourceRefId: create-compdef
+              payload:
+                apiVersion: core.krateo.io/v1alpha1
+                kind: CompositionDefinition
+                metadata:
+                  namespace: {{ .Release.Namespace }}
+              payloadToOverride:
+                - { name: metadata.name, value: '${ .json.name }' }
+                - { name: metadata.namespace, value: '${ .json.namespace }' }
+                {{/* Replaced whole by widgetDataTemplate below with the same expression PLUS the projection */}}
+                {{/* as a JSON literal — ONE string: snowplow validates the resolved widgetData against the */}}
+                {{/* Form CRD, where every payloadToOverride value is a string (an object here refused */}}
+                {{/* the whole form, on every install). */}}
+                - { name: spec, value: '${ (.json | del(.name) | del(.namespace)) | walk(if type == "object" then with_entries(select(.value != null and .value != "" and .value != {} and .value != [])) else . end) }' }
   widgetDataTemplate:
     - forPath: schema
       expression: '${ .schemaSpec }'
+    {{/* A chart the Controller Builder published is registered, not installed (its builder calls */}}
+    {{/* the step Register); the formdef's `noun` says which this is. */}}
+    - forPath: buttonConfig.primary.label
+      expression: '${ if .noun == "controller" then "Register controller" else "Install blueprint" end }'
+    - forPath: actions.rest[0].successMessage
+      expression: '${ if .noun == "controller" then "Controller registered" else "Blueprint installed" end }'
     - forPath: initialValues
       expression: '${ .initialValues }'
+    - forPath: submitActionId
+      expression: '${ if .projection != null then "submit-projected" else "submit" end }'
+    - forPath: actions.rest[1].ops[0].payload
+      expression: '${ .projection.restaction // {} }'
+    - forPath: actions.rest[1].ops[0].payloadToOverride[0].value
+      expression: '${ .projection.restaction.metadata.name // "" }'
+    - forPath: actions.rest[1].ops[0].payloadToOverride[1].value
+      expression: '${ .projection.restaction.metadata.namespace // "" }'
+    {{/* The formdef's specBase (upgradePolicy, and a controller's resyncInterval) goes UNDER the */}}
+    {{/* form's spec: what the person set wins, and an unopened section still writes the choice. */}}
+    - forPath: actions.rest[0].payloadToOverride[2].value
+      expression: '${ "${ " + ((.specBase // {}) | tojson) + " * ((.json | del(.name) | del(.namespace)) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end)) }" }'
+    - forPath: actions.rest[1].ops[1].payloadToOverride[2].value
+      expression: '${ "${ (" + ((.specBase // {}) | tojson) + " * ((.json | del(.name) | del(.namespace)) | walk(if type == \"object\" then with_entries(select(.value != null and .value != \"\" and .value != {} and .value != [])) else . end))) + " + ({ apiRef: (.projection.apiRef // null), statusDataTemplate: (.projection.statusDataTemplate // null) } | tojson) + " }" }'
   resourcesRefs:
     items:
       {{/* POST target — create a CompositionDefinition in the release namespace. snowplow infers */}}
@@ -65,4 +125,9 @@ spec:
         apiVersion: core.krateo.io/v1alpha1
         namespace: {{ .Release.Namespace }}
         resource: compositiondefinitions
+        verb: POST
+      - id: create-status-restaction
+        apiVersion: templates.krateo.io/v1
+        namespace: {{ .Release.Namespace }}
+        resource: restactions
         verb: POST

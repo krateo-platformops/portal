@@ -1,0 +1,22 @@
+{{/* yaml changes only: the kind the file declares is not served by this cluster (discovery, read as the caller). */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-kind
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Kind not served
+    type: warning
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: description
+      expression: '${ .kindAlert // "" }'
+  resourcesRefs:
+    items: []

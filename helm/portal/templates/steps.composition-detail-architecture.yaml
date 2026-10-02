@@ -1,0 +1,34 @@
+{{/* The state strip: one step per level of the chart's machine, named by its states[] ("S2 seeding"). */}}
+{{/* The steps before the current one are finished, the current one is in process, the rest wait; a */}}
+{{/* composition that is all ready shows every step it uses finished. This replaces the mockup's header */}}
+{{/* pill ("S3 · committing · 7 of 9"), which said the same thing a second time on every composition. */}}
+{{/* One step per level THIS composition uses. A level whose every node is absent (its `when` is false: */}}
+{{/* pullRequest.create=false stops at the pushed branch) was never entered, and ticking its state */}}
+{{/* would claim a change request that does not exist. Each step keeps its level's own number, as */}}
+{{/* "Where it is" does, and `current` indexes the steps drawn, not the states. */}}
+kind: Steps
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: steps-composition-detail-architecture
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-architecture
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ . as $r | if $r.readable != true then [] else ([ $r.nodes[]? | select(.present == true) | .level ] | unique) as $lv | [ $lv[] as $l | { title: ("S" + (($l + 1) | tostring) + " " + ($r.states[$l] // "")), status: (if $r.allReady == true or $l < $r.level then "finish" elif $l == $r.level then "process" else "wait" end) } ] end }'
+    - forPath: current
+      {{/* antd marks the step at `current` as active, and a filled-variant step that is finished AND active */}}
+      {{/* paints its check in colorTextLightSolid (white) on colorPrimary. The frontend's Steps CSS swaps that */}}
+      {{/* ground for a 12% cyan tint, so in the light theme the last step of a finished composition drew an */}}
+      {{/* empty ring, as if it had never been reached. Once all is ready no step is current, so point one past */}}
+      {{/* the end: every item already carries its own status, and none is active. */}}
+      expression: '${ . as $r | if $r.readable != true then 0 else ([ $r.nodes[]? | select(.present == true) | .level ] | unique) as $lv | if $r.allReady == true then ($lv | length) else ([ range(0; $lv | length) as $k | select($lv[$k] == $r.level) | $k ][0] // 0) end end }'

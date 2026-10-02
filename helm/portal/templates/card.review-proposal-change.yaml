@@ -1,0 +1,30 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-change
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Change
+    titleVariant: eyebrow
+    variant: outlined
+    size: small
+    items:
+    - resourceRefId: review-proposal-change-content
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ .changeMeta // "" }'
+  resourcesRefs:
+    items:
+    - id: review-proposal-change-content
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-proposal-change-content
+      namespace: {{ .Release.Namespace }}
+      resource: markdowns
+      verb: GET

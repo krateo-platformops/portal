@@ -1,0 +1,21 @@
+{{/* spec.change.content: markdown renders as markdown, yaml and diff as a fenced block. */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-change-content
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    markdown: No change recorded.
+    allowCopy: true
+  widgetDataTemplate:
+    - forPath: markdown
+      expression: '${ .changeMarkdown // "No change recorded." }'
+  resourcesRefs:
+    items: []
