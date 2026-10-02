@@ -1,20 +1,9 @@
-{{/* #6 — Incidents on the composition-detail page. Lists the release-namespace */}}
-{{/* TroubleshootingReports (observability.krateo.io, written by krateo-alert-troubleshooter) */}}
-{{/* and keeps ONLY those whose analysis actually touched THIS composition: an */}}
-{{/* analyzedResources entry whose .gvr contains "composition" AND whose .name/.namespace */}}
-{{/* match the target (route params ride in as ?extras .name/.namespace, same mechanism as */}}
-{{/* composition-detail / composition-resources). All derivation is server-side (nothing */}}
-{{/* hardcoded); the list is exception-only (the rendering Listy hideWhenEmpty removes it */}}
-{{/* entirely for a healthy composition with no incidents). */}}
-{{/* */}}
-{{/* Emits { rows } where each row is: */}}
-{{/* title          : the rootCause one-liner (honest fallback → the report CR name), */}}
-{{/* lifecycle      : raw K8s-native lifecycle token (open / mitigated / resolved), */}}
-{{/* lifecycleColor : open→red (failure) · mitigated→orange (transitional) · resolved→green */}}
-{{/* (calm terminal — matches the deployed incident-lifecycle Tag / */}}
-{{/* incident-detail RA convention; NOT cyan, which the design rules */}}
-{{/* reserve for brand/interactive and never status), */}}
-{{/* route          : /incidents/<ns>/<name> deep-link to the incident detail page. */}}
+{{/* Incidents on the composition-detail page: the release namespace's Incidents */}}
+{{/* (incidents.observability.krateo.io) whose analysis touched THIS composition — an */}}
+{{/* analyzedResources entry whose .gvr contains "composition" and whose .name/.namespace match */}}
+{{/* the route params (?extras .name/.namespace). Newest first; the Listy hides when empty. */}}
+{{/* Each row: title (the root cause, else the alert name), state, stateColor, and route — */}}
+{{/* /incidents/<the incident's namespace>/<name>. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -24,31 +13,29 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    - name: reports
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/troubleshootingreports
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/incidents
       verb: GET
       continueOnError: true
-      errorKey: reportsError
-  {{/* LITERAL block (|), not folded (>): a base-indent jq `#` comment would otherwise swallow */}}
-  {{/* the code folded after it onto one line (the composition-events filter shipped broken */}}
-  {{/* exactly this way). */}}
+      errorKey: incidentsError
+  {{/* Literal `|` block: a jq `#` comment in a folded block would swallow the code after it. */}}
   filter: |
     (.name // "") as $n
     | (.namespace // "") as $ns
-    | [ ((.reports.items) // [])[]
-        | (.status.rootCause // {}) as $rc
-        | (.status.lifecycle // "open") as $lc
-        # keep only reports whose analysis touched THIS composition (a composition-kind
-        # analyzedResources entry matching the target name+namespace).
+    | [ ((.incidents.items) // [])[]
+        | (.status.state // "Analyzing") as $state
+        # keep only incidents whose analysis touched this composition
         | ([ (.status.analyzedResources // [])[]
              | select((.gvr // "") | contains("composition"))
              | select((.name // "") == $n and (.namespace // "") == $ns) ] | first) as $comp
         | select($comp != null)
         | {
-            title: (if ($rc.statement // "") != "" then $rc.statement else (.metadata.name // "") end),
-            lifecycle: $lc,
-            lifecycleColor: (if $lc == "open" then "red" elif $lc == "mitigated" then "orange" elif $lc == "resolved" then "green" else "gray" end),
-            route: ("/incidents/" + $ns + "/" + (.metadata.name // ""))
+            title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
+                    else ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // .metadata.name // "") end),
+            state: $state,
+            stateColor: ({ Open: "red", Verifying: "orange", Resolved: "green" }[$state] // "gray"),
+            # the incident's own namespace; a namespaced list omits it per item, so fall back to the listed one
+            route: ("/incidents/" + (.metadata.namespace // "{{ .Release.Namespace }}") + "/" + (.metadata.name // "")),
+            when: (.spec.triggeredAt // .metadata.creationTimestamp // "")
           }
-      ] as $rows
-    | { rows: $rows }
+      ] | sort_by(.when) | reverse | { rows: . }

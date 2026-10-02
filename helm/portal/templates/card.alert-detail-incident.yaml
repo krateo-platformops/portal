@@ -1,8 +1,7 @@
-{{/* "Investigation" card → the linked incident back-link (alert→incident, item 22 alert-side). */}}
-{{/* Wraps alert-detail-incident-link. The page Flex includes this card ONLY when sections.incident */}}
-{{/* is true (a TroubleshootingReport matched this alert), so an alert with no investigation shows */}}
-{{/* no empty card (exception-only, honest data). If you want to START one, use the "Investigate */}}
-{{/* with Autopilot" button in the pagehead — this card is the back-link to an EXISTING report. */}}
+{{/* "Incidents" card: this alert's incidents (alert-detail-incidents), every open one first, then */}}
+{{/* the latest ended ones. Several can be open at once, one per problem the alert-provider tells */}}
+{{/* apart. The page Flex includes the card only when sections.incident is true (the alert has any). */}}
+{{/* To start an investigation, use "Investigate with Autopilot" in the page header. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,17 +12,23 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
   widgetData:
-    title: Investigation
+    title: Incidents
     titleVariant: eyebrow
     variant: outlined
     items:
-      - resourceRefId: alert-detail-incident-link
+      - resourceRefId: alert-detail-incidents
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .incidentsTitle // "Incidents" }'
   resourcesRefs:
     items:
-      - id: alert-detail-incident-link
+      - id: alert-detail-incidents
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: alert-detail-incident-link
+        name: alert-detail-incidents
         namespace: {{ .Release.Namespace }}
-        resource: buttons
+        resource: listies
         verb: GET

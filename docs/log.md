@@ -14,6 +14,19 @@ Curated history, newest first. Point-in-time records live as archives (the
 ([marketplace-registry-discovery](./marketplace-registry-discovery.md),
 [snowplow-yaml-api-step-enabler](./snowplow-yaml-api-step-enabler.md)).
 
+## 2026-09-25 — incident pages read Incidents
+
+The incident pages read `incidents.observability.krateo.io` (incident-controller), one object per
+occurrence of an alert's problem, instead of the one-per-alert `TroubleshootingReport`. An incident
+joins its alert on the `observability.krateo.io/alert` label and `spec.alertRef`, not on a
+normalized display name. **How to fix** shows the scripts in `status.howToFix` (precondition ·
+apply · verify), each with its last run from `status.checks`, and the optional rollback, which a
+human runs only to revert an applied fix; its one button is "I applied it" (`spec.applied`). **Close** (`spec.closed`) replaces Resolve, cannot be undone and is not offered on a Resolved incident.
+Check history (from `status.checks`) replaces the Remediation audit, and Involved resources,
+Check history and Similar incidents (same alert first) share one tab strip. An alert can have
+several incidents open at once, one per problem: the alert page lists every open one, then the
+latest ended ones, and the incident list shows each incident's root cause next to its alert.
+
 ## 2026-09-09 — builder-publish creates the destination repository
 
 Publishing required a repository someone had already made by hand, which is backwards for a

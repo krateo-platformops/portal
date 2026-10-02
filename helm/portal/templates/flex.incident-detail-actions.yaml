@@ -1,7 +1,6 @@
-{{/* Right side of the incident-detail pagehead: the action button cluster — */}}
-{{/* [ Diagnose (Autopilot ?ask) · Discard (delete the report, confirmed) ]. */}}
-{{/* Both buttons resolve their per-incident target from the incident-detail RA (.diagnoseHref / */}}
-{{/* .reportGvr), so this Flex itself is data-agnostic. Mirrors composition-detail-actions. */}}
+{{/* The incident page's actions: Diagnose (Autopilot ?ask) · Close (spec.closed, hidden once */}}
+{{/* Resolved or Closed) · Discard (delete the incident, confirmed; hidden when it does not exist). The */}}
+{{/* buttons read their target from incident-detail (.diagnoseHref / .incidentGvr). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,6 +11,9 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
   widgetData:
     vertical: false
     gap: small
@@ -20,8 +22,13 @@ spec:
       - buttons
     items:
       - resourceRefId: incident-detail-diagnose
-      - resourceRefId: incident-detail-resolve
       - resourceRefId: incident-detail-discard
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "incident-detail-diagnose" } ]
+        + (if (.canClose // false) then [ { resourceRefId: "incident-detail-close" } ] else [] end)
+        + (if (.canDiscard // false) then [ { resourceRefId: "incident-detail-discard" } ] else [] end) }
   resourcesRefs:
     items:
       - id: incident-detail-diagnose
@@ -30,9 +37,9 @@ spec:
         namespace: {{ .Release.Namespace }}
         resource: buttons
         verb: GET
-      - id: incident-detail-resolve
+      - id: incident-detail-close
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: incident-detail-resolve
+        name: incident-detail-close
         namespace: {{ .Release.Namespace }}
         resource: buttons
         verb: GET

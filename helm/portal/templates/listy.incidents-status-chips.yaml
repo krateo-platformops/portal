@@ -1,18 +1,8 @@
-{{/* Incidents lifecycle filter chips (All / Open / Mitigated / Resolved) — ONE data-driven */}}
-{{/* Listy(chip) replacing the Helm-looped incidents-status-btn-* Buttons (widget-sprawl */}}
-{{/* collapse). Lifecycle is URL state (?status=…): each chip navigates to /incidents?status=<k>, */}}
-{{/* which the frontend forwards into the request `extras` — incidents-list filters `.rows` */}}
-{{/* server-side and echoes `.status` + `.counts` (computed over the FULL set, before the filter) */}}
-{{/* so every chip shows its live count (the muted suffix) and its active flag. ONE incidents-list */}}
-{{/* resolution now serves the whole set (was one per Button chip). */}}
-{{/* */}}
-{{/* Chip navigateTo bypasses the client-side same-path query merge the old Buttons used, so the */}}
-{{/* routes are merged SERVER-SIDE: ?projects (the shell scope selector, echoed by incidents-list) */}}
-{{/* is re-emitted onto each chip's route (@uri-encoded). NOTE the one-shot ?ask= Autopilot */}}
-{{/* handoff never lived on these chips: the old incidents-status-btn-* Buttons navigated bare */}}
-{{/* /incidents?status=<k>, and the ask-seeded routes are carried PER ROW (server-built askHref) */}}
-{{/* by incidents-awaiting / obs-troubleshooting-feed / obs-alerts — all untouched by this */}}
-{{/* collapse, so there is nothing to carry here. */}}
+{{/* Incident state filter chips (All · Analyzing · Open · Verifying · Resolved · Closed) as one */}}
+{{/* data-driven Listy(chip). The state is URL state (?status=…): each chip navigates to */}}
+{{/* /incidents?status=<k>, which reaches incidents-list as an extra; the RESTAction filters */}}
+{{/* `.rows` and echoes `.status` + `.counts` (over the full set), so every chip shows its live */}}
+{{/* count and active flag. The shell scope (?projects) is carried into each chip's route. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -35,6 +25,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.status // "all") | tostring) as $sel | (.counts // {}) as $counts | ((.projects // "") | tostring) as $projects | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $carry | [{key: "all", label: "All"}, {key: "open", label: "Open"}, {key: "mitigated", label: "Mitigated"}, {key: "resolved", label: "Resolved"}] | map({label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/incidents?status=" + .key + $carry)}) }'
+      expression: '${ ((.status // "all") | tostring) as $sel | (.counts // {}) as $counts | ((.projects // "") | tostring) as $projects | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $carry | [{key: "all", label: "All"}, {key: "analyzing", label: "Analyzing"}, {key: "open", label: "Open"}, {key: "verifying", label: "Verifying"}, {key: "resolved", label: "Resolved"}, {key: "closed", label: "Closed"}] | map({label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/incidents?status=" + .key + $carry)}) }'
   resourcesRefs:
     items: []

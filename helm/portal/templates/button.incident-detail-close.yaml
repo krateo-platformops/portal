@@ -1,10 +1,11 @@
-{{/* Discard: deletes the Incident CR (the controller's finalizer removes its check pods first). */}}
-{{/* Destructive, so requireConfirmation gates it; RBAC is the user's token. On success the page */}}
-{{/* returns to /incidents. The target comes from incident-detail (.incidentGvr). */}}
+{{/* Close: sets spec.closed on the Incident (a merge-patch with the user's token). The controller */}}
+{{/* then moves it to Closed, even while its scripts say it still holds. Closing cannot be undone */}}
+{{/* (the CRD rejects unsetting it), so the click asks for confirmation. The action Flex hides this */}}
+{{/* button once the incident is Resolved or Closed; the CRD still lets kubectl close a Resolved one. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: incident-detail-discard
+  name: incident-detail-close
   namespace: {{ .Release.Namespace }}
   annotations:
     "krateo.io/verbose": "true"
@@ -15,31 +16,32 @@ spec:
     name: incident-detail
     namespace: {{ .Release.Namespace }}
   widgetData:
-    label: Discard
-    icon: fa-trash
+    label: Close
+    icon: fa-circle-xmark
     type: default
-    danger: true
     size: middle
-    clickActionId: discard
+    clickActionId: close
     actions:
       rest:
-        - id: discard
+        - id: close
           type: rest
-          resourceRefId: delete-incident
+          resourceRefId: close-incident
           headers:
-            - 'Accept: application/json'
+            - 'Content-Type: application/merge-patch+json'
+          payload:
+            spec:
+              closed: true
           requireConfirmation: true
-          successMessage: Incident discarded
-          onSuccessNavigateTo: /incidents
+          successMessage: Incident closed
           loading:
             display: true
   resourcesRefs:
     items: []
   resourcesRefsTemplate:
     - template:
-        id: delete-incident
+        id: close-incident
         apiVersion: ${ .incidentGvr.apiVersion }
         resource: ${ .incidentGvr.resource }
         name: ${ .incidentGvr.name }
         namespace: ${ .incidentGvr.namespace }
-        verb: DELETE
+        verb: PATCH

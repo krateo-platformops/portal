@@ -1,0 +1,34 @@
+{{/* The "Involved resources" tab: a one-line caption, then the incident and the alert that opened */}}
+{{/* it as manifests. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-manifests-flex
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - yamlviewers
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: incident-detail-manifests-legend
+    - resourceRefId: incident-detail-manifests
+  resourcesRefs:
+    items:
+    - id: incident-detail-manifests-legend
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-manifests-legend
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: incident-detail-manifests
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-manifests
+      namespace: {{ .Release.Namespace }}
+      resource: yamlviewers
+      verb: GET

@@ -1,10 +1,10 @@
-{{/* Similar incidents: the same alert's other incidents first (newest first), then incidents with */}}
-{{/* the same root-cause category, at most 6, matched server-side (incident-detail .similar). */}}
-{{/* Rows open the sibling incident. */}}
+{{/* This alert's incidents, from alert-detail (.incidents): every open one, then the five latest */}}
+{{/* ended ones, newest first within each. Each row shows the root cause (or the incident name), */}}
+{{/* how many firings it covers, its state and when it started, and opens the incident's page. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: incident-similar
+  name: alert-detail-incidents
   namespace: {{ .Release.Namespace }}
   annotations:
     "krateo.io/verbose": "true"
@@ -12,15 +12,14 @@ spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
   apiRef:
-    name: incident-detail
+    name: alert-detail
     namespace: {{ .Release.Namespace }}
   widgetData:
     dataSource: []
     itemLayout: horizontal
     split: false
-    hideWhenEmpty: true
     itemTemplate:
-      navigateTo: '/incidents/{namespace}/{name}'
+      navigateTo: '{route}'
       iconVariant: dot
       color:
         value: '{state}'
@@ -30,14 +29,14 @@ spec:
           Resolved: green
         default: gray
       primaryText: '{title}'
-      subPrimaryText: '{reason}'
+      subPrimaryText: '{detail}'
       secondaryText: '{state}'
       secondaryTextAsTag: true
       subSecondaryText: '{when}'
       formats:
         subSecondaryText: relative
   widgetDataTemplate:
-  - forPath: dataSource
-    expression: '${ .similar // [] }'
+    - forPath: dataSource
+      expression: '${ .incidents // [] }'
   resourcesRefs:
     items: []
