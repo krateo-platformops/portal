@@ -1,0 +1,45 @@
+{{/* Resume: sets krateo.io/paused: "false" on the Alert (a merge-patch with the user's token); only */}}
+{{/* "true" pauses. Its next firing is counted or opens an incident as usual. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-resume
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Resume
+    icon: fa-circle-play
+    type: default
+    size: middle
+    clickActionId: resume
+    actions:
+      rest:
+        - id: resume
+          type: rest
+          resourceRefId: resume-alert
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          payload:
+            metadata:
+              annotations:
+                krateo.io/paused: "false"
+          successMessage: Alert resumed
+          loading:
+            display: true
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: resume-alert
+        apiVersion: ${ .gvr.apiVersion }
+        resource: ${ .gvr.resource }
+        name: ${ .gvr.name }
+        namespace: ${ .gvr.namespace }
+        verb: PATCH

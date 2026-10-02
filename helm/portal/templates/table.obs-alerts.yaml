@@ -3,6 +3,7 @@
 {{/* PENDING→orange "Pending", OK→green "OK" ("OK" kept verbatim — it is the literal HyperDX state */}}
 {{/* word, and "Ok"/"Healthy" would be prettier but less truthful). The numbers/threshold are the */}}
 {{/* real alert config; state is mirrored from HyperDX by the reconciler. */}}
+{{/* A paused alert (krateo.io/paused: "true") keeps its state word, suffixed "· paused", in gray. */}}
 {{/* Lives on the /alerts rule catalog. Row click → the per-alert detail page */}}
 {{/* /alerts/{namespace}/{name} (item 25); the "Investigate with Autopilot" ask flow the row used */}}
 {{/* to own now rides that page's pagehead button (the seed is still built server-side, just one */}}
@@ -68,7 +69,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")}, {valueKey:"watching",kind:"jsonSchemaType",type:"string",stringValue:(.watching // "-"),color:"#8c8c8c"}, {valueKey:"threshold",kind:"jsonSchemaType",type:"string",stringValue:((.thresholdType // "") + " " + (.threshold // ""))}, {valueKey:"interval",kind:"jsonSchemaType",type:"string",stringValue:(.interval // "-"),color:"#8c8c8c"}, {valueKey:"state",kind:"tag",stringValue:((.state // "PENDING") | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),color:((.state // "PENDING") | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end)} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")}, {valueKey:"watching",kind:"jsonSchemaType",type:"string",stringValue:(.watching // "-"),color:"#8c8c8c"}, {valueKey:"threshold",kind:"jsonSchemaType",type:"string",stringValue:((.thresholdType // "") + " " + (.threshold // ""))}, {valueKey:"interval",kind:"jsonSchemaType",type:"string",stringValue:(.interval // "-"),color:"#8c8c8c"}, {valueKey:"state",kind:"tag",stringValue:(((.state // "PENDING") | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end) + (if (.paused // false) then " · paused" else "" end)),color:(if (.paused // false) then "gray" else ((.state // "PENDING") | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end) end)} ] ] }'
   apiRef:
     name: obs-alerts
     namespace: {{ .Release.Namespace }}

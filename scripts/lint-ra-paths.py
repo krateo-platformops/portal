@@ -68,13 +68,15 @@ ALLOWED = {
                     '`.serviceName`), each defaulted to the page\'s own default and omitted from '
                     'the SQL when empty; a query parameter, never a path segment',
     ('agents-token-*', '*'): 'ClickHouse query window: `.range` defaults to the page\'s own 24h',
-    ('alert-detail', 'reports'): 'a LIST of the namespace\'s TroubleshootingReports; the release '
-                                 'namespace is the page\'s own default. An iterator gate would opt '
-                                 'the stage into snowplow\'s cluster-list collapse (resolvers/'
-                                 'restactions/api/cluster_list.go:195) and change how it is served',
+    ('alert-detail', 'incidents'): 'a LIST of the namespace\'s Incidents; the release namespace is '
+                                   'the page\'s own default. An iterator gate would opt the stage '
+                                   'into snowplow\'s cluster-list collapse (resolvers/restactions/'
+                                   'api/cluster_list.go:195) and change how it is served',
+    ('incident-detail', 'incidents'): 'a LIST of the namespace\'s Incidents (same collapse reason as '
+                                      'alert-detail/incidents)',
     ('agent-detail', 'deployments'): 'a LIST of the namespace\'s Deployments; the release namespace '
                                      'is the page\'s own default (same collapse reason as '
-                                     'alert-detail/reports)',
+                                     'alert-detail/incidents)',
 }
 
 

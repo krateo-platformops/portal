@@ -53,9 +53,12 @@ spec:
         thresholdType: (.spec.thresholdType // ""),
         phase: (.status.phase // "Pending"),
         state: (.status.state // "PENDING"),
+        paused: (((.metadata.annotations // {})["krateo.io/paused"] // "") == "true"),
         ask: ("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is currently " + (.status.state // "PENDING") + "; explain what it watches, why it is in this state, and give me the concrete next steps.")
       } ],
       firing: ([ ((.alerts.items) // [])[] | select((.status.state // "") == "ALERT") ] | length),
+      # Paused alerts (krateo.io/paused: "true") open no incidents, whatever their state.
+      paused: ([ ((.alerts.items) // [])[] | select(((.metadata.annotations // {})["krateo.io/paused"] // "") == "true") ] | length),
       total: ([ ((.alerts.items) // [])[] ] | length),
       # Coverage: an alert with no hyperdxAlertId is not evaluated by anything. It sits in the list
       # looking exactly like a working one — same columns, same quiet OK-ish blank — so the only

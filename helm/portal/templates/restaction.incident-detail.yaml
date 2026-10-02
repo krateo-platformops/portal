@@ -13,7 +13,10 @@ metadata:
 spec:
   api:
     - name: incident
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/incidents/" + (.name // "-") }
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ .Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/incidents/" + .name }
       verb: GET
       continueOnError: true
       errorKey: incidentError
@@ -27,7 +30,8 @@ spec:
     - name: alert
       dependsOn:
         name: incident
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + ((.incident.spec.alertRef.namespace)? // .namespace // "{{ .Release.Namespace }}") + "/alerts/" + ((.incident.spec.alertRef.name)? // "-") }
+        iterator: '[ { namespace: ((.incident.spec.alertRef.namespace)? // .namespace // "{{ .Release.Namespace }}"), name: ((.incident.spec.alertRef.name)? // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
       verb: GET
       continueOnError: true
       errorKey: alertError
