@@ -10,8 +10,10 @@
     - a core path (/api/<version>/...) only when it names no resource (discovery, a namespace) or
       a resource in fetchableCore — an explicit ALLOWLIST, so a core kind added to Kubernetes is
       unread until someone adds it here, and Secrets are never in it.
-  lint-ra-secrets.py accepts a data-driven step only when its iterator carries these defs, applies
-  fetchablePath, and fetchableCore names no secret.
+  lint-ra-secrets.py accepts a data-driven step only when its path is one field of the item
+  (`${ .path }`), its iterator BEGINS with these defs exactly as rendered here (whitespace aside),
+  defines neither again after them, and applies fetchablePath to that field; fetchableCore names
+  no secret. Change the defs here, never in a template: a copy anywhere else fails the lint.
 
   Emits defs only (each ends in `;`): put it at the head of an iterator or filter.
 */}}
