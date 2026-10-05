@@ -1,0 +1,65 @@
+{{/* Run review now: starts the nightly review outside its schedule, exactly as */}}
+{{/* `kubectl create job --from=cronjob/nightly-review` does. platform-reviews reads the CronJob (as */}}
+{{/* the caller) and this POSTs a batch/v1 Job built from it: spec is the CronJob's */}}
+{{/* .spec.jobTemplate.spec verbatim, labels and annotations are the jobTemplate's plus */}}
+{{/* cronjob.kubernetes.io/instantiate: manual, and the CronJob is its controller owner, as kubectl */}}
+{{/* sets it. Behind the blast-radius confirm, which shows the whole Job. */}}
+{{/* */}}
+{{/* The name is `<cronjob>-manual-<unix seconds>`, fixed when the widget resolves: snowplow's /call */}}
+{{/* needs a name on a namespaced POST and writes it into the body's metadata.name, so generateName */}}
+{{/* would be overridden. A second click before the page refreshes gets AlreadyExists and creates */}}
+{{/* nothing. */}}
+{{/* */}}
+{{/* Needs `create` on jobs in this namespace; without it snowplow withholds the ref and nothing is */}}
+{{/* sent. The nightly-review chart grants it (Role: get cronjobs, create jobs; bound to admins). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-run-now
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Run review now
+    icon: fa-play
+    type: primary
+    size: middle
+    clickActionId: run-now
+    actions:
+      rest:
+        - id: run-now
+          type: rest
+          resourceRefId: create-review-job
+          headers:
+            - 'Content-Type: application/json'
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: actions
+      expression: >-
+        ${ (.reviewCronJob // {}) as $c
+        | { rest: [ { id: "run-now", type: "rest", resourceRefId: "create-review-job",
+                      headers: ["Content-Type: application/json"],
+                      payload: { apiVersion: "batch/v1", kind: "Job",
+                                 metadata: { labels: ($c.jobTemplate.metadata.labels // {}),
+                                             annotations: (($c.jobTemplate.metadata.annotations // {}) + { "cronjob.kubernetes.io/instantiate": "manual" }),
+                                             ownerReferences: [ { apiVersion: "batch/v1", kind: "CronJob", name: ($c.name // ""), uid: ($c.uid // ""), controller: true } ] },
+                                 spec: ($c.jobTemplate.spec // {}) },
+                      successMessage: "${ \"Started \" + (.response.metadata.name // \"the review\") + \". Its run appears under Runs once it starts.\" }",
+                      errorMessage: "The review could not be started. Starting it needs permission to create Jobs in this namespace.",
+                      loading: { display: true } } ] } }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - iterator: '${ [ (.reviewCronJob // empty) ] }'
+      template:
+        id: create-review-job
+        apiVersion: batch/v1
+        resource: jobs
+        name: ${ .name + "-manual-" + (now | floor | tostring) }
+        namespace: ${ .namespace }
+        verb: POST

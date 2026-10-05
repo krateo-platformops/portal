@@ -1,6 +1,7 @@
 {{/* The /reviews page header. The subtitle carries the page's one essential fact: nothing listed has */}}
 {{/* been applied, and a proposal becomes a change request only when someone opens one. The counter */}}
-{{/* is the undecided proposals, the only number anyone acts on. */}}
+{{/* is the undecided proposals, the only number anyone acts on. The action line on the right holds */}}
+{{/* the latest run and "Run review now" (flex.reviews-header-actions). */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,11 +20,18 @@ spec:
       Changes the nightly review suggests after reading this platform's telemetry and agent
       sessions. Nothing here has been applied. A proposal becomes a change request only when someone
       opens one from it, and its pull request is where the change is decided.
-    allowedResources: []
-    items: []
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: reviews-header-actions
   widgetDataTemplate:
     - forPath: counter
       expression: '${ .open // 0 }'
-  {{/* REQUIRED even when empty: the apiserver rejects a PageHeader without spec.resourcesRefs. */}}
   resourcesRefs:
-    items: []
+    items:
+    - id: reviews-header-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-header-actions
+      namespace: {{ .Release.Namespace }}
+      resource: flexes
+      verb: GET

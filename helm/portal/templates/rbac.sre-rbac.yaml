@@ -1,0 +1,168 @@
+{{- if .Values.enableDemoSystemNamespace }}
+{{/* The demo's SRE persona: group `sre`. No User is rendered here; a person is put in the group */}}
+{{/* (Settings > Users, or their identity provider's groups). What the group may do: */}}
+{{/* · act on incidents through the portal (Close, Apply, "I applied it", Discard), cluster-wide, */}}
+{{/*   through incident-controller's krateo-incident-responder, which that chart ships unbound; */}}
+{{/* · open the portal's pages and the incident page's alert (krateo-system, read-only); */}}
+{{/* · read and patch the compositions in demo-system, so Apply of an incident whose fix patches a */}}
+{{/*   composition there succeeds, and read what those compositions run (the built-in `view`, which */}}
+{{/*   reads no Secrets). */}}
+{{/* Gated with the demo-system namespace: the persona exists for that demo. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sre-incident-responder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: krateo-incident-responder
+subjects:
+- kind: Group
+  name: sre
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sre-list-namespaces-get-list-crds-in-cluster
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - namespaces
+  verbs:
+  - list
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sre-list-namespaces-get-list-crds-in-cluster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sre-list-namespaces-get-list-crds-in-cluster
+subjects:
+- kind: Group
+  name: sre
+  apiGroup: rbac.authorization.k8s.io
+---
+{{/* krateo-system: the portal's widgets and RESTActions (every page), and the alerts the incident */}}
+{{/* pages link to. Read-only. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sre-get-list-portal-and-alerts-in-krateo-namespace
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - observability.krateo.io
+  resources:
+  - alerts
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sre-get-list-portal-and-alerts-in-krateo-namespace
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sre-get-list-portal-and-alerts-in-krateo-namespace
+subjects:
+- kind: Group
+  name: sre
+  apiGroup: rbac.authorization.k8s.io
+---
+{{/* demo-system: compositions (read and patch), the blueprints installed there, and the portal */}}
+{{/* objects and ConfigMaps the composition pages read, as devs have them. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sre-get-list-patch-any-composition-in-demo-namespace
+  namespace: demo-system
+rules:
+- apiGroups:
+  - composition.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+- apiGroups:
+  - core.krateo.io
+  resources:
+  - compositiondefinitions
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sre-get-list-patch-any-composition-in-demo-namespace
+  namespace: demo-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sre-get-list-patch-any-composition-in-demo-namespace
+subjects:
+- kind: Group
+  name: sre
+  apiGroup: rbac.authorization.k8s.io
+---
+{{/* What the compositions in demo-system run (Deployments, Pods, Events, ConfigMaps…): the built-in */}}
+{{/* read-only `view`, which excludes Secrets. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sre-view-demo-namespace
+  namespace: demo-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+- kind: Group
+  name: sre
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

@@ -63,6 +63,9 @@ spec:
       | if $sc == "apply" then (if (($x | isnum) | not) or $x == 0 then "#1677ff" else "#cf1322" end)
         elif $x == 0 then "#389e0d" elif $x == 1 then "#cf1322" else "#8c8c8c" end;
     def fence: (if test("```") then "````" else "```" end);
+    # One payload leaf as Markdown: a merge patch's `null` removes the key; long values are cut.
+    def leafval: if . == null then "removed" else (if type == "string" then . else tojson end) | gsub("`"; "'") | (if length > 80 then (.[0:80] + "…") else . end) | ("`" + . + "`") end;
+    def leaves($p): if type == "object" and length > 0 then to_entries[] | .key as $k | .value | leaves($p + [$k]) else { path: ($p | map(tostring) | join(".")), value: . } end;
     (.name // "") as $n
     | (.namespace // "{{ .Release.Namespace }}") as $ns
     | ((.incident // {}) | if type == "object" and ((.metadata.name // "") != "") then . else {} end) as $r
@@ -84,7 +87,14 @@ spec:
     | ($st.checks // []) as $checks
     | ($st.error // "") as $err
     | ($st.report // "") as $rpt
-    | ([ ($fix.precondition // ""), ($fix.apply // ""), ($fix.verify // "") ] | any(. != "")) as $hasFix
+    # status.howToFix.applyAction: the fix as ONE Kubernetes API write (alert-provider >= 0.2.45). Actionable
+    # only with a known verb, a target, and a payload object unless it deletes; the verb maps to the
+    # HTTP method the portal's Apply sends it with, as the signed-in user.
+    | ($fix.applyAction // null) as $aa
+    | (if ($aa | type) == "object" then ({ patch: "PATCH", create: "POST", post: "POST", put: "PUT", delete: "DELETE" }[(($aa.verb // "") | ascii_downcase)] // null) else null end) as $aaVerb
+    | ($aaVerb != null and ($aa.apiVersion // "") != "" and ($aa.resource // "") != "" and ($aa.name // "") != ""
+       and ($aaVerb == "DELETE" or (($aa.payload // null) | type) == "object")) as $aaOk
+    | ([ ($fix.precondition // ""), ($fix.apply // ""), ($fix.verify // "") ] | any(. != "") or $aaOk) as $hasFix
     | ((($analyzed | length) > 0) or (($sources | length) > 0) or (($trace | length) > 0) or (($rc.statement // "") != "") or $hasFix) as $structured
     | ([ $analyzed[] | select((.gvr // "") | contains("composition")) ] | first) as $comp
     | ((if $alert then ($alert.spec.displayName // "") else "" end) | clean) as $alertDisplay
@@ -93,7 +103,17 @@ spec:
     | ([ $all[] | select(alertlabel == $alertName and $alertName != "") ] | sort_by([when, .metadata.name])) as $siblings
     | (($siblings | map(.metadata.name) | index($n)) // null) as $ordinal
     | ($sp.applied // false) as $appliedPending
-    | ($state == "Open" and ($fix.apply // "") != "" and ($appliedPending | not)) as $canApply
+    # Apply sends applyAction; "I applied it" stays for an incident whose fix is only a script.
+    | ($state == "Open" and $aaOk and ($appliedPending | not)) as $canApplyAction
+    | ($state == "Open" and ($fix.apply // "") != "" and ($appliedPending | not) and ($aaOk | not)) as $canApply
+    # What Apply writes, in words: the verb, the object and, for a patch, each field it sets.
+    | (if $aaOk then
+        ("`" + $aa.resource + "/" + $aa.name + "`" + (if ($aa.namespace // "") != "" then (" in `" + $aa.namespace + "`") else " (cluster-scoped)" end)) as $obj
+        | ({ PATCH: "update", PUT: "replace", POST: "create", DELETE: "delete" }[$aaVerb]) as $word
+        | (if $aaVerb == "PATCH" then [ $aa.payload | leaves([]) | select(.path != "") ] else [] end) as $lv
+        | "**" + $word + "** " + $obj
+          + (if ($lv | length) > 0 then (", setting " + ($lv | map("`" + .path + "` to " + (.value | leafval)) | join(", "))) else "" end)
+      else "" end) as $applyWrite
     | ([ $checks[] | select(.script == "precondition") ] | last) as $lastPre
     | ([ $checks[] | select(.script == "apply") ] | last) as $lastApply
     | ([ $checks[] | select(.script == "verify") ] | last) as $lastVerify
@@ -102,7 +122,7 @@ spec:
        elif ($lastPre.exit // null) == 1 then "error"
        elif ($lastPre.exit // null) == 0 then "finish"
        elif $state == "Open" then "process" else "wait" end) as $preStatus
-    | (if $canApply or ($state == "Open" and $appliedPending) then "process" elif $lastApply != null then "finish" else "wait" end) as $applyStatus
+    | (if $canApply or $canApplyAction or ($state == "Open" and $appliedPending) then "process" elif $lastApply != null then "finish" else "wait" end) as $applyStatus
     | (if $state == "Verifying" then "process"
        elif ($lastVerify.exit // null) == 0 then "finish"
        elif ($lastVerify.exit // null) == 1 then "error" else "wait" end) as $verifyStatus
@@ -115,10 +135,11 @@ spec:
            note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, or close the incident." else "" end) },
          { key: "apply", title: "Review & apply", status: $applyStatus,
            last: (if $appliedPending then "applied, waiting for the controller to verify" else $lastLines[1] end),
-           lead: "The fix. Read it, run it in your own terminal, then click **I applied it**: the controller then runs the verify script.",
+           lead: (if $aaOk then ("The fix is one Kubernetes API write: " + $applyWrite + ". **Apply** sends it as you, after a confirmation that shows the exact request, then marks this incident applied: the controller then runs the verify script.")
+                  else "The fix. Read it, run it in your own terminal, then click **I applied it**: the controller then runs the verify script." end),
            note: "" },
          { key: "verify", title: "Verify", status: $verifyStatus, last: $lastLines[2],
-           lead: "Did the fix work? The controller runs this in the read-only sandbox once the precondition exits 0 or you click **I applied it**, retrying for about 5 minutes: exit **0** means fixed, **1** that it still holds.",
+           lead: "Did the fix work? The controller runs this in the read-only sandbox once the precondition exits 0 or the fix is marked applied, retrying for about 5 minutes: exit **0** means fixed, **1** that it still holds.",
            note: "" } ]
        # Rollback, only when the analysis wrote one: a human runs it to revert an applied fix. No check records it and it moves no state, so it has no last run.
        + (if ($fix.rollback // "") != "" then [
@@ -178,6 +199,9 @@ spec:
         canClose: ($exists and $state != "Closed" and $state != "Resolved"),
         canDiscard: $exists,
         canApply: $canApply,
+        # Apply: status.howToFix.applyAction, normalized (verb as the HTTP method), for the button that sends it.
+        canApplyAction: $canApplyAction,
+        applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | rel) } else empty end),
                       (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | rel) } else empty end),
                       (if ($st.firings // 0) > 0 then { label: "Firings", value: ($st.firings | tostring) } else empty end),

@@ -72,7 +72,7 @@ blueprint-preview seam) and the marketplace catalog index — each through an
 
 | API | Owner | Read by | Written by the portal |
 |---|---|---|---|
-| `incidents.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents`, `/incidents/{namespace}/{name}`, the composition page's Incidents strip, `/alerts/{namespace}/{name}`, the alerts summary band, global search | `spec.applied: true` ("I applied it"), `spec.closed: true` (Close), and DELETE (Discard), each as the clicking user |
+| `incidents.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents`, `/incidents/{namespace}/{name}`, the composition page's Incidents strip, `/alerts/{namespace}/{name}`, the alerts summary band, global search | `spec.applied: true` (Apply or "I applied it"), `spec.closed: true` (Close), and DELETE (Discard), each as the clicking user |
 | `alerts.observability.krateo.io/v1alpha1` | [alert-provider](https://github.com/krateo-platformops/alert-troubleshooter) | `/alerts`, `/alerts/{namespace}/{name}`, the incident page's alert chip (`status.state`, `status.okSince`) | the alert create/edit/delete forms |
 
 An Incident lives in its Alert's namespace and carries the label
@@ -81,3 +81,21 @@ label (and `spec.alertRef`), never on display names. The incident page reads the
 state from `status.checks` rather than `spec.applied`, which the controller resets once it
 records the `apply` check. Users need `get`/`list` on both resources, and `patch`/`delete`
 on `incidents` for the incident page's actions.
+
+**Apply.** When `status.howToFix.applyAction` is one actionable write (verb `patch`, `create` or
+`delete`, with apiVersion, resource and name, and a payload object unless it deletes), the
+"Review & apply" step offers **Apply** instead of "I applied it". Apply sends that write exactly,
+through snowplow `/call` as the clicking user (`patch` as a JSON merge patch, `create` as a POST,
+`delete` as a DELETE), then sets `spec.applied: true` on the incident, as ONE confirmed set: the
+confirm lists both writes with their target and body, and the incident is marked only if the fix
+succeeded. The user needs that verb on the target (for a composition, `patch` on its
+`composition.krateo.io` resource in its namespace).
+
+## The nightly review's CronJob
+
+`/reviews` reads `batch/v1` CronJob `nightly-review` in the portal namespace (as the caller) and,
+when it can, offers **Run review now**: a POST of the Job `kubectl create job
+--from=cronjob/nightly-review` creates (the jobTemplate's spec, labels and annotations,
+`cronjob.kubernetes.io/instantiate: manual`, the CronJob as controller owner), named
+`nightly-review-manual-<unix seconds>`. It needs `get` on cronjobs and `create` on jobs in that
+namespace; the nightly-review chart grants both to `admins`.
