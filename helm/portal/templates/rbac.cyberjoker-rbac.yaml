@@ -209,6 +209,35 @@ subjects:
   name: devs
   apiGroup: rbac.authorization.k8s.io
 ---
+{{/* patch, separately from create/get/list so that Role keeps its name: a developer edits the */}}
+{{/* compositions they created, and the incident page's Apply sends a composition fix as them. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devs-patch-any-composition-in-demo-namespace
+  namespace: demo-system
+rules:
+- apiGroups:
+  - composition.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devs-patch-any-composition-in-demo-namespace
+  namespace: demo-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devs-patch-any-composition-in-demo-namespace
+subjects:
+- kind: Group
+  name: devs
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

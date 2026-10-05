@@ -43,6 +43,16 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: runsError
+    {{/* The nightly review's CronJob, for "Run review now": a plain GET as the caller. Its */}}
+    {{/* jobTemplate is what a manual run instantiates (`kubectl create job --from=cronjob/...`). */}}
+    {{/* Absent or unreadable, the page simply offers no button. */}}
+    - name: cronjob
+      path: /apis/batch/v1/namespaces/{{ .Release.Namespace }}/cronjobs/nightly-review
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: cronjobError
     {{- include "portal.reviewDiscoverySteps" (dict "source" "proposals") | nindent 4 }}
   filter: |
     {{- include "portal.reviewDefs" . | nindent 4 }}
@@ -83,6 +93,7 @@ spec:
     | ([ $visible[] | select(rv_phase as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed") ] | grouped | map(row)) as $decided
     | ([ ((.runs.items) // [])[] ] | sort_by(.status.startedAt // .metadata.creationTimestamp // "") | reverse) as $runs
     | ($runs[0] // null) as $last
+    | ((.cronjob // {}) | if type == "object" and (.kind // "") == "CronJob" and ((.metadata.name // "") != "") and (.spec.jobTemplate.spec != null) then . else null end) as $cron
     | { installed: ($perr | test("404|not found|could not find"; "i") | not),
         denied: ($perr | test("403|forbidden"; "i")),
         readError: $perr,
@@ -119,6 +130,11 @@ spec:
         runCaption: (([ $runs | group_by(.status.phase // "Pending")[] | ((length | tostring) + " " + (.[0].status.phase // "Pending")) ] | join(" · "))
                      + (if ($runs | length) > 0 then " · since " + ($runs[-1].status.startedAt | rv_when) else "" end)),
         runCount: ($runs | length),
+        lastRun: (if $last == null then null else { name: $last.metadata.name, phase: ($last.status.phase // "Pending"), started: ($last.status.startedAt | rv_when) } end),
+        {{/* What a manual run instantiates: the CronJob's identity and its jobTemplate, verbatim. */}}
+        reviewCronJob: (if $cron == null then null else
+          { name: $cron.metadata.name, namespace: ($cron.metadata.namespace // "{{ .Release.Namespace }}"), uid: ($cron.metadata.uid // ""),
+            jobTemplate: { metadata: ($cron.spec.jobTemplate.metadata // {}), spec: $cron.spec.jobTemplate.spec } } end),
         {{/* The one line above the tabs, when the latest run is not a clean Completed. */}}
         banner: (
           if ($perr | test("404|not found|could not find"; "i")) then

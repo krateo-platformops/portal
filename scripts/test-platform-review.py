@@ -14,6 +14,9 @@ reader would see:
   - TargetResolved=False/NotFoundOrPrivate reads "Target unverified", never as a missing repository;
   - Refused (historical) is excluded from both tabs, and the caption says so;
   - a Failed run's Result is status.error; evidence[].query is never rendered;
+  - "Run review now" POSTs the Job `kubectl create job --from=cronjob/nightly-review` creates: the
+    CronJob's jobTemplate.spec verbatim, cronjob.kubernetes.io/instantiate: manual, the CronJob as
+    controller owner, named <cronjob>-manual-<n>; no CronJob read, no button;
   - the change-request claim, as the form would POST it, satisfies builder-publish's values schema
     with builder review and repository.create false, and the action retires once the claim exists;
   - decisions: Reject PATCHes exactly {spec: {decision: {phase: Rejected, reason}}} and Open change
@@ -389,6 +392,60 @@ def check_banner_and_empty_states(chart):
     return f
 
 
+# The nightly-review CronJob as krateo-057 serves it (nightly-review 0.1.29), env cut to a few entries.
+CRONJOB = {
+    'apiVersion': 'batch/v1', 'kind': 'CronJob',
+    'metadata': {'name': 'nightly-review', 'namespace': NS, 'uid': '25fc3c34-e6c4-4c14-8111-5e78b79e1c28',
+                 'labels': {'app.kubernetes.io/managed-by': 'Helm'}},
+    'spec': {'schedule': '0 2 * * *', 'successfulJobsHistoryLimit': 3, 'failedJobsHistoryLimit': 3,
+             'jobTemplate': {'metadata': {}, 'spec': {
+                 'activeDeadlineSeconds': 3600, 'backoffLimit': 0,
+                 'template': {'metadata': {}, 'spec': {
+                     'restartPolicy': 'Never', 'serviceAccountName': 'nightly-review',
+                     'containers': [{'name': 'review', 'image': 'ghcr.io/krateo-platformops/nightly-review:0.1.29',
+                                     'env': [{'name': 'WINDOW_HOURS', 'value': '24'},
+                                             {'name': 'TARGET_CHECK_TOKEN', 'valueFrom': {'secretKeyRef': {
+                                                 'key': 'token', 'name': 'gh-token', 'optional': True}}}]}]}}}}},
+    'status': {'lastScheduleTime': '2026-10-05T02:00:00Z'},
+}
+
+
+def check_run_review_now(chart):
+    f = []
+    out = resolved(chart, 'platform-reviews', list_responses(cronjob=CRONJOB), {})
+    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'run-now')
+    expect(f, 'header actions', [i['resourceRefId'] for i in w['reviews-header-actions']['items']],
+           ['reviews-last-run', 'reviews-run-now'])
+    expect(f, 'last run line', w['reviews-last-run']['text'], 'Last run rr-20260929-1933 · Completed · 2026-09-29 19:33 UTC')
+    act = w['reviews-run-now']['actions']['rest'][0]
+    body = act['payload']
+    expect(f, 'a batch/v1 Job', (body['apiVersion'], body['kind']), ('batch/v1', 'Job'))
+    expect(f, 'spec is the jobTemplate spec, verbatim', body['spec'], CRONJOB['spec']['jobTemplate']['spec'])
+    expect(f, 'instantiate annotation', body['metadata']['annotations'], {'cronjob.kubernetes.io/instantiate': 'manual'})
+    expect(f, 'controller owner is the CronJob', body['metadata']['ownerReferences'],
+           [{'apiVersion': 'batch/v1', 'kind': 'CronJob', 'name': 'nightly-review',
+             'uid': CRONJOB['metadata']['uid'], 'controller': True}])
+    expect(f, 'sent as JSON', act['headers'], ['Content-Type: application/json'])
+    expect(f, 'targets the create-job ref', act['resourceRefId'], 'create-review-job')
+    expect(f, 'success names the Job', tbi.jq(expr(act['successMessage']), {'response': {'metadata': {'name': 'nightly-review-manual-1'}}}),
+           'Started nightly-review-manual-1. Its run appears under Runs once it starts.')
+    t = chart.get('Button', 'reviews-run-now')['spec']['resourcesRefsTemplate'][0]
+    els = tbi.jq(expr(t['iterator']), out)
+    expect(f, 'one ref with the CronJob', len(els), 1)
+    ref = {k: (tbi.jq(expr(v), els[0]) if isinstance(v, str) and expr(v) is not None else v) for k, v in t['template'].items()}
+    expect(f, 'POST jobs in the CronJob namespace', (ref['apiVersion'], ref['resource'], ref['namespace'], ref['verb']),
+           ('batch/v1', 'jobs', NS, 'POST'))
+    name = ref['name']
+    if not (name.startswith('nightly-review-manual-') and name.rsplit('-', 1)[1].isdigit() and len(name) <= 63):
+        f.append(f'job name {name!r} is not nightly-review-manual-<n> within 63 characters')
+    out = resolved(chart, 'platform-reviews', list_responses(
+        cronjob='ERROR:cronjobs.batch "nightly-review" is forbidden: User "u" cannot get (403)'), {})
+    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'run-now-denied')
+    expect(f, 'no CronJob, no button', w['reviews-header-actions']['items'], [])
+    expect(f, 'no CronJob, no ref', tbi.jq(expr(t['iterator']), out), [])
+    return f
+
+
 def check_proposal_detail(chart):
     f = []
     ex = {'name': 'p-cccc000000000003'}
@@ -665,6 +722,7 @@ CHECKS = [
     check_kind_and_target_checks,
     check_runs_tab,
     check_banner_and_empty_states,
+    check_run_review_now,
     check_proposal_detail,
     check_change_request_claim,
     check_run_detail,

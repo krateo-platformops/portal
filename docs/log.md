@@ -14,6 +14,15 @@ Curated history, newest first. Point-in-time records live as archives (the
 ([marketplace-registry-discovery](./marketplace-registry-discovery.md),
 [snowplow-yaml-api-step-enabler](./snowplow-yaml-api-step-enabler.md)).
 
+## 2026-10-05 — Apply on the incident page, Run review now on /reviews
+
+An incident whose analysis wrote `status.howToFix.applyAction` (alert-provider 0.2.45) is fixed
+from the page: **Apply** sends that one write as the user and marks the incident applied, behind
+one confirm that names the object and the fields it sets. "I applied it" stays for a fix that is
+only a script. `/reviews` gains **Run review now**, which creates a Job from the nightly-review
+CronJob as `kubectl create job --from` does, beside the latest run's name, phase and start. The
+demo persona `devs` may now `patch` compositions in `demo-system`.
+
 ## 2026-09-25 — incident pages read Incidents
 
 The incident pages read `incidents.observability.krateo.io` (incident-controller), one object per

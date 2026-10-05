@@ -1,0 +1,40 @@
+{{/* The /reviews header's action line: the latest run, then "Run review now" when the nightly */}}
+{{/* review's CronJob is readable (.reviewCronJob). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-header-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - buttons
+    vertical: false
+    gap: small
+    align: center
+    items:
+    - resourceRefId: reviews-last-run
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (if (.reviewCronJob // null) != null then [ { resourceRefId: "reviews-last-run" }, { resourceRefId: "reviews-run-now" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: reviews-last-run
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-last-run
+      namespace: {{ .Release.Namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-run-now
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-run-now
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET

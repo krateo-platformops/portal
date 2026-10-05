@@ -1,9 +1,11 @@
 {{/* The body of each How-to-fix step (0 precondition · 1 apply · 2 verify · 3 rollback, which */}}
 {{/* exists only when the incident has a rollback script): a Flex holding the step's Markdown */}}
 {{/* (what the script does, its last run, the script in a fenced block with its own copy control) */}}
-{{/* and, on the apply step only, "I applied it". incident-detail shapes the markdown */}}
-{{/* (.fixSteps[i].md) and decides whether the button shows (.canApply: the incident is Open, has */}}
-{{/* an apply script and has no click waiting for the controller). Rollback has no button. */}}
+{{/* and, on the apply step only, Apply or "I applied it". incident-detail shapes the markdown */}}
+{{/* (.fixSteps[i].md) and decides which button shows: .canApplyAction (the incident is Open, its */}}
+{{/* howToFix.applyAction is one actionable write, and no click is waiting for the controller) shows */}}
+{{/* Apply; .canApply (the same, for a fix that is only a script) shows "I applied it". Rollback has */}}
+{{/* no button. */}}
 {{- range $i := until 4 }}
 ---
 kind: Flex
@@ -33,7 +35,10 @@ spec:
   {{- if eq $i 1 }}
   widgetDataTemplate:
     - forPath: items
-      expression: '${ [ { resourceRefId: "incident-rem-step-md-1" } ] + (if (.canApply // false) then [ { resourceRefId: "incident-rem-applied" } ] else [] end) }'
+      expression: >-
+        ${ [ { resourceRefId: "incident-rem-step-md-1" } ]
+        + (if (.canApplyAction // false) then [ { resourceRefId: "incident-rem-apply" } ]
+           elif (.canApply // false) then [ { resourceRefId: "incident-rem-applied" } ] else [] end) }
   {{- end }}
   resourcesRefs:
     items:
@@ -47,6 +52,12 @@ spec:
     - id: incident-rem-applied
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-rem-applied
+      namespace: {{ $.Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: incident-rem-apply
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-rem-apply
       namespace: {{ $.Release.Namespace }}
       resource: buttons
       verb: GET
@@ -116,6 +127,76 @@ spec:
   resourcesRefsTemplate:
     - template:
         id: applied-incident
+        apiVersion: ${ .incidentGvr.apiVersion }
+        resource: ${ .incidentGvr.resource }
+        name: ${ .incidentGvr.name }
+        namespace: ${ .incidentGvr.namespace }
+        verb: PATCH
+---
+{{/* Apply: sends status.howToFix.applyAction exactly as the analysis wrote it, through snowplow /call */}}
+{{/* with the signed-in user's token, then marks the incident applied the way "I applied it" does */}}
+{{/* (spec.applied: true; the controller records an apply check, moves Open to Verifying and runs */}}
+{{/* the verify script). The two writes are ONE `ops` set: one blast-radius confirm lists both, each */}}
+{{/* with its target and body (the patch's fields), and the incident is marked only if the fix */}}
+{{/* succeeded (stop on first error). */}}
+{{/* */}}
+{{/* The target is any object (a composition, a Deployment, an Alert...), so its ref is built by */}}
+{{/* resourcesRefsTemplate. A ref's verb is a literal, so there is one template per method, and the */}}
+{{/* iterator emits only the one applyAction.verb names (none when the incident has no applyAction). */}}
+{{/* snowplow adds kind/apiVersion/metadata.name/namespace to a PATCH/POST ref's payload, which a */}}
+{{/* merge patch and a create both accept. Without the RBAC verb on the target the ref is withheld */}}
+{{/* and nothing is sent. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-rem-apply
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Apply
+    icon: fa-play
+    type: primary
+    size: middle
+    clickActionId: apply
+    actions:
+      rest:
+        - id: apply
+          type: rest
+          resourceRefId: apply-mark-incident
+          headers: []
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: actions
+      expression: >-
+        ${ (.applyAction // {}) as $a
+        | ("apply-target-" + (($a.verb // "PATCH") | ascii_downcase)) as $t
+        | { rest: [ { id: "apply", type: "rest", resourceRefId: $t, headers: [],
+                      loading: { display: true },
+                      ops: [ ({ resourceRefId: $t } + (if ($a.verb // "") == "DELETE" then {} else { payload: ($a.payload // {}) } end)),
+                             { resourceRefId: "apply-mark-incident", payload: { spec: { applied: true } } } ] } ] } }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+{{- range $verb := list "PATCH" "PUT" "POST" "DELETE" }}
+    - iterator: '${ [ (.applyAction // empty) | select(.verb == "{{ $verb }}") ] }'
+      template:
+        id: apply-target-{{ lower $verb }}
+        apiVersion: ${ .apiVersion }
+        resource: ${ .resource }
+        name: ${ .name }
+        namespace: ${ .namespace }
+        verb: {{ $verb }}
+{{- end }}
+    - template:
+        id: apply-mark-incident
         apiVersion: ${ .incidentGvr.apiVersion }
         resource: ${ .incidentGvr.resource }
         name: ${ .incidentGvr.name }
