@@ -74,6 +74,8 @@ ALLOWED = {
                                    'api/cluster_list.go:195) and change how it is served',
     ('incident-detail', 'incidents'): 'a LIST of the namespace\'s Incidents (same collapse reason as '
                                       'alert-detail/incidents)',
+    ('incident-detail', 'incidentApplies'): 'a LIST of the namespace\'s IncidentApplies (same collapse '
+                                            'reason as alert-detail/incidents)',
     ('agent-detail', 'deployments'): 'a LIST of the namespace\'s Deployments; the release namespace '
                                      'is the page\'s own default (same collapse reason as '
                                      'alert-detail/incidents)',

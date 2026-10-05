@@ -1,0 +1,23 @@
+{{/* Below the Apply runs table: each run (the 10 most recent) as a heading, the controller's */}}
+{{/* message, the output in a fenced block with its own copy control, and the script when it is */}}
+{{/* not the apply step's current one. incident-detail shapes it (.applyRunsMd). */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-apply-runs-output
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    markdown: ''
+  widgetDataTemplate:
+  - forPath: markdown
+    expression: '${ .applyRunsMd // "" }'
+  resourcesRefs:
+    items: []
