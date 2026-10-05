@@ -1,8 +1,8 @@
 {{/* Data source for ONE Incident (incidents.observability.krateo.io, owned by incident-controller) */}}
 {{/* — /incidents/{namespace}/{name}; the route params ride in as ?extras .name/.namespace. */}}
-{{/* Reads the incident, its alert (spec.alertRef) and the namespace's incidents (for "#N of this */}}
-{{/* alert" and Similar incidents), and shapes every section server-side. `sections` gates which */}}
-{{/* sections the page renders, so none renders over empty data. */}}
+{{/* Reads the incident, its alert (spec.alertRef), the namespace's incidents (for "#N of this */}}
+{{/* alert" and Similar incidents) and its Run apply runs, and shapes every section server-side. */}}
+{{/* `sections` gates which sections the page renders, so none renders over empty data. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -27,6 +27,14 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: incidentsError
+    {{/* The incident's Run apply runs (incidentapplies.observability.krateo.io, incident-controller): */}}
+    {{/* one object per click, in the incident's namespace, matched on spec.incidentRef.name in the */}}
+    {{/* filter (they carry no label). A missing CRD or a 403 leaves the list empty and hides Run apply. */}}
+    - name: incidentApplies
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ .Release.Namespace }}") + "/incidentapplies" }
+      verb: GET
+      continueOnError: true
+      errorKey: incidentAppliesError
     - name: alert
       dependsOn:
         name: incident
@@ -106,6 +114,18 @@ spec:
     # Apply sends applyAction; "I applied it" stays for an incident whose fix is only a script.
     | ($state == "Open" and $aaOk and ($appliedPending | not)) as $canApplyAction
     | ($state == "Open" and ($fix.apply // "") != "" and ($appliedPending | not) and ($aaOk | not)) as $canApply
+    # Run apply: this incident's IncidentApplies, newest first. A list that did not come back (no CRD, a 403) is no list.
+    | (.incidentApplies | type == "object" and (((.items // null) | type) == "array" or ((.kind // "") | endswith("List")))) as $runsOk
+    | ([ (if $runsOk then (.incidentApplies.items // []) else [] end)[] | select((.spec.incidentRef.name // "") == $n and $n != "") ]
+       | map(. + { _when: (.status.startedAt // .metadata.creationTimestamp // "") }) | sort_by([._when, .metadata.name]) | reverse) as $runs
+    # A run the controller has not finished: no phase yet, or Running. It rejects a second one, so Run apply hides.
+    | ([ $runs[] | select((.status.phase // "") == "" or .status.phase == "Running") ] | first) as $runActive
+    | ($canApply and $runsOk and $runActive == null) as $canRunApply
+    # The newest run, when it Failed or was Rejected after the last recorded apply: the step's last run names it.
+    | (($runs | first) as $r0
+       | if $r0 != null and (($r0.status.phase // "") | IN("Failed", "Rejected"))
+            and ((([ $checks[] | select(.script == "apply") ] | last).at // "") | epoch // 0) < (($r0._when | epoch) // 0)
+         then $r0 else null end) as $runMissed
     # What Apply writes, in words: the verb, the object and, for a patch, each field it sets.
     | (if $aaOk then
         ("`" + $aa.resource + "/" + $aa.name + "`" + (if ($aa.namespace // "") != "" then (" in `" + $aa.namespace + "`") else " (cluster-scoped)" end)) as $obj
@@ -134,8 +154,14 @@ spec:
            lead: "Does the incident still hold? The controller runs this every minute in a read-only sandbox while the incident is Open: exit **1** means it holds, **0** that it is gone.",
            note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, or close the incident." else "" end) },
          { key: "apply", title: "Review & apply", status: $applyStatus,
-           last: (if $appliedPending then "applied, waiting for the controller to verify" else $lastLines[1] end),
+           last: (if $appliedPending then "applied, waiting for the controller to verify"
+                  elif $runActive != null then ("Run apply in progress, as " + ($runActive.spec.requestedBy.username // "you") + " · " + ($runActive._when | rel))
+                  elif $runMissed != null then ("Run apply " + ($runMissed.status.phase | ascii_downcase)
+                    + (if ($runMissed.status.exitCode // null) | isnum then (" · exit " + ($runMissed.status.exitCode | tostring)) else "" end)
+                    + " · " + ($runMissed._when | rel) + " · see Apply runs")
+                  else $lastLines[1] end),
            lead: (if $aaOk then ("The fix is one Kubernetes API write: " + $applyWrite + ". **Apply** sends it as you, after a confirmation that shows the exact request, then marks this incident applied: the controller then runs the verify script.")
+                  elif $runsOk then "The fix. Read it, then click **Run apply**: the controller runs it with your Kubernetes permissions and, when it exits 0, runs the verify script. Its output is under **Apply runs**. Or run it in your own terminal and click **I applied it**."
                   else "The fix. Read it, run it in your own terminal, then click **I applied it**: the controller then runs the verify script." end),
            note: "" },
          { key: "verify", title: "Verify", status: $verifyStatus, last: $lastLines[2],
@@ -162,6 +188,29 @@ spec:
            outcome: outcome,
            color: outcomecolor } ]
        | sort_by(.when) | reverse) as $checkRows
+    # Apply runs: a row per Run apply click, then each run's message, output and, when it is not the apply step's, script.
+    | ($runs | map({
+        when: ._when,
+        who: (.spec.requestedBy.username // "—"),
+        phase: (.status.phase // "Pending"),
+        exit: (if (.status.exitCode // null) | isnum then (.status.exitCode | tostring) else "—" end),
+        message: (.status.message // ""),
+        color: ({ Succeeded: "#389e0d", Failed: "#cf1322", Rejected: "#d46b08", Running: "#1677ff" }[.status.phase // ""] // "#8c8c8c") })) as $runRows
+    | ((($fix.apply // "") | rtrimstr("\n")) as $applyScript
+       | $runs[0:10] | map(
+        (.status // {}) as $rs
+        | (($rs.output // "") | rtrimstr("\n")) as $out
+        | (($rs.script // "") | rtrimstr("\n")) as $rsc
+        | "#### " + ($rs.phase // "Pending")
+          + (if ($rs.exitCode // null) | isnum then (" · exit " + ($rs.exitCode | tostring)) else "" end)
+          + " · " + (.spec.requestedBy.username // "unknown user") + " · " + (._when | rel)
+          + (if ($rs.message // "") != "" then ("\n\n" + $rs.message)
+             elif ($rs.phase // "") == "" then "\n\n_Waiting for the controller to start it._"
+             elif $rs.phase == "Running" then "\n\n_Running._" else "" end)
+          + (if $out != "" then ("\n\n**Output** (up to its last 4 KiB):\n\n" + ($out | fence) + "text\n" + $out + "\n" + ($out | fence)) else "" end)
+          + (if $rsc != "" and $rsc != $applyScript then ("\n\n**Script** (not the apply step's current one):\n\n" + ($rsc | fence) + "bash\n" + $rsc + "\n" + ($rsc | fence)) else "" end))
+       | join("\n\n")
+       + (if ($runs | length) > 10 then "\n\n_The 10 most recent runs; the table lists all of them._" else "" end)) as $runsMd
     | ([ $all[] | select(.metadata.name != $n) ]) as $others
     | ( ([ $others[] | select($alertName != "" and alertlabel == $alertName) ] | sort_by(when) | reverse | map(. + { _why: "same alert" }))
       + (if ($rc.category // "") != "" then
@@ -193,12 +242,14 @@ spec:
           + (("Diagnose this incident (\"" + $n + "\" in namespace \"" + $ns
              + "\"). Explain what it contains, what happened, the most likely root cause,"
              + " and how to fix it — grounded in the evidence on this page.") | @uri)),
-        # Target of Close, "I applied it" and Discard, written with the user's own token.
+        # Target of Close, "I applied it" and Discard, and what Run apply names, written with the user's own token.
         incidentGvr: { apiVersion: "observability.krateo.io/v1alpha1", resource: "incidents", name: $n, namespace: $ns },
         # A Resolved incident was proven fixed by its verify script; the portal offers Close only before that.
         canClose: ($exists and $state != "Closed" and $state != "Resolved"),
         canDiscard: $exists,
         canApply: $canApply,
+        # Run apply: the same incidents as "I applied it", while no run of this incident is unfinished.
+        canRunApply: $canRunApply,
         # Apply: status.howToFix.applyAction, normalized (verb as the HTTP method), for the button that sends it.
         canApplyAction: $canApplyAction,
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
@@ -256,6 +307,9 @@ spec:
         fixStepsForWidget: ($fixSteps | map({ eyebrow, title, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
         checkRows: $checkRows,
         checksLabel: ("Check history · " + ($checkRows | length | tostring)),
+        applyRunRows: $runRows,
+        applyRunsMd: $runsMd,
+        applyRunsLabel: ("Apply runs · " + ($runRows | length | tostring)),
         similar: $similar,
         # The incident and its alert as a v1 List, the shape `kubectl get -o json` prints. A JSON string, which is what the YamlViewer `json` field takes.
         involvedManifestsJson: (if ($involvedObjs | length) > 0 then ({ apiVersion: "v1", kind: "List", items: $involvedObjs } | tojson) else "" end),
@@ -286,6 +340,7 @@ spec:
           fix: $hasFix,
           error: ($err != ""),
           checks: (($checkRows | length) > 0),
+          applyRuns: (($runRows | length) > 0),
           similar: (($similar | length) > 0),
           manifests: (($involvedObjs | length) > 0),
           prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == ""))))

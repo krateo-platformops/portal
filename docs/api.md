@@ -73,6 +73,7 @@ blueprint-preview seam) and the marketplace catalog index — each through an
 | API | Owner | Read by | Written by the portal |
 |---|---|---|---|
 | `incidents.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents`, `/incidents/{namespace}/{name}`, the composition page's Incidents strip, `/alerts/{namespace}/{name}`, the alerts summary band, global search | `spec.applied: true` (Apply or "I applied it"), `spec.closed: true` (Close), and DELETE (Discard), each as the clicking user |
+| `incidentapplies.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents/{namespace}/{name}` (the Apply runs tab, and whether Run apply shows) | POST of `{spec: {incidentRef: {name}}}` (Run apply), as the clicking user |
 | `alerts.observability.krateo.io/v1alpha1` | [alert-provider](https://github.com/krateo-platformops/alert-troubleshooter) | `/alerts`, `/alerts/{namespace}/{name}`, the incident page's alert chip (`status.state`, `status.okSince`) | the alert create/edit/delete forms |
 
 An Incident lives in its Alert's namespace and carries the label
@@ -90,6 +91,18 @@ through snowplow `/call` as the clicking user (`patch` as a JSON merge patch, `c
 confirm lists both writes with their target and body, and the incident is marked only if the fix
 succeeded. The user needs that verb on the target (for a composition, `patch` on its
 `composition.krateo.io` resource in its namespace).
+
+**Run apply.** For a fix that is only a script, the step offers **Run apply** beside "I applied
+it", when the user can list `incidentapplies` in the incident's namespace and no run of the
+incident is unfinished. It POSTs an IncidentApply named `<incident>-apply-<unix seconds>` (snowplow
+`/call` writes the ref's name into `metadata.name`, so `generateName` cannot be used) that names
+only the incident; the API server stamps `spec.requestedBy`, and incident-controller runs the
+apply script with that user's permissions and records the result in the IncidentApply's status.
+The button waits up to 3 minutes for the run's `ApplyFinished` Event and shows its message. The
+**Apply runs** tab lists the incident's IncidentApplies (matched on `spec.incidentRef.name`),
+newest first, with each run's phase, exit code, message and output. Each run is also an `apply`
+check with its exit, which Check history shows; exit 0 moves the incident to Verifying. The user needs `create` on
+`incidentapplies` (incident-controller's `krateo-incident-responder`).
 
 ## The nightly review's CronJob
 

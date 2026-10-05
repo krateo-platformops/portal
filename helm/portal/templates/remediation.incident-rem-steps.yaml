@@ -1,11 +1,11 @@
 {{/* The body of each How-to-fix step (0 precondition · 1 apply · 2 verify · 3 rollback, which */}}
 {{/* exists only when the incident has a rollback script): a Flex holding the step's Markdown */}}
 {{/* (what the script does, its last run, the script in a fenced block with its own copy control) */}}
-{{/* and, on the apply step only, Apply or "I applied it". incident-detail shapes the markdown */}}
+{{/* and, on the apply step only, Apply or the script's buttons. incident-detail shapes the markdown */}}
 {{/* (.fixSteps[i].md) and decides which button shows: .canApplyAction (the incident is Open, its */}}
 {{/* howToFix.applyAction is one actionable write, and no click is waiting for the controller) shows */}}
-{{/* Apply; .canApply (the same, for a fix that is only a script) shows "I applied it". Rollback has */}}
-{{/* no button. */}}
+{{/* Apply; .canApply (the same, for a fix that is only a script) shows Run apply (while no run is */}}
+{{/* unfinished) and "I applied it". Rollback has no button. */}}
 {{- range $i := until 4 }}
 ---
 kind: Flex
@@ -27,6 +27,7 @@ spec:
     allowedResources:
     - markdowns
     - buttons
+    - flexes
     gap: small
     vertical: true
     align: flex-start
@@ -38,7 +39,7 @@ spec:
       expression: >-
         ${ [ { resourceRefId: "incident-rem-step-md-1" } ]
         + (if (.canApplyAction // false) then [ { resourceRefId: "incident-rem-apply" } ]
-           elif (.canApply // false) then [ { resourceRefId: "incident-rem-applied" } ] else [] end) }
+           elif (.canApply // false) then [ { resourceRefId: "incident-rem-script-actions" } ] else [] end) }
   {{- end }}
   resourcesRefs:
     items:
@@ -49,11 +50,11 @@ spec:
       resource: markdowns
       verb: GET
     {{- if eq $i 1 }}
-    - id: incident-rem-applied
+    - id: incident-rem-script-actions
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-rem-applied
+      name: incident-rem-script-actions
       namespace: {{ $.Release.Namespace }}
-      resource: buttons
+      resource: flexes
       verb: GET
     - id: incident-rem-apply
       apiVersion: widgets.templates.krateo.io/v1beta1
@@ -86,6 +87,114 @@ spec:
   resourcesRefs:
     items: []
 {{- end }}
+---
+{{/* A fix that is only a script: Run apply (incident-detail .canRunApply) beside "I applied it". */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-rem-script-actions
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - buttons
+    gap: small
+    wrap: true
+    items:
+    - resourceRefId: incident-rem-applied
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (if (.canRunApply // false) then [ { resourceRefId: "incident-rem-run-apply" } ] else [] end)
+        + [ { resourceRefId: "incident-rem-applied" } ] }
+  resourcesRefs:
+    items:
+    - id: incident-rem-run-apply
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-rem-run-apply
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+    - id: incident-rem-applied
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-rem-applied
+      namespace: {{ .Release.Namespace }}
+      resource: buttons
+      verb: GET
+---
+{{/* Run apply: the controller runs the incident's apply script with the clicking user's */}}
+{{/* Kubernetes permissions. It POSTs an IncidentApply (incident-controller) naming only the */}}
+{{/* incident; the API server stamps spec.requestedBy from the caller, and the controller runs the */}}
+{{/* script, records the run in the IncidentApply's status and emits one ApplyFinished Event on it. */}}
+{{/* On exit 0 it also records an apply check and moves the incident Open to Verifying, as */}}
+{{/* "I applied it" does. The button waits for that Event, shows its message, and reopens this page. */}}
+{{/* */}}
+{{/* The name is `<incident>-apply-<unix seconds>`, fixed when the widget resolves: snowplow's /call */}}
+{{/* needs a name on a namespaced POST and writes it into the body's metadata.name, so generateName */}}
+{{/* would be overridden. A second click before the page refreshes gets AlreadyExists and creates */}}
+{{/* nothing. */}}
+{{/* */}}
+{{/* Needs `create` on incidentapplies in the incident's namespace (incident-controller's */}}
+{{/* krateo-incident-responder); without it snowplow withholds the ref and nothing is sent. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-rem-run-apply
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Run apply
+    icon: fa-play
+    type: primary
+    size: middle
+    clickActionId: run-apply
+    actions:
+      rest:
+        - id: run-apply
+          type: rest
+          resourceRefId: run-apply-incident
+          headers:
+            - 'Content-Type: application/json'
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: actions
+      expression: >-
+        ${ (.incidentGvr // {}) as $g
+        | { rest: [ { id: "run-apply", type: "rest", resourceRefId: "run-apply-incident",
+                      headers: ["Content-Type: application/json"],
+                      payload: { apiVersion: "observability.krateo.io/v1alpha1", kind: "IncidentApply",
+                                 spec: { incidentRef: { name: ($g.name // "") } } },
+                      onEventNavigateTo: { eventReason: "ApplyFinished", timeout: 180,
+                                           loadingMessage: "Running the apply script as you…",
+                                           url: ("/incidents/" + ($g.namespace // "") + "/" + ($g.name // "")) },
+                      successMessage: "${ .event.message }",
+                      errorMessage: "${ if ((.response.message // \"\") != \"\") then .response.message else \"No result within 3 minutes. The run may still be going: its result appears under Apply runs on this page.\" end }",
+                      loading: { display: true } } ] } }
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: run-apply-incident
+        apiVersion: observability.krateo.io/v1alpha1
+        resource: incidentapplies
+        name: ${ .incidentGvr.name + "-apply-" + (now | floor | tostring) }
+        namespace: ${ .incidentGvr.namespace }
+        verb: POST
 ---
 {{/* "I applied it": the human ran the apply script in their own terminal. Sets spec.applied on */}}
 {{/* the Incident (merge-patch, the user's token); the controller consumes it — records an apply */}}

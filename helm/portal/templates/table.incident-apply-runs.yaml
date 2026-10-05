@@ -1,0 +1,39 @@
+{{/* Apply runs: one row per Run apply click (an IncidentApply of this incident), newest first: */}}
+{{/* when it started, who clicked, its phase (Running, Succeeded, Failed or Rejected), the script's */}}
+{{/* exit code and the controller's message. Rows are inert; the output is in the Markdown below. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-apply-runs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of a horizontal scrollbar. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: when
+      title: When
+    - valueKey: who
+      title: By
+    - valueKey: phase
+      title: Result
+    - valueKey: exit
+      title: Exit
+    - valueKey: message
+      title: Message
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.applyRunRows // [])[] | [ {valueKey:"when",kind:"jsonSchemaType",type:"string",stringValue:(.when // ""),format:"relative"}, {valueKey:"who",kind:"jsonSchemaType",type:"string",stringValue:(.who // "—")}, {valueKey:"phase",kind:"jsonSchemaType",type:"string",stringValue:(.phase // ""),color:(.color // "#8c8c8c")}, {valueKey:"exit",kind:"jsonSchemaType",type:"string",stringValue:(.exit // "—")}, {valueKey:"message",kind:"jsonSchemaType",type:"string",stringValue:(.message // "")} ] ] }'
+  apiRef:
+    name: incident-detail
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

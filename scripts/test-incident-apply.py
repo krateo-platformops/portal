@@ -16,7 +16,13 @@ snowplow /call as the signed-in user, then marks the incident applied (spec.appl
   - only the ref the verb names is emitted, so a widget never carries a target it will not write;
   - the step's text names the verb, the object and, for a patch, each field it sets;
   - a composition (composition.krateo.io) and a Deployment both work, and so does the delete
-    krateo-057 carries today.
+    krateo-057 carries today;
+  - a fix that is only a script offers Run apply beside "I applied it" when incidentapplies can be
+    listed and no run of this incident is unfinished: one POST of an IncidentApply naming only the
+    incident, to `<incident>-apply-<unix seconds>` in its namespace, that waits for its ApplyFinished
+    Event and shows its message;
+  - the Apply runs tab lists this incident's runs (and no other's), newest first, with each output;
+  - Check history shows an apply check's exit when it has one, and "applied by hand" when not.
 
 HOW. helm/portal is rendered, incident-detail is resolved over fixtures shaped like krateo-057's
 Incidents by test-platform-review's model of snowplow's resolver, and the remediation widgets are
@@ -29,6 +35,7 @@ Usage: test-incident-apply.py [--crds DIR]. Exit code = failed checks.
 import copy
 import importlib.util
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +53,10 @@ tbi = tpr.tbi
 NS = tbi.NS
 expr, expect = tpr.expr, tpr.expect
 WIDGETS = (('Flex', 'incident-rem-step-1'), ('Markdown', 'incident-rem-step-md-1'),
-           ('Button', 'incident-rem-apply'), ('Button', 'incident-rem-applied'))
+           ('Button', 'incident-rem-apply'), ('Button', 'incident-rem-applied'),
+           ('Flex', 'incident-rem-script-actions'), ('Button', 'incident-rem-run-apply'),
+           ('Tabs', 'incident-detail-tabs'), ('Table', 'incident-checks'),
+           ('Table', 'incident-apply-runs'), ('Markdown', 'incident-apply-runs-output'))
 
 
 def incident(name, state='Open', apply_action=None, applied=False, apply_script=True):
@@ -81,9 +91,33 @@ POD_DELETE = {'verb': 'delete', 'apiVersion': 'v1', 'resource': 'pods', 'namespa
               'name': 'otel-collector-daemonset-opentelemetry-collector-agent-hmsp4'}
 
 
-def resolve(chart, inc, label):
+# The incidentapplies list when the CRD is not installed: snowplow keeps the error, no list.
+NO_CRD = 'ERROR:the server could not find the requested resource'
+
+
+def run(incident_name, name, phase=None, exit_code=None, started='2026-10-05T09:00:00Z', output='', message='',
+        script=None, user='admin'):
+    status = {}
+    if phase:
+        status = {'phase': phase, 'startedAt': started, 'message': message, 'output': output}
+        if exit_code is not None:
+            status['exitCode'] = exit_code
+        if script is not None:
+            status['script'] = script
+    return {'apiVersion': 'observability.krateo.io/v1alpha1', 'kind': 'IncidentApply',
+            'metadata': {'name': name, 'namespace': NS, 'creationTimestamp': started},
+            'spec': {'incidentRef': {'name': incident_name}, 'requestedBy': {'username': user, 'groups': ['admins']}},
+            'status': status}
+
+
+def runs_list(*items):
+    return {'apiVersion': 'observability.krateo.io/v1alpha1', 'kind': 'IncidentApplyList', 'items': list(items)}
+
+
+def resolve(chart, inc, label, applies=NO_CRD):
     ex = {'name': inc['metadata']['name'], 'namespace': NS}
     out = tpr.resolved(chart, 'incident-detail', {'incident': inc, 'incidents': {'items': [inc]},
+                                                   'incidentApplies': applies,
                                                    'alert': 'ERROR:alerts "sre-pod-crashloop" not found'}, ex)
     w = {n: tbi.resolved_widget(chart, k, n, out, ex, f'{label}: {k} {n}')['spec'].get('widgetData', {})
          for k, n in WIDGETS}
@@ -101,8 +135,8 @@ def refs(chart, kind, name, output):
     return got
 
 
-def items(w):
-    return [i['resourceRefId'] for i in w['incident-rem-step-1']['items']]
+def items(w, flex='incident-rem-step-1'):
+    return [i['resourceRefId'] for i in w[flex]['items']]
 
 
 def check_apply_patches_a_composition(chart):
@@ -168,12 +202,13 @@ def check_apply_deletes_without_a_body(chart):
 def check_script_only_keeps_i_applied_it(chart):
     f = []
     out, w = resolve(chart, incident('scr-1'), 'script-only')
-    expect(f, '"I applied it"', items(w), ['incident-rem-step-md-1', 'incident-rem-applied'])
+    expect(f, 'script buttons', items(w), ['incident-rem-step-md-1', 'incident-rem-script-actions'])
+    expect(f, 'no incidentapplies CRD: "I applied it" only', items(w, 'incident-rem-script-actions'), ['incident-rem-applied'])
     expect(f, 'no target ref', [x['id'] for x in refs(chart, 'Button', 'incident-rem-apply', out)], ['apply-mark-incident'])
     for bad, why in ((dict(COMPOSITION, verb='scale'), 'unknown verb'), (dict(COMPOSITION, name=''), 'no name'),
                      ({k: v for k, v in COMPOSITION.items() if k != 'payload'}, 'patch without a payload')):
         out, w = resolve(chart, incident('bad-1', apply_action=bad), why)
-        expect(f, f'{why}: script path', items(w), ['incident-rem-step-md-1', 'incident-rem-applied'])
+        expect(f, f'{why}: script path', items(w), ['incident-rem-step-md-1', 'incident-rem-script-actions'])
         expect(f, f'{why}: no applyAction', out['applyAction'], None)
     return f
 
@@ -193,12 +228,121 @@ def check_no_button_once_applied_or_closed(chart):
     return f
 
 
+def check_run_apply_posts_an_incidentapply(chart):
+    f = []
+    out, w = resolve(chart, incident('scr-2'), 'run-apply', runs_list())
+    expect(f, 'Run apply beside "I applied it"', items(w, 'incident-rem-script-actions'),
+           ['incident-rem-run-apply', 'incident-rem-applied'])
+    acts = w['incident-rem-run-apply']['actions']['rest']
+    expect(f, 'one rest action', len(acts), 1)
+    act = acts[0]
+    expect(f, 'body names only the incident', act['payload'],
+           {'apiVersion': 'observability.krateo.io/v1alpha1', 'kind': 'IncidentApply',
+            'spec': {'incidentRef': {'name': 'scr-2'}}})
+    expect(f, 'json content type', act['headers'], ['Content-Type: application/json'])
+    expect(f, 'waits for ApplyFinished, then reopens the incident', act['onEventNavigateTo'],
+           {'eventReason': 'ApplyFinished', 'timeout': 180, 'loadingMessage': 'Running the apply script as you…',
+            'url': f'/incidents/{NS}/scr-2'})
+    expect(f, 'shows the Event\'s message', act['successMessage'], '${ .event.message }')
+    for k in ('ops', 'fanOutPath', 'onSuccessNavigateTo', 'payloadToOverride'):
+        if k in act:
+            f.append(f'{k} cannot ride with onEventNavigateTo: {act[k]!r}')
+    r = refs(chart, 'Button', 'incident-rem-run-apply', out)
+    expect(f, 'one ref', [x['id'] for x in r], ['run-apply-incident'])
+    expect(f, 'POST to incidentapplies in the incident\'s namespace',
+           {k: r[0][k] for k in ('apiVersion', 'resource', 'namespace', 'verb')},
+           {'apiVersion': 'observability.krateo.io/v1alpha1', 'resource': 'incidentapplies', 'namespace': NS, 'verb': 'POST'})
+    if not re.fullmatch(r'scr-2-apply-[0-9]+', str(r[0]['name'])):
+        f.append(f'name is not <incident>-apply-<unix seconds>: {r[0]["name"]!r}')
+    if '**Run apply**' not in w['incident-rem-step-md-1']['markdown']:
+        f.append('the apply step does not mention Run apply')
+
+    # Another incident's unfinished run does not hide it; this incident's does, and the step says so.
+    out, w = resolve(chart, incident('scr-2'), 'other run', runs_list(run('scr-9', 'scr-9-apply-1', 'Running')))
+    expect(f, "another incident's run", items(w, 'incident-rem-script-actions'), ['incident-rem-run-apply', 'incident-rem-applied'])
+    for label, r in (('running', run('scr-2', 'scr-2-apply-1', 'Running')), ('not started', run('scr-2', 'scr-2-apply-1'))):
+        out, w = resolve(chart, incident('scr-2'), label, runs_list(r))
+        expect(f, f'{label}: no Run apply', items(w, 'incident-rem-script-actions'), ['incident-rem-applied'])
+        if 'Run apply in progress, as admin' not in w['incident-rem-step-md-1']['markdown']:
+            f.append(f'{label}: the apply step does not say a run is in progress')
+    out, w = resolve(chart, incident('scr-2'), 'finished', runs_list(run('scr-2', 'scr-2-apply-1', 'Failed', 1)))
+    expect(f, 'a finished run does not hide it', items(w, 'incident-rem-script-actions'), ['incident-rem-run-apply', 'incident-rem-applied'])
+    if 'Run apply failed · exit 1' not in w['incident-rem-step-md-1']['markdown']:
+        f.append('the apply step does not name the failed run')
+    out, w = resolve(chart, incident('scr-2'), '403', 'ERROR:incidentapplies is forbidden')
+    expect(f, 'a 403 hides it', items(w, 'incident-rem-script-actions'), ['incident-rem-applied'])
+    out, w = resolve(chart, incident('scr-2', apply_action=COMPOSITION), 'applyAction', runs_list())
+    expect(f, 'an applyAction offers Apply, not Run apply', items(w), ['incident-rem-step-md-1', 'incident-rem-apply'])
+    return f
+
+
+def check_apply_runs_tab(chart):
+    f = []
+    out, w = resolve(chart, incident('scr-3'), 'no runs', runs_list())
+    expect(f, 'no runs: no tab', out['sections']['applyRuns'], False)
+    if 'incident-apply-runs-flex' in items(w, 'incident-detail-tabs'):
+        f.append('no runs: the tab shows')
+    changed = '#!/usr/bin/env bash\nkubectl scale deploy/web --replicas=2\n'
+    applies = runs_list(
+        run('scr-3', 'scr-3-apply-1', 'Rejected', None, '2026-10-05T09:00:00Z', '', 'another apply is running for this incident'),
+        run('scr-3', 'scr-3-apply-3', 'Succeeded', 0, '2026-10-05T09:20:00Z', 'deployment.apps/web patched\n',
+            'the apply script exited 0', incident('x')['status']['howToFix']['apply']),
+        run('other', 'other-apply-1', 'Succeeded', 0, '2026-10-05T09:30:00Z'),
+        run('scr-3', 'scr-3-apply-2', 'Failed', 1, '2026-10-05T09:10:00Z', 'Error from server (Forbidden): ```x```',
+            'the apply script exited 1', changed, user='sre-1'))
+    out, w = resolve(chart, incident('scr-3'), 'runs', applies)
+    expect(f, 'tab', out['sections']['applyRuns'], True)
+    expect(f, 'tab label', out['applyRunsLabel'], 'Apply runs · 3')
+    if 'incident-apply-runs-flex' not in items(w, 'incident-detail-tabs'):
+        f.append('the Apply runs tab does not show')
+    expect(f, 'rows, newest first, this incident only',
+           [(r['phase'], r['exit'], r['who'], r['message']) for r in out['applyRunRows']],
+           [('Succeeded', '0', 'admin', 'the apply script exited 0'),
+            ('Failed', '1', 'sre-1', 'the apply script exited 1'),
+            ('Rejected', '—', 'admin', 'another apply is running for this incident')])
+    cells = [[c['stringValue'] for c in row] for row in w['incident-apply-runs']['dataSource']]
+    expect(f, 'table cells', [c[1:] for c in cells],
+           [['admin', 'Succeeded', '0', 'the apply script exited 0'],
+            ['sre-1', 'Failed', '1', 'the apply script exited 1'],
+            ['admin', 'Rejected', '—', 'another apply is running for this incident']])
+    md = w['incident-apply-runs-output']['markdown']
+    for want in ('#### Succeeded · exit 0 · admin', '```text\ndeployment.apps/web patched\n```',
+                 '#### Failed · exit 1 · sre-1', '````text\nError from server (Forbidden): ```x```\n````',
+                 '**Script** (not the apply step\'s current one)', 'kubectl scale deploy/web', '#### Rejected · admin'):
+        if want not in md:
+            f.append(f'output markdown lacks {want!r}: {md[:600]!r}')
+    if md.count('**Script**') != 1:
+        f.append('a run of the current apply script repeats it')
+    if md.index('#### Succeeded') > md.index('#### Failed') or md.index('#### Failed') > md.index('#### Rejected'):
+        f.append('output is not newest first')
+    return f
+
+
+def check_history_shows_an_apply_exit(chart):
+    f = []
+    inc = incident('scr-4', state='Verifying')
+    inc['status']['checks'] = [{'at': '2026-10-05T08:00:00Z', 'script': 'apply'},
+                               {'at': '2026-10-05T09:00:00Z', 'script': 'apply', 'exit': 0}]
+    # A run that failed before the last recorded apply is not the step's last run.
+    out, w = resolve(chart, inc, 'apply checks', runs_list(run('scr-4', 'scr-4-apply-1', 'Failed', 1, '2026-10-05T08:30:00Z')))
+    expect(f, 'check rows', [(r['script'], r['exit'], r['outcome']) for r in out['checkRows']],
+           [('apply', '0', 'applied'), ('apply', '—', 'applied by hand')])
+    expect(f, 'table exit column', [row[2]['stringValue'] for row in w['incident-checks']['dataSource']], ['0', '—'])
+    md = w['incident-rem-step-md-1']['markdown']
+    if 'exit 0 · applied' not in md or 'Run apply' in md.split('**Last run:**')[1].split('\n')[0]:
+        f.append('the apply step\'s last run does not show the exit')
+    return f
+
+
 CHECKS = [
     check_apply_patches_a_composition,
     check_apply_patches_a_deployment,
     check_apply_deletes_without_a_body,
     check_script_only_keeps_i_applied_it,
     check_no_button_once_applied_or_closed,
+    check_run_apply_posts_an_incidentapply,
+    check_apply_runs_tab,
+    check_history_shows_an_apply_exit,
 ]
 
 

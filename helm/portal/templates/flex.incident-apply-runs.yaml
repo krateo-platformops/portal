@@ -1,0 +1,34 @@
+{{/* The "Apply runs" tab: every Run apply of this incident as a table, newest first, then each */}}
+{{/* run's message, output and script. Shown once the incident has a run. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-apply-runs-flex
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+    - tables
+    - markdowns
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: incident-apply-runs
+    - resourceRefId: incident-apply-runs-output
+  resourcesRefs:
+    items:
+    - id: incident-apply-runs
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-apply-runs
+      namespace: {{ .Release.Namespace }}
+      resource: tables
+      verb: GET
+    - id: incident-apply-runs-output
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-apply-runs-output
+      namespace: {{ .Release.Namespace }}
+      resource: markdowns
+      verb: GET

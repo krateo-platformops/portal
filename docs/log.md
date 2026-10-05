@@ -14,6 +14,13 @@ Curated history, newest first. Point-in-time records live as archives (the
 ([marketplace-registry-discovery](./marketplace-registry-discovery.md),
 [snowplow-yaml-api-step-enabler](./snowplow-yaml-api-step-enabler.md)).
 
+## 2026-10-05 — Run apply on the incident page
+
+A fix that is only a script can be run from the page: **Run apply** creates an IncidentApply
+(incident-controller), which runs the apply script with the clicking user's permissions, and waits
+for its `ApplyFinished` Event. An **Apply runs** tab lists the incident's runs with their output.
+"I applied it" stays for a script run in the user's own terminal.
+
 ## 2026-10-05 — Apply on the incident page, Run review now on /reviews
 
 An incident whose analysis wrote `status.howToFix.applyAction` (alert-provider 0.2.45) is fixed
