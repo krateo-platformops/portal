@@ -21,7 +21,9 @@ from the page: **Apply** sends that one write as the user and marks the incident
 one confirm that names the object and the fields it sets. "I applied it" stays for a fix that is
 only a script. `/reviews` gains **Run review now**, which creates a Job from the nightly-review
 CronJob as `kubectl create job --from` does, beside the latest run's name, phase and start. The
-demo persona `devs` may now `patch` compositions in `demo-system`.
+demo persona `devs` may now `patch` compositions in `demo-system`, and a new demo persona, group
+`sre`, is bound to incident-controller's `krateo-incident-responder` and may read the portal and
+read and patch the compositions in `demo-system` (all under `enableDemoSystemNamespace`).
 
 ## 2026-09-25 — incident pages read Incidents
 
