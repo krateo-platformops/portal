@@ -5,7 +5,8 @@ marketplace **head-stat count** and the **sort control**.
 
 `filter.jq` is the exact jq program that ships (extracted from the helm-rendered
 `restaction.blueprints-catalog.yaml`). The `input.*.json` files simulate snowplow's RA
-input: each named api-step output (`catalog`, `operators`, `compdefs`) at the top level,
+input: each named api-step output (`catalog`, `operators`, `compdefs`, and `catalogLive` in the
+`live-index` case) at the top level,
 plus the request extras (`sort`, `source`, `category`, `q`, `spotlight`). The catalog and
 operators inputs are the shape snowplow produces after its YAML→JSON conversion of the two
 helm-repo `index.yaml` files.
@@ -17,7 +18,7 @@ keywords, so name-order and recent-order are unambiguous.
 
 ```sh
 for c in default sort-name sort-recent source-operator \
-         source-blueprint.sort-recent category-aws sort-invalid; do
+         source-blueprint.sort-recent category-aws sort-invalid live-index.sort-recent; do
   diff <(jq -f filter.jq "input.$c.json" | jq '{total,count,countLabel,selectedSort,selectedSource,selectedCategory,cardOrder:[.cards[].name],sorts:[.sorts[]|{key,active,route}],sources:[.sources[]|{key,active,route}]}') \
        "expected.$c.json" && echo "$c OK" || echo "$c FAIL"
 done
@@ -33,6 +34,7 @@ done
 | `source-blueprint.sort-recent` | sort composes with the source facet (count 3, blueprints, recent order) |
 | `category-aws` | `count` reflects the category facet; sort routes preserve `category=aws` |
 | `sort-invalid` (`?sort=popular`) | an unsupported sort falls back to `name` (never fabricated) |
+| `live-index.sort-recent` | the live index adds a chart a blueprint repository released (`krateo.io/source-repo`) under a name the catalog lacks, installing from the channel base (`repoUrl`); a live copy of a curated name leaves the curated card alone; a platform chart with no source-repo stays out |
 
 ## Sorts offered vs omitted
 

@@ -16,6 +16,8 @@
 ---
 {{/* DATA SOURCE — resolve ONE catalog entry by ?extras.name (route /marketplace/{name}). */}}
 {{/* Fetches the helm index + the installed CompositionDefinitions (to mark installed/Configure). */}}
+{{/* The live blueprints index too (catalogLive, marketplace.liveIndex): withLive resolves a name only */}}
+{{/* it carries, so the card a newly published blueprint gets in the grid opens a page (_catalog.tpl). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -26,6 +28,7 @@ metadata:
 spec:
   api:
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
+    {{- include "portal.catalogLiveStep" $ | nindent 4 }}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -42,7 +45,9 @@ spec:
   {{/* null" and every widget on it fails (~670/h on krateo-057). An absent name is found: false. */}}
   {{/* An entry with no name (never a real CompositionDefinition) is dropped, not keyed as null. */}}
   filter: >
-    ((.name // "") | tostring) as $n
+    {{- include "portal.catalogLiveDefs" . | nindent 4 }}
+    withLive
+    | ((.name // "") | tostring) as $n
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .version} ] | from_entries ) as $instVer
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .namespace} ] | from_entries ) as $instNs
     | ( ((.catalog // {}).entries[$n]) // [] ) as $vers
