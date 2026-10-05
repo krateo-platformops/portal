@@ -1,6 +1,65 @@
+def withLive:
+  (((.catalogLive // {}) | if type == "object" then (.entries // {}) else {} end) | if type == "object" then . else {} end) as $live
+  | (((.catalog // {}) | if type == "object" then . else {} end)) as $cat
+  | (($cat.entries // {}) | if type == "object" then . else {} end) as $cur
+  | .catalog = ($cat | .entries = ($cur + ($live | with_entries(select(($cur[.key] == null) and ((.value | type) == "array") and ((((.value[0] // {}) | if type == "object" then ((.annotations // {})["krateo.io/source-repo"] // "") else "" end) | tostring) != "")) | .value |= map(select(type == "object") | . + {repoBase: "https://krateo-blueprints.github.io/charts/blueprints"}))))) ;
 def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
   | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
-( [ (.compdefs // [])[] | {key: .name, value: .version} ] | from_entries ) as $inst
+# Presentational icon variety (honest — driven by the card's REAL helm data, not invented).
+# At ~330 charts the two source glyphs (fa-layer-group / fa-gears) make the grid a wall of
+# identical icons; this maps a card to a Font Awesome glyph off its own keywords first
+# (the service-family signal — ec2/rds/s3/kafka/...), then its `krateo.io/category`
+# annotation (compute/network/database/...), then falls back to the source glyph. Every
+# value here is a plain glyph name; a card with no matching keyword/category just gets the
+# source fallback (never an error, never a blank).
+#   $kwIcon: keyword (lower-case, matched by substring) -> glyph. Ordered most→least
+#   specific; FIRST hit wins. Keys are real tokens seen in the index keywords.
+def kwIcon:
+  [ ["database","fa-database"], ["rds","fa-database"], ["dynamodb","fa-database"],
+    ["documentdb","fa-database"], ["memorydb","fa-database"], ["docdb","fa-database"],
+    ["elasticache","fa-bolt"], ["cache","fa-bolt"], ["redis","fa-bolt"],
+    ["s3","fa-hard-drive"], ["storage","fa-hard-drive"], ["efs","fa-hard-drive"],
+    ["backup","fa-box-archive"], ["ecr","fa-box-archive"], ["registry","fa-box-archive"],
+    ["kafka","fa-list"], ["queue","fa-list"], ["sqs","fa-list"], ["sns","fa-bell"],
+    ["eventbridge","fa-bell"], ["network","fa-network-wired"], ["vpc","fa-network-wired"],
+    ["route53","fa-network-wired"], ["elbv2","fa-network-wired"], ["elb","fa-network-wired"],
+    ["alb","fa-network-wired"], ["loadbalancer","fa-network-wired"], ["cloudfront","fa-network-wired"],
+    ["apigateway","fa-route"], ["gateway","fa-route"], ["firewall","fa-shield-halved"],
+    ["waf","fa-shield-halved"], ["security","fa-shield-halved"], ["iam","fa-key"],
+    ["kms","fa-key"], ["identity","fa-key"], ["certificate","fa-certificate"],
+    ["acm","fa-certificate"], ["vault","fa-shield-halved"], ["eks","fa-dharmachakra"],
+    ["ecs","fa-cubes"], ["cluster","fa-dharmachakra"], ["kubernetes","fa-dharmachakra"],
+    ["lambda","fa-bolt"], ["ec2","fa-server"], ["compute","fa-server"], ["ssm","fa-terminal"],
+    ["sagemaker","fa-brain"], ["bedrock","fa-brain"], ["ai-agent","fa-robot"],
+    ["kagent","fa-robot"], ["quicksight","fa-chart-line"], ["dashboard","fa-gauge-high"],
+    ["cloudwatch","fa-chart-line"], ["prometheus","fa-chart-line"], ["observability","fa-chart-line"],
+    ["opentelemetry","fa-chart-line"], ["codegen","fa-code"], ["oasgen","fa-code"],
+    ["kog","fa-code"], ["helm","fa-ship"], ["domain","fa-globe"] ];
+#   $catIcon: krateo.io/category annotation -> glyph (the coarse fallback when no keyword hit).
+def catIcon:
+  { "compute":"fa-server", "network":"fa-network-wired", "database":"fa-database",
+    "storage":"fa-hard-drive", "security":"fa-shield-halved", "observability":"fa-chart-line",
+    "application":"fa-cubes", "generator":"fa-code" };
+# iconFor: first keyword substring hit -> its glyph; else the category glyph; else the
+# source fallback ($fallback). $kws lower-cased upstream.
+def iconFor($kws; $cat; $fallback):
+  ( first( kwIcon[] | select( . as $pair | any($kws[]; contains($pair[0])) ) | .[1] ) )
+  // (catIcon[$cat]) // $fallback;
+# Title-case a lower-case category token for the on-card pill (compute -> Compute).
+def titlecase: if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end;
+# INSTALLED index — the honest catalog<->cluster join. Keyed by "<repoBaseUrl>|<chartName>"
+# and built ONLY from helm-repo CDs (non-empty spec.chart.repo). A helm-repo CD carries
+# spec.chart.repo = the chart NAME and spec.chart.url = the helm-repo BASE URL, so the key
+# matches a catalog entry's own (repoBase | name). OCI/platform-component CDs have EMPTY .repo
+# and are excluded entirely, so a same-named platform component (e.g. an OCI `kagent`) can NEVER
+# false-light a catalog tile. On a cluster with only OCI components NOTHING matches → installed
+# is false everywhere → the tile badge stays hidden (correct + honest; never fabricated).
+# withLive first: the live index's newly published blueprints join the catalog (_catalog.tpl).
+withLive
+| ( [ (.compdefs // [])[] | select((.repo // "") != "")
+    | { key: ((.url // "") + "|" + (.repo // "")),
+        value: {ns: .ns, name: .name, version: .version} } ]
+  | from_entries ) as $instByRepo
 | ((.category) // "all") as $sel
 | ((.source) // "all") as $src
 | ((.q) // "") as $q
@@ -17,6 +76,12 @@ def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (
     + [ (((.operators // {}).entries) // {}) | to_entries[] | (.value[0] + {source: "operator"}) ]
   ) as $raw
 | ( [ $raw[]
+      # helm-repo base URL for THIS card (its own tarball URL with the filename stripped; for a
+      # card withLive added, the channel's base it carries as repoBase) and
+      # the installed-join key "<repoBase>|<chartName>". Looked up in $instByRepo (helm-repo CDs
+      # only); a hit means a CompositionDefinition installed FROM this exact repo+chart exists.
+      | (.repoBase // ((.urls[0] // "") | sub("/[^/]+$"; ""))) as $repoBase
+      | ($instByRepo[$repoBase + "|" + .name]) as $match
       | {
           name: .name,
           description: (.description // ""),
@@ -25,20 +90,37 @@ def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (
           source: .source,
           typeLabel: (if .source == "operator" then "Operator" else "Blueprint" end),
           typeColor: (if .source == "operator" then "magenta" else "cyan" end),
-          icon: (if .source == "operator" then "fa-gears" else "fa-layer-group" end),
+          # CATEGORY pill (the mockup's per-tile defining signal) — the REAL
+          # `krateo.io/category` annotation (compute/network/database/...), title-cased for
+          # display. Empty when the chart carries no category (e.g. operators) -> the card
+          # renders no pill (never invented). Type stays on the icon tint (typeColor).
+          category: (((.annotations // {})["krateo.io/category"] // "") | ascii_downcase | titlecase),
+          # Per-card icon: keyword service-family -> category annotation -> source glyph.
+          # Presentational, driven entirely by the card's own real helm data.
+          icon: iconFor(
+                  ((.keywords // []) | map(ascii_downcase));
+                  ((.annotations // {})["krateo.io/category"] // "" | ascii_downcase);
+                  (if .source == "operator" then "fa-gears" else "fa-layer-group" end)
+                ),
           maturity: ((.annotations // {})["krateo.io/maturity"] // ""),
           version: (.version // ""),
           # helm index publish timestamp (RFC3339); drives the "recently updated" sort.
           created: (.created // ""),
           url: (.urls[0] // ""),
-          repoUrl: ((.urls[0] // "") | sub("/[^/]+$"; "")),
-          installed: ($inst[.name] != null),
-          installedVersion: ($inst[.name] // ""),
-          # at-a-glance "already installed" check on the tile (reuses the Listy status glyph);
-          # empty icon when not installed -> the card renders no glyph.
-          installedIcon: (if $inst[.name] != null then "fa-circle-check" else "" end),
-          installedColor: (if $inst[.name] != null then "green" else "" end),
-          installedTooltip: (if $inst[.name] != null then ("Installed · v" + ($inst[.name] // "")) else "" end)
+          repoUrl: $repoBase,
+          # INSTALLED-ness — the honest catalog<->cluster join ($match, keyed by repoBase|name;
+          # helm-repo CDs only). true only when a CD was installed from THIS repo+chart.
+          installed: ($match != null),
+          installedVersion: ($match.version // ""),
+          # namespace + name of the matched CompositionDefinition (for the installed-detail
+          # link); empty strings when not installed.
+          installedNs: ($match.ns // ""),
+          installedName: ($match.name // ""),
+          # at-a-glance "already installed" glyph on the tile (reuses the Listy status channel);
+          # empty icon when not installed -> the card renders no glyph (exception-only badge).
+          installedIcon: (if $match != null then "fa-circle-check" else "" end),
+          installedColor: (if $match != null then "green" else "" end),
+          installedTooltip: (if $match != null then ("Installed · v" + ($match.version // "")) else "" end)
         }
     ] ) as $cards
 # The cards matching the ACTIVE facets (source + category + free-text) — computed once so
@@ -95,12 +177,12 @@ def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (
       ( if $sort == "recent" then ($shown | sort_by(.created) | reverse)
         else ($shown | sort_by(.name)) end )
       # ?spotlight=<name> (a global-search catalog hit's hand-off): sort the matching
-      # card FIRST and mark it via the EXISTING status-glyph channel (gold star +
+      # card FIRST and mark it via the EXISTING status-glyph channel (orange star +
       # tooltip) — search always lands on installable-only hits, so the installed
       # check (which this channel normally carries) is guarded, never overwritten.
       | (if $spot == "" then .
          else ( map(if (.name == $spot) and (.installed | not)
-                    then . + { installedIcon: "fa-star", installedColor: "gold", installedTooltip: "Matched your search" }
+                    then . + { installedIcon: "fa-star", installedColor: "orange", installedTooltip: "Matched your search" }
                     else . end)
                 | ([ .[] | select(.name == $spot) ] + [ .[] | select(.name != $spot) ]) )
          end)

@@ -39,6 +39,9 @@ spec:
     {{/* the two-index fetch of restaction.blueprints-catalog so the pre-fill covers both sources. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
+    {{/* The live blueprints index (marketplace.liveIndex): the pre-fill for a card the marketplace */}}
+    {{/* grid shows from it (withLive, _catalog.tpl), which neither index above carries yet. */}}
+    {{- include "portal.catalogLiveStep" $ | nindent 4 }}
     {{/* The builder's registration files — the pre-fill for a chart published from the Portal or */}}
     {{/* Blueprint builder, which is in no helm index. The step, and the rule for which file */}}
     {{/* applies, are shared with the change-request note (_builder.tpl). */}}
@@ -83,6 +86,7 @@ spec:
     # cdField / indexEntry / builderChart — portal.builderRegistrationDefs (_builder.tpl), shared
     # with restaction.blueprint-install-origin so the note and the pre-fill cannot disagree.
     {{- include "portal.builderRegistrationDefs" . | nindent 4 }}
+    {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     # Drop statusDataTemplate — it's a blueprint-author field (status projection), not something
     # the installer sets; remove it from the fetched CRD schema so it doesn't render in the form.
     (.crd.spec.versions[]? | select(.name == "v1alpha1") | .schema.openAPIV3Schema.properties.spec | del(.properties.statusDataTemplate)) as $spec0
@@ -108,10 +112,15 @@ spec:
     # OCI branch) is chart.url = the FULL oci ref (oci://<base>/<name>, NOT filename-stripped) and NO
     # chart.repo (appending the name to url would double it). So branch on the url scheme below: oci://
     # keeps the raw url + omits repo; a helm-repo url strips the filename + carries repo=name.
-    | indexEntry($bp) as $entry
+    #
+    # A chart only the LIVE blueprints index carries (withLive, _catalog.tpl) comes last: after both
+    # indexes and after a builder publish of the name (builderChart, which reads the two indexes
+    # only, wins over it below). Its tarball sits in a GitHub release, not beside index.yaml, so its
+    # repo URL is the channel's base it carries as repoBase, not the stripped tarball URL.
+    | (indexEntry($bp) // (withLive | indexEntry($bp))) as $entry
     | ($entry.version // "") as $ver
     | ($entry.urls[0]? // "") as $rawUrl
-    | ($rawUrl | sub("/[^/]+$"; "")) as $repoUrl
+    | ($entry.repoBase // ($rawUrl | sub("/[^/]+$"; ""))) as $repoUrl
     # The builder publish, when this chart came from one: builder-publish names the claim
     # "publish-<chart>" and labels every file it commits with that claim, so the route's `name`
     # selects the claim's own registration file. Only for a name no helm index carries: this route

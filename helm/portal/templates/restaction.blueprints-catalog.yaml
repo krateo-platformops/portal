@@ -19,6 +19,12 @@
 {{/* false-lights a tile → `installed` + `installedVersion` + `installedNs`/`installedName` (detail */}}
 {{/* link). `continueOnError` everywhere: a missing index or a UAF-denied compdef list degrades to an */}}
 {{/* empty/partial catalog, not a broken page. */}}
+{{/* */}}
+{{/* The catalogLive step (marketplace.liveIndex) reads the live blueprints index too, and withLive */}}
+{{/* adds the charts a blueprint repository released there since the ConfigMap was rendered */}}
+{{/* (portal.catalogLiveDefs, _catalog.tpl): a blueprint merged from the Blueprint Builder gets its */}}
+{{/* card on the next read, not on the next catalog release. Such a card installs from the channel's */}}
+{{/* base URL (its repoBase), where index.yaml lives. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -29,6 +35,7 @@ metadata:
 spec:
   api:
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
+    {{- include "portal.catalogLiveStep" $ | nindent 4 }}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
@@ -49,6 +56,7 @@ spec:
   {{/* Literal block (|) NOT folded (>): the jq carries inline `#` comments, and a folded */}}
   {{/* scalar would join a comment line onto the following code line (commenting the code out). */}}
   filter: |
+    {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
       | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
     # Presentational icon variety (honest — driven by the card's REAL helm data, not invented).
@@ -100,7 +108,9 @@ spec:
     # and are excluded entirely, so a same-named platform component (e.g. an OCI `kagent`) can NEVER
     # false-light a catalog tile. On a cluster with only OCI components NOTHING matches → installed
     # is false everywhere → the tile badge stays hidden (correct + honest; never fabricated).
-    ( [ (.compdefs // [])[] | select((.repo // "") != "")
+    # withLive first: the live index's newly published blueprints join the catalog (_catalog.tpl).
+    withLive
+    | ( [ (.compdefs // [])[] | select((.repo // "") != "")
         | { key: ((.url // "") + "|" + (.repo // "")),
             value: {ns: .ns, name: .name, version: .version} } ]
       | from_entries ) as $instByRepo
@@ -120,10 +130,11 @@ spec:
         + [ (((.operators // {}).entries) // {}) | to_entries[] | (.value[0] + {source: "operator"}) ]
       ) as $raw
     | ( [ $raw[]
-          # helm-repo base URL for THIS card (its own tarball URL with the filename stripped) and
+          # helm-repo base URL for THIS card (its own tarball URL with the filename stripped; for a
+          # card withLive added, the channel's base it carries as repoBase) and
           # the installed-join key "<repoBase>|<chartName>". Looked up in $instByRepo (helm-repo CDs
           # only); a hit means a CompositionDefinition installed FROM this exact repo+chart exists.
-          | ((.urls[0] // "") | sub("/[^/]+$"; "")) as $repoBase
+          | (.repoBase // ((.urls[0] // "") | sub("/[^/]+$"; ""))) as $repoBase
           | ($instByRepo[$repoBase + "|" + .name]) as $match
           | {
               name: .name,
