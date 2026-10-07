@@ -83,6 +83,15 @@ spec:
         id: create-builder-publish
         apiVersion: '${ .bpApiVersion }'
         resource: '${ .bpResource }'
+        {{/* The claim's own name. REQUIRED even though a POST creates into the collection, and */}}
+        {{/* omitting it broke this form in two ways at once (frontend#475): snowplow derives the */}}
+        {{/* ref's synthesised payload from these fields, so a missing name produced */}}
+        {{/* metadata.name: "" — and buildPayload merges the REF payload OVER the op's, so that */}}
+        {{/* empty string overwrote the metadata.name this widget templates just below. The same */}}
+        {{/* omission left name= off the /call path, which snowplow rejects with */}}
+        {{/* `400 missing 'name' query parameter` on every verb, a collection POST included. */}}
+        {{/* Result: builder: review had never once produced a BuilderPublish. */}}
+        name: '${ .claimName }'
         namespace: {{ .Release.Namespace }}
         verb: POST
     - template:

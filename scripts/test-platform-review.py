@@ -514,6 +514,14 @@ def check_change_request_claim(chart):
     ref = ref_template(chart, 'Form', 'review-open-pr-form', 'decide-pr-open', out)
     expect(f, 'PrOpen target', (ref['apiVersion'], ref['resource'], ref['name'], ref['verb']),
            ('review.krateo.io/v1alpha1', 'proposals', 'p-cccc000000000003', 'PATCH'))
+    # The CLAIM ref's name. Asserted because omitting it broke the form twice over (frontend#475):
+    # snowplow synthesises the ref's payload from these fields, so no name meant metadata.name: "",
+    # and buildPayload merges the ref payload OVER the op's — the empty string won. The /call path
+    # also lost its name=, which snowplow rejects on every verb including a collection POST. This
+    # suite checked decide-pr-open's name and never the claim's, which is how it shipped.
+    claim_ref = ref_template(chart, 'Form', 'review-open-pr-form', 'create-builder-publish', out)
+    expect(f, 'claim target carries its own name', claim_ref.get('name'), 'review-cccc000000000003')
+    expect(f, 'claim target verb', claim_ref['verb'], 'POST')
     spec = body['spec']
     expect(f, 'claim name', (body['metadata']['name'], spec['name']), ('review-cccc000000000003',) * 2)
     expect(f, 'builder', spec['builder'], 'review')
