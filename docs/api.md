@@ -78,9 +78,9 @@ blueprint-preview seam) and the marketplace catalog index — each through an
 
 An Incident lives in its Alert's namespace and carries the label
 `observability.krateo.io/alert: <alert name>`; the pages join incidents to alerts on that
-label (and `spec.alertRef`), never on display names. The incident page reads the apply
-state from `status.checks` rather than `spec.applied`, which the controller resets once it
-records the `apply` check. Users need `get`/`list` on both resources, and `patch`/`delete`
+label (and `spec.alertRef`), never on display names. The incident page reads each step's
+latest result from `status.lastChecks` (`{exit, since}` per script) rather than `spec.applied`,
+which the controller resets once it records the `apply` result. Users need `get`/`list` on both resources, and `patch`/`delete`
 on `incidents` for the incident page's actions.
 
 **Apply.** When `status.howToFix.applyAction` is one actionable write (verb `patch`, `create` or
@@ -100,8 +100,8 @@ only the incident; the API server stamps `spec.requestedBy`, and incident-contro
 apply script with that user's permissions and records the result in the IncidentApply's status.
 The button waits up to 3 minutes for the run's `ApplyFinished` Event and shows its message. The
 **Apply runs** tab lists the incident's IncidentApplies (matched on `spec.incidentRef.name`),
-newest first, with each run's phase, exit code, message and output. Each run is also an `apply`
-check with its exit, which Check history shows; exit 0 moves the incident to Verifying. The user needs `create` on
+newest first, with each run's phase, exit code, message and output. Each run is also the incident's
+latest `apply` result, with its exit, which the apply step shows; exit 0 moves the incident to Verifying. The user needs `create` on
 `incidentapplies` (incident-controller's `krateo-incident-responder`).
 
 ## The nightly review's CronJob

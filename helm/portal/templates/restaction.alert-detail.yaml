@@ -3,15 +3,14 @@
 {{/* Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly: */}}
 {{/* alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in */}}
 {{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
-{{/* and its live HyperDX-mirrored state in .status (state / phase / lastSyncedAt */}}
+{{/* and its live HyperDX-mirrored state in .status (state / phase */}}
 {{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-provider. */}}
 {{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
 {{/* observability.krateo.io/alert: <name>. Several can be open at once, one per problem, so */}}
 {{/* the page lists every open one, then the latest ended ones. */}}
 {{/* Everything is derived server-side (nothing-hardcoded): */}}
 {{/* the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so */}}
-{{/* the healthy quiet state OK reads green), the "above N" threshold prose, the compact */}}
-{{/* relative lastSynced age (Descriptions has no format:relative → derived via `now`), the */}}
+{{/* the healthy quiet state OK reads green), the "above N" threshold prose, the */}}
 {{/* Autopilot seed sentence (the "Investigate with Autopilot" button on the detail page), and */}}
 {{/* the HyperDX console deep-links (built only when the deployer set .Values.observabilityConsoleUrl */}}
 {{/* AND the reconciler recorded the id — no default URL is invented, so the link is simply */}}
@@ -50,7 +49,6 @@ spec:
       continueOnError: true
       errorKey: incidentsError
   filter: >
-    def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end;
     ({{ .Values.observabilityConsoleUrl | default "" | quote }} | rtrimstr("/")) as $console
     | (.name // "") as $n
     | (.namespace // "{{ .Release.Namespace }}") as $ns
@@ -72,7 +70,6 @@ spec:
              error: (.status.error // ""),
              reportText: ((.status.report // "") | if type == "string" then . else "" end),
              structured: ((.status.rootCause.statement // "") != ""),
-             firings: (.status.firings // 0),
              when: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]
        | sort_by(.when) | reverse
        | map(. + { open: (.state != "Resolved" and .state != "Closed"),
@@ -100,7 +97,6 @@ spec:
         # (transitional). "OK" kept verbatim — the literal HyperDX state word.
         stateLabel: ($state | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),
         stateColor: ($state | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end),
-        lastSyncedRel: (($st.lastSyncedAt // "") | if . == "" then "" else rel end),
         hyperdxAlertId: $haid,
         hyperdxDashboardId: $hdid,
         # HyperDX console deep-links — absent unless BOTH the deployer configured a console URL
@@ -133,13 +129,13 @@ spec:
              + ", firing when the count is " + (($sp.thresholdType // "above") + " " + (($sp.threshold // 0) | tostring))
              + " over " + (if ($sp.interval // "") == "" then "its evaluation window" else ("`" + $sp.interval + "`") end) + "."
              + (if ($sp.where // "") == "" then "\n    - An empty filter matches every log line on the cluster, so this fires on volume alone." else "" end)),
-            (if $haid != "" then ("2. **Synced to HyperDX.** Rule `" + $haid + "`" + (if ($st.lastSyncedAt // "") != "" then (", last synced " + (($st.lastSyncedAt) | (rel as $r | if $r == $st.lastSyncedAt then (.[0:19] | sub("T"; " ") + " UTC") else $r end))) else "" end) + ".")
+            (if $haid != "" then ("2. **Synced to HyperDX.** Rule `" + $haid + "`.")
              else "2. **NOT synced to HyperDX.** `status.hyperdxAlertId` is empty, so no rule evaluates this alert and nothing below can happen. The chain stops here." end),
             (if $haid == "" then empty
              elif $state == "ALERT" then "3. **Evaluated, and currently firing.** HyperDX reports state `ALERT`."
              elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
              else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end)
-             + (if $haid != "" and $paused then "\n    - **Paused.** The alert-provider skips its firings: no incident opens and none is counted. Open incidents keep their checks." else "" end),
+             + (if $haid != "" and $paused then "\n    - **Paused.** The alert-provider skips its firings: no incident opens. Open incidents keep their checks." else "" end),
             (if $haid == "" then empty
              elif ($shaped | length) > 1 then ("4. **Incidents were opened.** " + ($shaped | length | tostring) + " for this alert; the latest is `" + ($rep.name // "") + "`.")
              elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`.")
@@ -157,8 +153,7 @@ spec:
              else ("6. **" + ($open | length | tostring) + " incidents are open at once**, each a different problem. The list below has them all.") end)
           ] | join("\n")),
         # The Incidents card: every open incident, then the five latest ended ones, newest first within each.
-        incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route,
-                      detail: (if .firings > 0 then ((.firings | tostring) + (if .firings == 1 then " firing" else " firings" end)) else "" end) })),
+        incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route })),
         incidentsTitle: ("Incidents · " + ($open | length | tostring) + " open"
           + (if ($ended | length) > 0 then (" · " + ($ended | length | tostring) + " ended" + (if ($ended | length) > 5 then ", the latest 5 shown" else "" end)) else "" end)),
         sections: {

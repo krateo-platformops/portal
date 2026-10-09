@@ -14,6 +14,17 @@ Curated history, newest first. Point-in-time records live as archives (the
 ([marketplace-registry-discovery](./marketplace-registry-discovery.md),
 [snowplow-yaml-api-step-enabler](./snowplow-yaml-api-step-enabler.md)).
 
+## 2026-10-09 — incident pages read lastChecks, and show absolute times
+
+incident-controller writes an Incident only when something changes (incident-controller#7,
+alert-provider#60): `status.checks` gave way to `status.lastChecks` (the latest `{exit, since}`
+per script), and `status.firings`, `status.lastFiredAt` and the Alert's `status.lastSyncedAt`
+are gone. The **How to fix** steps read `lastChecks` ("exit 1 · still holds · since …"); the
+Check history tab, the Firings column, the Firings and Last fired meta items, an alert's
+per-incident firing count and its "last synced" are removed. The incident and alert pages show
+absolute times instead of "2m ago": snowplow caches a page until its objects change, and an
+unchanged Incident is no longer written, so a relative time would stay as first rendered.
+
 ## 2026-10-05 — Run apply on the incident page
 
 A fix that is only a script can be run from the page: **Run apply** creates an IncidentApply

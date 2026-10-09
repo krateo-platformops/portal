@@ -48,28 +48,21 @@ spec:
   filter: |
     # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
     def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
-    def rel: (. // "") as $s | ($s | epoch) as $t
-      | if $t == null then ($s | tostring | .[0:10]) else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else $s[0:10] end) end;
-    def since: (epoch) as $t
-      | if $t == null then "" else (now - $t) as $dt
-        | (if $dt < 60 then "for under a minute"
-           elif $dt < 3600 then (($dt/60)|floor) as $m | "for \($m) min"
-           elif $dt < 86400 then (($dt/3600)|floor) as $h | "for \($h) hour" + (if $h == 1 then "" else "s" end)
-           else (($dt/86400)|floor) as $d | "for \($d) day" + (if $d == 1 then "" else "s" end) end) end;
+    # An absolute time, never one relative to now: the page is cached until the incident changes, and
+    # an Incident that does not change is not written, so "2m ago" would stay "2m ago".
+    def stamp: (. // "") as $s | ($s | epoch) as $t
+      | if $t == null then ($s | tostring | .[0:10]) else ($t | strftime("%Y-%m-%d %H:%M UTC")) end;
     def clean: gsub("[^ -~]"; "") | sub("^ +"; "") | sub(" +$"; "");
     def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
     def when: (.spec.triggeredAt // .metadata.creationTimestamp // "");
     def isnum: (type == "number");
-    # A check's outcome in words; exit is absent for a timeout, a pod that never ran, and a hand-run apply.
+    # A result's outcome in words; exit is absent for a timeout, a pod that never ran, and a hand-run apply.
     def outcome: (.script // "") as $sc | (.exit // null) as $x
       | if $sc == "apply" then (if ($x | isnum) | not then "applied by hand" elif $x == 0 then "applied" else "apply failed" end)
         elif ($x | isnum) | not then "unknown: timed out or never ran"
         elif $x == 0 then (if $sc == "verify" then "fixed" else "gone" end)
         elif $x == 1 then "still holds"
         else "unknown" end;
-    def outcomecolor: (.script // "") as $sc | (.exit // null) as $x
-      | if $sc == "apply" then (if (($x | isnum) | not) or $x == 0 then "#1677ff" else "#cf1322" end)
-        elif $x == 0 then "#389e0d" elif $x == 1 then "#cf1322" else "#8c8c8c" end;
     def fence: (if test("```") then "````" else "```" end);
     # One payload leaf as Markdown: a merge patch's `null` removes the key; long values are cut.
     def leafval: if . == null then "removed" else (if type == "string" then . else tojson end) | gsub("`"; "'") | (if length > 80 then (.[0:80] + "…") else . end) | ("`" + . + "`") end;
@@ -92,7 +85,9 @@ spec:
     | ($st.assumptions // []) as $assump
     | (($st.reasoningTrace // []) | sort_by(.step // 0)) as $trace
     | ($st.howToFix // {}) as $fix
-    | ($st.checks // []) as $checks
+    # status.lastChecks: the latest result of each script, {exit, since}, tagged with its script for outcome.
+    | ($st.lastChecks // {}) as $lc
+    | (["precondition", "apply", "verify"] | map(. as $k | ($lc[$k] // null) | if . == null then null else . + { script: $k } end)) as $lastResults
     | ($st.error // "") as $err
     | ($st.report // "") as $rpt
     # status.howToFix.applyAction: the fix as ONE Kubernetes API write (alert-provider >= 0.2.45). Actionable
@@ -124,7 +119,7 @@ spec:
     # The newest run, when it Failed or was Rejected after the last recorded apply: the step's last run names it.
     | (($runs | first) as $r0
        | if $r0 != null and (($r0.status.phase // "") | IN("Failed", "Rejected"))
-            and ((([ $checks[] | select(.script == "apply") ] | last).at // "") | epoch // 0) < (($r0._when | epoch) // 0)
+            and ((($lastResults[1].since // "") | epoch) // 0) < (($r0._when | epoch) // 0)
          then $r0 else null end) as $runMissed
     # What Apply writes, in words: the verb, the object and, for a patch, each field it sets.
     | (if $aaOk then
@@ -134,9 +129,9 @@ spec:
         | "**" + $word + "** " + $obj
           + (if ($lv | length) > 0 then (", setting " + ($lv | map("`" + .path + "` to " + (.value | leafval)) | join(", "))) else "" end)
       else "" end) as $applyWrite
-    | ([ $checks[] | select(.script == "precondition") ] | last) as $lastPre
-    | ([ $checks[] | select(.script == "apply") ] | last) as $lastApply
-    | ([ $checks[] | select(.script == "verify") ] | last) as $lastVerify
+    | $lastResults[0] as $lastPre
+    | $lastResults[1] as $lastApply
+    | $lastResults[2] as $lastVerify
     # A flagged precondition no longer runs, so it is neither a pass nor a failure.
     | (if $flagged then "wait"
        elif ($lastPre.exit // null) == 1 then "error"
@@ -147,18 +142,20 @@ spec:
        elif ($lastVerify.exit // null) == 0 then "finish"
        elif ($lastVerify.exit // null) == 1 then "error" else "wait" end) as $verifyStatus
     | (if $state == "Verifying" or $state == "Resolved" then 2 elif $state == "Open" then 1 else 0 end) as $fixCurrent
-    # "exit 1 · still holds · 2m ago", or "not run yet".
-    | ([ $lastPre, $lastApply, $lastVerify ] | map(if . == null then null else
-        ((if (.exit // null) | isnum then ("exit " + (.exit | tostring) + " · ") else "" end) + outcome + " · " + (.at | rel)) end)) as $lastLines
+    # "exit 1 · still holds · since 2026-10-09 09:47 UTC": a check that keeps giving the same result keeps
+    # its since. An apply result is one run, so it reads "at".
+    | ($lastResults | map(if . == null then null else
+        ((if (.exit // null) | isnum then ("exit " + (.exit | tostring) + " · ") else "" end) + outcome
+         + (if .script == "apply" then " · at " else " · since " end) + (.since | stamp)) end)) as $lastLines
     | ([ { key: "precondition", title: "Precondition", status: $preStatus, last: $lastLines[0],
            lead: "Does the incident still hold? The controller runs this every minute in a read-only sandbox while the incident is Open: exit **1** means it holds, **0** that it is gone.",
            note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, or close the incident." else "" end) },
          { key: "apply", title: "Review & apply", status: $applyStatus,
            last: (if $appliedPending then "applied, waiting for the controller to verify"
-                  elif $runActive != null then ("Run apply in progress, as " + ($runActive.spec.requestedBy.username // "you") + " · " + ($runActive._when | rel))
+                  elif $runActive != null then ("Run apply in progress, as " + ($runActive.spec.requestedBy.username // "you") + " · " + ($runActive._when | stamp))
                   elif $runMissed != null then ("Run apply " + ($runMissed.status.phase | ascii_downcase)
                     + (if ($runMissed.status.exitCode // null) | isnum then (" · exit " + ($runMissed.status.exitCode | tostring)) else "" end)
-                    + " · " + ($runMissed._when | rel) + " · see Apply runs")
+                    + " · " + ($runMissed._when | stamp) + " · see Apply runs")
                   else $lastLines[1] end),
            lead: (if $aaOk then ("The fix is one Kubernetes API write: " + $applyWrite + ". **Apply** sends it as you, after a confirmation that shows the exact request, then marks this incident applied: the controller then runs the verify script.")
                   elif $runsOk then "The fix. Read it, then click **Run apply**: the controller runs it with your Kubernetes permissions and, when it exits 0, runs the verify script. Its output is under **Apply runs**. Or run it in your own terminal and click **I applied it**."
@@ -181,13 +178,6 @@ spec:
                + (if $s.key == "rollback" then "" else ("\n\n**Last run:** " + ($s.last // (if $s.key == "apply" then "not applied yet" else "never" end))) end)
                + $s.note
                + (if $script != "" then ("\n\n" + ($script | fence) + "bash\n" + $script + "\n" + ($script | fence)) else "\n\n_No " + $s.key + " script._" end)) })) as $fixSteps
-    | ([ $checks[] | {
-           when: (.at // ""),
-           script: (.script // ""),
-           exit: (if (.exit // null) | isnum then (.exit | tostring) else "—" end),
-           outcome: outcome,
-           color: outcomecolor } ]
-       | sort_by(.when) | reverse) as $checkRows
     # Apply runs: a row per Run apply click, then each run's message, output and, when it is not the apply step's, script.
     | ($runs | map({
         when: ._when,
@@ -203,7 +193,7 @@ spec:
         | (($rs.script // "") | rtrimstr("\n")) as $rsc
         | "#### " + ($rs.phase // "Pending")
           + (if ($rs.exitCode // null) | isnum then (" · exit " + ($rs.exitCode | tostring)) else "" end)
-          + " · " + (.spec.requestedBy.username // "unknown user") + " · " + (._when | rel)
+          + " · " + (.spec.requestedBy.username // "unknown user") + " · " + (._when | stamp)
           + (if ($rs.message // "") != "" then ("\n\n" + $rs.message)
              elif ($rs.phase // "") == "" then "\n\n_Waiting for the controller to start it._"
              elif $rs.phase == "Running" then "\n\n_Running._" else "" end)
@@ -234,7 +224,7 @@ spec:
         alertRoute: (if $alert != null then ("/alerts/" + $alertNs + "/" + $alertName) else "" end),
         alertStateLabel: (if $alert == null then (if $alertName != "" then "not found" else "" end) else ($alert.status.state // "PENDING") end),
         alertStateColor: (if $alert == null then "gray" else ({ OK: "green", ALERT: "red", PENDING: "orange" }[$alert.status.state // "PENDING"] // "gray") end),
-        alertOkFor: (if $alert != null and ($alert.status.state // "") == "OK" then (($alert.status.okSince // "") | since) else "" end),
+        alertOkFor: (if $alert != null and ($alert.status.state // "") == "OK" and ($alert.status.okSince // "") != "" then ("since " + ($alert.status.okSince | stamp)) else "" end),
         ordinalLabel: (if $ordinal != null then ("#" + (($ordinal + 1) | tostring) + " of this alert") else "" end),
         ref: (if $comp then ((($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "") + " · " + ($comp.namespace // "")) else "—" end),
         refRoute: (if $comp then ("/compositions/" + ($comp.namespace // "") + "/" + ($comp.name // "")) else "" end),
@@ -253,11 +243,9 @@ spec:
         # Apply: status.howToFix.applyAction, normalized (verb as the HTTP method), for the button that sends it.
         canApplyAction: $canApplyAction,
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
-        metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | rel) } else empty end),
-                      (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | rel) } else empty end),
-                      (if ($st.firings // 0) > 0 then { label: "Firings", value: ($st.firings | tostring) } else empty end),
-                      (if (($st.firings // 0) > 1) and (($st.lastFiredAt // "") != "") then { label: "Last fired", value: ($st.lastFiredAt | rel) } else empty end),
-                      (if ($st.resolution.at // "") != "" then { label: (if $st.resolution.by == "verify" then "Resolved" else "Closed" end), value: (($st.resolution.at | rel) + (if $st.resolution.by == "verify" then " by the verify script" else " by a person" end)) } else empty end) ]),
+        metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
+                      (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
+                      (if ($st.resolution.at // "") != "" then { label: (if $st.resolution.by == "verify" then "Resolved" else "Closed" end), value: (($st.resolution.at | stamp) + (if $st.resolution.by == "verify" then " by the verify script" else " by a person" end)) } else empty end) ]),
         summary: {
           whatHappened: ($title + (if $comp then (" — affecting " + (($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "")) else "" end)),
           why: (if ($rc.statement // "") != "" then $rc.statement
@@ -305,8 +293,6 @@ spec:
         fixSteps: $fixSteps,
         fixCurrent: $fixCurrent,
         fixStepsForWidget: ($fixSteps | map({ eyebrow, title, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
-        checkRows: $checkRows,
-        checksLabel: ("Check history · " + ($checkRows | length | tostring)),
         applyRunRows: $runRows,
         applyRunsMd: $runsMd,
         applyRunsLabel: ("Apply runs · " + ($runRows | length | tostring)),
@@ -339,7 +325,6 @@ spec:
           rootcause: (($rc.statement // "") != ""),
           fix: $hasFix,
           error: ($err != ""),
-          checks: (($checkRows | length) > 0),
           applyRuns: (($runRows | length) > 0),
           similar: (($similar | length) > 0),
           manifests: (($involvedObjs | length) > 0),

@@ -2,7 +2,7 @@
 {{/* incident-controller), shaped server-side: */}}
 {{/* rows     : title (the alert's display name, else its name, else the root cause), */}}
 {{/*            cause (the root cause: an alert can have several incidents open at once, one per */}}
-{{/*            problem, and this tells them apart), state, firings, age, severity dot colour; */}}
+{{/*            problem, and this tells them apart), state, age, severity dot colour; */}}
 {{/*            filtered by the ?status= chip (extras). */}}
 {{/* counts   : per-state totals over the full set, so every chip shows its live count. */}}
 {{/* awaiting : firing Alerts (state ALERT) with no open incident — the "not yet investigated" */}}
@@ -49,7 +49,6 @@ spec:
                     else "—" end),
             state: $state,
             stateKey: ($state | ascii_downcase),
-            firings: (.status.firings // 0),
             age: (.metadata.creationTimestamp // .spec.triggeredAt // ""),
             triggeredAt: (.spec.triggeredAt // .metadata.creationTimestamp // ""),
             sevColor: ({ Open: "#cf1322", Verifying: "#d48806", Resolved: "#389e0d" }[$state] // "#8c8c8c")
