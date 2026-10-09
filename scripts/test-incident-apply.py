@@ -22,7 +22,8 @@ snowplow /call as the signed-in user, then marks the incident applied (spec.appl
     incident, to `<incident>-apply-<unix seconds>` in its namespace, that waits for its ApplyFinished
     Event and shows its message;
   - the Apply runs tab lists this incident's runs (and no other's), newest first, with each output;
-  - Check history shows an apply check's exit when it has one, and "applied by hand" when not.
+  - the apply step shows the latest apply result's exit when it has one, and "applied by hand" when
+    not, at an absolute time.
 
 HOW. helm/portal is rendered, incident-detail is resolved over fixtures shaped like krateo-057's
 Incidents by test-platform-review's model of snowplow's resolver, and the remediation widgets are
@@ -55,7 +56,7 @@ expr, expect = tpr.expr, tpr.expect
 WIDGETS = (('Flex', 'incident-rem-step-1'), ('Markdown', 'incident-rem-step-md-1'),
            ('Button', 'incident-rem-apply'), ('Button', 'incident-rem-applied'),
            ('Flex', 'incident-rem-script-actions'), ('Button', 'incident-rem-run-apply'),
-           ('Tabs', 'incident-detail-tabs'), ('Table', 'incident-checks'),
+           ('Tabs', 'incident-detail-tabs'),
            ('Table', 'incident-apply-runs'), ('Markdown', 'incident-apply-runs-output'))
 
 
@@ -76,7 +77,7 @@ def incident(name, state='Open', apply_action=None, applied=False, apply_script=
             'spec': spec,
             'status': {'state': state, 'howToFix': fix,
                        'rootCause': {'category': 'config', 'confidence': '0.85', 'statement': 'The replica count is too low.'},
-                       'checks': [{'at': '2026-10-05T08:32:08Z', 'exit': 1, 'script': 'precondition'}],
+                       'lastChecks': {'precondition': {'exit': 1, 'since': '2026-10-05T08:32:08Z'}},
                        'conditions': [{'type': 'Reproduced', 'status': 'True'}],
                        'analyzedResources': [{'gvr': 'apps/v1/deployments', 'name': 'web', 'namespace': 'demo-system',
                                               'whatWasRead': 'status'}]}}
@@ -318,21 +319,27 @@ def check_apply_runs_tab(chart):
     return f
 
 
-def check_history_shows_an_apply_exit(chart):
+def check_apply_step_shows_its_last_result(chart):
     f = []
     inc = incident('scr-4', state='Verifying')
-    inc['status']['checks'] = [{'at': '2026-10-05T08:00:00Z', 'script': 'apply'},
-                               {'at': '2026-10-05T09:00:00Z', 'script': 'apply', 'exit': 0}]
+    inc['status']['lastChecks']['apply'] = {'since': '2026-10-05T09:00:00Z', 'exit': 0}
     # A run that failed before the last recorded apply is not the step's last run.
-    out, w = resolve(chart, inc, 'apply checks', runs_list(run('scr-4', 'scr-4-apply-1', 'Failed', 1, '2026-10-05T08:30:00Z')))
-    expect(f, 'check rows', [(r['script'], r['exit'], r['outcome']) for r in out['checkRows']],
-           [('apply', '0', 'applied'), ('apply', '—', 'applied by hand')])
-    expect(f, 'table exit column', [row[2]['stringValue'] for row in w['incident-checks']['dataSource']], ['0', '—'])
+    out, w = resolve(chart, inc, 'apply result', runs_list(run('scr-4', 'scr-4-apply-1', 'Failed', 1, '2026-10-05T08:30:00Z')))
     md = w['incident-rem-step-md-1']['markdown']
-    if 'exit 0 · applied' not in md or 'Run apply' in md.split('**Last run:**')[1].split('\n')[0]:
-        f.append('the apply step\'s last run does not show the exit')
+    expect(f, 'apply last run', md.split('**Last run:** ')[1].split('\n')[0], 'exit 0 · applied · at 2026-10-05 09:00 UTC')
+    md0 = tbi.resolved_widget(chart, 'Markdown', 'incident-rem-step-md-0', out, {'name': 'scr-4', 'namespace': NS},
+                              'apply result: precondition')['spec']['widgetData']['markdown']
+    expect(f, 'precondition last run', md0.split('**Last run:** ')[1].split('\n')[0],
+           'exit 1 · still holds · since 2026-10-05 08:32 UTC')
+    inc['status']['lastChecks']['apply'] = {'since': '2026-10-05T09:00:00Z'}
+    out, w = resolve(chart, inc, 'hand-run apply')
+    expect(f, 'hand-run apply', w['incident-rem-step-md-1']['markdown'].split('**Last run:** ')[1].split('\n')[0],
+           'applied by hand · at 2026-10-05 09:00 UTC')
+    expect(f, 'meta items', out['metaItems'], [{'label': 'Started', 'value': '2026-10-05 07:00 UTC'}])
+    tabs = [t['resourceRefId'] for t in w['incident-detail-tabs']['items']]
+    if 'incident-checks' in tabs:
+        f.append(f'the Check history tab is still offered: {tabs}')
     return f
-
 
 CHECKS = [
     check_apply_patches_a_composition,
@@ -342,7 +349,7 @@ CHECKS = [
     check_no_button_once_applied_or_closed,
     check_run_apply_posts_an_incidentapply,
     check_apply_runs_tab,
-    check_history_shows_an_apply_exit,
+    check_apply_step_shows_its_last_result,
 ]
 
 
