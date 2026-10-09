@@ -28,16 +28,23 @@ needs the network is a lint that fails on a bad morning.
 
 | Rule | ID | Catches |
 |---|---|---|
-| `dead-kind` | X11 | a widget kind the frontend no longer resolves (`Panel`, `DataGrid`, `TabList`, …) |
-| `legacy-envelope` | X12 | `resourcesRefs` as a bare list — the CR will not apply |
-| `dangling-ref` | X4 | an `items[].resourceRefId` with no matching `resourcesRefs` entry |
-| `row-nav-placeholder` | P10 | a `rowNavigateTo` placeholder that resolves to nothing — the row goes silently inert |
-| `back-link` | P1 | a `← Back to X` label; the breadcrumb is the one way back |
-| `emoji` | P15 | emoji in a title, label or status text |
-| `tag-colour-no-label` | C13 | a `Tag` with a colour and no label — meaning carried by colour alone |
-| `missing-target` | X13 | a `resourcesRefs` entry naming a CR that does not exist — the parent renders without it |
-| `containment` | X5 | a child whose kind is not in its container's declared `allowedResources` — the only enforcement there is, since nothing reads the field at runtime |
-| `page-header` | P25 | a page the nav declares that does not open on a `PageHeader`; reads through a templated `items` rather than exempting it, and reports a page it cannot judge instead of passing it |
+| `dangling-ref` | X4 | An `items[].resourceRefId` with no matching `resourcesRefs` entry. Renders three different ways depending on container — silent drop, a dash, or a visible error — and only `Tabs` tells you. |
+| `row-nav-placeholder` | P10 | A `rowNavigateTo` placeholder that resolves to neither a column nor a `dataSource` cell. The row stops being clickable with no cursor, no warning and no visual difference. |
+| `back-link` | P1 | A `← Back to X` label. Filed four times on four pages with an identical fix each time. |
+| `second-breadcrumb` | P27 | A `Breadcrumb` widget, or an eyebrow Paragraph spelling a path (`A / B`): the shell already renders the page's breadcrumb, so either is a second one. A context eyebrow (`Platform · tenant x`) is not a trail and passes. A portal with no shell breadcrumb opts a Breadcrumb CR out with `krateo.io/own-breadcrumb` |
+| `autopilot-button` | A4 | An Autopilot entry point (a Button navigating to `?ask=`, computing an `askHref`, or labelled Ask Autopilot) that is not a filled `type: primary` button labelled exactly `Ask Autopilot →` with the `fa-wand-magic-sparkles` icon. Recognised by what the Button does as well as by its label: the first A4 sweep missed a CTA because it matched a shape, not the capability. Where it sits is P26's, as for any header action |
+| `button-role` | C26 | A Button labelled as a dismissal (`Cancel`, `Close`, `Dismiss`, `Back`, `Keep editing`) without `intent: dismiss`, or labelled as a deletion (`Delete`, `Remove`, `Discard`, `Destroy`, `Uninstall`) without `danger: true`. Closing is amber, deleting is red, and a CR says which only through its label |
+| `emoji` | P15 | Emoji in a title, label or status text. |
+| `tag-colour-no-label` | C13 | A `Tag` with a colour and no label — meaning carried by colour alone. |
+| `dead-kind` | X11 | A widget kind the frontend no longer resolves — `Panel`, `DataGrid`, `Column`, `TabList`, `NavMenu`, or a removed routing kind. Renders nothing. |
+| `legacy-envelope` | X12 | `resourcesRefs` as a bare list instead of `{items: […]}`. The CR does not apply at all. |
+| `missing-target` | X13 | A `resourcesRefs` entry naming a widget CR that does not exist in the chart — the deletion hazard. Indexes widget CRs only, so a same-named RESTAction cannot vouch for a deleted Table. |
+| `containment` | X5 | A child whose kind is not in its container's declared `allowedResources`. The only enforcement there is: nothing checks the field at runtime. |
+| `page-header` | P25 | A page the nav declares that does not open on a `PageHeader`. Reads through a templated `items` rather than exempting it, and reports a page it cannot judge instead of passing it. |
+| `section-rhythm` | P9 | a nav-declared page root whose section `gap` is not the one shared step (`middle`, **8px** — both themes apply antd's `compactAlgorithm`, so the label's px is half what antd documents). Judged on the ROOT only: rhythm BETWEEN sections is the page's business, within a section is that section's. A root declaring no `gap` is reported too — inheriting a default is not a decision. Shares `page_roots()` with P25, so the two cannot disagree about what a page is. Opt out with `krateo.io/no-section-rhythm` |
+| `root-coverage` | P9+P25 | a `page-*` CR the nav does not reach, so **neither page rule judged it**. Both start from the nav — correct, but it means a page the nav cannot reach is skipped in silence. Rendered with default values the agents pages are gated off, so the nav declares 26 roots while the chart ships 31 and both rules passed over 26 of them without saying so. A hit means the render omitted a values flag (under-covering) or the page is genuinely unreachable |
+| `page-discovery-alive` | P0 | page discovery found **zero** page roots, so every rule built on it (P9, P25, root-coverage) is vacuously passing. `page_roots` reads the Menu CR's `widgetData` statically, or a page root's `krateo.io/nav-label` / `krateo.io/nav-path` annotations. When the sidebar's items move to a `widgetDataTemplate` — computed server-side from a cluster listing — the static walk sees nothing, nothing errors, and the suite goes green while checking no pages at all. A lint that silently stops checking is worse than one that fails |
+| `colour-vocabulary` | T8 | a widget CR naming a colour outside the palette. `getColorCode` resolves a CR's colour NAME against `tokens.ts` and, on a miss, returns `palette.dark` — near-black — **with no error**, so `color: blu` or a renamed key renders as almost-black text that reads like a styling choice. Accepts both live authoring forms (`color: red` and the legacy `var(--red-color)` alias, emitted per key by `cssVariables`) and ignores `{…}` placeholders, which are the widget's own itemTemplate substitutions. The key list is embedded so the rule works from a chart repo, and `test_lint` asserts it against the real `tokens.ts` |
 
 Current state: **0 violations**. These are regression guards, not a backlog.
 

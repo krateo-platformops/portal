@@ -285,3 +285,153 @@ spec:
     title: Something
     tags:
     - color: red
+---
+# P9 — a nav-declared page root using a section step that is not the shared one.
+kind: Menu
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p9-nav
+spec:
+  widgetData:
+    items:
+    - label: Wrong
+      path: /p9wrong
+      resourceRefId: p9-wrong-root
+  resourcesRefs:
+    items:
+    - id: p9-wrong-root
+      name: p9-wrong-gap
+      resource: flexes
+      verb: GET
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p9-wrong-gap
+spec:
+  widgetData:
+    gap: large
+    items:
+    - resourceRefId: p9-head
+  resourcesRefs:
+    items:
+    - id: p9-head
+      name: p9-header
+      resource: pageheaders
+      verb: GET
+---
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: p9-header
+spec:
+  widgetData:
+    title: P9
+  resourcesRefs:
+    items: []
+---
+# P9+P25 coverage — a page-* CR the nav does not reach. Either the render omitted a values flag
+# (the lint is judging fewer roots than the chart ships) or the page is genuinely unreachable.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-orphan
+spec:
+  widgetData:
+    gap: middle
+    items:
+    - resourceRefId: orphan-head
+  resourcesRefs:
+    items:
+    - id: orphan-head
+      name: orphan-header
+      resource: pageheaders
+      verb: GET
+---
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: orphan-header
+spec:
+  widgetData:
+    title: Orphan
+  resourcesRefs:
+    items: []
+---
+# T8 — a colour name outside the palette. getColorCode returns palette.dark (near-black), silently.
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: t8-bad-colour
+spec:
+  widgetData:
+    label: Nope
+    color: blu
+  resourcesRefs:
+    items: []
+---
+# T8 — a --*-color alias for a key that does not exist, so the variable is never emitted.
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: t8-bad-alias
+spec:
+  widgetData:
+    title: Nope
+    color: var(--nope-color)
+  resourcesRefs:
+    items: []
+---
+kind: Breadcrumb
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-second-breadcrumb}
+spec:
+  widgetData:
+    items:
+      - title: Builders
+---
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-crumb-eyebrow}
+spec:
+  widgetData:
+    variant: eyebrow
+    text: "Controller Builder / Compose"
+---
+# A4: an Autopilot entry point as a link, with the old label and no icon.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-ask-link}
+spec:
+  widgetData:
+    label: Ask Autopilot
+    type: link
+    clickActionId: ask
+    actions:
+      navigate:
+        - {id: ask, type: navigate, path: "/controller-builder/compose?ask=help"}
+---
+# C26: a Cancel drawn as a neutral secondary, and a Delete that is not red.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-cancel}
+spec:
+  widgetData:
+    label: Cancel
+    type: default
+    clickActionId: back
+    actions:
+      navigate:
+        - {id: back, type: navigate, path: /compositions}
+---
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-delete}
+spec:
+  widgetData:
+    label: Delete composition
+    type: default
+    clickActionId: del
+    actions:
+      navigate:
+        - {id: del, type: navigate, path: /compositions/delete}
