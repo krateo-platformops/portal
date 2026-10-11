@@ -1,7 +1,23 @@
 # Input: snowplow's resolve dict — the request extras at the top level, each stage's (step-filtered)
 # output under its name, and each stage's errors, accumulated as a list, under its errorKey.
 def truthy: . != null and . != false and . != "" and . != 0 and . != [] and . != {};  # Helm `if`
-def pathOf($rw): $rw | ltrimstr(".") | split(".");                                    # dotted keys only
+# readyWhen has TWO forms and both have to evaluate here, because Helm's `readinessGuard` compiles both
+# (see the composer's readyWhen.ts). Reading only the field form leaves a condition-form node waiting
+# forever on a resource that is ready, with nothing to search for. `[capture(...)] | first` rather than
+# a bare capture: on no match capture emits NOTHING, which drops the whole node from the array around it.
+def condType($rw): [ $rw | capture("^\\.status\\.conditions\\[\\] \\| select\\(\\.type == \"(?<t>\\w+)\"\\) \\| \\.status == \"True\"$") ] | first | .t;
+def readyBy($rw):                          # the condition's truth, or the field's Helm-truthiness
+  if ($rw // "") == "" then true
+  else condType($rw) as $t
+  | if $t != null then any((.status.conditions // [])[]; .type == $t and .status == "True")
+    else ((try getpath($rw | ltrimstr(".") | split(".")) catch null) | truthy) end
+  end;
+def readyValue($rw):                       # what the check READ: the condition's status, or the field
+  if ($rw // "") == "" then null
+  else condType($rw) as $t
+  | if $t != null then ([ (.status.conditions // [])[] | select(.type == $t) | .status ] | first)
+    else (try getpath($rw | ltrimstr(".") | split(".")) catch null) end
+  end;
 def errKind:
   if type == "object" then
     (if (.code // 0) == 403 or .reason == "Forbidden" then "forbidden"
@@ -56,10 +72,8 @@ def exception:                                         # K8s-native tokens, exce
                      elif ($denied | index($nm)) != null then "unreadable"
                      elif ($missing | index($nm)) != null then "missing"
                      else "unavailable" end),
-              satisfied: (if $o == null then null
-                          elif ($n.readyWhen // "") == "" then true
-                          else ((try ($o | getpath(pathOf($n.readyWhen))) catch null) | truthy) end),
-              value: (if $o != null and ($n.readyWhen // "") != "" then (try ($o | getpath(pathOf($n.readyWhen))) catch null) else null end),
+              satisfied: (if $o == null then null else ($o | readyBy($n.readyWhen)) end),
+              value: (if $o != null then ($o | readyValue($n.readyWhen)) else null end),
               since: (if $o != null then ($o.metadata.creationTimestamp // null) else null end),
               exception: (if $o != null then ($o | exception) else null end) } ] as $inst
       | $n + { instances: $inst } ] as $nodes0
