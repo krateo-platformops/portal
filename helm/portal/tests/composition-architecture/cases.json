@@ -77,6 +77,32 @@
       "proves": "A finished composition, with the ConfigMap and every other managed object served from snowplow's informer (no apiVersion, no kind): S4 change-request-open, all ready, joined by name, and no step active."
     },
     {
+      "name": "readywhen-condition-true",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "ready-when",
+          "node": "repository",
+          "value": ".status.conditions[] | select(.type == \"Ready\") | .status == \"True\""
+        }
+      ],
+      "proves": "The CONDITION form of readyWhen — the half of the grammar that no fixture exercised, because every readyWhen these charts render is the field form. The Repository Ready condition is True, so the node is done and the composition reads exactly like demo. Before #298 the jq split the expression on its dots and fed the pieces to getpath, so it read false forever and said nothing: the composition sat at level 0 waiting on a Repository that was ready."
+    },
+    {
+      "name": "readywhen-condition-waiting",
+      "composition": "demo",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "ready-when",
+          "node": "pullrequest",
+          "value": ".status.conditions[] | select(.type == \"Deployed\") | .status == \"True\""
+        }
+      ],
+      "proves": "The condition form says false when it should: the PullRequest carries no Deployed condition, so the node waits and the composition is no longer all ready. Paired with readywhen-condition-true, this is what pins the fix to evaluating the expression rather than to answering true for any condition form."
+    },
+    {
       "name": "v1b",
       "composition": "v1b",
       "extras": "page",
@@ -194,7 +220,7 @@
           }
         }
       ],
-      "proves": "The same open gate with the composition Synced=False (the render or apply failed): the files read \"not created \u2014 the composition is not synced\" and carry the composition's NotSynced exception."
+      "proves": "The same open gate with the composition Synced=False (the render or apply failed): the files read \"not created — the composition is not synced\" and carry the composition's NotSynced exception."
     },
     {
       "name": "v1b-current-failed",

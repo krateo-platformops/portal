@@ -340,6 +340,15 @@ def mutate(cluster, op):
     elif kind == 'label':
         cm = next(o for p, o in cluster.items() if '/configmaps/' in p)
         cm['metadata']['labels'][op['key']] = op['value']
+    elif kind == 'ready-when':        # a node's readyWhen, in either form of the grammar readyWhen.ts
+        cm = next(o for p, o in cluster.items() if '/configmaps/' in p)
+        graph = json.loads(cm['data']['graph'])
+        hit = [n for n in graph['nodes'] if n['id'] == op['node']]
+        if len(hit) != 1:
+            raise AssertionError(f'ready-when names node {op["node"]!r}, which is {len(hit)} nodes '
+                                 f'in the graph')
+        hit[0]['readyWhen'] = op['value']
+        cm['data']['graph'] = json.dumps(graph)
     elif kind == 'graph':
         cm = next(o for p, o in cluster.items() if '/configmaps/' in p)
         graph = json.loads(cm['data']['graph'])
