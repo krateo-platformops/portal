@@ -127,34 +127,62 @@ spec:
       continueOnError: true
     {{/* IA F7: kind→plural discovery for per-event deep-links. The involvedObject in an */}}
     {{/* event carries {apiVersion, kind, name, namespace} but NOT the plural, and a */}}
-    {{/* lowercase(kind)+"s" guess is WRONG for many kinds — so resolve the plural from */}}
-    {{/* the REAL CRD registry (status.acceptedNames.plural, keyed by group+kind). Built-in */}}
-    {{/* core/apps/batch kinds (no CRD) are covered by a small static k8s-scoping map in the */}}
-    {{/* final filter. Any involvedObject we still can't resolve gets route "" → inert. */}}
-    {{/* #72: this stays a cluster-wide customresourcedefinitions list ON PURPOSE — it only ENRICHES */}}
-    {{/* event deep-links (plural resolution for arbitrary CRD kinds), and it already degrades gracefully */}}
-    {{/* (continueOnError). For a namespace-scoped tenant it 403s → $crdPlural empty → third-party-CRD */}}
-    {{/* deep-links go inert, but the events themselves still render (built-in kinds resolve via $builtin, */}}
-    {{/* and composition-kind involvedObjects route to /compositions/ directly, needing no plural). A CD */}}
-    {{/* list can't replace it (CDs only cover composition kinds, which don't need it), and it must not */}}
-    {{/* gate the feed — the tenant-blocking discovery was `crds`/`found` above, now fixed. */}}
-    - name: allcrds
-      path: /apis/apiextensions.k8s.io/v1/customresourcedefinitions
+    {{/* lowercase(kind)+"s" guess is WRONG for many kinds — so resolve the plural from the */}}
+    {{/* apiserver's own discovery (.resources[].name, keyed by groupVersion+kind). Built-in */}}
+    {{/* core kinds (apiVersion "v1", no group) are covered by a small static k8s-scoping map in */}}
+    {{/* the final filter. Any involvedObject we still can't resolve gets route "" → inert. */}}
+    {{/* #72 (was: a cluster-wide customresourcedefinitions list, kept deliberately because it only */}}
+    {{/* ENRICHES deep-links and degrades gracefully): discovery is STRICTLY BETTER for the tenant */}}
+    {{/* case that comment worried about. k8s binds system:discovery to system:authenticated, so */}}
+    {{/* /apis/<group>/<version> answers for a namespace-scoped tenant where the CRD list 403s — */}}
+    {{/* third-party deep-links now resolve for tenants instead of going inert. It still only */}}
+    {{/* enriches, still continueOnError, and still must not gate the feed. */}}
+    - name: apiresources
+      {{/* ONE DISCOVERY CALL PER GROUP THE EVENTS ACTUALLY MENTION, instead of the whole CRD */}}
+      {{/* registry. Measured on krateo-057: the old cluster-wide customresourcedefinitions list */}}
+      {{/* fetched 16,075,217 B (15.3 MB) to keep 50,465 B (49.3 KB) — 99.69% discarded — on EVERY */}}
+      {{/* call, warm or cold, because this RESTAction declares a userAccessFilter and snowplow's */}}
+      {{/* raFullListServe refuses to cache a UAF-declaring RESTAction at all. A composition's */}}
+      {{/* events reference one to three groups in practice, and /apis/<group>/<version> answers */}}
+      {{/* kind->plural in ~1-2 KB with a PLAIN Accept header (verified: apps/v1 2,254 B, */}}
+      {{/* core.krateo.io/v1alpha1 912 B, composition.krateo.io/v0-1-0 1,226 B). */}}
+      {{/* */}}
+      {{/* WHY NOT aggregated discovery (one 826 KB call for everything): it needs */}}
+      {{/* `Accept: application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList`, and if */}}
+      {{/* snowplow did not forward those Accept PARAMETERS verbatim the apiserver would answer */}}
+      {{/* with a plain APIGroupList carrying no resources at all — $crdPlural empty, every */}}
+      {{/* third-party deep-link silently inert. No deployed snowplow was available to prove the */}}
+      {{/* header survives, and a silent regression is worse than a larger payload. */}}
+      {{/* WHY NOT a fieldSelector on the CRD list: the apiserver rejects it — */}}
+      {{/* `"spec.group" is not a known field selector: only "metadata.name", "metadata.namespace"`. */}}
+      {{/* */}}
+      {{/* GATING ON getEvents IS SOUND, not a new failure mode: plurals exist only to build */}}
+      {{/* per-event deep-links, so no events means nothing to resolve. If getEvents fails its */}}
+      {{/* continueOnError already yields an empty feed, and an empty $crdPlural changes nothing. */}}
+      {{/* Core/apps/batch kinds never reach here — their apiVersion has no "/" so the iterator */}}
+      {{/* drops them, and $builtin in the final filter covers them as before. */}}
+      dependsOn:
+        name: getEvents
+        iterator: '[ (.getEvents // empty) | .. | objects | select(has("involvedObject")) | (.involvedObject.apiVersion // "") | select(type == "string" and test("^[^/]+/[^/]+$")) ] | unique | map({gv: .})'
+      path: ${ "/apis/" + .gv }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
-      filter: '[.allcrds.items[]? | {group: .spec.group, kind: .status.acceptedNames.kind, plural: .status.acceptedNames.plural}]'
+      {{/* APIResourceList: .groupVersion plus .resources[] with .kind and .name (the plural). */}}
+      {{/* Subresources ("deployments/status") are dropped — they carry the parent's kind and */}}
+      {{/* would overwrite the real plural in from_entries. */}}
+      filter: '[ .apiresources as $r | $r.resources[]? | select(((.name // "") | test("/")) | not) | {group: (($r.groupVersion // "") | split("/")[0]), kind: (.kind // ""), plural: (.name // "")} | select(.group != "" and .kind != "" and .plural != "") ]'
   filter: |
     (.name) as $n
     | (.namespace) as $ns
     | ([ .found[]? | select(.name == $n and .namespace == $ns) ][0].compositionId // "") as $cid
     | ( .getEvents | if type == "array" then . elif type == "object" then (.resources // .items // []) else [] end ) as $all
     # IA F7: (group,kind)->plural resolver. Built-in kinds (no CRD) from a small static
-    # k8s-scoping map ($builtin); every CRD kind from the REAL CRD registry (.allcrds).
+    # k8s-scoping map ($builtin); every other kind from per-group discovery (.apiresources).
     # Never a lowercase(kind)+"s" guess.
     | ({"core|Pod":"pods","core|Service":"services","core|ConfigMap":"configmaps","core|Secret":"secrets","core|PersistentVolumeClaim":"persistentvolumeclaims","core|ServiceAccount":"serviceaccounts","core|Endpoints":"endpoints","core|Namespace":"namespaces","core|Node":"nodes","apps|Deployment":"deployments","apps|ReplicaSet":"replicasets","apps|StatefulSet":"statefulsets","apps|DaemonSet":"daemonsets","batch|Job":"jobs","batch|CronJob":"cronjobs","networking.k8s.io|Ingress":"ingresses","rbac.authorization.k8s.io|Role":"roles","rbac.authorization.k8s.io|RoleBinding":"rolebindings","rbac.authorization.k8s.io|ClusterRole":"clusterroles","rbac.authorization.k8s.io|ClusterRoleBinding":"clusterrolebindings"}) as $builtin
-    | ( [ (.allcrds // [])[] | { key: (.group + "|" + .kind), value: .plural } ] | from_entries ) as $crdPlural
+    | ( [ (.apiresources // empty) | .. | objects | select(has("group") and has("kind") and has("plural")) | { key: (.group + "|" + .kind), value: .plural } ] | from_entries ) as $crdPlural
     | {
         list: (if $cid == "" then []
                else ( [ $all[]?
