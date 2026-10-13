@@ -411,6 +411,73 @@ spec:
       navigate:
         - {id: ask, type: navigate, path: "/controller-builder/compose?ask=help"}
 ---
+# A4: the shape that got through — a "Diagnose" reading an href its RESTAction builds with ?ask=.
+kind: RESTAction
+apiVersion: templates.krateo.io/v1
+metadata: {name: bad-detail}
+spec:
+  filter: >
+    {
+      diagnoseHref: ("/compositions/demo?ask="
+        + ("Diagnose composition demo" | @uri))
+    }
+---
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-diagnose}
+spec:
+  apiRef: {name: bad-detail, namespace: krateo-system}
+  widgetData:
+    label: Diagnose
+    type: default
+    icon: fa-wand-magic-sparkles
+    clickActionId: diagnose
+    actions:
+      navigate:
+        - {id: diagnose, type: navigate, path: /compositions}
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "diagnose", type: "navigate", path: .diagnoseHref } ] } }'
+---
+# P6: two filled buttons in one container — one says so, the other has no `type`, which Button
+# draws as primary.
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-two-primaries}
+spec:
+  widgetData:
+    allowedResources: [buttons]
+    items:
+      - resourceRefId: bad-run
+      - resourceRefId: bad-done
+  resourcesRefs:
+    items:
+      - {id: bad-run, apiVersion: widgets.templates.krateo.io/v1beta1, name: bad-run, namespace: krateo-system, resource: buttons, verb: GET}
+      - {id: bad-done, apiVersion: widgets.templates.krateo.io/v1beta1, name: bad-done, namespace: krateo-system, resource: buttons, verb: GET}
+---
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-run}
+spec:
+  widgetData:
+    label: Run apply
+    type: primary
+    clickActionId: go
+    actions:
+      navigate:
+        - {id: go, type: navigate, path: /incidents}
+---
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-done}
+spec:
+  widgetData:
+    label: I applied it
+    clickActionId: go
+    actions:
+      navigate:
+        - {id: go, type: navigate, path: /incidents}
+---
 # C26: a Cancel drawn as a neutral secondary, and a Delete that is not red.
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1

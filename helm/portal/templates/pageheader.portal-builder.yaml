@@ -5,8 +5,9 @@
 {{/* THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx already */}}
 {{/* returns null for `variant: eyebrow`, so that line has been rendering as nothing. */}}
 {{/* */}}
-{{/* No actions in the header: portal-builder-ask-cta below IS the entry point (the Autopilot prompt */}}
-{{/* itself), so a header button would be a second door onto the same room. */}}
+{{/* Two actions, as on the sibling builders: "Ask Autopilot →" (A4/A5 — the entry point beside the */}}
+{{/* page's primary, not counted against it, P6) and the composer. It used to sit in the "How a */}}
+{{/* page gets built" card, the only builder where it did. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -31,15 +32,19 @@ spec:
       RESTActions that feed them. Preview it against your own cluster, with your own permissions,
       then publish the whole set as one change request. Nothing appears in this portal until that
       change request is merged.
-    {{/* ONE action, right-aligned in the title row. PageHeader affords exactly one and says so, */}}
-    {{/* which is why flex.portal-builder-ask-cta — a wrapper whose only job was justify:flex-end */}}
-    {{/* — is retired: it rebuilt one level down the affordance this widget exists to provide. */}}
     allowedResources:
       - buttons
     items:
+      - resourceRefId: portal-builder-ask
       - resourceRefId: portal-builder-compose
   resourcesRefs:
     items:
+      - id: portal-builder-ask
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: portal-builder-ask
+        namespace: {{ .Release.Namespace }}
+        resource: buttons
+        verb: GET
       - id: portal-builder-compose
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: portal-builder-compose
