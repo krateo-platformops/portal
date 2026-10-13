@@ -420,12 +420,15 @@ def check_mirrors_the_blueprint_builder():
             'controller-builder-registry-card'])
     expect(f, 'page: no Form, no Flex wrapper, no bare Table', page['allowedResources'], ['pageheaders', 'cards'])
     buttons = {n: CHART.get('Button', n)['spec']['widgetData'] for n in ('controller-builder-ask', 'controller-builder-compose')}
-    expect(f, 'one primary, into the composer', (buttons['controller-builder-compose']['type'], buttons['controller-builder-compose']['label'],
+    expect(f, 'the page action, into the composer', (buttons['controller-builder-compose']['type'], buttons['controller-builder-compose']['label'],
                                                   buttons['controller-builder-compose']['actions']['navigate'][0]['path']),
            ('primary', 'Build a controller', '/controller-builder/compose'))
-    expect(f, 'Ask Autopilot is a link into the same composer', (buttons['controller-builder-ask']['type'],
-                                                                  buttons['controller-builder-ask']['actions']['navigate'][0]['path'].split('?')[0]),
-           ('link', '/controller-builder/compose'))
+    # A4 (frontend 1.7.0): the Autopilot entry point is a filled button, "Ask Autopilot →" with the
+    # wand, never a link — and it still lands in the same composer.
+    ask = buttons['controller-builder-ask']
+    expect(f, 'Ask Autopilot is the filled entry point into the same composer',
+           (ask['type'], ask['label'], ask['icon'], ask['actions']['navigate'][0]['path'].split('?')[0]),
+           ('primary', 'Ask Autopilot →', 'fa-wand-magic-sparkles', '/controller-builder/compose'))
     for kind in ('Form',):
         stale = [d['metadata']['name'] for d in CHART.docs if d.get('kind') == kind and d['metadata']['name'].startswith('kog-')]
         expect(f, 'the two page Forms are gone', stale, [])

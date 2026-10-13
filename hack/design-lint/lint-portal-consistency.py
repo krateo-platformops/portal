@@ -10,7 +10,7 @@ CI here should not break because another repo landed a new rule, and a lint that
 is a lint that fails on a bad morning. The cost is that this file can drift from upstream — if the
 rules change there, re-copy the script, its fixtures and its self-test together.
 
-VENDORED AT: krateo-platformops/frontend main (design/lint/). This stamp exists because the copy
+VENDORED AT: krateo-platformops/frontend 1.7.0 (design/lint/). This stamp exists because the copy
 HAD drifted and nothing noticed — it was missing rule_containment (X5) entirely, so that gate never
 ran here after it landed upstream. The self-test now fails when a registered rule is undocumented,
 which catches one shape of that drift; nothing catches the rest.
@@ -271,6 +271,30 @@ def rule_back_link(crs):
         for path, value in walk_strings(widget_data(doc)):
             if path.split('.')[-1].split('[')[0] in ('label', 'text', 'title') and BACK_LINK.match(value):
                 out.append((fname, f'{path} = "{value}" — the breadcrumb is the one way back'))
+    return out
+
+
+CRUMB_TRAIL = re.compile(r'\S\s+/\s+\S')
+
+
+def rule_second_breadcrumb(crs):
+    """P27 — one breadcrumb per page, and it is the shell's.
+
+    The shell renders the page's breadcrumb above every page. A `Breadcrumb` widget in a chart, or an
+    eyebrow Paragraph spelling a path ("Builders / Compose"), puts a second one under it — the
+    composers did exactly that in-app until ScreenHeader removed the slot. A portal with no shell
+    breadcrumb opts a Breadcrumb CR out with the `krateo.io/own-breadcrumb` annotation.
+
+    A context eyebrow is not a trail: "Platform · tenant x" passes, "Platform / Compositions" does not."""
+    out = []
+    for fname, doc in crs:
+        kind = doc.get('kind')
+        annotations = (doc.get('metadata') or {}).get('annotations') or {}
+        if kind == 'Breadcrumb' and not annotations.get('krateo.io/own-breadcrumb'):
+            out.append((fname, "a Breadcrumb widget: the shell already renders this page's breadcrumb, so this is a second one"))
+        data = widget_data(doc)
+        if kind == 'Paragraph' and data.get('variant') == 'eyebrow' and CRUMB_TRAIL.search(str(data.get('text') or '')):
+            out.append((fname, f'eyebrow text "{data.get("text")}" spells a path: that is the shell breadcrumb, said twice'))
     return out
 
 
@@ -572,6 +596,140 @@ def rule_containment(crs):
     return out
 
 
+def ref_resolver(crs):
+    """(index, resolve) — how the RENDERER addresses a reference: by (plural, name).
+
+    One implementation, because P25 and P9 both need it and a second copy is how "what is a page
+    root" drifted four times.
+    """
+    index = {}
+    for fname, doc in widget_crs(crs):
+        name = ((doc.get('metadata') or {}).get('name') or '')
+        if name:
+            index[(doc.get('kind'), name)] = (fname, doc)
+    plurals = dict(learn_plurals(crs))
+    plurals.update(discover_plurals())
+    kind_of = {p: k for k, p in plurals.items()}
+
+    def resolve(name, plural):
+        kind = kind_of.get(plural)
+        if kind and (kind, name) in index:
+            return index[(kind, name)]
+        hits = [v for (k, n), v in index.items() if n == name]
+        return hits[0] if len(hits) == 1 else None
+
+    return index, resolve
+
+
+# The one section step every nav-declared page root puts between its major sections (P9).
+# The LABEL is antd's; the PX is not antd's documented value. Both themes apply
+# `compactAlgorithm`, which halves the size ramp, so here small/middle/large = 4/8/16px, not
+# 8/16/24. Anyone reasoning from antd's docs will pick the wrong one — hence the px in the name.
+SECTION_GAP = 'middle'
+SECTION_GAP_PX = 8
+
+
+NAV_LABEL_ANNOTATION = 'krateo.io/nav-label'
+NAV_PATH_ANNOTATION = 'krateo.io/nav-path'
+
+
+def _annotated_page_roots(crs):
+    """Yield (root_name, file, doc) for page roots that DECLARE their own nav entry.
+
+    The second discovery source, for a menu assembled at RUNTIME from a cluster listing rather than
+    written out in the Menu CR. A page that declares `krateo.io/nav-label` (a visible entry) or
+    `krateo.io/nav-path` (a route-only one) is reachable from the nav by construction, so it is a
+    page for every rule's purposes — exactly as a nav-declared root is.
+    """
+    for fname, doc in crs:
+        meta = doc.get('metadata') or {}
+        ann = meta.get('annotations') or {}
+        if NAV_LABEL_ANNOTATION not in ann and NAV_PATH_ANNOTATION not in ann:
+            continue
+        name = meta.get('name')
+        if name:
+            yield name, fname, doc
+
+
+def page_roots(crs):
+    """Yield (root_name, page_file, page_doc) for every page the nav declares — by EITHER route.
+
+    Extracted so P25 and P9 cannot disagree about what a page root is. Four hand surveys got that
+    count wrong, each inheriting the last one's blind spot, because each looked for the SHAPE a page
+    was expected to have rather than for what makes something a page — being reachable from the nav.
+    A second rule re-deriving it independently would be the fifth.
+
+    TWO SOURCES, DELIBERATELY. The original walk reads the Menu CR's `widgetData` for `page` /
+    `resourceRefId` leaves. That is a STATIC read, and the sidebar is moving to a Menu whose items
+    are computed server-side from a cluster listing — at which point the walk finds nothing and
+    every rule built on it judges ZERO pages and passes. A lint that silently stops checking is
+    worse than one that fails, so annotation-declared roots count too, and the union is what rules
+    see. During the transition both sources are populated and agree; afterwards only the second is.
+    """
+    seen_roots = set()
+    for name, fname, doc in _annotated_page_roots(crs):
+        if name not in seen_roots:
+            seen_roots.add(name)
+            yield name, fname, doc
+
+    _index, resolve = ref_resolver(crs)
+
+    for fname, doc in crs:
+        if doc.get('kind') != 'Menu':
+            continue
+        nav_refs = {r['id']: r for r in refs_of(doc) if r.get('id')}
+        seen = set(seen_roots)
+        for path, value in walk_strings(widget_data(doc)):
+            leaf = path.rsplit('.', 1)[-1]
+            if leaf == 'page':
+                root, plural = f'page-{value}', None
+            elif leaf == 'resourceRefId':
+                ref = nav_refs.get(value)
+                if not ref:
+                    continue
+                root, plural = ref.get('name'), ref.get('resource')
+            else:
+                continue
+            if root in seen:
+                continue
+            seen.add(root)
+            target = resolve(root, plural)
+            if not target:
+                continue          # P10's business
+            seen_roots.add(root)
+            yield root, target[0], target[1]
+
+
+def rule_section_rhythm(crs):
+    """P9 — a nav-declared page root whose section gap is not the one shared step.
+
+    #54 §0.6 asked for a standard gap between major sections and a smaller one within a section.
+    Without this rule the convention was re-decided per page: before it was first set, the 31 roots
+    split middle 16 / large 13 / small 1 / unset 1.
+
+    Judged only on the ROOT, which is what sets rhythm BETWEEN sections; the gap within a section is
+    that section's own business. A root that declares no gap is reported too — inheriting a default
+    is how the unset one got there, and an unstated value is not a decision.
+    """
+    out = []
+    for root, page_file, page_doc in page_roots(crs):
+        data = widget_data(page_doc)
+        if (page_doc.get('metadata') or {}).get('annotations', {}).get('krateo.io/no-section-rhythm'):
+            continue
+        gap = data.get('gap')
+        if gap == SECTION_GAP:
+            continue
+        if gap is None:
+            out.append((page_file, f'page root `{root}` declares no `gap`, so its section rhythm is '
+                                   f'whatever the renderer defaults to — set it to `{SECTION_GAP}` '
+                                   f'({SECTION_GAP_PX}px) so the value is a decision, not an inheritance'))
+        else:
+            out.append((page_file, f'page root `{root}` uses gap `{gap}`, not the one section step '
+                                   f'`{SECTION_GAP}` ({SECTION_GAP_PX}px) — annotate the root with '
+                                   f'`krateo.io/no-section-rhythm` if this page genuinely differs'))
+    return out
+
+
 def rule_page_header(crs):
     """P25 — a page whose first child is not a `PageHeader`.
 
@@ -613,23 +771,7 @@ def rule_page_header(crs):
     OPT-OUT, because one page legitimately has no single header: annotate the page root with
     `krateo.io/no-page-header: <reason>`. An exception that has to be written down and reviewed is
     the point; a silent exclusion list inside the lint is what let the hand surveys drift."""
-    index = {}
-    for fname, doc in widget_crs(crs):
-        name = ((doc.get('metadata') or {}).get('name') or '')
-        if name:
-            index[(doc.get('kind'), name)] = (fname, doc)
-    plurals = dict(learn_plurals(crs))
-    plurals.update(discover_plurals())
-    # plural -> kind, so a `resourcesRefs` entry can be resolved the way the renderer resolves it.
-    kind_of = {p: k for k, p in plurals.items()}
-
-    def resolve(name, plural):
-        """The CR a reference addresses, resolved by (plural, name) when the plural is known."""
-        kind = kind_of.get(plural)
-        if kind and (kind, name) in index:
-            return index[(kind, name)]
-        hits = [v for (k, n), v in index.items() if n == name]
-        return hits[0] if len(hits) == 1 else None
+    _index, resolve = ref_resolver(crs)
 
     def first_child(doc):
         """(kind, detail). kind is None when the page could not be judged — `detail` says why."""
@@ -668,58 +810,267 @@ def rule_page_header(crs):
         return target[1].get('kind'), ref.get('name')
 
     out = []
-    for fname, doc in crs:
-        if doc.get('kind') != 'Menu':
+    for root, page_file, page_doc in page_roots(crs):
+        if (page_doc.get('metadata') or {}).get('annotations', {}).get('krateo.io/no-page-header'):
             continue
-        spec = doc.get('spec') or {}
-        nav_refs = {r['id']: r for r in refs_of(doc) if r.get('id')}
-        seen = set()
-        for path, value in walk_strings(widget_data(doc)):
-            leaf = path.rsplit('.', 1)[-1]
-            # `page: x` names `page-x` by convention; `resourceRefId` goes through resourcesRefs.
-            if leaf == 'page':
-                root, plural = f'page-{value}', None
-            elif leaf == 'resourceRefId':
-                ref = nav_refs.get(value)
-                if not ref:
-                    continue          # P10's business
-                root, plural = ref.get('name'), ref.get('resource')
-            else:
-                continue
-            if root in seen:
-                continue
-            seen.add(root)
-            target = resolve(root, plural)
-            if not target:
-                continue              # P10's business, not this rule's
-            page_file, page_doc = target
-            if (page_doc.get('metadata') or {}).get('annotations', {}).get('krateo.io/no-page-header'):
-                continue
-            kind, detail = first_child(page_doc)
-            if kind == 'PageHeader':
-                continue
-            if kind:
-                out.append((page_file, f'page `{root}` opens on a `{kind}`, not a PageHeader — '
-                                       f'every page names itself in the same place and type ramp; '
-                                       f'annotate the root with `krateo.io/no-page-header` if this '
-                                       f'page genuinely has none'))
-            else:
-                out.append((page_file, f'page `{root}` could not be judged: {detail} — a page this '
-                                       f'rule cannot read is a gap in the rule, not a pass'))
+        kind, detail = first_child(page_doc)
+        if kind == 'PageHeader':
+            continue
+        if kind:
+            out.append((page_file, f'page `{root}` opens on a `{kind}`, not a PageHeader — '
+                                   f'every page names itself in the same place and type ramp; '
+                                   f'annotate the root with `krateo.io/no-page-header` if this '
+                                   f'page genuinely has none'))
+        else:
+            out.append((page_file, f'page `{root}` could not be judged: {detail} — a page this '
+                                   f'rule cannot read is a gap in the rule, not a pass'))
     return out
 
 
+ASK_PATH = re.compile(r'[?&]ask=')
+
+
+ASK_LABEL = re.compile(r'^\s*ask autopilot\b', re.I)
+
+
+def _is_autopilot_entry(button_doc):
+    """A Button that opens the Autopilot rail seeded with a prompt.
+
+    Three signals, because the chart spells the link three ways: A4's canonical label ("Ask
+    Autopilot"), a static `?ask=` navigate path, or a widgetDataTemplate computing the navigate
+    actions from an `askHref` (Alerts does that, so a path-only check missed it)."""
+    data = widget_data(button_doc)
+    if ASK_LABEL.match(str(data.get('label') or '')):
+        return True
+    for navigate in ((data.get('actions') or {}).get('navigate') or []):
+        if isinstance(navigate, dict) and ASK_PATH.search(str(navigate.get('path') or '')):
+            return True
+    for entry in (button_doc.get('spec') or {}).get('widgetDataTemplate') or []:
+        if isinstance(entry, dict) and str(entry.get('forPath', '')).startswith('actions') and 'askHref' in str(entry.get('expression') or ''):
+            return True
+    return False
+
+
+AUTOPILOT_LABEL = 'Ask Autopilot →'
+AUTOPILOT_ICON = 'fa-wand-magic-sparkles'
+
+
+def rule_autopilot_button(crs):
+    """A4 — every Autopilot entry point looks the same: a filled (`type: primary`) Button labelled
+    "Ask Autopilot →" with the magic-wand icon. Never a link: the product's decision, recorded once
+    here instead of re-litigated per page.
+
+    Recognised by what the Button does, not what it says (a `?ask=` link or an `askHref` template),
+    as well as by its label — the sweep that resolved A4 the first time missed a CTA precisely
+    because it matched a shape instead of the capability. Where it sits is P26's business, as for any
+    header action."""
+    out = []
+    for fname, doc in crs:
+        if doc.get('kind') != 'Button' or not _is_autopilot_entry(doc):
+            continue
+        data = widget_data(doc)
+        label, icon, kind = str(data.get('label') or ''), str(data.get('icon') or ''), data.get('type')
+        if label != AUTOPILOT_LABEL:
+            out.append((fname, f'Autopilot entry point labelled "{label}" — the canonical label is "{AUTOPILOT_LABEL}"'))
+        if icon != AUTOPILOT_ICON:
+            out.append((fname, f'Autopilot entry point with icon "{icon or "none"}" — it carries {AUTOPILOT_ICON}'))
+        if kind != 'primary':
+            out.append((fname, f'Autopilot entry point is a `type: {kind or "default"}` Button — it is a filled `type: primary` button, not a link'))
+    return out
+
+
+DISMISS_LABEL = re.compile(r'^\s*(cancel|close|close draft|dismiss|back|keep editing|keep it)\s*$', re.I)
+DESTROY_LABEL = re.compile(r'^\s*(delete|remove|discard|destroy|uninstall)\b', re.I)
+
+
+def rule_button_role(crs):
+    """C26 — a Button says what it does to the work in front of you.
+
+    DISMISS — it closes or backs out without deleting anything (Cancel, Close): `intent: dismiss`,
+    which draws it amber and outlined. DESTROY — it deletes content (Delete, Remove, Discard):
+    `danger: true`, red. Read from the label, the only place a CR says which it is; a label that is
+    neither is not judged."""
+    out = []
+    for fname, doc in crs:
+        if doc.get('kind') != 'Button':
+            continue
+        data = widget_data(doc)
+        label = str(data.get('label') or '')
+        if DISMISS_LABEL.match(label) and data.get('intent') != 'dismiss':
+            out.append((fname, f'"{label}" dismisses — give it `intent: dismiss` (amber), not a {data.get("type") or "primary"} button'))
+        if DESTROY_LABEL.match(label) and data.get('danger') is not True and data.get('color') != 'danger':
+            out.append((fname, f'"{label}" deletes — give it `danger: true` (red)'))
+    return out
+
+
+def rule_root_coverage(crs):
+    """P9+P25 coverage — a `page-*` CR the nav does not reach, so neither rule judged it.
+
+    Both page rules start from the NAV, which is what makes something a page. That is right, and it
+    has one failure mode: if the corpus contains a page the nav does not reach, both rules skip it
+    in silence and report a clean run over an incomplete set.
+
+    That is not hypothetical. The agents pages are gated behind `.Values.agents.enabled`, which
+    defaults to false. Rendered with default values, the nav declares 26 roots while the chart ships
+    31 pages — and P9 and P25 both passed, having judged 26 of 31 without saying so. A lint that
+    quietly covers less than it claims is the thing this whole file exists to prevent.
+
+    So: every CR named `page-*` must be reachable from the nav. In a correct render zero are not.
+    A hit means either the render omitted a values flag (the lint is under-covering — fix the render)
+    or the page is genuinely unreachable (a real defect — fix the nav). Both are worth a failure;
+    neither is worth silence.
+    """
+    reachable = {name for name, _f, _d in page_roots(crs)}
+    out = []
+    for fname, doc in widget_crs(crs):
+        name = ((doc.get('metadata') or {}).get('name') or '')
+        # The `page-` prefix alone is too loose a proxy: it fired on `page-compose` (a Form) and
+        # `page-compose-card` (a Card) — CRs that describe a page-composing FEATURE, not a page.
+        # Every one of the 31 real page roots is a vertical container, so require the kind too.
+        # A false positive is how a rule gets switched off, and this one found its own on first use.
+        if doc.get('kind') not in ('Flex', 'Col'):
+            continue
+        if not name.startswith('page-') or name in reachable:
+            continue
+        out.append((fname, f'`{name}` looks like a page root but no nav entry reaches it, so P9 and '
+                           f'P25 did NOT judge it — either this render omitted a values flag (e.g. '
+                           f'`--set agents.enabled=true`) and this lint is under-covering, or the '
+                           f'page is genuinely unreachable'))
+    return out
+
+
+# The widget-CR colour vocabulary: every key of `color` in ui/src/theme/tokens.ts. A CR names a
+# colour by KEY — `color: red` — or through the legacy alias `var(--red-color)`, which
+# `cssVariables` emits as `--${key}-color` for every key, so both forms reduce to the same check.
+#
+# Embedded so the rule works when it runs from a CHART repo, where ui/src is not present.
+# discover_palette() prefers the real file when it is, and test_lint asserts the two agree — a key
+# added or renamed in tokens.ts without updating this list fails the frontend's own CI.
+PALETTE_KEYS = {
+    'accent2', 'accentSoft', 'amber', 'background', 'blue', 'border',
+    'cyan', 'dark', 'darkBlue', 'error', 'errorSoft', 'faint',
+    'gold', 'gray', 'green', 'info', 'light', 'lightgray',
+    'line', 'magenta', 'menubgend', 'menubgstart', 'olive', 'onmenubg',
+    'orange', 'panelbg', 'primary', 'red', 'slate', 'success',
+    'successSoft', 'teal', 'text', 'violet', 'warning', 'warningSoft',
+}
+
+CSS_VAR_COLOUR = re.compile(r'^var\(\s*--([A-Za-z0-9_]+)-color\s*\)$')
+
+
+def discover_palette():
+    """Palette keys from the real tokens.ts when it is reachable, else () so the caller falls back."""
+    for pattern in ('ui/src/theme/tokens.ts', '**/ui/src/theme/tokens.ts'):
+        for path in glob.glob(pattern, recursive=True)[:5]:
+            try:
+                src = open(path, encoding='utf-8').read()
+            except OSError:
+                continue
+            m = re.search(r'export const color\s*:?[^=]*=\s*\{', src)
+            if not m:
+                continue
+            depth, i = 0, m.end() - 1
+            while i < len(src):
+                if src[i] == '{':
+                    depth += 1
+                elif src[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            keys = set(re.findall(r"(\w+)\s*:\s*'#", src[m.end():i]))
+            if keys:
+                return keys
+    return set()
+
+
+def rule_colour_vocabulary(crs):
+    """T8 — a widget CR naming a colour that is not in the palette.
+
+    `getColorCode` resolves a CR's colour NAME against the palette and, on a miss, returns
+    `palette.dark` — near-black — with no error. So `color: blu`, a key someone renamed, or a key
+    someone deleted all render as almost-black text that reads as a styling choice. The palette is a
+    public API consumed by chart authors, and nothing checked it.
+
+    Both authoring forms are accepted because both are in live use and both resolve to a key:
+    the bare name (`color: red`) and the legacy alias (`color: var(--red-color)`), which
+    `cssVariables` emits for every key.
+
+    A `var(--x)` that is not a `--*-color` alias is left alone — that is ordinary CSS custom-property
+    use and none of this rule's business.
+    """
+    palette = discover_palette() or PALETTE_KEYS
+    out = []
+    for fname, doc in widget_crs(crs):
+        for path, value in walk_strings(widget_data(doc)):
+            if path.rsplit('.', 1)[-1] != 'color':
+                continue
+            value = value.strip()
+            if not value:
+                continue
+            alias = CSS_VAR_COLOUR.match(value)
+            if alias:
+                key = alias.group(1)
+                if key not in palette:
+                    out.append((fname, f'{path} -> `{value}` names `--{key}-color`, and `{key}` is '
+                                       f'not a palette key — cssVariables emits an alias per key, so '
+                                       f'this variable is never defined and the colour falls back'))
+                continue
+            if value.startswith('var(') or value.startswith('#'):
+                continue      # a non-colour custom property, or an explicit hex (that is T1's business)
+            if '{' in value:
+                # `{{ ... }}` is helm; `{readyColor}` is the widget's OWN itemTemplate placeholder,
+                # substituted per row from the RA's data. Neither is knowable here, and judging a
+                # placeholder as a literal is how a rule earns a false positive and gets switched off.
+                continue
+            if value not in palette:
+                out.append((fname, f'{path} -> `{value}` is not a palette key, so getColorCode '
+                                   f'returns palette.dark (near-black) with NO error'))
+    return out
+
+
+def rule_page_discovery_alive(crs):
+    """P0 — the page-discovery walk found nothing, so every rule built on it is vacuous.
+
+    THE FAILURE THIS EXISTS TO MAKE IMPOSSIBLE. `page_roots` is the shared definition of "a page",
+    and P9, P25 and root-coverage are all built on it. It discovers roots by reading the Menu CR's
+    widgetData (static) or a page root's nav annotations. If the Menu's items move to a
+    `widgetDataTemplate` — computed server-side, which is where the sidebar is heading — the static
+    walk sees nothing. Nothing ERRORS: the loops simply have no rows, every rule reports clean, and
+    the suite goes green while checking exactly zero pages.
+
+    A lint that silently stops checking is worse than one that fails, so this asserts the walk is
+    still finding pages at all. It is deliberately dumb: no threshold to tune, no list to maintain.
+    """
+    if any(True for _ in page_roots(crs)):
+        return []
+    return [(
+        'menu.sidebar-nav.yaml',
+        'page discovery found ZERO page roots — every page rule below is vacuously passing. '
+        f'Either the Menu\'s items are no longer statically readable (they moved to '
+        f'widgetDataTemplate), or no page root carries {NAV_LABEL_ANNOTATION} / '
+        f'{NAV_PATH_ANNOTATION}. Fix discovery before trusting a green run.',
+    )]
+
+
 RULES = {
+    'page-discovery-alive': (rule_page_discovery_alive, 'P0'),
     'dead-kind': (rule_dead_kind, 'X11'),
     'missing-target': (rule_missing_target, 'X13'),
     'legacy-envelope': (rule_legacy_envelope, 'X12'),
     'dangling-ref': (rule_dangling_ref, 'X4'),
     'row-nav-placeholder': (rule_row_nav_placeholder, 'P10'),
     'back-link': (rule_back_link, 'P1'),
+    'second-breadcrumb': (rule_second_breadcrumb, 'P27'),
+    'autopilot-button': (rule_autopilot_button, 'A4'),
+    'button-role': (rule_button_role, 'C26'),
     'emoji': (rule_emoji, 'P15'),
     'tag-colour-no-label': (rule_tag_colour_without_label, 'C13'),
     'containment': (rule_containment, 'X5'),
     'page-header': (rule_page_header, 'P25'),
+    'section-rhythm': (rule_section_rhythm, 'P9'),
+    'root-coverage': (rule_root_coverage, 'P9+P25'),
+    'colour-vocabulary': (rule_colour_vocabulary, 'T8'),
 }
 
 
