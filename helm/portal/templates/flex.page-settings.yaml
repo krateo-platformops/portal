@@ -19,24 +19,16 @@ spec:
   widgetData:
     allowedResources:
     - pageheaders
-    - tables
-    - paragraphs
-    - buttons
+    - cards
     vertical: true
     {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
     {{/* This root previously declared its own value; see design/03-composition.md P9. */}}
     gap: middle
     items:
+    {{/* "Add user" is the header's action (P26), not a bare button in the page's stack. */}}
     - resourceRefId: settings-page-header
-    {{/* Add user — the CTA sits above the table it adds a row to. */}}
-    - resourceRefId: settings-user-create-cta
-    {{/* Who the table can list: an SSO identity has no User CR, so it appears once granted. */}}
-    - resourceRefId: settings-users-note
-    - resourceRefId: settings-users
-    {{/* Audit log — the browsable trail of gated mutations (AuditRecord CRs). Emitted for every */}}
-    {{/* gated write but previously shown only per-incident; surfaced here so it is actually visible. */}}
-    - resourceRefId: settings-audit-log-title
-    - resourceRefId: settings-audit-log
+    - resourceRefId: settings-users-card
+    - resourceRefId: settings-audit-log-card
   resourcesRefs:
     items:
     - id: settings-page-header
@@ -45,33 +37,15 @@ spec:
       namespace: {{ .Release.Namespace }}
       resource: pageheaders
       verb: GET
-    - id: settings-user-create-cta
+    - id: settings-users-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: settings-user-create-cta
+      name: settings-users-card
       namespace: {{ .Release.Namespace }}
-      resource: buttons
+      resource: cards
       verb: GET
-    - id: settings-users-note
+    - id: settings-audit-log-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: settings-users-note
+      name: settings-audit-log-card
       namespace: {{ .Release.Namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: settings-users
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: settings-users
-      namespace: {{ .Release.Namespace }}
-      resource: tables
-      verb: GET
-    - id: settings-audit-log-title
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-log-title
-      namespace: {{ .Release.Namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: settings-audit-log
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-log
-      namespace: {{ .Release.Namespace }}
-      resource: tables
+      resource: cards
       verb: GET
