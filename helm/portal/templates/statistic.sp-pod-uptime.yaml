@@ -17,7 +17,10 @@ spec:
     value: 0
   widgetDataTemplate:
   - forPath: value
-    expression: '${ ([ (.rows // [])[] | (.uptime_min|tonumber) ] | first // 0) }'
+    # uptime_min arrives fractional (the RESTAction's SQL does round(.../60, 1)), and
+    # widgetData.value is x-kubernetes-int-or-string, which accepts integer or string
+    # and REJECTS float. Floor it, as composition-reconcile-p95 already does.
+    expression: '${ ([ (.rows // [])[] | (.uptime_min|tonumber|floor) ] | first // 0) }'
   resourcesRefs:
     items: []
 {{- end }}
