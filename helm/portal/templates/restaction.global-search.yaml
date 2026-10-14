@@ -43,10 +43,9 @@ spec:
     {{/* blueprints-catalog), so search finds installable blueprints, not just installed ones. */}}
     {{/* Requires snowplow >= 1.4.0 (external YAML fetch). Each entry's version list is newest */}}
     {{/* -first → .value[0]. continueOnError so a missing index degrades to compositions-only. */}}
-    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
-      filter: >
-        [ ((.catalog.entries) // {}) | to_entries[] | .value[0]
-          | {name: .name, category: (((.annotations // {})["krateo.io/category"]) // (.keywords[0]) // "uncategorized")} ]
+    {{/* #302: the projection goes through postFilter, NOT a second `filter:` key appended here — */}}
+    {{/* two keys in one map decode last-wins and silently dropped the configmap branch's fromjson. */}}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints" "postFilter" "[ ((.catalog.entries) // {}) | to_entries[] | .value[0] | {name: .name, category: (((.annotations // {})[\"krateo.io/category\"]) // (.keywords[0]) // \"uncategorized\")} ]") | nindent 4 }}
     {{/* installed CompositionDefinitions — used to decide a blueprint hit's destination: already */}}
     {{/* on the cluster → open its DETAIL page; only installable → the Marketplace (spotlighted). */}}
     - name: compdefs

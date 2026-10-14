@@ -123,9 +123,8 @@ spec:
     {{/* restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's */}}
     {{/* `entries` map is keyed by chart NAME, so the marketplace-availability join is a simple */}}
     {{/* membership test (does the index list this chart?) — projected to just the chart names here. */}}
-    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
-      filter: >
-        [ (((.catalog // {}).entries) // {}) | keys[] ]
+    {{/* #302: projection via postFilter, not a second `filter:` key (last-wins dropped fromjson). */}}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints" "postFilter" "[ (((.catalog // {}).entries) // {}) | keys[] ]") | nindent 4 }}
   {{/* Join PRs → CDs → marketplace catalog. Status verdict (Registered/Reconciling/Merged/Closed/ */}}
   {{/* In review, and for claim rows Pushed/Publish failed/Publishing) + its chip colour, the Next */}}
   {{/* step cell, the marketplace-available chip, and the PR "#N" cell are all computed HERE, */}}

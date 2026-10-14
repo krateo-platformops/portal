@@ -17,12 +17,30 @@
   continueOnError stays true (a missing ConfigMap / unreachable endpoint degrades to an empty catalog, not a
   broken widget). errorKey is derived from the step name to match the existing <name>Error convention.
 
-  args: dict { ctx: $ (root, for .Values/.Release), name: "<step-name>", index: "blueprints"|"operators" }
+  POST-FILTER (#302). A caller that needs to PROJECT the index must pass `postFilter` instead of
+  appending its own `filter:` key after this include. Two keys in one YAML map decode last-wins, so
+  the caller's filter silently REPLACED the configmap branch's fromjson, the projection then read
+  `.entries` on the raw ConfigMap (which has none), and `// {}` turned that into an empty catalog —
+  no error, zero rows. Measured on 057: global-search and blueprint-builder-deliverables had lost
+  fromjson entirely while the five callers that append nothing kept it.
+
+  The composition RE-WRAPS rather than chaining, so a caller's jq is byte-identical in both modes.
+  A per-step filter receives an ENVELOPE keyed by the step name (which is why the configmap branch
+  reads `.<name>.data[...]`), but after `fromjson` the parsed index is the bare value — so a plain
+  `<fromjson> | <postFilter>` would leave the caller's `.<name>.entries` looking at nothing. Wrapping
+  the result back under the step name restores the envelope the caller is written against:
+    configmap : filter: '{<name>: (.<name>.data["<index>-index.json"] | fromjson)} | <postFilter>'
+    external  : filter: '<postFilter>'        (the step output is already the parsed index)
+  Omit postFilter and the behaviour is exactly as before.
+
+  args: dict { ctx: $ (root, for .Values/.Release), name: "<step-name>", index: "blueprints"|"operators",
+               postFilter: "<single-line jq>" (optional) }
 */}}
 {{- define "portal.catalogStep" -}}
 {{- $ctx := .ctx -}}
 {{- $name := .name -}}
 {{- $index := .index -}}
+{{- $post := .postFilter | default "" -}}
 {{- $mp := $ctx.Values.marketplace | default dict -}}
 {{- $src := $mp.source | default "configmap" -}}
 - name: {{ $name }}
@@ -34,12 +52,19 @@
   verb: GET
   headers:
     - 'Accept: application/x-yaml, text/yaml, application/json'
+{{- if $post }}
+  filter: '{{ $post }}'
+{{- end }}
 {{- else }}
   path: /api/v1/namespaces/{{ $ctx.Release.Namespace }}/configmaps/{{ $mp.configMapName | default "blueprints-catalog-index" }}
   verb: GET
   headers:
     - 'Accept: application/json'
+{{- if $post }}
+  filter: '{{ "{" }}{{ $name }}: (.{{ $name }}.data["{{ $index }}-index.json"] | fromjson){{ "}" }} | {{ $post }}'
+{{- else }}
   filter: '.{{ $name }}.data["{{ $index }}-index.json"] | fromjson'
+{{- end }}
 {{- end }}
   continueOnError: true
   errorKey: {{ $name }}Error
