@@ -1,0 +1,57 @@
+{{- $mp := .Values.marketplace | default dict -}}
+{{- if ne ($mp.source | default "configmap") "external" }}
+{{/* Every signed-in person may read the marketplace catalogue index — the same ADR 0001 shape as */}}
+{{/* rbac.builders-read.yaml, for the same reason: the portal reads it AS THE CALLER. */}}
+{{/* */}}
+{{/* Seven RESTActions share one `catalog` step (_catalog.tpl) that GETs this ConfigMap by name with */}}
+{{/* no endpointRef and no credentials, so it dials the apiserver as the signed-in user: */}}
+{{/* blueprints-catalog, marketplace-detail, blueprint-detail, blueprint-install-formdef, */}}
+{{/* blueprint-install-origin, blueprint-builder-deliverables and global-search. No RBAC anywhere */}}
+{{/* granted it — a sweep of every Role and ClusterRole for one naming this ConfigMap in */}}
+{{/* resourceNames returned nothing — so Marketplace, Blueprints, every install flow and global */}}
+{{/* search read empty for everyone, admin included (portal#307). */}}
+{{/* */}}
+{{/* WHY A GRANT AND NOT THE LIST+userAccessFilter RESHAPE that fixes the other denied by-name GETs: */}}
+{{/* that reshape works only where the caller may already LIST the resource, and here they may not — */}}
+{{/* `kubectl auth can-i list configmaps -n <ns> --as=admin` is NO. Reshaping would turn a loud */}}
+{{/* denial into a silently empty catalogue, which is worse. The caller is missing a grant; give it */}}
+{{/* the grant. */}}
+{{/* */}}
+{{/* NARROW BY CONSTRUCTION: `get` only, and `resourceNames` pins it to this one ConfigMap, so it */}}
+{{/* conveys no access to any other ConfigMap in the namespace. resourceNames cannot restrict `list`, */}}
+{{/* which is why `list` is deliberately absent — the step does a GET by name and needs nothing more. */}}
+{{/* The data is a public catalogue of published blueprints (two index.json keys, 293 entries on 057); */}}
+{{/* nothing in it is sensitive. */}}
+{{/* */}}
+{{/* Bound to system:authenticated rather than a demo group, so it holds on an install with OIDC or */}}
+{{/* LDAP groups and no cyberjoker user. Rendered only for the in-cluster source: with */}}
+{{/* marketplace.source=external the catalog step uses an endpointRef instead and reads no ConfigMap. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: authenticated-get-catalog-index
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - {{ $mp.configMapName | default "blueprints-catalog-index" | quote }}
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: authenticated-get-catalog-index
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: authenticated-get-catalog-index
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
