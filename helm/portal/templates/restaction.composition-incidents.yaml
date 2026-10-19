@@ -38,4 +38,8 @@ spec:
             route: ("/incidents/" + (.metadata.namespace // "{{ .Release.Namespace }}") + "/" + (.metadata.name // "")),
             when: (.spec.triggeredAt // .metadata.creationTimestamp // "")
           }
-      ] | sort_by(.when) | reverse | { rows: . }
+      ] | sort_by(.when) | reverse
+      # Exception-only (P14): a Resolved or Closed incident is the healthy state, so the strip
+      # lists only the active ones (Analyzing, Open, Verifying). The rest are counted, and the strip's footer links to them.
+      | ([ .[] | select(.state != "Resolved" and .state != "Closed") ]) as $active
+      | { rows: $active, activeCount: ($active | length), resolvedCount: ((length) - ($active | length)) }
