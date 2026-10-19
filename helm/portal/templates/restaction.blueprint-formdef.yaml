@@ -73,6 +73,22 @@ spec:
     {{/* to on non-UAF stages — api/resolve.go); cleaner than the reference's per-namespace */}}
     {{/* SSAR fan-out. group is the shared composition.krateo.io; resource is the blueprint's */}}
     {{/* (from the CompositionDefinition status); namespaceFrom is each namespace's own name. */}}
+    {{/* */}}
+    {{/* `// empty` IS LOAD-BEARING (portal#308). `dependsOn.name` only ORDERS stages — only */}}
+    {{/* `dependsOn.iterator` fans one out — so this stage, having no iterator, dispatches ONCE */}}
+    {{/* even when `compdef` and `crd` yielded nothing at all. On a keep-warm call (no ?extras, */}}
+    {{/* the "background prewarm" the filter below names) `compdef` is never dispatched and */}}
+    {{/* `dict.compdef` stays unset, so a bare `[.compdef.status.resource]` evaluates to `[null]`. */}}
+    {{/* snowplow treats a non-string element as fail-closed: it warns, drops every namespace, and */}}
+    {{/* `.namespaces` arrives empty — which the filter below silently catches with `[$blueprintNs]`, */}}
+    {{/* i.e. exactly the pre-#66 behaviour this userAccessFilter exists to replace. Measured on 057 */}}
+    {{/* over 7 days: 8,401 such pairs, 19 per burst on the 45-minute keep-warm cycle, every one with */}}
+    {{/* an empty traceId. With `// empty` the same call yields `[]` — a legitimate "no resources" */}}
+    {{/* answer — and the named-and-ready case is unchanged at `["<plural>"]`. */}}
+    {{/* */}}
+    {{/* AND IT IS NOW A CACHE CONCERN, not only noise: snowplow#651 makes an unresolved */}}
+    {{/* resourcesFrom a stage Error that is never cached, so without this the form stays COLD for */}}
+    {{/* as long as any compdef is unready and the keep-warm can never warm it. */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
@@ -83,7 +99,7 @@ spec:
       userAccessFilter:
         verb: create
         group: composition.krateo.io
-        resourcesFrom: "[.compdef.status.resource]"
+        resourcesFrom: "[.compdef.status.resource // empty]"
         namespaceFrom: .metadata.name
       filter: "[.namespaces.items[] | .metadata.name]"
   {{/* The returned schemaSpec is the CRD's spec schema with two RESERVED-KEY identity fields */}}
