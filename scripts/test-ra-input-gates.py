@@ -526,6 +526,9 @@ def nav_flexes(chart, extra=()):
 
 
 NAV_GROUP = 'widgets.templates.krateo.io'
+# The builders' scratch namespace (previewSandbox.namespace). Never a page source — see the
+# `the preview sandbox is never listed` case.
+NS_SANDBOX = 'krateo-preview'
 NAV_PATH = '/apis/widgets.templates.krateo.io/v1beta1/namespaces/%s/flexes'
 NAV_CLUSTER_PATH = '/apis/widgets.templates.krateo.io/v1beta1/flexes'
 
@@ -619,6 +622,33 @@ def check_nav_discovery(charts):
     _, _, out = run('no namespace is readable', nowhere, cluster_ns, {'/served-to-nobody': {}})
     if out is not None and (out.get('items') or out.get('refs')):
         f.append(f'sidebar-nav, no namespace is readable: {out}')
+
+    # THE PREVIEW SANDBOX IS NOT A PAGE SOURCE. 1.8.75 listed it and admins got ten scratch pages in
+    # the sidebar on krateo-057 — Demo Day, Pod sizing, Probe and SEVEN entries labelled `Event
+    # sites`, every one a `page-…-<hash>` preview CR in krateo-preview. Only admins saw them,
+    # because only admins may list flexes there: discovery worked as designed and the design was
+    # wrong. The fixture is shaped like what was actually there, duplicate label included, because
+    # the duplicate is what made it obvious in the UI and a single entry would not have.
+    sandbox = NS_SANDBOX
+    sb_roots = [(sandbox, f'page-dry-event-sites-{i}-b2da9489',
+                 {'krateo.io/nav-path': f'/dry-event-sites-{i}', 'krateo.io/nav-label': 'Event sites',
+                  'krateo.io/nav-order': '100'}) for i in range(1, 6)]
+    sb_roots.append((sandbox, 'page-probe-ds-b2da9489',
+                     {'krateo.io/nav-path': '/probe-ds', 'krateo.io/nav-label': 'Probe',
+                      'krateo.io/nav-order': '100'}))
+    sb = nav_flexes(chart, extra=[other] + sb_roots)
+    _, _, out = run('the preview sandbox is never listed', tenant({NAV_GROUP: [NS, sandbox]}),
+                    nav_namespaces(NS, sandbox), {NAV_PATH % ns: {'items': sb[ns]} for ns in sb})
+    if out is not None:
+        leaked = [i for i in out['items'] if (i.get('path') or '').startswith(('/dry-event-sites', '/probe-ds'))]
+        if leaked:
+            f.append(f'sidebar-nav, the preview sandbox is never listed: {len(leaked)} scratch '
+                     f'page(s) reached the nav: {[i.get("path") for i in leaked]}')
+        if any(r['namespace'] == sandbox for r in out['refs']):
+            f.append('sidebar-nav, the preview sandbox is never listed: a ref in the sandbox')
+        if base is not None and len(out['items']) != len(base['items']):
+            f.append(f'sidebar-nav, the preview sandbox is never listed: {len(out["items"])} items, '
+                     f'expected the release namespace\'s {len(base["items"])}')
 
     reqs, _, out = run('admin (cluster-list collapse)', ADMIN, cluster_ns,
                        {NAV_CLUSTER_PATH: everywhere})

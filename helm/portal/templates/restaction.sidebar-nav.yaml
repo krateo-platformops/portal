@@ -46,6 +46,18 @@
 
   Install a page chart anywhere the caller can read and its entries appear. Nothing to configure.
 
+  WITH ONE NAMESPACE EXCLUDED: THE PREVIEW SANDBOX. `previewSandbox.namespace` is scratch space —
+  the builders' per-person drafts and the orphaned page CRs a preview leaves behind — and it is not
+  a place anyone installed a page set. 1.8.75 shipped without this exclusion and admins got ten
+  scratch pages in their sidebar on krateo-057 the moment it rolled: `Demo Day`, `Pod sizing`,
+  `Probe` and SEVEN entries all labelled `Event sites`, every one a `page-…-b2da9489` preview CR in
+  krateo-preview. Only admins saw them, because only admins may list flexes there — which is the
+  tell: discovery was working exactly as designed, and the design was wrong to treat the sandbox as
+  a page source.
+
+  The exclusion is in the `namespaces` filter rather than the iterator, so the sandbox is dropped
+  BEFORE the fan-out and never costs a request. Empty `previewSandbox.namespace` excludes nothing.
+
   THE `pages` STEP CARRIES NO userAccessFilter, DELIBERATELY. It has no endpointRef either, and
   that pair is what makes it the caller's own read: `resolveStageEndpoint` sends a UAF stage to
   snowplow's SA endpoint and a non-UAF stage "through the per-user clientconfig" (its own words,
@@ -68,6 +80,7 @@
   snowplow-side failure then costs the pages in other namespaces, never the whole sidebar.
 */}}
 {{- $ns := .Release.Namespace -}}
+{{- $sandbox := (.Values.previewSandbox | default dict).namespace | default "" -}}
 kind: RESTAction
 apiVersion: templates.krateo.io/v1
 metadata:
@@ -94,7 +107,8 @@ spec:
       {{/* A snowplow-side failure here must cost the pages in OTHER namespaces, not the sidebar. */}}
       continueOnError: true
       errorKey: namespacesError
-      filter: "[.namespaces.items[]? | .metadata.name]"
+      {{/* The sandbox is dropped HERE, before the iterator fans out — see the header. */}}
+      filter: '[ .namespaces.items[]? | .metadata.name | select(. != {{ $sandbox | quote }}) ]'
     {{/* One namespaced LIST per discovered namespace, dialled AS THE CALLER (no userAccessFilter, */}}
     {{/* no endpointRef). The iterator is also the input gate (scripts/lint-ra-paths.py): it can */}}
     {{/* never yield an element without a namespace, so the path is never half-built. */}}
