@@ -1,0 +1,27 @@
+# @schema
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the whole chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal's sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created (krateo-system on the platform install); only the page objects live here.
+# type: string
+# default: "krateo-alerts"
+# @schema
+namespace: krateo-alerts
+
+# @schema
+# description: Namespace the Alert CRs live in — the DATA, not the pages, and almost always the portal's release namespace. The alert-provider writes Alerts where it runs and moving the pages does not move them.
+# type: string
+# default: "krateo-system"
+# @schema
+dataNamespace: krateo-system
+
+# @schema
+# description: Groups granted read of these pages in `namespace`. A group listed here sees /alerts in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. `devs` is deliberately NOT a default — keeping it out is the point of the split (#261).
+# type: array
+# @schema
+readerGroups:
+  - admins
+
+# @schema
+# description: Optional URL of the external observability console (the clickstack/HyperDX UI). When set, the alert detail page offers a "View in console" link; empty hides it. Must match the portal chart's value — these pages were split out of it and read the same console.
+# type: string
+# default: ""
+# @schema
+observabilityConsoleUrl: ""

@@ -1,0 +1,23 @@
+{{/* The fallback for an incident with no structured analysis: its report text (status.report), */}}
+{{/* a provider error standing in for one, or where the analysis stands (incident-detail .proseMd). */}}
+{{/* The page includes it only on that path, so a structured analysis never renders twice. */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-prose
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    markdown: '_Analysis in progress…_'
+  widgetDataTemplate:
+  - forPath: markdown
+    expression: '${ .proseMd // "_Analysis in progress…_" }'
+  resourcesRefs:
+    items: []

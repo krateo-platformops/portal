@@ -1,0 +1,50 @@
+{{/* WHO SEES /alerts. This is the entire mechanism of the split (#261).
+
+     The portal's sidebar discovers the namespaces where the CALLER may `list` page roots and then
+     lists the roots in each as that caller, so a group with no RoleBinding here never sees the
+     entry — and `isNavEntryAllowed` drops it a second time because the ref cannot be resolved. A
+     deep link still routes (routes are deliberately not RBAC-filtered) and the page's own content
+     /call returns 403, which is where the defence belongs.
+
+     `list` is granted and cannot be narrowed: `resourceNames` does not apply to `list`, which is
+     exactly why the namespace is the boundary rather than a names list in one shared namespace.
+     That is the whole reason these pages are their own chart.
+
+     `devs` is deliberately absent. Add a group here to give it the page; do not add a ClusterRole
+     (#261 — and scripts/lint-caller-cluster-reads.py enforces it). */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-alerts-pages
+  namespace: {{ $.Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-alerts-pages
+  namespace: {{ $.Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-alerts-pages
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

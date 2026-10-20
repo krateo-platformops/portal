@@ -1,0 +1,180 @@
+{{/* Data source for ONE Alert CR — /alerts/{namespace}/{name} (route params ride in as */}}
+{{/* ?extras .name/.namespace, same mechanism as composition-detail / incident-detail). */}}
+{{/* Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly: */}}
+{{/* alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in */}}
+{{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
+{{/* and its live HyperDX-mirrored state in .status (state / phase */}}
+{{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-provider. */}}
+{{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
+{{/* observability.krateo.io/alert: <name>. Several can be open at once, one per problem, so */}}
+{{/* the page lists every open one, then the latest ended ones. */}}
+{{/* Everything is derived server-side (nothing-hardcoded): */}}
+{{/* the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so */}}
+{{/* the healthy quiet state OK reads green), the "above N" threshold prose, the */}}
+{{/* Autopilot seed sentence (the "Investigate with Autopilot" button on the detail page), and */}}
+{{/* the HyperDX console deep-links (built only when the deployer set .Values.observabilityConsoleUrl */}}
+{{/* AND the reconciler recorded the id — no default URL is invented, so the link is simply */}}
+{{/* absent otherwise; same honesty as button.obs-console-link). */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: alert-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* Both paths are `${ jq }` expressions over the ?extras (route params) — the ONLY templating */}}
+    {{/* snowplow applies to api[].path (same as composition-detail / resource-detail). It does NOT */}}
+    {{/* substitute `{name}`-style brace placeholders: the former literal `.../alerts/{name}` reached */}}
+    {{/* the apiserver verbatim (`alerts.observability.krateo.io "{name}" not found`), the read */}}
+    {{/* degraded via continueOnError and EVERY alert rendered the honest-empty branch below */}}
+    {{/* (Manifest "No data", State "Pending", stage errors on the title/tag/buttons). */}}
+    {{/* Namespace comes off the route too (.namespace); the release ns is only the fallback when */}}
+    {{/* the extras carry none — so nothing changes where the alert already lives there. */}}
+    {{/* GATED ON ?extras name (the input gate, scripts/lint-ra-paths.py): without one the step makes */}}
+    {{/* no call — it used to GET `…/alerts/`, the whole list, and read it as this alert. */}}
+    - name: alert
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ $.Values.dataNamespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
+      verb: GET
+      continueOnError: true
+      errorKey: alertError
+    {{/* Incidents live in their alert's namespace. */}}
+    - name: incidents
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ $.Values.dataNamespace }}") + "/incidents" }
+      verb: GET
+      continueOnError: true
+      errorKey: incidentsError
+  filter: >
+    ({{ .Values.observabilityConsoleUrl | default "" | quote }} | rtrimstr("/")) as $console
+    | (.name // "") as $n
+    | (.namespace // "{{ $.Values.dataNamespace }}") as $ns
+    | (.alert.spec // {}) as $sp
+    | (.alert.status // {}) as $st
+    | ($sp.displayName // .alert.metadata.name // $n) as $dn
+    | ($st.state // "PENDING") as $state
+      # krateo.io/paused: "true" — the alert-provider skips this alert's firings.
+    | (((.alert.metadata.annotations // {})["krateo.io/paused"] // "") == "true") as $paused
+    | ($st.hyperdxAlertId // "") as $haid
+    | ($st.hyperdxDashboardId // "") as $hdid
+      # This alert's incidents, newest first: the ones carrying its label.
+    | ([ ((.incidents.items) // [])[]
+         | select(((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "") == $n) ]) as $incs
+    | ([ $incs[]
+         | { name: (.metadata.name // ""), namespace: (.metadata.namespace // $ns),
+             title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement else ("Incident " + (.metadata.name // "")) end),
+             state: (.status.state // "Analyzing"),
+             error: (.status.error // ""),
+             reportText: ((.status.report // "") | if type == "string" then . else "" end),
+             structured: ((.status.rootCause.statement // "") != ""),
+             when: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]
+       | sort_by(.when) | reverse
+       | map(. + { open: (.state != "Resolved" and .state != "Closed"),
+                   route: ("/incidents/" + .namespace + "/" + .name) })) as $shaped
+    | ($shaped[0] // null) as $rep
+    | [ $shaped[] | select(.open) ] as $open
+    | [ $shaped[] | select(.open | not) ] as $ended
+    | (if ($shaped | length) > 1 then "latest analysis" else "analysis" end) as $an
+      # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
+      | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
+      | ($rep != null and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
+      | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
+    | {
+        displayName: $dn,
+        where: ($sp.where // "all logs"),
+        # "above 1" — thresholdType + threshold, empty-safe (never a bare " " or leading space).
+        thresholdText: ((($sp.thresholdType // "") + " " + (($sp.threshold // 0) | tostring)) | ltrimstr(" ")),
+        interval: ($sp.interval // ""),
+        message: ($sp.message // ""),
+        state: $state,
+        phase: ($st.phase // "Pending"),
+        paused: $paused,
+        # State tag — same map as the /alerts table, but OK→green (palette: green=health only,
+        # and a quiet-OK alert IS the healthy default), ALERT→red (failure), PENDING→orange
+        # (transitional). "OK" kept verbatim — the literal HyperDX state word.
+        stateLabel: ($state | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),
+        stateColor: ($state | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end),
+        hyperdxAlertId: $haid,
+        hyperdxDashboardId: $hdid,
+        # HyperDX console deep-links — absent unless BOTH the deployer configured a console URL
+        # AND the reconciler recorded the id (no default URL invented; nothing-hardcoded).
+        alertLink: (if ($console != "" and $haid != "") then ($console + "/alerts/" + $haid) else "" end),
+        dashboardLink: (if ($console != "" and $hdid != "") then ($console + "/dashboards/" + $hdid) else "" end),
+        hasConsole: (($console != "") and (($haid != "") or ($hdid != ""))),
+        # Autopilot seed for the detail-page "Investigate with Autopilot" button (the ask flow
+        # the OLD /alerts row-click used, preserved here now the row deep-links to this page).
+        # The button navigates to a LITERAL server-built /incidents?ask= href (the seed @uri-
+        # encoded once, here — same pattern as composition-detail's diagnoseHref; a Button
+        # navigate path is used verbatim, NOT re-encoded like a Table cell, so it must be
+        # pre-encoded exactly once). The raw `ask` is also emitted for any raw consumer.
+        ask: ("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps."),
+        askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
+        # ── THE PIPELINE WALK ──────────────────────────────────────────────────────────────
+        # An alert is not one object, it is a CHAIN: the CR, the HyperDX rule it syncs to, the
+        # evaluation, the alert-provider pass that reads it as a firing, the investigation that
+        # firing opens, and the incident that investigation becomes. Every hop can stop without the one before it noticing, and this
+        # page said nothing about any of them — it showed a green "OK" for days while the
+        # alert -> RCA loop was dead on a tool schema the model kept refusing.
+        #
+        # A numbered walk, not a graph: the chain is LINEAR, so nodes and edges buy nothing.
+        # Same treatment as the agents seven-hop, for the same reason.
+        #
+        # Each step says what it READ, and the first hop that cannot proceed says so and stops
+        # claiming anything about the hops after it.
+        pipelineMd: ([
+            ("1. **The alert exists.** Counts " + (if ($sp.where // "") == "" then "**all log rows**" else ("rows matching `" + ($sp.where) + "`") end)
+             + ", firing when the count is " + (($sp.thresholdType // "above") + " " + (($sp.threshold // 0) | tostring))
+             + " over " + (if ($sp.interval // "") == "" then "its evaluation window" else ("`" + $sp.interval + "`") end) + "."
+             + (if ($sp.where // "") == "" then "\n    - An empty filter matches every log line on the cluster, so this fires on volume alone." else "" end)),
+            (if $haid != "" then ("2. **Synced to HyperDX.** Rule `" + $haid + "`.")
+             else "2. **NOT synced to HyperDX.** `status.hyperdxAlertId` is empty, so no rule evaluates this alert and nothing below can happen. The chain stops here." end),
+            (if $haid == "" then empty
+             elif $state == "ALERT" then "3. **Evaluated, and currently firing.** HyperDX reports state `ALERT`."
+             elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
+             else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end)
+             + (if $haid != "" and $paused then "\n    - **Paused.** The alert-provider skips its firings: no incident opens. Open incidents keep their checks." else "" end),
+            (if $haid == "" then empty
+             elif ($shaped | length) > 1 then ("4. **Incidents were opened.** " + ($shaped | length | tostring) + " for this alert; the latest is `" + ($rep.name // "") + "`.")
+             elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`.")
+             elif $state == "ALERT" and $paused then "4. No incident — this alert is paused, so its firings open none."
+             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The alert-provider's next pass (every 60 s) should open one; no Incident carries this alert's label. Either no pass has run since the alert fired, or the alert-provider could not create one; its logs say which."
+             else "4. No incident — this alert has not fired, so none is expected." end),
+            (if $rep == null then empty
+             elif $repProduced then ("5. **The " + $an + " produced a root cause.** Open `" + ($rep.name // "") + "` below to read it.")
+             elif $repFailed then ("5. **The " + $an + " FAILED.** `" + ($rep.name // "") + "` carries the error instead of a root cause; its page shows it verbatim. This is the hop that fails silently — the alert above still reads as healthy.")
+             elif ($rep.state // "") == "Analyzing" then ("5. **The " + $an + " is still running.**")
+             else ("5. **The " + $an + " produced nothing.** It wrote neither a root cause nor an error, which is itself the finding.") end),
+            (if $rep == null then empty
+             elif ($open | length) == 0 then ("6. **No incident is open.** The latest, `" + ($rep.name // "") + "`, is **" + ($rep.state // "Resolved") + "**.")
+             elif ($open | length) == 1 then ("6. **Incident** `" + ($open[0].name // "") + "` is **" + ($open[0].state // "Analyzing") + "**.")
+             else ("6. **" + ($open | length | tostring) + " incidents are open at once**, each a different problem. The list below has them all.") end)
+          ] | join("\n")),
+        # The Incidents card: every open incident, then the five latest ended ones, newest first within each.
+        incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route })),
+        incidentsTitle: ("Incidents · " + ($open | length | tostring) + " open"
+          + (if ($ended | length) > 0 then (" · " + ($ended | length | tostring) + " ended" + (if ($ended | length) > 5 then ", the latest 5 shown" else "" end)) else "" end)),
+        sections: {
+          incident: ($rep != null),
+          # Not exception-only: its job is to say which hops SUCCEEDED as well as which stopped,
+          # and "all six fine" is the answer someone checking a silent pipeline came for.
+          pipeline: ((.alert.metadata.name // "") != ""),
+          console: (($console != "") and (($haid != "") or ($hdid != "")))
+        },
+        # Static GVR for the plain Alert CRD — the DELETE target for button.alert-detail-delete
+        # (mirrors composition-detail's .gvr feeding composition-detail-delete). name/namespace come
+        # from the fetched CR (falls back to the route params when the read degraded). resource/
+        # apiVersion are constant: an Alert is always alerts.observability.krateo.io/v1alpha1.
+        gvr: {
+          apiVersion: "observability.krateo.io/v1alpha1",
+          resource: "alerts",
+          name: (.alert.metadata.name // $n),
+          namespace: (.alert.metadata.namespace // $ns)
+        },
+        # The raw Alert CR as a JSON string for the Manifest YamlViewer (managedFields +
+        # last-applied stripped; YamlViewer converts JSON → YAML). Empty when the read degraded so
+        # the viewer shows its honest empty state, not "{}". Same shape as resource-detail.
+        manifestJson: ((.alert // {}) | if (.metadata.name // "") != "" then ((del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) | tojson) else "" end)
+      }

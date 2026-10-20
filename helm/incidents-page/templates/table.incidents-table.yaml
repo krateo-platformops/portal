@@ -1,0 +1,48 @@
+{{/* The incident list — one row per Incident, off incidents-list (which applies the ?status= */}}
+{{/* filter server-side): severity dot, title, root cause, state, age. The root cause */}}
+{{/* tells apart incidents of one alert that are open at once. Row click → the incident detail */}}
+{{/* page; the {namespace}/{name} placeholders fill from hidden cells. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-table
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, status]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of the default horizontal scrollbar. */}}
+    {{/* A wide cell ellipsis-truncates and carries its full value on hover (P19), which reads far */}}
+    {{/* better than a sideways scroll inside a card. Unset is NOT neutral — it sets */}}
+    {{/* scroll.x: max-content, so leaving it out chooses the scrollbar by omission. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /incidents/{namespace}/{name}
+    pagination:
+      defaultPageSize: 15
+    columns:
+    - valueKey: sev
+      title: ' '
+    - valueKey: title
+      title: Incident
+    - valueKey: cause
+      title: Root cause
+    - valueKey: state
+      title: State
+    - valueKey: age
+      title: Age
+    dataSource: []
+  widgetDataTemplate:
+  {{/* The title and the root cause can be long sentences; each is capped at ~110 chars so they do */}}
+  {{/* not crush the trailing columns (the Table columns carry no width knobs). */}}
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:"●",color:(.sevColor // "#8c8c8c")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:((.title // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"cause",kind:"jsonSchemaType",type:"string",stringValue:((.cause // "—") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Analyzing"),color:({ Open: "red", Verifying: "orange", Resolved: "green" }[.state // ""] // "gray")}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

@@ -21,37 +21,20 @@ subjects:
   name: sre
   apiGroup: rbac.authorization.k8s.io
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: sre-list-namespaces-get-list-crds-in-cluster
-rules:
-- apiGroups:
-  - ''
-  resources:
-  - namespaces
-  verbs:
-  - list
-- apiGroups:
-  - apiextensions.k8s.io
-  resources:
-  - customresourcedefinitions
-  verbs:
-  - get
-  - list
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: sre-list-namespaces-get-list-crds-in-cluster
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: sre-list-namespaces-get-list-crds-in-cluster
-subjects:
-- kind: Group
-  name: sre
-  apiGroup: rbac.authorization.k8s.io
+{{/* THE SRE PERSONA CARRIES NO CLUSTER-SCOPED PORTAL READ EITHER (#261).
+
+     It used to carry `sre-list-namespaces-get-list-crds-in-cluster` — `list namespaces` plus
+     `get,list customresourcedefinitions` — the IDENTICAL pair `devs` held, for the identical
+     reason: the portal asked cluster-scoped questions that no namespaced Role could answer. Those
+     questions changed (projects now asks where the caller may list compositions; the composition
+     kinds come from CompositionDefinitions under a userAccessFilter; blueprint-formdef builds from
+     the namespaced jsonschema ConfigMap), so the grant became dead weight on this persona too.
+
+     `sre-incident-responder` STAYS. It binds `krateo-incident-responder`, a ClusterRole this chart
+     does not render — it comes with the incident-controller and is the SRE's actual work
+     permission, not a portal read. Removing it would break incident response; it is listed in
+     scripts/lint-caller-cluster-reads.py as the one cluster binding this chart is allowed to make
+     for a persona. */}}
 ---
 {{/* krateo-system: the portal's widgets and RESTActions (every page), and the alerts the incident */}}
 {{/* pages link to. Read-only. */}}
