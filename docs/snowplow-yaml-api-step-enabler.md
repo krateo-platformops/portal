@@ -14,7 +14,7 @@ timestamp: 2026-08-07T00:00:00Z
 > `endpointRef` fetch converts a YAML response body to JSON before the jq filter runs
 > (snowplow's own record: ADR 0006 "snowplow-owned external fetch (YAML acceptance)",
 > `external_fetch.go`; required version ≥ 1.4.0). This chart consumes it in
-> [`restaction.blueprints-catalog`](../helm/portal/templates/restaction.blueprints-catalog.yaml),
+> [`restaction.blueprints-catalog`](../helm/marketplace-page/templates/restaction.blueprints-catalog.yaml),
 > which relies on content-type-based acceptance (`Accept: application/x-yaml, text/yaml,
 > application/json` headers) rather than a per-step `yaml: true` flag. The consumer
 > design is [marketplace-registry-discovery](./marketplace-registry-discovery.md).

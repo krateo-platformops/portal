@@ -100,6 +100,30 @@ convention is resolved in the namespace the **frontend** is configured with
 (`config.params.FRONTEND_NAMESPACE`), so only a root addressed by `resourceRefId` can
 move — a `page:`-addressed root installed elsewhere is a silent 404.
 
+### Three pages are their own charts
+
+`/marketplace`, `/incidents` and `/alerts` live in `helm/marketplace-page`,
+`helm/incidents-page` and `helm/alerts-page`, each creating and installing into its own
+namespace (`krateo-marketplace`, `krateo-incidents`, `krateo-alerts`). That is the #261
+split, and the reason it needs separate namespaces rather than a narrower Role is that
+`resourceNames` does not apply to `list`: the sidebar must *list* page roots to find
+them, so "list these pages but not those" cannot be said inside one namespace at all.
+
+Each chart takes `readerGroups` (default `[admins]`) and renders a Role + RoleBinding per
+group in its namespace. A group listed there sees the page; a group absent never does,
+because discovery asks where the *caller* may list page roots and that namespace is not in
+its answer. A deep link still routes and the page's own content `/call` returns 403.
+
+Each also takes `dataNamespace` (default `krateo-system`), which is **not** the same thing:
+the Alert and Incident CRs and the marketplace catalog ConfigMap stay where the components
+that write them put them, so the RESTActions read that namespace explicitly. Page
+visibility and data access are separate axes — conflating them is what made the old `tiers`
+model look like RBAC when it was not.
+
+A Helm release cannot create the namespace it is installed *into*, so the release stays
+where the composition is created and the chart creates `.Values.namespace` itself — the
+same arrangement this chart uses for `demo-system`.
+
 ## Demo-system provisioning
 
 With `enableDemoSystemNamespace: true` (the default) the chart creates the
