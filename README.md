@@ -37,7 +37,6 @@ See [docs/configuration.md](docs/configuration.md). Most used:
 |---|---|---|
 | `tenant` | `krateo-enterprise` | Display name in the sider tenant chip + page eyebrows. |
 | `enableDemoSystemNamespace` | `true` | Creates the `demo-system` namespace + the demo persona's grants in it. |
-| `tiers.{common,tenant,admin}` | `""` (release ns) | Opt-in RBAC namespace tiering of page visibility. |
 
 ## Examples
 

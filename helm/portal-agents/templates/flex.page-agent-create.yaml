@@ -7,20 +7,19 @@
 {{/* discovered in a toast after the POST has already landed. That ordering is the whole reason this */}}
 {{/* page has three sections instead of two; do not move the card below the form to "tidy up". */}}
 {{/* */}}
-{{/* NAMESPACE: the release namespace, NOT the admin tier namespace, and that is load-bearing rather */}}
-{{/* than tidy. The `page:` convention resolves flexes/page-<slug> in the namespace the FRONTEND is */}}
-{{/* configured with — Menu.tsx reads config.params.FRONTEND_NAMESPACE and hands it to buildNavModel, */}}
-{{/* which builds the endpoint from it (navModel.ts resolveContentEndpoint). The tier namespace never */}}
-{{/* reaches that lookup. A root parked in the admin tier therefore resolves only while */}}
-{{/* .Values.tiers.admin is "" and 404s the moment an install tiers its pages — which is the layout */}}
-{{/* the tier helper exists for. page-agent-detail carries the same note for the same reason. */}}
-{{/* (page-agents CAN live in the tier namespace: its nav entry uses resourceRefId, and that */}}
-{{/* resourcesRefs row carries an explicit namespace. This one, reached by `page:`, cannot.) */}}
+{{/* NAMESPACE: the release namespace, and that is load-bearing rather than tidy. The `page:` */}}
+{{/* convention resolves flexes/page-<slug> in the namespace the FRONTEND is configured with — */}}
+{{/* Menu.tsx reads config.params.FRONTEND_NAMESPACE and hands it to buildNavModel, which builds the */}}
+{{/* endpoint from it (navModel.ts resolveContentEndpoint). NO OTHER NAMESPACE EVER REACHES THAT */}}
+{{/* LOOKUP, so a root reached by `page:` and installed anywhere else is a silent 404 — which is the */}}
+{{/* hard limit on splitting page roots across namespaces for RBAC (#261): only a root addressed by */}}
+{{/* `resourceRefId` can move, because that resourcesRefs row carries an explicit namespace. */}}
+{{/* page-agent-detail, page-agents-policies and page-agents-policy-create carry the same note. */}}
 {{/* It mattered less while /agents/new was URL-only; the /agents CTA now points here. */}}
 {{/* */}}
-{{/* Moving out of the tier loosens nothing: /agents/new is a label-less nav entry, so there is no */}}
-{{/* sidebar item for tier-RBAC to hide, and the real gate on creating an Agent is the Form's own POST, */}}
-{{/* which snowplow authorizes as the caller. */}}
+{{/* Staying here loosens nothing: /agents/new is a label-less nav entry, so there is no sidebar item */}}
+{{/* for RBAC to hide, and the real gate on creating an Agent is the Form's own POST, which snowplow */}}
+{{/* authorizes as the caller. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

@@ -24,20 +24,37 @@
   with no matching ref hides the entry, so shipping it without the refs array blanks the sidebar for
   everyone.
 
-  ONE STEP PER TIER, NOT A CLUSTER-WIDE LIST. A cluster-scoped list would 403 for any user without
-  cluster-wide read on flexes — the namespace-scoped tenant persona this portal ships is exactly
-  that — and a 403 here means a portal with NO NAVIGATION AT ALL, not a shorter sidebar. Namespaced
-  steps degrade the way the RBAC model intends: a user sees the tiers they can read. `continueOnError`
-  is what makes that degradation partial rather than total.
+  WHICH NAMESPACES IT LOOKS IN IS DISCOVERED, NOT CONFIGURED (#261).
 
-  The steps carry no endpointRef, so snowplow resolves each against the CALLER's own
-  `<user>-clientconfig` — the list is exactly what this user may read, and the nav adds no
-  authorisation surface of its own.
+  It used to be one step per `.Values.tiers.<tier>` — three deployer-set namespace strings this
+  chart invented and resolved through a `portal.tierNamespace` helper. That helper was not an RBAC
+  mechanism and no RBAC object ever referenced it: it was a name for a namespace, and the pages it
+  named were reachable or not purely by the Role bindings in those namespaces. Worse, it could only
+  ever see the namespaces THIS chart was told about, so a page chart installed into a fourth
+  namespace was invisible to the sidebar no matter what the caller could read.
+
+  A CLUSTER-SCOPED LIST IS STILL NOT THE ANSWER, for the reason the tiered version documented: it
+  403s for any caller without cluster-wide read on flexes — the namespace-scoped tenant persona
+  this portal ships is exactly that — and a 403 here means a portal with NO NAVIGATION AT ALL.
+
+  So the namespaces are DERIVED FROM THE CALLER'S OWN RBAC. snowplow lists namespaces under its own
+  ServiceAccount (the caller cannot list namespaces, and granting that to everyone would publish
+  the cluster's namespace inventory, tenant names included) and a `userAccessFilter` narrows the
+  answer to the namespaces where THE CALLER may list flexes — which is exactly the question the
+  sidebar is asking. `blueprint-formdef`'s own `namespaces` step is this same shape, and has been in
+  production for as long as the install form has offered a namespace picker.
+
+  Install a page chart anywhere the caller can read and its entries appear. Nothing to configure.
+
+  THE `pages` STEP CARRIES NO userAccessFilter, DELIBERATELY. It has no endpointRef either, so
+  snowplow resolves it against the CALLER's own `<user>-clientconfig`: the apiserver stays the
+  authority on which page roots this user may see, exactly as the tiered version had it, and the nav
+  adds no authorisation surface of its own. Only the namespace DISCOVERY depends on snowplow's own
+  userAccessFilter re-gate, which is a path with live defects (snowplow#777, #659) — so that one
+  step is `continueOnError` AND falls back to the release namespace in the iterator below. A
+  snowplow-side failure then costs the pages in other namespaces, never the whole sidebar.
 */}}
 {{- $ns := .Release.Namespace -}}
-{{- $tiers := list (include "portal.tierNamespace" (dict "ctx" . "tier" "common"))
-                   (include "portal.tierNamespace" (dict "ctx" . "tier" "tenant"))
-                   (include "portal.tierNamespace" (dict "ctx" . "tier" "admin")) | uniq -}}
 kind: RESTAction
 apiVersion: templates.krateo.io/v1
 metadata:
@@ -47,19 +64,55 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-{{- range $i, $tierNs := $tiers }}
-    - name: tier{{ $i }}
-      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ $tierNs }}/flexes
+    {{/* The namespaces where THIS CALLER may list page roots. Dialled by snowplow's own SA (a */}}
+    {{/* userAccessFilter stage is not given the user bearer — api/resolve.go), then narrowed by */}}
+    {{/* SubjectAccessReview per namespace. The caller needs no cluster-wide grant of any kind. */}}
+    - name: namespaces
+      path: /api/v1/namespaces
       verb: GET
       headers:
         - 'Accept: application/json'
-      {{/* A tier this user cannot read must cost them the pages in it, not the whole sidebar. */}}
+      userAccessFilter:
+        verb: list
+        group: widgets.templates.krateo.io
+        resource: flexes
+        namespaceFrom: .metadata.name
+      {{/* A snowplow-side failure here must cost the pages in OTHER namespaces, not the sidebar. */}}
       continueOnError: true
-      errorKey: tier{{ $i }}Error
-{{- end }}
+      errorKey: namespacesError
+      filter: "[.namespaces.items[]? | .metadata.name]"
+    {{/* One namespaced LIST per discovered namespace, dialled AS THE CALLER (no userAccessFilter, */}}
+    {{/* no endpointRef). The iterator is also the input gate (scripts/lint-ra-paths.py): it can */}}
+    {{/* never yield an element without a namespace, so the path is never half-built. */}}
+    {{/* */}}
+    {{/* THE FALLBACK IS LOAD-BEARING, and it is what makes the step above safe to depend on. An */}}
+    {{/* empty `.namespaces` — snowplow's UAF failed, or really no namespace is listable — would */}}
+    {{/* otherwise yield an empty iterator, which snowplow turns into ZERO requests and so a blank */}}
+    {{/* sidebar. With it the nav degrades to "the pages in the release namespace", which is what */}}
+    {{/* every single-namespace install has today, and the caller's own RBAC still decides whether */}}
+    {{/* that LIST is served. It is also what the Phase-1 prewarm walk (no extras, no upstream */}}
+    {{/* output) dials, so the common namespace is warmed rather than skipped. */}}
+    - name: pages
+      dependsOn:
+        name: namespaces
+        iterator: >-
+          [ ((.namespaces // []) | if length > 0 then . else ["{{ $ns }}"] end)[]
+            | { ns: . } | select(.ns != "") ]
+      path: ${ "/apis/widgets.templates.krateo.io/v1beta1/namespaces/" + .ns + "/flexes" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      {{/* A namespace this caller cannot read must cost them the pages in it, not the whole */}}
+      {{/* sidebar. The per-iteration results are concatenated into one flat `.pages` array. */}}
+      continueOnError: true
+      errorKey: pagesError
+      filter: >
+        [ .pages.items[]?
+          | { metadata: { name: .metadata.name,
+                          namespace: .metadata.namespace,
+                          annotations: (.metadata.annotations // {}) } } ]
   filter: >
-    [ ({{ range $i, $t := $tiers }}{{ if $i }}, {{ end }}(.tier{{ $i }}.items // []){{ end }} )
-      | .[]
+    [ (.pages // [])[]
       | select(((.metadata.annotations // {})["krateo.io/nav-path"] // "") != "")
     ] as $roots
     | ( [ $roots[]

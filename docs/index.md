@@ -22,11 +22,11 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 ## The bundle (start here)
 
 - [overview](./overview.md) — what the chart deploys and how it works: the widget/RA
-  content plane, the composition model, routes and tiers, demo-system provisioning.
+  content plane, the composition model, routes and page visibility, demo-system provisioning.
 - [usage](./usage.md) — how the installer consumes it, direct registration via
   `CompositionDefinition`, and the local `helm template` loop.
 - [configuration](./configuration.md) — the whole values surface (a `Portal` CR's
-  `spec`): personas, demo-system, tenant branding, spoke read-back, RBAC tiers.
+  `spec`): personas, demo-system, tenant branding, spoke read-back.
 - [api](./api.md) — the contract it emits: the derived `Portal` composition API, the
   `AuditRecord` CRD it defines, and the CR kinds it instantiates (owned elsewhere).
 - [examples](./examples.md) — the runnable examples under `examples/`.

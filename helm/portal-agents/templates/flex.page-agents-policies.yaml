@@ -2,9 +2,9 @@
 {{/* */}}
 {{/* Reached by the `page:` convention — menu.sidebar-nav order 937, `page: agents-policies`. This */}}
 {{/* header used to say it was reached via `resourceRefId: agents-policies` "whose resourcesRefs entry */}}
-{{/* carries this admin-tier namespace explicitly"; there is no such resourcesRefs row in */}}
+{{/* carries this admin-tier namespace explicitly" (the removed tiers model); there is no such row in */}}
 {{/* menu.sidebar-nav (only `id: agents`, for /agents itself), so that was never true of this page and */}}
-{{/* the tier namespace it justified was a latent 404. See the NAMESPACE note below. */}}
+{{/* the non-release namespace it justified was a latent 404. See the NAMESPACE note below. */}}
 {{/* */}}
 {{/* WHY THIS IS ITS OWN ROUTE AND NOT A SECTION OF /agents (recommendation for the lead): */}}
 {{/* * Different question, different reader. /agents answers "what agents exist and what may they */}}
@@ -28,15 +28,14 @@
 {{/* No page-level CTA: every action here (edit a policy, disable a guard) is a write to a */}}
 {{/* chart-managed object, and there is no form behind it yet. A Button whose target does not exist is */}}
 {{/* dead UI and a CI failure, so the button lands with the form, not before it. */}}
-{{/* NAMESPACE: the release namespace, NOT the admin tier namespace. This root is reached by the */}}
-{{/* `page:` convention (menu.sidebar-nav order 937, `page: agents-policies`), which resolves */}}
-{{/* flexes/page-<slug> in the namespace the FRONTEND is configured with — Menu.tsx reads */}}
-{{/* config.params.FRONTEND_NAMESPACE and hands it to buildNavModel; the tier namespace never */}}
-{{/* reaches that lookup. Parked in the admin tier it resolved only while .Values.tiers.admin was */}}
-{{/* "" (its default) and would 404 the moment an install tiers its pages — the exact layout the */}}
-{{/* tier helper exists for. Same note, same reason, as page-agent-create and page-agent-detail. */}}
-{{/* (page-agents CAN stay tiered: its nav entry uses resourceRefId, and that resourcesRefs row */}}
-{{/* carries an explicit namespace. A `page:` entry cannot.) */}}
+{{/* NAMESPACE: the release namespace. This root is reached by the `page:` convention */}}
+{{/* (menu.sidebar-nav order 937, `page: agents-policies`), which resolves flexes/page-<slug> in the */}}
+{{/* namespace the FRONTEND is configured with — Menu.tsx reads config.params.FRONTEND_NAMESPACE and */}}
+{{/* hands it to buildNavModel; no other namespace ever reaches that lookup, so a root installed */}}
+{{/* elsewhere is a silent 404. Same note, same reason, as page-agent-create and page-agent-detail — */}}
+{{/* and the hard limit on the #261 per-namespace RBAC split. (page-agents CAN move: its nav entry */}}
+{{/* uses resourceRefId, and that resourcesRefs row carries an explicit namespace. A `page:` entry */}}
+{{/* cannot.) */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:

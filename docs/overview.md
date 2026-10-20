@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: portal — overview
-description: What the portal blueprint chart deploys and how it works — the widget/RESTAction content plane, the composition model, routes, RBAC tiers and demo-system provisioning.
+description: What the portal blueprint chart deploys and how it works — the widget/RESTAction content plane, the composition model, routes, discovered page visibility and demo-system provisioning.
 resource: oci://ghcr.io/krateo-platformops/charts/portal
 tags: [portal, blueprint, composition, widgets, restaction]
 timestamp: 2026-08-07T00:00:00Z
@@ -73,22 +73,32 @@ ships it is what puts the entry there. A page set in a SEPARATE chart therefore 
 without this chart knowing it exists — which a build-time glob over this chart's own files could
 never do.
 
-## RBAC tiers: page visibility by namespace placement
+## Page visibility is discovered, not configured
 
-The `portal.tierNamespace` helper (`templates/_tiers.tpl`) resolves
-`.Values.tiers.<tier>` (empty → `.Release.Namespace`). Ten page-root Flexes and the
-Menu's `resourcesRefs` use it, so snowplow resolves each page's root **as the user**
-and the frontend hides pages the user's Role cannot GET:
+Page visibility follows the namespace RBAC the cluster already has, and this chart
+ships no knob for it (#261 removed the `tiers` trio and its `portal.tierNamespace`
+helper, which no RBAC object ever referenced).
 
-- **common** (always the release namespace): Dashboard, Compositions and all
-  detail/hidden pages — `flex.page-compositions` deliberately lives in the common
-  tier (#68) so a namespace-scoped tenant sees its own compositions.
-- **tenant**: Blueprints.
-- **admin**: Marketplace, Observability, Incidents, Alerts, the three Builders,
-  Settings, Clusters.
+`restaction.sidebar-nav` resolves in two steps:
 
-All tiers default to `""` — the single-namespace layout; tiering is opt-in
-([configuration](./configuration.md)).
+1. **Which namespaces** — snowplow lists namespaces under its own ServiceAccount and a
+   `userAccessFilter` narrows the answer to those where **the caller** may `list`
+   `flexes.widgets.templates.krateo.io`. The caller needs no cluster-wide grant: asking
+   them to `list namespaces` themselves would mean publishing the cluster's namespace
+   inventory, tenant names included. `blueprint-formdef`'s namespace picker is the same
+   shape.
+2. **Which pages** — one namespaced LIST per discovered namespace, dialled **as the
+   caller** (no `userAccessFilter`, no `endpointRef`), so the apiserver stays the
+   authority on which roots this user may see. `continueOnError` makes an unreadable
+   namespace cost its own pages and nothing else, and the namespaces step falls back to
+   the release namespace so a snowplow-side failure degrades to "the pages here" rather
+   than a blank sidebar.
+
+Install a page chart into another namespace and its entries appear for whoever can read
+them there. One hard limit constrains that: a root reached by the `page: <slug>`
+convention is resolved in the namespace the **frontend** is configured with
+(`config.params.FRONTEND_NAMESPACE`), so only a root addressed by `resourceRefId` can
+move — a `page:`-addressed root installed elsewhere is a silent 404.
 
 ## Demo-system provisioning
 

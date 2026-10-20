@@ -497,6 +497,143 @@ def check_degraded_reads(charts):
     return f
 
 
+
+def nav_namespaces(*names):
+    """A /api/v1/namespaces LIST response. The UAF prunes it by .metadata.namespace, so each
+    namespace object carries its own name there as well as in .name (refilter.go reads the
+    namespace of the ITEM; for a Namespace object the two are the same thing)."""
+    return {'items': [{'metadata': {'name': n, 'namespace': n}} for n in names]}
+
+
+def nav_flexes(chart, extra=()):
+    """The page roots a LIST of flexes returns, per namespace: every nav-declaring Flex the chart
+    renders (so adding a page to the chart extends this test's input), plus any `extra` roots
+    planted in another namespace as a page chart installed there would be."""
+    out = {}
+    for d in chart.docs:
+        if d.get('kind') != 'Flex' or not d.get('apiVersion', '').startswith('widgets.templates.krateo.io/'):
+            continue
+        md = d['metadata']
+        if not ((md.get('annotations') or {}).get('krateo.io/nav-path') or ''):
+            continue
+        out.setdefault(md['namespace'], []).append({'metadata': {
+            'name': md['name'], 'namespace': md['namespace'],
+            'annotations': md.get('annotations') or {}}})
+    for ns, name, annotations in extra:
+        out.setdefault(ns, []).append({'metadata': {
+            'name': name, 'namespace': ns, 'annotations': annotations}})
+    return out
+
+
+NAV_GROUP = 'widgets.templates.krateo.io'
+NAV_PATH = '/apis/widgets.templates.krateo.io/v1beta1/namespaces/%s/flexes'
+NAV_CLUSTER_PATH = '/apis/widgets.templates.krateo.io/v1beta1/flexes'
+
+
+def check_nav_discovery(charts):
+    """THE SIDEBAR IS THE ONE PAGE THERE IS NO FALLING BACK FROM.
+
+    sidebar-nav no longer takes its namespaces from values (#261 removed the `tiers` trio): it
+    discovers them, through snowplow's userAccessFilter, as the namespaces where THE CALLER may
+    list page roots. That makes the whole sidebar depend on one UAF stage — a path with live
+    defects (snowplow#777, #659) — so every way that stage can go is checked here:
+
+      - a caller who may read only the release namespace gets exactly what the pre-#261 nav gave
+        them (the regression gate: the single-namespace install must be unchanged);
+      - a page root installed into a SECOND namespace reaches the sidebar, with its own namespace
+        in `refs` (the thing the tiers model could never do: a fourth namespace was invisible);
+      - the namespaces stage FAILING leaves the release namespace's pages, not a blank sidebar
+        (the `if length > 0 then . else [release] end` fallback in the iterator);
+      - a caller who may read page roots NOWHERE gets an empty sidebar and not a failed resolve
+        (an unserved LIST is an errorKey, and the final filter must still yield its one value);
+      - an admin, for whom snowplow replaces the fan-out with ONE cluster-scope list
+        (cluster_list.go:156 — gate 5 permits it only for a caller who may list cluster-wide),
+        sees the union, which for that caller is what the per-namespace walk would have returned.
+    """
+    f = []
+    chart = charts['blueprint-formdef']            # the portal chart
+    ra = chart.get('RESTAction', 'sidebar-nav')
+    other = ('team-a', 'page-team-a-thing', {'krateo.io/nav-path': '/team-a-thing',
+                                             'krateo.io/nav-label': 'Team A thing',
+                                             'krateo.io/nav-order': '500'})
+    roots = nav_flexes(chart, extra=[other])
+    serve = {ns: {'items': items} for ns, items in roots.items()}
+    everywhere = {'items': [i for items in roots.values() for i in items]}
+    cluster_ns = nav_namespaces(NS, 'team-a', 'kube-system')
+
+    def run(label, caller, ns_resp, pages):
+        try:
+            reqs, _, out = resolve(ra, {}, {'namespaces': ns_resp, 'pages': pages}
+                                   if ns_resp is not None else {'pages': pages}, caller)
+        except RuntimeError as exc:
+            f.append(f'sidebar-nav, {label}: {exc}')
+            return None, None, None
+        if out is None:
+            # snowplow truncated the resolve (a step with no continueOnError whose call was not
+            # served): the nav resolves to NOTHING, which is the blank sidebar this all exists to
+            # prevent. Never a skipped assertion.
+            f.append(f'sidebar-nav, {label}: the resolve was truncated — the sidebar is blank')
+        return reqs, None, out
+
+    here = tenant({NAV_GROUP: [NS]})
+    both = tenant({NAV_GROUP: [NS, 'team-a']})
+    nowhere = tenant({NAV_GROUP: []})
+
+    _, _, base = run('release namespace only', here, cluster_ns, {NAV_PATH % NS: serve[NS]})
+    if base is not None:
+        if not base.get('items') or not base.get('refs'):
+            f.append(f'sidebar-nav, release namespace only: {len(base.get("items") or [])} items, '
+                     f'{len(base.get("refs") or [])} refs — the sidebar is empty')
+        if any(r['namespace'] != NS for r in base.get('refs') or []):
+            f.append('sidebar-nav, release namespace only: a ref outside the release namespace')
+        if any(i.get('path') == other[2]['krateo.io/nav-path'] for i in base.get('items') or []):
+            f.append('sidebar-nav, release namespace only: served a page from a namespace the '
+                     'caller cannot read')
+
+    reqs, _, out = run('two namespaces', both, cluster_ns,
+                       {NAV_PATH % ns: serve[ns] for ns in (NS, 'team-a')})
+    if out is not None:
+        paths = sorted(p for n, p, _ in reqs if n == 'pages')
+        if paths != sorted(NAV_PATH % ns for ns in (NS, 'team-a')):
+            f.append(f'sidebar-nav, two namespaces: listed {paths}')
+        if not any(i.get('path') == '/team-a-thing' for i in out['items']):
+            f.append('sidebar-nav, two namespaces: the page installed in team-a is not in the nav')
+        if {'id': other[1], 'name': other[1], 'namespace': 'team-a'} not in out['refs']:
+            f.append("sidebar-nav, two namespaces: team-a's root has no ref carrying its namespace")
+        if base is not None and len(out['items']) != len(base['items']) + 1:
+            f.append(f'sidebar-nav, two namespaces: {len(out["items"])} items, expected '
+                     f'{len(base["items"]) + 1}')
+
+    reqs, _, out = run('the namespaces stage failed', both, None, {NAV_PATH % NS: serve[NS]})
+    if out is not None:
+        if base is None or json.dumps(out, sort_keys=True) != json.dumps(base, sort_keys=True):
+            f.append('sidebar-nav, the namespaces stage failed: the fallback did not leave the '
+                     "release namespace's pages")
+        if [p for n, p, _ in reqs if n == 'pages'] != [NAV_PATH % NS]:
+            f.append(f'sidebar-nav, the namespaces stage failed: listed '
+                     f'{[p for n, p, _ in reqs if n == "pages"]}')
+
+    # DENIED, not empty: the fallback still dials the release namespace and the apiserver refuses
+    # it (`pages` carries no userAccessFilter — it is the caller's own LIST). A path-keyed
+    # `responses` with no entry for that path is how this model spells a request nobody served.
+    _, _, out = run('no namespace is readable', nowhere, cluster_ns, {'/served-to-nobody': {}})
+    if out is not None and (out.get('items') or out.get('refs')):
+        f.append(f'sidebar-nav, no namespace is readable: {out}')
+
+    reqs, _, out = run('admin (cluster-list collapse)', ADMIN, cluster_ns,
+                       {NAV_CLUSTER_PATH: everywhere})
+    if out is not None:
+        paths = [p for n, p, _ in reqs if n == 'pages']
+        if paths != [NAV_CLUSTER_PATH]:
+            f.append(f'sidebar-nav, admin: expected one cluster-scope list, got {paths}')
+        if not any(i.get('path') == '/team-a-thing' for i in out['items']):
+            f.append('sidebar-nav, admin: the collapse lost the page installed in team-a')
+        if base is not None and len(out['items']) != len(base['items']) + 1:
+            f.append(f'sidebar-nav, admin: {len(out["items"])} items, expected '
+                     f'{len(base["items"]) + 1}')
+    return f
+
+
 def main():
     args = sys.argv[1:]
     crds_dir = None
@@ -508,7 +645,7 @@ def main():
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}
     failed, total = 0, 0
-    for check in (check_no_input, check_with_input, check_degraded_reads):
+    for check in (check_no_input, check_with_input, check_degraded_reads, check_nav_discovery):
         total += 1
         try:
             problems = check(charts)

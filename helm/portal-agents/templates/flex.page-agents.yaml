@@ -1,10 +1,11 @@
 {{/* Convention page root for /agents — the agent control plane. */}}
 {{/* */}}
 {{/* Reached from the sidebar via `resourceRefId: agents` in menu.sidebar-nav, whose resourcesRefs */}}
-{{/* entry carries this admin-tier namespace explicitly. That indirection is what makes the entry */}}
+{{/* entry carries this root's namespace explicitly. That indirection is what makes the entry */}}
 {{/* RBAC-aware (snowplow resolves it as the caller, so the nav item disappears for a user who cannot */}}
-{{/* GET this Flex) and it is also why this root can live in the tier namespace at all — the bare */}}
-{{/* `page:` convention would look for it in the frontend's configured namespace and 404. */}}
+{{/* GET this Flex) and it is also the only reason this root COULD be installed into another */}}
+{{/* namespace — the bare `page:` convention would look for it in the frontend's configured */}}
+{{/* namespace and 404 (#261). */}}
 {{/* */}}
 {{/* Pagehead + the agent inventory table. */}}
 {{/* */}}
@@ -14,11 +15,10 @@
 {{/* shipped a primary call-to-action that dead-ends — and neither guard catches that (mockup-diff.mjs */}}
 {{/* only flags an empty `actions`, lint-keyextras only covers parameterized routes). Both halves are */}}
 {{/* in place now: menu.sidebar-nav carries `{ order: 936, path: "/agents/new", page: agent-create }`, */}}
-# and page-agent-create was moved to {{ `{{ .Release.Namespace }}` }} so that `page:` convention
+# and page-agent-create lives in {{ `{{ .Release.Namespace }}` }} so that the `page:` convention
 {{/* actually resolves it (Menu.tsx passes config.params.FRONTEND_NAMESPACE into buildNavModel, so */}}
-{{/* `page: <slug>` looks for flexes/page-<slug> THERE, never in this admin-tier namespace — see the */}}
-{{/* header of flex.page-agent-create). Without that move the CTA would 404 on any install that sets */}}
-{{/* .Values.tiers.admin, which is the tiered-RBAC layout the tier helper exists for. */}}
+{{/* `page: <slug>` looks for flexes/page-<slug> THERE, never in this root's namespace — see the */}}
+{{/* header of flex.page-agent-create). Anywhere else the CTA would 404. */}}
 {{/* */}}
 {{/* WHY THE CTA MATTERS MORE THAN IT LOOKS: until now /agents/new was reachable by URL only. A create */}}
 {{/* surface with no entry point anywhere in the product is, in practice, a surface that does not */}}
@@ -27,7 +27,7 @@ kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: page-agents
-  namespace: {{ include "portal.tierNamespace" (dict "ctx" . "tier" "admin") }}
+  namespace: {{ .Release.Namespace }}
   annotations:
     "krateo.io/nav-group": "Observability"
     "krateo.io/nav-icon": "fa-robot"
