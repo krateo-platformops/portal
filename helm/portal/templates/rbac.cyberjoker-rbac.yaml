@@ -98,57 +98,38 @@ subjects:
   name: devs
   apiGroup: rbac.authorization.k8s.io
 ---
-{{/* cluster-role permissions */}}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: devs-list-any-namespace-in-cluster
-rules:
-- apiGroups:
-  - ''
-  resources:
-  - namespaces
-  verbs:
-  - list
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: devs-list-any-namespace-in-cluster
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: devs-list-any-namespace-in-cluster
-subjects:
-- kind: Group
-  name: devs
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: devs-get-list-any-customresourcedefinition-in-cluster
-rules:
-- apiGroups:
-  - apiextensions.k8s.io
-  resources:
-  - customresourcedefinitions
-  verbs:
-  - get
-  - list
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: devs-get-list-any-customresourcedefinition-in-cluster
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: devs-get-list-any-customresourcedefinition-in-cluster
-subjects:
-- kind: Group
-  name: devs
-  apiGroup: rbac.authorization.k8s.io
+{{/* NO CLUSTER-SCOPED PERMISSIONS. `devs` carries no ClusterRole and no ClusterRoleBinding (#261).
+
+     It used to carry two, and both existed to satisfy a portal read rather than to express
+     anything about the persona:
+
+       devs-list-any-namespace-in-cluster                      list namespaces
+       devs-get-list-any-customresourcedefinition-in-cluster   get,list customresourcedefinitions
+
+     `restaction.projects` asked "may I list namespaces" in its userAccessFilter — a CLUSTER-SCOPED
+     question, so a namespaced Role could never answer it and the only way to make the header's
+     project picker non-empty was a cluster-wide grant. It now asks where the caller may list
+     COMPOSITIONS, which is both the truer meaning of a project and a question a Role can carry.
+
+     Four steps LISTED CRDs to discover the composition kinds. They now read CompositionDefinitions
+     cluster-scope under a userAccessFilter — dialled by snowplow's SA, narrowed per item — which is
+     how compositions-list has always done it, and why cyberjoker's Compositions page worked while
+     he could not `list compositiondefinitions` in any namespace but demo-system.
+
+     `blueprint-formdef` GOT a CRD by name for the create form at /blueprints/{ns}/{name}/new. The
+     CRD read stays and still degrades through continueOnError, but it is no longer REQUIRED: the
+     not-ready gate now accepts the namespaced jsonschema ConfigMap on its own, which is the source
+     `stringSchema` (the Form's preferred input) was always built from, and which exists for every
+     reconciled CompositionDefinition — 55 of 55 on krateo-057.
+
+     The form steps on the ADMIN pages (alert, agent, agents-policy, controller-configure, the
+     marketplace install) still read a CRD by name and still need cluster read. That is now a
+     property of those pages rather than of the platform: `admins` is bound to cluster-admin, and
+     nothing a dev reaches requires a ClusterRole. scripts/lint-caller-cluster-reads.py holds the
+     line, and lists them with the page each belongs to.
+
+     A grant added back here should be a Role in a namespace. If something appears to need cluster
+     scope, the question it asks is probably the wrong one — that was true of both of these. */}}
 ---
 {{- if .Values.enableDemoSystemNamespace }}
 {{/* demo-system permissions */}}
