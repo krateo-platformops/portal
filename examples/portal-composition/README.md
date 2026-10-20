@@ -16,8 +16,7 @@ Two manifests, applied in order:
    (`composition.krateo.io/v1-6-0`) from the chart's `values.schema.json` and starts
    its controller.
 2. [`portal.yaml`](./portal.yaml) — one `Portal` CR = one reconciled portal-content
-   release (~530 CRs): custom tenant name, demo-system enabled, single-namespace
-   layout (no tiering).
+   release (~530 CRs): custom tenant name, demo-system enabled.
 
 ## Preconditions
 

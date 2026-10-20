@@ -1,7 +1,7 @@
 ---
 type: Configuration
 title: portal — configuration
-description: The whole values surface of the portal blueprint chart — personas, demo-system, tenant branding, observability console link, spoke read-back, RBAC tiers — i.e. a Portal CR's spec.
+description: The whole values surface of the portal blueprint chart — personas, demo-system, tenant branding, observability console link, spoke read-back — i.e. a Portal CR's spec.
 resource: oci://ghcr.io/krateo-platformops/charts/portal
 tags: [portal, values, configuration]
 timestamp: 2026-08-07T00:00:00Z
@@ -63,22 +63,26 @@ spoke:
 | `spokeReadbackEndpointSecret` | string | `krateo-spoke-demo-endpoint` | Name of the **derived** endpoint Secret (snowplow shape: `server-url`/`token`/`insecure`/`certificate-authority-data`, with `server-url` carrying the `/apis` suffix) — derived from the spoke's kubeconfig Secret, *not* the kubeconfig Secret itself. |
 | `spokeReadbackEndpointNamespace` | string | `krateo-system` | Namespace of that Secret (must be readable by snowplow's ServiceAccount). |
 
-## RBAC namespace tiers
+## Page visibility (no value to set)
 
-| Value | Type | Default | Effect |
-|---|---|---|---|
-| `tiers.common` | string | `""` | Namespace for shared chrome + pages every authenticated user sees. Empty = `.Release.Namespace`. |
-| `tiers.tenant` | string | `""` | Namespace for tenant-persona pages (**Blueprints**). |
-| `tiers.admin` | string | `""` | Namespace for admin-only pages (**Marketplace, Observability, Incidents, Alerts, Portal/Blueprint/API Builder, Settings, Clusters**). |
+There is nothing to configure. Every page root this chart ships is installed into the
+release namespace, and page visibility follows the namespace RBAC the cluster already
+has: `restaction.sidebar-nav` discovers the namespaces where **the caller** may `list`
+page roots and lists the roots in each as that caller, so a user sees exactly the pages
+their Role lets them read. Install a page chart into another namespace and its entries
+appear for whoever can read them there — see [overview](./overview.md#page-visibility-is-discovered-not-configured).
 
-Resolution is the `portal.tierNamespace` helper
-([`_tiers.tpl`](../helm/portal/templates/_tiers.tpl)): a non-empty tier value places
-that tier's page-root Flexes (and the Menu's references to them) in that namespace,
-so page visibility follows the user's namespace RBAC; all-empty collapses everything
-onto the release namespace (no tiering). Note: **Compositions is a common-tier page**
-— `flex.page-compositions` deliberately stays in the release namespace (#68) so a
-namespace-scoped tenant sees the menu item and its own compositions (the `tiers.admin`
-comment in `values.yaml` still lists it under admin; the template wins).
+This replaced a `tiers.{common,tenant,admin}` values trio and a `portal.tierNamespace`
+helper (removed in #261). They were not an RBAC mechanism: no Role or RoleBinding ever
+referenced them. They were three deployer-set namespace strings that the sidebar could
+see and nothing else could, so a page chart installed into any fourth namespace was
+invisible to the nav no matter what the caller could read.
+
+One hard limit survives, and it constrains any per-namespace split: a page root reached
+by the `page: <slug>` convention is resolved in the namespace the **frontend** is
+configured with (`config.params.FRONTEND_NAMESPACE`), never in the nav entry's
+namespace. Only a root addressed by `resourceRefId` can be installed elsewhere; a
+`page:`-addressed root installed outside the frontend's namespace is a silent 404.
 
 ## Fixed (non-value) configuration baked into templates
 
