@@ -410,6 +410,34 @@ spec:
       navigate:
         - {id: ask, type: navigate, path: "/controller-builder/compose?ask=help"}
 ---
+# A4: an href its RESTAction builds WITHOUT ?ask= is plain navigation, even beside one that has it.
+kind: RESTAction
+apiVersion: templates.krateo.io/v1
+metadata: {name: good-detail}
+spec:
+  filter: >
+    {
+      blueprintHref: ("/blueprints/" + .ns + "/" + .name),
+      diagnoseHref: ("/compositions/demo?ask=" + ("Diagnose" | @uri))
+    }
+---
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-blueprint-link}
+spec:
+  apiRef: {name: good-detail, namespace: krateo-system}
+  widgetData:
+    label: Blueprint
+    type: default
+    icon: fa-layer-group
+    clickActionId: open
+    actions:
+      navigate:
+        - {id: open, type: navigate, path: /blueprints}
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open", type: "navigate", path: .blueprintHref } ] } }'
+---
 # C26: the dismiss role amber, the destroy role red.
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1

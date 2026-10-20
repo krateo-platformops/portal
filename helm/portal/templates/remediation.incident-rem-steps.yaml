@@ -199,6 +199,10 @@ spec:
 {{/* "I applied it": the human ran the apply script in their own terminal. Sets spec.applied on */}}
 {{/* the Incident (merge-patch, the user's token); the controller consumes it — records an apply */}}
 {{/* check, moves Open to Verifying, runs the verify script and resets spec.applied. */}}
+{{/* P6: secondary beside "Run apply", primary when it is the only action. It sat filled beside */}}
+{{/* "Run apply", and two filled buttons do not say which one the remediation is for; when the */}}
+{{/* controller can run the script, that is the action and reporting a manual run is the other. */}}
+{{/* The same `.canRunApply` incident-rem-script-actions reads decides both. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -231,6 +235,9 @@ spec:
           successMessage: Recorded — the controller now runs the verify script
           loading:
             display: true
+  widgetDataTemplate:
+    - forPath: type
+      expression: '${ if (.canRunApply // false) then "default" else "primary" end }'
   resourcesRefs:
     items: []
   resourcesRefsTemplate:
