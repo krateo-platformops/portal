@@ -131,7 +131,17 @@ spec:
         + "__" + ((.namespace // "") | gsub("[^a-zA-Z0-9_.-]"; "-"))
         + "__" + ((.name // "") | gsub("[^a-zA-Z0-9_.-]"; "-"))) as $ownerKey
     | ((.compdef.status.apiVersion // "") | tostring) as $cdApiVersion
-    | if ($cdApiVersion | contains("/") | not) or ((.compdef.status.resource // "") == "") or ((.crd.spec // null) == null) then
+    # THE CRD IS NO LONGER REQUIRED (#261). A CRD read is CLUSTER-SCOPED and is dialled as the
+    # caller, so requiring it here meant every persona that can reach /blueprints/{ns}/{name}/new
+    # needed a ClusterRole — which is what `devs-get-list-any-customresourcedefinition-in-cluster`
+    # existed for. The namespaced jsonschema ConfigMap carries the same schema in authoring order
+    # and is what `stringSchema` (the Form's PREFERRED source) is built from; it is present for
+    # every reconciled CompositionDefinition (55 of 55 on krateo-057). So "not ready" now means
+    # NEITHER source resolved, and a caller who cannot read CRDs gets the real form from the CM
+    # instead of "This blueprint is still being registered".
+    | if ($cdApiVersion | contains("/") | not)
+         or ((.compdef.status.resource // "") == "")
+         or (((.crd.spec // null) == null) and (((.jsonschema.data["values.schema.json"]) // null) == null)) then
         ([ (.compdef.status.conditions // [])[]? | select(.type == "Ready" and .status == "False") | (.message // "") | select(. != "") ][0]) as $why
         | { stringSchema: "",
             schemaSpec: { type: "object",
@@ -158,7 +168,11 @@ spec:
     | (.namespaces // []) as $nsAll
     | (if ($nsAll | length) > 0 then $nsAll else [$blueprintNs] end) as $nsOpts
     | (if ($nsOpts | index($blueprintNs)) then $blueprintNs else $nsOpts[0] end) as $nsDefault
-    | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
+    # WRAPPED IN AN ARRAY, and that is load-bearing rather than tidy: with no CRD read the
+    # generator `.crd.spec.versions[]?` yields ZERO values, and `(empty) as $spec` makes the whole
+    # filter produce no output — which snowplow treats as a failed stage ("jq filter yielded no
+    # value"), not as a null. `[...] | first` always yields exactly one value, null included.
+    | ([ .crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec ] | first) as $spec
     # Fields the blueprint marks hidden (title contains "(should be hidden)") are
     # omitted from the generated form — propertiesToHide derived from the schema, not hardcoded.
     | ([ ($spec.properties // {}) | to_entries[] | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden

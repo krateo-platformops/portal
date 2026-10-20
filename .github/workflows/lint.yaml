@@ -115,6 +115,35 @@ jobs:
       - name: The Helm release record must stay writable
         run: python3 scripts/lint-release-size.py
 
+  # `devs` carries no ClusterRole and no ClusterRoleBinding (#261). That is a property of this
+  # chart, not of a cluster: a RESTAction step with no userAccessFilter and no endpointRef is
+  # dialled as the CALLER (resolveStageEndpoint — "non-UAF stages go through the per-user
+  # clientconfig"), so a cluster-scoped path in one means every persona loading that page needs a
+  # cluster-wide grant. The two ClusterRoles this chart used to ship existed for exactly that and
+  # nothing else. `resourceNames` cannot narrow a `list`, so there is no smaller version to fall
+  # back on — which is why the fix was to change the question, not to shrink the grant.
+  caller-cluster-reads:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Nothing a dev reaches may need a ClusterRole
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-caller-cluster-reads.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A
