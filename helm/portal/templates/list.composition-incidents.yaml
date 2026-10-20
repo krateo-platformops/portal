@@ -1,7 +1,12 @@
 {{/* "Incidents" strip on the composition-detail page: one row per Incident whose analysis touched */}}
 {{/* this composition (composition-incidents, filtered by the route's .name/.namespace extras). */}}
-{{/* hideWhenEmpty removes the strip for a composition with no incidents. Each row opens the */}}
+{{/* hideWhenEmpty removes the strip for a composition with no ACTIVE incidents. Each row opens the */}}
 {{/* incident's detail page. */}}
+{{/* */}}
+{{/* It used to list every incident ever, resolved ones included, each titled by its whole root-cause */}}
+{{/* sentence under a line explaining that the rows could be clicked: five 200-character rows */}}
+{{/* before the composition's own status. Now: the active ones only, one line each (the full title */}}
+{{/* on hover), a header that counts them, and the resolved ones behind a link to /incidents. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,8 +26,11 @@ spec:
     itemLayout: horizontal
     split: false
     hideWhenEmpty: true
-    header: Incidents whose analysis touched this composition; select one to open it →
+    header: Incidents
+    footer: See all incidents →
+    footerNavigateTo: /incidents
     itemTemplate:
+      ellipsis: true
       navigateTo: '{route}'
       iconVariant: dot
       color:
@@ -33,5 +41,9 @@ spec:
   widgetDataTemplate:
   - forPath: dataSource
     expression: '${ .rows // [] }'
+  - forPath: header
+    expression: '${ "Incidents · " + ((.activeCount // 0) | tostring) + " active" }'
+  - forPath: footer
+    expression: '${ (.resolvedCount // 0) as $r | if $r > 0 then ($r | tostring) + " resolved · see all incidents →" else "See all incidents →" end }'
   resourcesRefs:
     items: []

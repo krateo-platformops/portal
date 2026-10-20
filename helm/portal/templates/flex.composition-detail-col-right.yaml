@@ -1,5 +1,7 @@
 {{/* Right column (narrower): Reconcile activity, Relations, Metadata. (Conditions/Health */}}
 {{/* promoted to the page top.) */}}
+{{/* Reconcile activity is left out when there was no reconcile in its window (0 · — · —): three */}}
+{{/* empty figures said nothing. composition-reconcile-perf is the RA its statistics read. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,6 +12,9 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  apiRef:
+    name: composition-reconcile-perf
+    namespace: {{ .Release.Namespace }}
   widgetData:
     vertical: true
     gap: middle
@@ -19,6 +24,9 @@ spec:
       - resourceRefId: card-composition-detail-reconcile
       - resourceRefId: card-composition-detail-relations
       - resourceRefId: card-composition-detail-metadata
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ [ (if (.n // 0) > 0 then { resourceRefId: "card-composition-detail-reconcile" } else empty end), { resourceRefId: "card-composition-detail-relations" }, { resourceRefId: "card-composition-detail-metadata" } ] }'
   resourcesRefs:
     items:
       - id: card-composition-detail-reconcile

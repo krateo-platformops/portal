@@ -42,19 +42,22 @@ spec:
           Warning: red
         {{/* The synthetic Empty row falls through to a muted dot. */}}
         default: gray
-      primaryText: '{message}'
-      subPrimaryText: '{ref}'
-      {{/* Render the involvedObject ref (Kind/name) as a mono bordered pill (mockup `.event` chip). */}}
-      subPrimaryTextMono: true
-      secondaryText: '{reason}'
+      {{/* One line each, the whole text on hover (P19): the reason (×N when it repeated) as the */}}
+      {{/* title, the object and its latest message under it. */}}
+      ellipsis: true
+      primaryText: '{title}'
+      subPrimaryText: '{detail}'
       subSecondaryText: '{ts}'
       formats:
         subSecondaryText: relative
   widgetDataTemplate:
+    {{/* One row per (reason, object), counted and newest first, at most five. A failing composition */}}
+    {{/* repeats the same event on every retry: twenty identical rows, each the whole backend error */}}
+    {{/* in bold, made this card ~6,400px tall and pushed the Manifest off the page. */}}
+    {{/* Empty feed → ONE inert explanatory row (type Empty → gray dot, route "" → not clickable, */}}
+    {{/* ts "" → formatRelativeTime passes it through blank). .namespace / .compositionId are */}}
+    {{/* RA-echoed, so the message is built server-side, nothing guessed. */}}
     - forPath: dataSource
-      {{/* Empty feed → ONE inert explanatory row (type Empty → gray dot, route "" → not */}}
-      {{/* clickable, ts "" → formatRelativeTime passes it through blank). .namespace / */}}
-      {{/* .compositionId are RA-echoed, so the message is built server-side, nothing guessed. */}}
-      expression: '${ (.list // []) as $evts | if ($evts | length) == 0 then [ { message: (if (.compositionId // "") == "" then "Events cannot be correlated — this composition has no krateo.io/composition-id label" else ("No streamed events for this composition — check kubectl events -n " + (.namespace // "") + " for raw cluster events") end), reason: "", type: "Empty", ref: "", ts: "", route: "" } ] else ($evts | map({ message: (.message // ""), reason: (.reason // ""), type: (if (.type // "") == "Warning" then "Warning" else "Normal" end), ref: ((.involvedObject.kind // "") + "/" + (.involvedObject.name // "")), ts: (.lastTimestamp // .firstTimestamp // .eventTime // ""), route: (.route // "") })) end }'
+      expression: '${ (.list // []) as $evts | if ($evts | length) == 0 then [ { title: (if (.compositionId // "") == "" then "Events cannot be correlated — this composition has no krateo.io/composition-id label" else ("No streamed events for this composition — check kubectl events -n " + (.namespace // "") + " for raw cluster events") end), detail: "", type: "Empty", ts: "", route: "" } ] else ($evts | map({ message: (.message // ""), reason: (.reason // ""), type: (if (.type // "") == "Warning" then "Warning" else "Normal" end), ref: ((.involvedObject.kind // "") + "/" + (.involvedObject.name // "")), ts: (.lastTimestamp // .firstTimestamp // .eventTime // ""), route: (.route // "") }) | group_by([.reason, .ref]) | map((sort_by(.ts) | last) as $l | { title: ($l.reason + (if length > 1 then " ×" + (length | tostring) else "" end)), detail: ($l.ref + " · " + $l.message), type: $l.type, ts: $l.ts, route: $l.route }) | sort_by(.ts) | reverse | .[:5]) end }'
   resourcesRefs:
     items: []
