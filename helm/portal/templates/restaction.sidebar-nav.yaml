@@ -46,10 +46,23 @@
 
   Install a page chart anywhere the caller can read and its entries appear. Nothing to configure.
 
-  THE `pages` STEP CARRIES NO userAccessFilter, DELIBERATELY. It has no endpointRef either, so
-  snowplow resolves it against the CALLER's own `<user>-clientconfig`: the apiserver stays the
-  authority on which page roots this user may see, exactly as the tiered version had it, and the nav
-  adds no authorisation surface of its own. Only the namespace DISCOVERY depends on snowplow's own
+  THE `pages` STEP CARRIES NO userAccessFilter, DELIBERATELY. It has no endpointRef either, and
+  that pair is what makes it the caller's own read: `resolveStageEndpoint` sends a UAF stage to
+  snowplow's SA endpoint and a non-UAF stage "through the per-user clientconfig" (its own words,
+  resolvers/restactions/api/resolve.go:386), so a nil ref resolves to the CALLER's
+  `<user>-clientconfig` — which holds that user's own k8s credential, a client cert or their own
+  token. The apiserver evaluates THAT USER. So the apiserver stays the authority on which page
+  roots this caller may see, exactly as the tiered version had it, and the nav adds no
+  authorisation surface of its own.
+
+  IT IS THE ENDPOINT THAT CARRIES THIS, NOT A FORWARDED TOKEN, and the distinction is worth the
+  line because the obvious place to look is wrong. snowplow does append the caller's Krateo authn
+  JWT to some stages — but `bearerAppendForStage` (api/self_host.go:171) DROPPED the nil-ref case
+  in #292: that JWT is not a k8s credential, and putting it on an apiserver dial only leaks it
+  (cert auth presents it on the wire) or suppresses the real token (client-go will not overwrite an
+  existing Authorization header). It survives only for `exportJWT: true` and the self-loopback back
+  at snowplow's own /call. Anyone tracing "what authorizes this read?" through the bearer append
+  will find #292 removed it and conclude nothing does. The clientconfig does. Only the namespace DISCOVERY depends on snowplow's own
   userAccessFilter re-gate, which is a path with live defects (snowplow#777, #659) — so that one
   step is `continueOnError` AND falls back to the release namespace in the iterator below. A
   snowplow-side failure then costs the pages in other namespaces, never the whole sidebar.
@@ -64,9 +77,10 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    {{/* The namespaces where THIS CALLER may list page roots. Dialled by snowplow's own SA (a */}}
-    {{/* userAccessFilter stage is not given the user bearer — api/resolve.go), then narrowed by */}}
-    {{/* SubjectAccessReview per namespace. The caller needs no cluster-wide grant of any kind. */}}
+    {{/* The namespaces where THIS CALLER may list page roots. A userAccessFilter stage dials */}}
+    {{/* snowplow's OWN SA endpoint by design (resolveStageEndpoint, api/resolve.go:386) and is */}}
+    {{/* narrowed downstream instead — here, by SubjectAccessReview per namespace. So the caller */}}
+    {{/* needs no cluster-wide grant of any kind; see the header on what authorizes `pages`. */}}
     - name: namespaces
       path: /api/v1/namespaces
       verb: GET
