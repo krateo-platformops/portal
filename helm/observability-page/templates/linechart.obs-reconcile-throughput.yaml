@@ -10,7 +10,7 @@ kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: obs-reconcile-throughput
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
@@ -46,7 +46,7 @@ spec:
     expression: '${ [ (.series // [])[] | { t: (.ts|tonumber), series: "reconciles", v: (.reconciles|tonumber) } ] }'
   apiRef:
     name: obs-reconcile-metrics
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items: []
 {{- end }}

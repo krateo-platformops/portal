@@ -1,0 +1,35 @@
+{{/* The page owns this Statistic, exactly as it owns obs-stat-pending and obs-stat-total.
+     It previously borrowed the DASHBOARD's stat-healthy from the release namespace, which broke when
+     the page split (#261) moved that object into krateo-dashboard: the ref kept naming
+     `.Release.Namespace` and resolved to krateo-system, where nothing defines it. Borrowing was
+     also wrong on RBAC grounds -- a group granted /observability but not /dashboard cannot read
+     the dashboard's namespace, so the card would 403 even if the namespace were right. */}}
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-stat-healthy
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, status]
+  widgetData:
+    title: Healthy
+    value: 0
+    valueStyle:
+      color: var(--green-color)
+    watch: []
+  widgetDataTemplate:
+  - forPath: watch
+    expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
+  - forPath: value
+    {{/* Use the RA's projection-aware `.state == "healthy"` (Ready=True AND workloadHealthy != false), NOT a */}}
+    {{/* re-derived Ready==True — else a composition that is Ready=True but whose managed workload is */}}
+    {{/* unhealthy is wrongly counted healthy while the rail marks it failed (over-counting by 1). */}}
+    expression: '${ [.list[] | select(.state == "healthy")] | length }'
+  apiRef:
+    name: compositions-list
+    namespace: {{ $.Release.Namespace }}
+  resourcesRefs:
+    items: []

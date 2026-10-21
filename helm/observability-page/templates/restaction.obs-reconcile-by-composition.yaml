@@ -7,7 +7,7 @@ apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
   name: obs-reconcile-by-composition
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -15,7 +15,7 @@ spec:
     - name: byc
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ .Release.Namespace }}
+        namespace: {{ $.Values.namespace }}
       path: '${ (.range // "6h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "6%20HOUR" end) as $iv | "/?query=SELECT%20SpanAttributes%5B%27k8s.object.kind%27%5D%20AS%20kind%2C%20SpanAttributes%5B%27k8s.object.name%27%5D%20AS%20name%2C%20SpanAttributes%5B%27k8s.object.namespace%27%5D%20AS%20ns%2C%20count%28%29%20AS%20reconciles%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C0%29%20AS%20p95_ms%2C%20round%28avg%28Duration%29%2F1e6%2C0%29%20AS%20avg_ms%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20kind%2Cname%2Cns%20ORDER%20BY%20p95_ms%20DESC%20LIMIT%2050%20FORMAT%20JSON" }'
       verb: GET
       headers:

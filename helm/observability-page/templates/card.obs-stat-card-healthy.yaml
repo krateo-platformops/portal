@@ -15,14 +15,16 @@ spec:
           type: navigate
           path: /compositions?status=healthy
     items:
-    {{/* The DASHBOARD's stat-healthy Statistic, reused verbatim (the obs copy was */}}
-    {{/* byte-identical; keyExtras exclude `range`, so the cache cell is shared). */}}
-    - resourceRefId: stat-healthy
+    {{/* The page's OWN Statistic. It borrowed the dashboard's until #261 moved that object */}}
+    {{/* into krateo-dashboard, leaving this ref pointing at a namespace that defines it */}}
+    {{/* nowhere -- and a group with /observability but not /dashboard could not read it */}}
+    {{/* there anyway. Same shape as obs-stat-pending and obs-stat-total. */}}
+    - resourceRefId: obs-stat-healthy
   resourcesRefs:
     items:
-    - id: stat-healthy
+    - id: obs-stat-healthy
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: stat-healthy
-      namespace: {{ $.Release.Namespace }}
+      name: obs-stat-healthy
+      namespace: {{ $.Values.namespace }}
       resource: statistics
       verb: GET

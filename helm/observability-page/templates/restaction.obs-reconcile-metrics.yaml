@@ -9,7 +9,7 @@ apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
   name: obs-reconcile-metrics
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -17,7 +17,7 @@ spec:
     - name: recon
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ .Release.Namespace }}
+        namespace: {{ $.Values.namespace }}
       path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20toUnixTimestamp%28toStartOfInterval%28Timestamp%2C%20INTERVAL%2010%20MINUTE%29%29%20AS%20ts%2C%20count%28%29%20AS%20reconciles%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C1%29%20AS%20p95_ms%2C%20round%28avg%28Duration%29%2F1e6%2C1%29%20AS%20avg_ms%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20ts%20ORDER%20BY%20ts%20FORMAT%20JSON" }'
       verb: GET
       headers:
@@ -27,7 +27,7 @@ spec:
     - name: fail
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ .Release.Namespace }}
+        namespace: {{ $.Values.namespace }}
       path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20MetricName%20AS%20m%2C%20round%28max%28Value%29-min%28Value%29%29%20AS%20v%20FROM%20otel_metrics_sum%20WHERE%20MetricName%20IN%20%28%27provider_runtime.reconcile.failure%27%2C%27provider_runtime.reconcile.success%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20m%20FORMAT%20JSON" }'
       verb: GET
       headers:

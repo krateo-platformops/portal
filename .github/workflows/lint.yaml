@@ -206,6 +206,18 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-ref-namespace.py
 
+      # The namespace rule above cannot tell whether the object is actually THERE: a ref can
+      # satisfy it and still dangle. Four did, live on 057 for the whole 1.8.78-1.8.81 window,
+      # because nothing rendered the charts TOGETHER (the boundary is new since #261) and nothing
+      # rendered with a feature flag ON -- 15 observability widgets sat in the shell behind
+      # observability.reconcileTracing while the page that refs them was gated on the same flag,
+      # so with the flag off neither side rendered and everything looked consistent.
+      - name: Every widget ref resolves, in every feature-flag state
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-dangling-refs.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A

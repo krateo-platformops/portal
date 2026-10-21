@@ -35,9 +35,13 @@ spec:
     - resourceRefId: new-composition
   resourcesRefs:
     items:
+    {{/* SHELL-owned: the Button lives in helm/portal because BOTH this page and the
+         other one use it, so neither page chart can own it. The shell is readable by
+         anything holding the chrome grant, so the release namespace is correct here --
+         and scripts/lint-ref-namespace.py CROSS_CHART records it as the exception. */}}
     - id: new-composition
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: new-composition
-      namespace: {{ $.Values.namespace }}
+      namespace: {{ $.Release.Namespace }}
       resource: buttons
       verb: GET

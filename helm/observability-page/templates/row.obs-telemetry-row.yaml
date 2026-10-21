@@ -2,13 +2,14 @@
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* Full-width strip hosting the reconcile phase-breakdown card. Sits directly under the */}}
-{{/* p50/p95/p99 percentile strip — together they form the reconcile-performance section. */}}
+{{/* Live telemetry strip — the reconcile-throughput card (ClickHouse otel_traces), full width. */}}
+{{/* First widget on the observability page sourced from OTel telemetry rather than composition */}}
+{{/* snapshots. Room for latency/error breakdown cards beside it in a later pass. */}}
 kind: Row
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: obs-perf-phases-row
-  namespace: {{ .Release.Namespace }}
+  name: obs-telemetry-row
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -16,14 +17,14 @@ spec:
     allowedResources:
     - cards
     items:
-    - resourceRefId: obs-phases-card
+    - resourceRefId: obs-throughput-card
       size: 24
   resourcesRefs:
     items:
-    - id: obs-phases-card
+    - id: obs-throughput-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-phases-card
-      namespace: {{ .Release.Namespace }}
+      name: obs-throughput-card
+      namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
 {{- end }}

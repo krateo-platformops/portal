@@ -2,14 +2,13 @@
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* Full-width strip hosting the per-composition reconcile-latency card (ClickHouse */}}
-{{/* otel_traces). Sits below the throughput strip — the "which compositions are slow" */}}
-{{/* detail beneath the "how much reconcile traffic overall" trend. */}}
+{{/* Full-width strip hosting the reconcile phase-breakdown card. Sits directly under the */}}
+{{/* p50/p95/p99 percentile strip — together they form the reconcile-performance section. */}}
 kind: Row
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: obs-latency-row
-  namespace: {{ .Release.Namespace }}
+  name: obs-perf-phases-row
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -17,14 +16,14 @@ spec:
     allowedResources:
     - cards
     items:
-    - resourceRefId: obs-latency-card
+    - resourceRefId: obs-phases-card
       size: 24
   resourcesRefs:
     items:
-    - id: obs-latency-card
+    - id: obs-phases-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-latency-card
-      namespace: {{ .Release.Namespace }}
+      name: obs-phases-card
+      namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
 {{- end }}

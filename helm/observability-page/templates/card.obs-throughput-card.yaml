@@ -9,7 +9,7 @@ kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: obs-throughput-card
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
@@ -31,13 +31,13 @@ spec:
     expression: '${ (.current // {}) as $c | (.failures // 0) as $f | (.successes // 0) as $ok | ($f + $ok) as $tot | (if $tot == 0 then "no reconcile-trace data" else ("p95 " + (($c.p95_ms // 0)|tostring) + "ms · " + ($f|tostring) + " fail (" + (($f * 100 / $tot)|floor|tostring) + "%)") end) }'
   apiRef:
     name: obs-reconcile-metrics
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items:
     - id: obs-reconcile-throughput
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-reconcile-throughput
-      namespace: {{ .Release.Namespace }}
+      namespace: {{ $.Values.namespace }}
       resource: linecharts
       verb: GET
 {{- end }}
