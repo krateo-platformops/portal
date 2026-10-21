@@ -46,7 +46,7 @@ metadata:
 spec:
   api:
     - name: prs
-      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ $.Values.dataNamespace }}/pullrequests
+      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ $.Release.Namespace }}/pullrequests
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -59,7 +59,7 @@ spec:
     {{/* filter → a "branch pushed, awaiting PR" row alongside the PR rows (continueOnError → empty */}}
     {{/* if git-provider/RBAC absent). The repo is parsed from the LocalResource toRepo URL. */}}
     - name: publishes
-      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/localresources
+      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/localresources
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -100,7 +100,7 @@ spec:
     {{/* CompositionDefinition is not evidence that there is none, and an Install against one */}}
     {{/* that exists is a 409. */}}
     - name: cds
-      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/compositiondefinitions
+      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/compositiondefinitions
       verb: GET
       headers:
         - 'Accept: application/json'

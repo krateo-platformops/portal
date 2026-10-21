@@ -41,7 +41,7 @@ spec:
     - name: alert
       dependsOn:
         name: ""
-        iterator: '[ { namespace: (.namespace // "{{ $.Values.dataNamespace }}"), name: (.name // "") } | select(.name != "") ]'
+        iterator: '[ { namespace: (.namespace // "{{ $.Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
       path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
       verb: GET
       headers:
@@ -53,7 +53,7 @@ spec:
   filter: |
     "v1alpha1" as $ver
     | (.name // "") as $n
-    | (.namespace // "{{ $.Values.dataNamespace }}") as $ns
+    | (.namespace // "{{ $.Release.Namespace }}") as $ns
     # Collected into an array and indexed, so a CRD that could not be read (or that serves no
     # v1alpha1) is null here. A bare `( … ) as $spec` yielded NOTHING then, and a filter with no
     # value fails the whole resolve.

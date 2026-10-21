@@ -19,12 +19,12 @@ metadata:
 spec:
   api:
     - name: incidents
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/incidents
       verb: GET
       continueOnError: true
       errorKey: incidentsError
     - name: alerts
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/alerts
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/alerts
       verb: GET
       continueOnError: true
       errorKey: alertsError
@@ -41,7 +41,7 @@ spec:
         | {
             name: (.metadata.name // ""),
             # A namespaced list omits .metadata.namespace per item; these incidents are in the namespace just listed.
-            namespace: "{{ $.Values.dataNamespace }}",
+            namespace: "{{ $.Release.Namespace }}",
             title: (if $dn != "" then $dn elif $alert != "" then $alert elif (.status.rootCause.statement // "") != "" then .status.rootCause.statement else (.metadata.name // "") end),
             cause: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
                     elif (.status.error // "") != "" then "analysis failed"

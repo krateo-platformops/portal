@@ -4,7 +4,7 @@
      portal.* from here renders "template not defined" and fails the install.
 
      Every `.Release.Namespace` in it named where the DATA is, not where the pages are, so it is
-     `.Values.dataNamespace`. Left as Release.Namespace it would resolve to this chart's page
+     the release namespace (the portal's own). Left as Release.Namespace it would resolve to this chart's page
      namespace, find nothing, and continueOnError would render an empty page rather than an error. */}}
 {{/*
   portal.builderPrEnding — the jq `def ending($pr)` both builder lists use to decide how a change
@@ -108,7 +108,7 @@ def ending($pr):
 */}}
 {{- define "portal.builderRegistrationStep" -}}
 - name: builderCds
-  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Values.dataNamespace }}/localresources
+  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
   verb: GET
   headers:
     - 'Accept: application/json'
@@ -175,7 +175,7 @@ def ending($pr):
 */}}
 {{- define "portal.builderProjectionStep" -}}
 - name: builderProjections
-  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Values.dataNamespace }}/localresources
+  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
   verb: GET
   headers:
     - 'Accept: application/json'

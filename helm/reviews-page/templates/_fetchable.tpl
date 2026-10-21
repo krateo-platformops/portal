@@ -6,7 +6,7 @@
      computed rather than listed by hand.
 
      Every `.Release.Namespace` in it named where the DATA is, not where the pages are, so it is
-     `.Values.dataNamespace`. */}}
+     `.Release.Namespace`. */}}
 {{/*
   portal.fetchableDefs — the jq defs that keep a data-driven step from reading Secrets.
 

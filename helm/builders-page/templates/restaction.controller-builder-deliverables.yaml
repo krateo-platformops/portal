@@ -45,7 +45,7 @@ spec:
     {{/* Change requests the claims opened, matched to their publish by krateo.io/publish. As in */}}
     {{/* the blueprint RA, a just-created PR carries no status yet, so every field is defensive. */}}
     - name: prs
-      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ $.Values.dataNamespace }}/pullrequests
+      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ $.Release.Namespace }}/pullrequests
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -65,7 +65,7 @@ spec:
               created: ((.metadata.creationTimestamp) // "") } ]
     {{/* The claims' files, one LocalResource per file, grouped per publish in the final filter. */}}
     - name: publishes
-      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/localresources
+      path: /apis/git.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/localresources
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -87,7 +87,7 @@ spec:
     - name: cds
       dependsOn:
         name: publishes
-      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/compositiondefinitions
+      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/compositiondefinitions
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -322,7 +322,7 @@ spec:
              gvk: (if ($gvks | length) == 0 then "—"
                    elif ($gvks | length) == 1 then $gvks[0]
                    else "\($gvks[0]) +\(($gvks | length) - 1)" end),
-             ns: "{{ $.Values.dataNamespace }}",
+             ns: "{{ $.Release.Namespace }}",
              # Per-row destination, the Table takes it whole. The step the Next cell names first;
              # then the install, once there is one; then the change request; else nothing.
              rowHref: (if registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")

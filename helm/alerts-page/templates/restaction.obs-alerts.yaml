@@ -17,7 +17,7 @@ metadata:
 spec:
   api:
     - name: alerts
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/alerts
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/alerts
       verb: GET
       continueOnError: true
       errorKey: alertsError
@@ -25,7 +25,7 @@ spec:
     {{/* an alert watches, its threshold) and never outcome: an analysis that failed or produced */}}
     {{/* nothing is otherwise invisible from this page. */}}
     - name: incidents
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/incidents
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -46,7 +46,7 @@ spec:
         # snowplow does not backfill it → fall back to the release namespace we just listed
         # (same reasoning as incidents-list's namespace literal).
         routeName: (.metadata.name // ""),
-        routeNs: (.metadata.namespace // "{{ $.Values.dataNamespace }}"),
+        routeNs: (.metadata.namespace // "{{ $.Release.Namespace }}"),
         watching: ((.spec.where // "all logs") | gsub(" AND NOT "; "\nAND NOT ") | gsub(" AND "; "\nAND ") | if length > 200 then .[0:198] + "…" else . end),
         threshold: ((.spec.threshold // 0) | tostring),
         interval: (.spec.interval // ""),

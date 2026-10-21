@@ -4,7 +4,7 @@
      portal.* from here renders "template not defined" and fails the install.
 
      Every `.Release.Namespace` in it named where the DATA is, not where the pages are, so it is
-     `.Values.dataNamespace`. Left as Release.Namespace it would resolve to this chart's page
+     the release namespace (the portal's own). Left as Release.Namespace it would resolve to this chart's page
      namespace, find nothing, and continueOnError would render an empty page rather than an error. */}}
 {{/*
   portal.catalogStep — render ONE marketplace catalog fetch step, switchable by `.Values.marketplace.source`.
@@ -55,7 +55,7 @@
 {{- if eq $src "external" }}
   endpointRef:
     name: blueprints-endpoint
-    namespace: {{ $ctx.Values.dataNamespace }}
+    namespace: {{ $ctx.Release.Namespace }}
   path: /charts/{{ $index }}/index.yaml
   verb: GET
   headers:
@@ -64,7 +64,7 @@
   filter: '{{ $post }}'
 {{- end }}
 {{- else }}
-  path: /api/v1/namespaces/{{ $ctx.Values.dataNamespace }}/configmaps/{{ $mp.configMapName | default "blueprints-catalog-index" }}
+  path: /api/v1/namespaces/{{ $ctx.Release.Namespace }}/configmaps/{{ $mp.configMapName | default "blueprints-catalog-index" }}
   verb: GET
   headers:
     - 'Accept: application/json'
@@ -116,7 +116,7 @@ true
 - name: catalogLive
   endpointRef:
     name: blueprints-endpoint
-    namespace: {{ .Values.dataNamespace }}
+    namespace: {{ .Release.Namespace }}
   path: /charts/blueprints/index.yaml
   verb: GET
   headers:

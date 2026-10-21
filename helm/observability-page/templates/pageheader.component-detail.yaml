@@ -46,7 +46,7 @@ spec:
       expression: '${ .name // "component" }'
     {{/* Was paragraph.component-detail-subtitle's `forPath: text`, lifted verbatim. */}}
     - forPath: subtitle
-      expression: '${ if (.found // false) then ("Deployment · " + "{{ $.Values.dataNamespace }}" + " · created " + ((.dep.created // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end)) else ("Deployment · " + "{{ $.Values.dataNamespace }}" + " · NotFound") end }'
+      expression: '${ if (.found // false) then ("Deployment · " + "{{ $.Release.Namespace }}" + " · created " + ((.dep.created // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end)) else ("Deployment · " + "{{ $.Release.Namespace }}" + " · NotFound") end }'
     {{/* Was the Tag's TWO templates (forPath: label, forPath: color), now one branch. */}}
     - forPath: tags
       expression: '${ [ ( if (.found // false) | not then {label:"NotFound", color:"gray"} elif (.dep.replicas // 0) == 0 then {label:"ScaledToZero", color:"gray"} elif (.dep.ready // 0) == (.dep.replicas // 0) then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] }'

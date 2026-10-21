@@ -101,7 +101,7 @@ spec:
                 type: kubernetes.io/basic-auth
               payloadToOverride:
                 - { name: metadata.name,      value: '${ .json.username + "-password" }' }
-                - { name: metadata.namespace, value: '{{ $.Values.dataNamespace }}' }
+                - { name: metadata.namespace, value: '{{ $.Release.Namespace }}' }
                 - { name: metadata.labels,    value: '${ {"krateo.io/managed-by":"portal-users"} }' }
                 {{/* stringData, not data: the apiserver base64-encodes it, so nothing here has
                      to encode a password client-side. Both keys are set because the basic-auth
@@ -114,7 +114,7 @@ spec:
                 kind: User
               payloadToOverride:
                 - { name: metadata.name,      value: '${ .json.username }' }
-                - { name: metadata.namespace, value: '{{ $.Values.dataNamespace }}' }
+                - { name: metadata.namespace, value: '{{ $.Release.Namespace }}' }
                 - { name: metadata.labels,    value: '${ {"krateo.io/managed-by":"portal-users"} }' }
                 - { name: spec.displayName,   value: '${ .json.displayName }' }
                 {{/* avatarURL is REQUIRED by the CRD (presence only, any string), so an empty
@@ -122,7 +122,7 @@ spec:
                 - name: spec.avatarURL
                   value: '${ if ((.json.avatarURL // "") | length) > 0 then .json.avatarURL else "https://www.gravatar.com/avatar/?d=mp" end }'
                 - name: spec.passwordRef
-                  value: '${ { name: (.json.username + "-password"), namespace: "{{ $.Values.dataNamespace }}", key: "password" } }'
+                  value: '${ { name: (.json.username + "-password"), namespace: "{{ $.Release.Namespace }}", key: "password" } }'
                 {{/* groups is OPTIONAL and omitted entirely for the default choice — an empty
                      array would still be a groups claim; absent is what yields a null claim and
                      `kubectl auth can-i` = no. Only the leading token of the enum label is
@@ -137,10 +137,10 @@ spec:
       - id: create-secret
         apiVersion: v1
         resource: secrets
-        namespace: {{ $.Values.dataNamespace }}
+        namespace: {{ $.Release.Namespace }}
         verb: POST
       - id: create-user
         apiVersion: basic.authn.krateo.io/v1alpha1
         resource: users
-        namespace: {{ $.Values.dataNamespace }}
+        namespace: {{ $.Release.Namespace }}
         verb: POST

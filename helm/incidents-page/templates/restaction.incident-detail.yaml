@@ -15,7 +15,7 @@ spec:
     - name: incident
       dependsOn:
         name: ""
-        iterator: '[ { namespace: (.namespace // "{{ $.Values.dataNamespace }}"), name: (.name // "") } | select(.name != "") ]'
+        iterator: '[ { namespace: (.namespace // "{{ $.Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
       path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/incidents/" + .name }
       verb: GET
       continueOnError: true
@@ -23,7 +23,7 @@ spec:
     {{/* Incidents live in their alert's namespace, so this list holds every incident of the same */}}
     {{/* alert (label observability.krateo.io/alert, matched in the filter). */}}
     - name: incidents
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ $.Values.dataNamespace }}") + "/incidents" }
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ $.Release.Namespace }}") + "/incidents" }
       verb: GET
       continueOnError: true
       errorKey: incidentsError
@@ -31,14 +31,14 @@ spec:
     {{/* one object per click, in the incident's namespace, matched on spec.incidentRef.name in the */}}
     {{/* filter (they carry no label). A missing CRD or a 403 leaves the list empty and hides Run apply. */}}
     - name: incidentApplies
-      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ $.Values.dataNamespace }}") + "/incidentapplies" }
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace // "{{ $.Release.Namespace }}") + "/incidentapplies" }
       verb: GET
       continueOnError: true
       errorKey: incidentAppliesError
     - name: alert
       dependsOn:
         name: incident
-        iterator: '[ { namespace: ((.incident.spec.alertRef.namespace)? // .namespace // "{{ $.Values.dataNamespace }}"), name: ((.incident.spec.alertRef.name)? // "") } | select(.name != "") ]'
+        iterator: '[ { namespace: ((.incident.spec.alertRef.namespace)? // .namespace // "{{ $.Release.Namespace }}"), name: ((.incident.spec.alertRef.name)? // "") } | select(.name != "") ]'
       path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/alerts/" + .name }
       verb: GET
       continueOnError: true
@@ -68,7 +68,7 @@ spec:
     def leafval: if . == null then "removed" else (if type == "string" then . else tojson end) | gsub("`"; "'") | (if length > 80 then (.[0:80] + "…") else . end) | ("`" + . + "`") end;
     def leaves($p): if type == "object" and length > 0 then to_entries[] | .key as $k | .value | leaves($p + [$k]) else { path: ($p | map(tostring) | join(".")), value: . } end;
     (.name // "") as $n
-    | (.namespace // "{{ $.Values.dataNamespace }}") as $ns
+    | (.namespace // "{{ $.Release.Namespace }}") as $ns
     | ((.incident // {}) | if type == "object" and ((.metadata.name // "") != "") then . else {} end) as $r
     | (($r | length) > 0) as $exists
     | ($r.spec // {}) as $sp

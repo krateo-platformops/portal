@@ -24,14 +24,14 @@ spec:
       dependsOn:
         name: ""
         iterator: '[ { name: (.name // "") } | select(.name != "") ]'
-      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/proposals/" + .name }
+      path: ${ "/apis/review.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/proposals/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: proposalError
     - name: all
-      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/proposals
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/proposals
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -41,7 +41,7 @@ spec:
     {{/* The BuilderPublish CRD's served version tracks the portal chart, so it is discovered from the */}}
     {{/* CompositionDefinition's status (as restaction.kog-oas-operations does), never hardcoded. */}}
     - name: bp
-      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/compositiondefinitions/builder-publish
+      path: /apis/core.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/compositiondefinitions/builder-publish
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -55,14 +55,14 @@ spec:
       dependsOn:
         name: bp
         iterator: '[ { apiVersion: (.bp.status.apiVersion // ""), resource: (.bp.status.resource // ""), claim: ("review-" + ((.name // "") | ltrimstr("p-"))) } | select(.apiVersion != "" and .resource != "" and .claim != "review-") ]'
-      path: ${ "/apis/" + .apiVersion + "/namespaces/{{ $.Values.dataNamespace }}/" + .resource + "/" + .claim }
+      path: ${ "/apis/" + .apiVersion + "/namespaces/{{ $.Release.Namespace }}/" + .resource + "/" + .claim }
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: claimError
     - name: prs
-      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ $.Values.dataNamespace }}/pullrequests
+      path: /apis/github.krateo.io/v2022-11-28/namespaces/{{ $.Release.Namespace }}/pullrequests
       verb: GET
       headers:
         - 'Accept: application/json'

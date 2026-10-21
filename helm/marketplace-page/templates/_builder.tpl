@@ -8,7 +8,7 @@
      `.Release.Namespace` here named where the DATA is — the catalog ConfigMap and the
      blueprints-endpoint Secret, both rendered into the portal's release namespace by other
      components. This chart's release namespace is no longer that, so they are
-     `.Values.dataNamespace`. Left as Release.Namespace they would resolve to the page namespace,
+     `.Release.Namespace`. Left as Release.Namespace they would resolve to the page namespace,
      find nothing, and `continueOnError` would turn it into an empty marketplace rather than an
      error. */}}
 {{/*
@@ -113,7 +113,7 @@ def ending($pr):
 */}}
 {{- define "portal.builderRegistrationStep" -}}
 - name: builderCds
-  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Values.dataNamespace }}/localresources
+  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
   verb: GET
   headers:
     - 'Accept: application/json'
@@ -180,7 +180,7 @@ def ending($pr):
 */}}
 {{- define "portal.builderProjectionStep" -}}
 - name: builderProjections
-  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Values.dataNamespace }}/localresources
+  path: /apis/git.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/localresources
   verb: GET
   headers:
     - 'Accept: application/json'

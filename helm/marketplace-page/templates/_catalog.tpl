@@ -8,7 +8,7 @@
      `.Release.Namespace` here named where the DATA is — the catalog ConfigMap and the
      blueprints-endpoint Secret, both rendered into the portal's release namespace by other
      components. This chart's release namespace is no longer that, so they are
-     `.Values.dataNamespace`. Left as Release.Namespace they would resolve to the page namespace,
+     `.Release.Namespace`. Left as Release.Namespace they would resolve to the page namespace,
      find nothing, and `continueOnError` would turn it into an empty marketplace rather than an
      error. */}}
 {{/*
@@ -60,7 +60,7 @@
 {{- if eq $src "external" }}
   endpointRef:
     name: blueprints-endpoint
-    namespace: {{ $ctx.Values.dataNamespace }}
+    namespace: {{ $ctx.Release.Namespace }}
   path: /charts/{{ $index }}/index.yaml
   verb: GET
   headers:
@@ -69,7 +69,7 @@
   filter: '{{ $post }}'
 {{- end }}
 {{- else }}
-  path: /api/v1/namespaces/{{ $ctx.Values.dataNamespace }}/configmaps/{{ $mp.configMapName | default "blueprints-catalog-index" }}
+  path: /api/v1/namespaces/{{ $ctx.Release.Namespace }}/configmaps/{{ $mp.configMapName | default "blueprints-catalog-index" }}
   verb: GET
   headers:
     - 'Accept: application/json'
@@ -121,7 +121,7 @@ true
 - name: catalogLive
   endpointRef:
     name: blueprints-endpoint
-    namespace: {{ .Values.dataNamespace }}
+    namespace: {{ .Release.Namespace }}
   path: /charts/blueprints/index.yaml
   verb: GET
   headers:

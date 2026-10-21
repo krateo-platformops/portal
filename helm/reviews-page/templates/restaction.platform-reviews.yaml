@@ -19,7 +19,7 @@ metadata:
 spec:
   api:
     - name: proposals
-      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/proposals
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/proposals
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -32,7 +32,7 @@ spec:
       continueOnError: true
       errorKey: proposalsError
     - name: runs
-      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Values.dataNamespace }}/reviewruns
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/reviewruns
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -47,7 +47,7 @@ spec:
     {{/* jobTemplate is what a manual run instantiates (`kubectl create job --from=cronjob/...`). */}}
     {{/* Absent or unreadable, the page simply offers no button. */}}
     - name: cronjob
-      path: /apis/batch/v1/namespaces/{{ $.Values.dataNamespace }}/cronjobs/nightly-review
+      path: /apis/batch/v1/namespaces/{{ $.Release.Namespace }}/cronjobs/nightly-review
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -133,7 +133,7 @@ spec:
         lastRun: (if $last == null then null else { name: $last.metadata.name, phase: ($last.status.phase // "Pending"), started: ($last.status.startedAt | rv_when) } end),
         {{/* What a manual run instantiates: the CronJob's identity and its jobTemplate, verbatim. */}}
         reviewCronJob: (if $cron == null then null else
-          { name: $cron.metadata.name, namespace: ($cron.metadata.namespace // "{{ $.Values.dataNamespace }}"), uid: ($cron.metadata.uid // ""),
+          { name: $cron.metadata.name, namespace: ($cron.metadata.namespace // "{{ $.Release.Namespace }}"), uid: ($cron.metadata.uid // ""),
             jobTemplate: { metadata: ($cron.spec.jobTemplate.metadata // {}), spec: $cron.spec.jobTemplate.spec } } end),
         {{/* The one line above the tabs, when the latest run is not a clean Completed. */}}
         banner: (

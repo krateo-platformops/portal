@@ -36,7 +36,7 @@ spec:
       dependsOn:
         name: ""
         iterator: '[ { name: ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) } | select(.name != "") ]'
-      path: '${ "/apis/apps/v1/namespaces/{{ $.Values.dataNamespace }}/deployments/" + .name }'
+      path: '${ "/apis/apps/v1/namespaces/{{ $.Release.Namespace }}/deployments/" + .name }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -44,7 +44,7 @@ spec:
       errorKey: depError
       filter: '.dep | del(.metadata.managedFields)'
     - name: pods
-      path: /api/v1/namespaces/{{ $.Values.dataNamespace }}/pods
+      path: /api/v1/namespaces/{{ $.Release.Namespace }}/pods
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -57,7 +57,7 @@ spec:
         namespaceFrom: .metadata.namespace
       filter: '[ .pods.items[]? | del(.metadata.managedFields) ]'
     - name: events
-      path: /api/v1/namespaces/{{ $.Values.dataNamespace }}/events
+      path: /api/v1/namespaces/{{ $.Release.Namespace }}/events
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -105,7 +105,7 @@ spec:
         } ],
         # IA F7: per-event deep-link into the generic resource-view. The narrowed
         # involvedObject set here is a CLOSED, KNOWN kind set — this Deployment, its
-        # ReplicaSets, its live pods — all in {{ $.Values.dataNamespace }}. Their plurals
+        # ReplicaSets, its live pods — all in {{ $.Release.Namespace }}. Their plurals
         # are reliably known (static k8s API scoping, exactly like the $kindMap in
         # composition-resources), so /resources/{ns}/{group}/{version}/{plural}/{name}
         # is derivable WITHOUT guessing a plural. Any event whose kind is not in this
@@ -117,7 +117,7 @@ spec:
               ({"Deployment": "apps/v1/deployments", "ReplicaSet": "apps/v1/replicasets", "Pod": "core/v1/pods"}[.kind] // "") as $gvp
               | if $gvp == "" then ""
                 else ($gvp | split("/")) as $s
-                  | ("/resources/{{ $.Values.dataNamespace }}/" + $s[0] + "/" + $s[1] + "/" + $s[2] + "/" + $o)
+                  | ("/resources/{{ $.Release.Namespace }}/" + $s[0] + "/" + $s[1] + "/" + $s[2] + "/" + $o)
                 end) } ]
           | sort_by(.ts) | reverse | .[0:20])
       }

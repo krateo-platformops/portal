@@ -67,7 +67,7 @@ spec:
     {{/* The fixed half of the claim, from the proposal. */}}
     - forPath: actions.rest[0].ops[0].payload
       expression: >-
-        ${ { metadata: { name: (.claimName // ""), namespace: "{{ $.Values.dataNamespace }}",
+        ${ { metadata: { name: (.claimName // ""), namespace: "{{ $.Release.Namespace }}",
                          labels: { "review.krateo.io/proposal": (.name // "") } },
              spec: { name: (.claimName // ""),
                      builder: "review",
@@ -92,12 +92,12 @@ spec:
         {{/* `400 missing 'name' query parameter` on every verb, a collection POST included. */}}
         {{/* Result: builder: review had never once produced a BuilderPublish. */}}
         name: '${ .claimName }'
-        namespace: {{ $.Values.dataNamespace }}
+        namespace: {{ $.Release.Namespace }}
         verb: POST
     - template:
         id: decide-pr-open
         apiVersion: review.krateo.io/v1alpha1
         resource: proposals
         name: '${ .name }'
-        namespace: {{ $.Values.dataNamespace }}
+        namespace: {{ $.Release.Namespace }}
         verb: PATCH

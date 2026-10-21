@@ -4,7 +4,7 @@
      portal.* from here renders "template not defined" and fails the install.
 
      Every `.Release.Namespace` in it named where the DATA is, not where the pages are, so it is
-     `.Values.dataNamespace`. Left as Release.Namespace it would resolve to this chart's page
+     `.Release.Namespace`. Left as Release.Namespace it would resolve to this chart's page
      namespace, find nothing, and continueOnError would render an empty page rather than an error. */}}
 {{/*
   portal.reviewDefs — the jq the Platform Review pages share (restaction.platform-reviews,

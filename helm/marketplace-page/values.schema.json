@@ -9,12 +9,6 @@
       "title": "namespace",
       "type": "string"
     },
-    "dataNamespace": {
-      "default": "krateo-system",
-      "description": "Namespace the catalog ConfigMap and the blueprints-endpoint Secret live in \u2014 the DATA, not the pages. The krateo-marketplace-catalog composition renders the ConfigMap into the portal's release namespace and this chart does not move it, so these pages read it there explicitly.",
-      "title": "dataNamespace",
-      "type": "string"
-    },
     "readerGroups": {
       "default": [
         "admins"
@@ -27,7 +21,7 @@
       }
     },
     "marketplace": {
-      "description": "Where these pages read the blueprint/operator catalog. `configmap` (default) reads the two indexes from the in-cluster ConfigMap the krateo-marketplace-catalog composition renders, in `dataNamespace`; `external` fetches the Helm-repo index through the blueprints-endpoint Secret, also in `dataNamespace`. MUST match the portal chart's marketplace.source \u2014 both read the same catalog.",
+      "description": "Where these pages read the blueprint/operator catalog. `configmap` (default) reads the two indexes from the in-cluster ConfigMap the krateo-marketplace-catalog composition renders, in the release namespace; `external` fetches the Helm-repo index through the blueprints-endpoint Secret, also in the release namespace. MUST match the portal chart's marketplace.source \u2014 both read the same catalog.",
       "title": "marketplace",
       "type": "object",
       "properties": {
@@ -39,7 +33,7 @@
         },
         "configMapName": {
           "default": "blueprints-catalog-index",
-          "description": "Name of the catalog ConfigMap, read in dataNamespace.",
+          "description": "Name of the catalog ConfigMap, read in the release namespace.",
           "title": "configMapName",
           "type": "string"
         },
