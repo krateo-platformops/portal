@@ -20,11 +20,43 @@
       "title": "enableDemoSystemNamespace",
       "type": "boolean"
     },
+    "marketplace": {
+      "description": "Where the portal reads the blueprint/operator marketplace catalog. configmap (default) = the in-cluster ConfigMap the krateo-marketplace-catalog composition renders; external = the legacy blueprints-endpoint Helm-repo (one-release fallback).",
+      "properties": {
+        "configMapName": {
+          "default": "blueprints-catalog-index",
+          "type": "string"
+        },
+        "source": {
+          "default": "configmap",
+          "enum": [
+            "configmap",
+            "external"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "namespace": {
+      "default": "krateo-agents",
+      "description": "The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for \u2014 a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays in the portal's namespace (the shell), and only these objects live here.",
+      "title": "namespace",
+      "type": "string"
+    },
     "observabilityConsoleUrl": {
       "default": "",
       "description": "Optional URL of the external observability console (e.g. the clickstack/HyperDX UI). When set, a \"View in console\" link appears on the /observability page and opens it in a new tab; empty hides the link. No default target is invented \u2014 a deployer must point this at their own console.",
       "title": "observabilityConsoleUrl",
       "type": "string"
+    },
+    "readerGroups": {
+      "description": "Groups granted read of /agents in `namespace`. A group listed here sees Agents in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. No schema default: the installer applies schema defaults, so one here would silently re-assert itself over a group set through componentValues. The chart default lives in values.yaml instead.",
+      "items": {
+        "type": "string"
+      },
+      "title": "readerGroups",
+      "type": "array"
     },
     "spokeReadbackCluster": {
       "default": "krateo-spoke-demo",
@@ -49,41 +81,6 @@
       "description": "Display name of the platform tenant \u2014 shown in the sider tenant chip and the page eyebrows (dashboard greeting, compositions, observability). A deployer-set label, not derived data; defaults to krateo-enterprise.",
       "title": "tenant",
       "type": "string"
-    },
-    "marketplace": {
-      "type": "object",
-      "description": "Where the portal reads the blueprint/operator marketplace catalog. configmap (default) = the in-cluster ConfigMap the krateo-marketplace-catalog composition renders; external = the legacy blueprints-endpoint Helm-repo (one-release fallback).",
-      "properties": {
-        "source": {
-          "type": "string",
-          "enum": [
-            "configmap",
-            "external"
-          ],
-          "default": "configmap"
-        },
-        "configMapName": {
-          "type": "string",
-          "default": "blueprints-catalog-index"
-        }
-      }
-    },
-    "namespace": {
-      "default": "krateo-agents",
-      "description": "The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for \u2014 a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays in the portal's namespace (the shell), and only these objects live here.",
-      "title": "namespace",
-      "type": "string"
-    },
-    "readerGroups": {
-      "default": [
-        "admins"
-      ],
-      "description": "Groups granted read of /agents in `namespace`. A group listed here sees Agents in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders.",
-      "title": "readerGroups",
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
     }
   },
   "type": "object"

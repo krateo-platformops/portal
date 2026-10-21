@@ -1,35 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": true,
-  "type": "object",
   "properties": {
-    "namespace": {
-      "default": "krateo-blueprints",
-      "description": "The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for \u2014 a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays in the portal's namespace (the shell), and only these objects live here.",
-      "title": "namespace",
-      "type": "string"
-    },
-    "readerGroups": {
-      "default": [
-        "admins"
-      ],
-      "description": "Groups granted read of these pages in `namespace`. A group listed here sees /blueprints in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders.",
-      "title": "readerGroups",
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
     "marketplace": {
       "description": "Where these pages read the blueprint/operator catalog, which lives in the release namespace. MUST match the portal chart's marketplace.source.",
-      "title": "marketplace",
-      "type": "object",
       "properties": {
-        "source": {
-          "default": "configmap",
-          "title": "source",
-          "type": "string"
-        },
         "configMapName": {
           "default": "blueprints-catalog-index",
           "title": "configMapName",
@@ -39,8 +14,30 @@
           "default": true,
           "title": "liveIndex",
           "type": "boolean"
+        },
+        "source": {
+          "default": "configmap",
+          "title": "source",
+          "type": "string"
         }
-      }
+      },
+      "title": "marketplace",
+      "type": "object"
+    },
+    "namespace": {
+      "default": "krateo-blueprints",
+      "description": "The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for \u2014 a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays in the portal's namespace (the shell), and only these objects live here.",
+      "title": "namespace",
+      "type": "string"
+    },
+    "readerGroups": {
+      "description": "Groups granted read of these pages in `namespace`. A group listed here sees /blueprints in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. No schema default: the installer applies schema defaults, so one here would silently re-assert itself over a group set through componentValues. The chart default lives in values.yaml instead.",
+      "items": {
+        "type": "string"
+      },
+      "title": "readerGroups",
+      "type": "array"
     }
-  }
+  },
+  "type": "object"
 }
