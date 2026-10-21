@@ -1,0 +1,59 @@
+{{/* Convention page root for /reviews: the nightly review's proposals and the runs that produced them. */}}
+{{/* */}}
+{{/* NOTHING HERE IS APPLIED. The review writes Proposal CRs and never opens a change request itself; */}}
+{{/* a person opens one from a proposal's page, and the pull request is where it is decided. */}}
+{{/* */}}
+{{/* Header, then a status line only when the latest run is not a clean Completed (exception-only), */}}
+{{/* then the Proposals (default) and Runs tabs. `?tab=Runs` lands on the runs. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-reviews
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-group": "Observability"
+    "krateo.io/nav-icon": "fa-clipboard-check"
+    "krateo.io/nav-label": "Platform review"
+    "krateo.io/nav-order": "14"
+    "krateo.io/nav-path": "/reviews"
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - alerts
+    - tabs
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: reviews-page-header
+    - resourceRefId: reviews-tabs
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "reviews-page-header" } ]
+        + (if (.banner // null) != null then [ { resourceRefId: "reviews-banner" } ] else [] end)
+        + (if (.installed != false) and (.denied != true) then [ { resourceRefId: "reviews-tabs" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: reviews-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-page-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: reviews-banner
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-banner
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+    - id: reviews-tabs
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-tabs
+      namespace: {{ $.Values.namespace }}
+      resource: tabs
+      verb: GET

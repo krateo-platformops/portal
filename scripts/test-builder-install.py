@@ -83,7 +83,8 @@ def render(chart_dir):
 # is what a running cluster has. Rendered with their real default namespaces, not flattened back
 # onto krateo-system, so a test that silently assumed one namespace fails here rather than in
 # production.
-PAGE_CHARTS = ('incidents-page', 'alerts-page', 'marketplace-page')
+PAGE_CHARTS = ('incidents-page', 'alerts-page', 'marketplace-page',
+               'clusters-page', 'settings-page', 'reviews-page', 'builders-page', 'observability-page')
 
 
 def render_portal_and_pages(repo_helm=None):

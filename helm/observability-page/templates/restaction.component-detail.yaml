@@ -1,0 +1,123 @@
+{{/* Settings component drill-down data source (thin, generic — widget representation */}}
+{{/* lives in each consumer's widgetDataTemplate). Resolves ONE Krateo control-plane */}}
+{{/* Deployment (from ?extras .name — the /observability/components/{name} route param) plus */}}
+{{/* the REAL runtime evidence around it, all shaped server-side: */}}
+{{/* dep    : replica/ready/strategy/image facts + status.conditions (the "why not") */}}
+{{/* pods   : the Deployment's live pods — matched by ITS OWN spec.selector.matchLabels */}}
+{{/* in jq (a ?labelSelector= query param is deliberately NOT relied on: the */}}
+{{/* snowplow LIST dispatch paths don't guarantee query-param passthrough, cf. */}}
+{{/* the paged-walk ignoring ?limit) — each with phase / ready x/y / restarts / */}}
+{{/* waiting-reason / age / images */}}
+{{/* events : recent namespace Events narrowed to this Deployment + its ReplicaSets + */}}
+{{/* its pods (exact involvedObject names derived from the live pod set — no */}}
+{{/* loose prefix matching that could catch a sibling component), newest-first, */}}
+{{/* capped at 20 (cardinality guard at the jq OUTPUT) */}}
+{{/* Pod LOGS are deliberately ABSENT: the apiserver log subresource returns text/plain */}}
+{{/* and snowplow api-steps are JSON-only (handler.go jsonHandlerBytesApply hard-fails */}}
+{{/* json.Unmarshal; external_fetch.go toJSONBytes rejects non-structured bodies), so */}}
+{{/* inline logs would need a snowplow change. The page used to carry a "View logs" */}}
+{{/* button redirecting to /observability?serviceName= for this — removed (it was only ever */}}
+{{/* a section-level redirect, no detail page of its own); per-pod deep-links to the */}}
+{{/* ClickHouse-backed log stream still exist on table.component-detail-pods rows. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: component-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* .name is sanitised to DNS-1123-ish chars so an odd extras value can neither */}}
+    {{/* traverse the path nor fold the segment away into a cluster-wide LIST. GATED ON it (the */}}
+    {{/* input gate, scripts/lint-ra-paths.py): a missing or all-illegal name makes no call — it */}}
+    {{/* used to GET `…/deployments/`, every Deployment in the namespace. */}}
+    - name: dep
+      dependsOn:
+        name: ""
+        iterator: '[ { name: ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) } | select(.name != "") ]'
+      path: '${ "/apis/apps/v1/namespaces/{{ $.Values.dataNamespace }}/deployments/" + .name }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: depError
+      filter: '.dep | del(.metadata.managedFields)'
+    - name: pods
+      path: /api/v1/namespaces/{{ $.Values.dataNamespace }}/pods
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: podsError
+      userAccessFilter:
+        verb: list
+        group: ""
+        resource: pods
+        namespaceFrom: .metadata.namespace
+      filter: '[ .pods.items[]? | del(.metadata.managedFields) ]'
+    - name: events
+      path: /api/v1/namespaces/{{ $.Values.dataNamespace }}/events
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: eventsError
+      userAccessFilter:
+        verb: list
+        group: ""
+        resource: events
+        namespaceFrom: .metadata.namespace
+      {{/* Thin projection only (type/reason/message/involvedObject/ts) — the per-component */}}
+      {{/* narrowing needs the live pod set, so it happens in the final filter below. */}}
+      filter: '[ .events.items[]? | { type: (.type // "Normal"), reason: (.reason // ""), message: (.message // ""), kind: (.involvedObject.kind // ""), obj: (.involvedObject.name // ""), count: (.count // 1), ts: ((.lastTimestamp // .eventTime // .firstTimestamp) // "") } ]'
+  filter: >
+    ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
+    | (.dep // {}) as $d
+    | ((($d.metadata.name // "") == $n) and ($n != "")) as $found
+    | ($d.spec.selector.matchLabels // {}) as $sel
+    | ([ (.pods // [])[]
+         | (.metadata.labels // {}) as $l
+         | select((($sel | length) > 0) and ($sel | to_entries | all($l[.key] == .value))) ]) as $livePods
+    | ($livePods | map(.metadata.name)) as $podNames
+    | ($podNames | map(split("-")[0:-1] | join("-")) | unique) as $rsNames
+    | {
+        found: $found,
+        name: (if $found then $d.metadata.name else $n end),
+        dep: {
+          replicas: ($d.spec.replicas // 0),
+          ready: ($d.status.readyReplicas // 0),
+          updated: ($d.status.updatedReplicas // 0),
+          available: ($d.status.availableReplicas // 0),
+          strategy: ($d.spec.strategy.type // ""),
+          created: ($d.metadata.creationTimestamp // ""),
+          images: [ ($d.spec.template.spec.containers // [])[] | (.image // "") ],
+          conditions: ($d.status.conditions // [])
+        },
+        pods: [ $livePods[] | {
+          name: .metadata.name,
+          phase: (.status.phase // ""),
+          ready: (([ (.status.containerStatuses // [])[] | select(.ready == true) ] | length | tostring) + "/" + ((.spec.containers // []) | length | tostring)),
+          restarts: ([ (.status.containerStatuses // [])[] | (.restartCount // 0) ] | add // 0),
+          state: (([ (.status.containerStatuses // [])[] | (.state.waiting.reason // empty) ] | .[0]) // (.status.phase // "")),
+          created: (.metadata.creationTimestamp // ""),
+          images: [ (.spec.containers // [])[] | ((.image // "") | split("/") | last) ]
+        } ],
+        # IA F7: per-event deep-link into the generic resource-view. The narrowed
+        # involvedObject set here is a CLOSED, KNOWN kind set — this Deployment, its
+        # ReplicaSets, its live pods — all in {{ $.Values.dataNamespace }}. Their plurals
+        # are reliably known (static k8s API scoping, exactly like the $kindMap in
+        # composition-resources), so /resources/{ns}/{group}/{version}/{plural}/{name}
+        # is derivable WITHOUT guessing a plural. Any event whose kind is not in this
+        # closed map gets route "" and stays inert (nothing fabricated).
+        events: ([ (.events // [])[]
+          | .obj as $o
+          | select(($o != "") and (($o == $n) or ($podNames | any(. == $o)) or ($rsNames | any(. == $o))))
+          | . + { route: (
+              ({"Deployment": "apps/v1/deployments", "ReplicaSet": "apps/v1/replicasets", "Pod": "core/v1/pods"}[.kind] // "") as $gvp
+              | if $gvp == "" then ""
+                else ($gvp | split("/")) as $s
+                  | ("/resources/{{ $.Values.dataNamespace }}/" + $s[0] + "/" + $s[1] + "/" + $s[2] + "/" + $o)
+                end) } ]
+          | sort_by(.ts) | reverse | .[0:20])
+      }

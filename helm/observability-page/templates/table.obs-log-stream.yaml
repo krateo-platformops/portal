@@ -1,0 +1,47 @@
+{{/* Live log tail — recent ERROR/WARN lines as a log-viewer table (time · service · level · */}}
+{{/* message), newest-first, from otel_logs via obs-log-stream. Level is colour-coded per row */}}
+{{/* (ERROR crimson, WARN orange) via a plain coloured string cell (portable across frontend */}}
+{{/* versions); time renders relative. The message is the real Body-parsed log message. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-log-stream
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  {{/* svc = the optional per-service scope (Settings component drill-down hand-off). */}}
+  {{/* limit = the user-selectable row cap (obs-limit-chips) — MUST be here, or the F6 cache cell */}}
+  {{/* won't partition per limit and changing the limit wouldn't refetch. */}}
+  keyExtras: [range, serviceName, limit]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of the default horizontal scrollbar. */}}
+    {{/* A wide cell ellipsis-truncates and carries its full value on hover (P19), which reads far */}}
+    {{/* better than a sideways scroll inside a card. Unset is NOT neutral — it sets */}}
+    {{/* scroll.x: max-content, so leaving it out chooses the scrollbar by omission. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    pagination:
+      defaultPageSize: 12
+    columns:
+    - valueKey: ts
+      title: Time
+    - valueKey: svc
+      title: Service
+    - valueKey: lvl
+      title: Level
+    - valueKey: msg
+      title: Message
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"ts",kind:"jsonSchemaType",type:"string",stringValue:.ts,format:"relative"}, {valueKey:"svc",kind:"jsonSchemaType",type:"string",stringValue:.svc,color:"#8c8c8c"}, {valueKey:"lvl",kind:"jsonSchemaType",type:"string",stringValue:.lvl,color:(if .lvl=="ERROR" then "#cf1322" else "#d48806" end)}, {valueKey:"msg",kind:"jsonSchemaType",type:"string",stringValue:.msg} ] ] }'
+  apiRef:
+    name: obs-log-stream
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

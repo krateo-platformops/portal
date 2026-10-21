@@ -1,0 +1,28 @@
+{{/* Settings → Audit log, as a panel: the browsable trail of gated mutations (AuditRecord CRs). */}}
+{{/* Emitted for every gated write but previously shown only per-incident; surfaced here so it is */}}
+{{/* actually visible. Its title replaces paragraph.audit-log-title, a strong Paragraph that rendered */}}
+{{/* at the page title's size. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: settings-audit-log-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Audit log
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - tables
+    items:
+    - resourceRefId: settings-audit-log
+  resourcesRefs:
+    items:
+    - id: settings-audit-log
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-log
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET

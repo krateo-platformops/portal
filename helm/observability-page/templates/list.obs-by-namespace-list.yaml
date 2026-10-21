@@ -1,0 +1,35 @@
+{{/* Compositions grouped by .ns (namespace = project) → count per project. Bar percent */}}
+{{/* relative to the largest bucket; real count is the bar label. Straight off */}}
+{{/* compositions-list .list. Sorted desc, top 10. Row click → that project's */}}
+{{/* compositions list (page-compositions self-filters by ?extras.namespace). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-by-namespace-list
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, status]
+  apiRef:
+    name: compositions-list
+    namespace: {{ $.Values.portalNamespace }}
+  widgetData:
+    itemLayout: horizontal
+    split: false
+    itemTemplate:
+      primaryText: '{ns}'
+      navigateTo: '/compositions/{ns}'
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: violet
+        variant: line
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ (.list // []) | group_by(.ns) | map({ ns: (.[0].ns // "—"), n: length }) | (([ .[].n ] | max) // 0) as $mx | sort_by(-.n) | .[0:10] | map({ ns: .ns, count: (.n | tostring), percent: (if $mx > 0 then (.n * 100 / $mx | floor) else 0 end) }) }'
+  resourcesRefs:
+    items: []

@@ -202,7 +202,7 @@ def main():
         i = args.index('--frontend-ref')
         ref = args[i + 1]
         del args[i:i + 2]
-    docs = tbi.render(args[0] if args else CHART_DIR)
+    docs = tbi.render(args[0]) if args else tbi.render_portal_and_pages()
     fx = fixtures(fixtures_dir, ref)
     failed = 0
     for check in CHECKS:

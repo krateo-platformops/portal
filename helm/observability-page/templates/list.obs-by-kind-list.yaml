@@ -1,0 +1,37 @@
+{{/* Compositions grouped by .kind → count per kind. Bar percent is relative to the */}}
+{{/* largest bucket (the busiest kind fills the bar); the real count is the bar label. */}}
+{{/* Straight off compositions-list .list (no derivation). Sorted desc, top 10. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-by-kind-list
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, status]
+  apiRef:
+    name: compositions-list
+    namespace: {{ $.Values.portalNamespace }}
+  widgetData:
+    itemLayout: horizontal
+    split: false
+    itemTemplate:
+      {{/* Whole-row click → the compositions list pre-filtered to this kind (?q matches */}}
+      {{/* kind, case-insensitively, in compositions-list). `route` is built server-side */}}
+      {{/* in the widgetDataTemplate jq; the "—" no-kind bucket gets no route (row inert). */}}
+      navigateTo: '{route}'
+      primaryText: '{kind}'
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: cyan
+        variant: line
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ (.list // []) | group_by(.kind) | map({ kind: (.[0].kind // "—"), n: length }) | (([ .[].n ] | max) // 0) as $mx | sort_by(-.n) | .[0:10] | map({ kind: .kind, count: (.n | tostring), percent: (if $mx > 0 then (.n * 100 / $mx | floor) else 0 end), route: (if .kind == "—" then "" else ("/compositions?q=" + .kind) end) }) }'
+  resourcesRefs:
+    items: []

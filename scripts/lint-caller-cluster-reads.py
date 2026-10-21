@@ -55,7 +55,8 @@ EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
 # Every first-class chart in helm/. The page-set charts split out of portal (#261) carry page
 # RESTActions of their own, so they are checked on the same terms — a cluster-scoped caller dial is
 # no more acceptable for living in its own chart.
-CHARTS = ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page')
+CHARTS = ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page',
+          'clusters-page', 'settings-page', 'reviews-page', 'builders-page', 'observability-page')
 
 # (RESTAction, step) -> why a caller-dialled cluster-scoped read is acceptable here.
 # Only ever an ADMIN-ONLY page: `admins` is bound to cluster-admin, so the grant already exists and

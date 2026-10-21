@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": true,
+  "type": "object",
+  "properties": {
+    "namespace": {
+      "default": "krateo-builders",
+      "description": "The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for \u2014 a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created; only the page objects live here.",
+      "title": "namespace",
+      "type": "string"
+    },
+    "dataNamespace": {
+      "default": "krateo-system",
+      "description": "Namespace holding the BuilderPublish CRs, the git-provider LocalResources and the marketplace catalog ConfigMap \u2014 the DATA, not the pages.",
+      "title": "dataNamespace",
+      "type": "string"
+    },
+    "readerGroups": {
+      "default": [
+        "admins"
+      ],
+      "description": "Groups granted read of these pages in `namespace`. A group listed here sees the three Builder pages in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. `devs` is deliberately NOT a default \u2014 keeping it out is the point of the split (#261).",
+      "title": "readerGroups",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "previewSandbox": {
+      "description": "Where the builders keep drafts and page previews. MUST match the frontend chart's previewSandbox, which OWNS the namespace and its RBAC. This chart creates nothing there.",
+      "title": "previewSandbox",
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "default": "krateo-preview",
+          "title": "namespace",
+          "type": "string"
+        }
+      }
+    },
+    "marketplace": {
+      "description": "Where these pages read the blueprint/operator catalog, read in `dataNamespace`. MUST match the portal chart's marketplace.source.",
+      "title": "marketplace",
+      "type": "object",
+      "properties": {
+        "source": {
+          "default": "configmap",
+          "title": "source",
+          "type": "string"
+        },
+        "configMapName": {
+          "default": "blueprints-catalog-index",
+          "title": "configMapName",
+          "type": "string"
+        },
+        "liveIndex": {
+          "default": true,
+          "title": "liveIndex",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

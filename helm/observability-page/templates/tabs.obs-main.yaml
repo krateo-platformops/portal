@@ -1,0 +1,98 @@
+{{/* Observability main Tabs (R2 #9) — splits the page into Reconciliation (composition health */}}
+{{/* from live cluster snapshots), Telemetry (OTel → ClickHouse error digest, log stream and */}}
+{{/* resource usage) and Components (platform-health drill-down for the control-plane's own */}}
+{{/* Deployments — moved here from Settings, which is user administration only now). The */}}
+{{/* Reconciliation/Telemetry/Components tabs are each a single Col wrapper resolved through */}}
+{{/* resourcesRefs (the Tabs allowedResources enum has `cols` but not `flexes`), so every tab opens */}}
+{{/* with its own section header + caption. The range chips stay ABOVE the tabs */}}
+{{/* (shared filter), so all tabs re-render on a range change — hence keyExtras carries `range` */}}
+{{/* (and `projects`, the shell scope selector that rides every route) so the Tabs' own cache cell */}}
+{{/* partitions per range+scope like its children do. */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the shared range chips write ?range=, the shell writes ?projects= — */}}
+  {{/* both reach the Tabs on every visit, so both are declared here. */}}
+  keyExtras: [projects, range]
+  widgetData:
+    allowedResources:
+      - cols
+      - tables
+    {{/* #83 §0.1: no per-tab `title:` — each tab's content already opens with its own section */}}
+    {{/* heading + subtitle (obs-tab-reconciliation / obs-tab-telemetry), so a Tabs-level title here */}}
+    {{/* rendered a second, redundant heading line above that. The `label` is the tab's name. */}}
+    items:
+      - label: Reconciliation
+        resourceRefId: obs-tab-reconciliation
+      - label: Telemetry
+        resourceRefId: obs-tab-telemetry
+      - label: Components
+        resourceRefId: obs-tab-components
+      {{/* Snowplow SLI tabs (portal#201). Every panel is a ClickHouse query over the OTel tables,
+           filtered to ServiceName='snowplow'. Guarded so an install without the snowplow metrics
+           pipeline does not render six tabs of empty charts — an empty panel reads as a broken
+           panel, which is worse than an absent one. */}}
+      {{- if (.Values.observability | default dict).snowplowSli }}
+      - label: SP · Cache
+        resourceRefId: sp-tab-cache
+      - label: SP · Invalidation
+        resourceRefId: sp-tab-invalidation
+      - label: SP · Informers
+        resourceRefId: sp-tab-informers
+      - label: SP · HTTP & logs
+        resourceRefId: sp-tab-http
+      {{- end }}
+  resourcesRefs:
+    items:
+      - id: obs-tab-reconciliation
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: obs-tab-reconciliation
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: obs-tab-telemetry
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: obs-tab-telemetry
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: obs-tab-components
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: obs-tab-components
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      {{/* Guarded in LOCKSTEP with the items entries above — a ref whose items entry is absent is
+           dead weight in the record, and an items entry whose ref is absent is X4's dangling-ref
+           case. Both halves move together or neither does. */}}
+      {{- if (.Values.observability | default dict).snowplowSli }}
+      - id: sp-tab-cache
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-cache
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: sp-tab-invalidation
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-invalidation
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: sp-tab-informers
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-informers
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: sp-tab-http
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: sp-tab-http
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      {{- end }}

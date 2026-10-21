@@ -98,7 +98,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # in helm/ is modelled: a chart absent from this list is a chart whose record nothing watches,
 # which is how portal crossed the cap unnoticed in September.
 CHARTS = [os.path.join(REPO, 'helm', name) for name in
-          ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page')]
+          ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page',
+           'clusters-page', 'settings-page', 'reviews-page', 'builders-page', 'observability-page')]
 # NOT globbed: helm/builder-publish is a BLUEPRINT chart that CDC renders with a composition's
 # own values and whose schema is closed, so rendering it with the portal values this script
 # uses fails on 'additional properties not allowed'. It is a different kind of artifact with a

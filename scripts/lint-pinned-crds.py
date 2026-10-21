@@ -48,7 +48,8 @@ import yaml
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NS = 'krateo-system'
-CHARTS = ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page')
+CHARTS = ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page',
+          'clusters-page', 'settings-page', 'reviews-page', 'builders-page', 'observability-page')
 EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
 PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/main/'
             'chart/files/component-pins.yaml')

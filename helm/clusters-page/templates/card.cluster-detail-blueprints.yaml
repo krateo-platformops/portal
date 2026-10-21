@@ -1,0 +1,26 @@
+{{/* "Targeting blueprints" card → the CompositionDefinitions deployed to THIS cluster */}}
+{{/* (spec.deploy.targetRef.name == the target), as a Listy shaped by the cluster-detail RA. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-cluster-detail-blueprints
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  widgetData:
+    title: Targeting blueprints
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+      - resourceRefId: cluster-detail-blueprints
+  resourcesRefs:
+    items:
+      - id: cluster-detail-blueprints
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: cluster-detail-blueprints
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET

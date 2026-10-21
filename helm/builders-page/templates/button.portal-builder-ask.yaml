@@ -1,0 +1,38 @@
+{{/* "Ask Autopilot →" header CTA on /portal-builder — the page's own entry into the builder */}}
+{{/* flow. Unlike the empty-state hint strips this is ALWAYS visible: the change-request table below */}}
+{{/* only lists in-flight work, so without it a returning user has no affordance to start a NEW */}}
+{{/* build. Navigates to the page's ?ask= deep-link (the house one-shot Autopilot convention — */}}
+{{/* the rail opens seeded with the builder prompt; urlquery does the encoding the RAs do */}}
+{{/* with jq @uri). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: portal-builder-ask
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* A4: ONE canonical label for the Autopilot entry point. Six CTAs carried three strings */}}
+    {{/* ("Ask Autopilot →", "Investigate with Autopilot", "Diagnose with Autopilot") for the */}}
+    {{/* same mechanism — a Button navigating to ?ask=<prompt>. "Ask Autopilot" describes what */}}
+    {{/* the BUTTON does; the other two described what the page was about, which is the page's */}}
+    {{/* job, not the label's. */}}
+    {{/* A4, decided 2026-10-08 (frontend 1.7.0): every Autopilot entry point is the same object — */}}
+    {{/* a FILLED button (type: primary, never a link) labelled "Ask Autopilot →" with the wand. */}}
+    {{/* The arrow is back: it says the button takes you into the Autopilot rail. Enforced by the */}}
+    {{/* design lint (autopilot-button). */}}
+    label: Ask Autopilot →
+    icon: fa-wand-magic-sparkles
+    {{/* #84 §0.1: the page's primary CTA — a filled primary button (was an outlined default), a */}}
+    {{/* comfortable middle size (was small), right-aligned via flex.portal-builder-ask-cta. */}}
+    size: middle
+    type: primary
+    clickActionId: portal-builder-ask
+    actions:
+      navigate:
+        - id: portal-builder-ask
+          type: navigate
+          path: /portal-builder/compose?ask={{ "I want to build a new portal page with the Portal builder. Help me compose it from the widget catalog, preview the draft live in the portal, and publish it as a gated change request to the portal chart once I confirm." | urlquery }}
+  resourcesRefs:
+    items: []
