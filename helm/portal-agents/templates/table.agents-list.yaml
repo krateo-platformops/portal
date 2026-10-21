@@ -97,7 +97,7 @@ kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-list
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -148,6 +148,6 @@ spec:
     expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name + (if .bench then "  (bench)" else "" end))}, (if .orchestrator then {valueKey:"pattern",kind:"tag",stringValue:"orchestrator",color:"violet"} else {valueKey:"pattern",kind:"jsonSchemaType",type:"string",stringValue:""} end), {valueKey:"role",kind:"jsonSchemaType",type:"string",stringValue:(.role // "-"),color:"var(--gray-color)"}, {valueKey:"model",kind:"jsonSchemaType",type:"string",stringValue:((.modelConfig // "-") + " → " + (.model // "-"))}, {valueKey:"runtime",kind:"jsonSchemaType",type:"string",stringValue:(.runtime // "-"),color:"var(--gray-color)"}, {valueKey:"tools",kind:"jsonSchemaType",type:"string",stringValue:((.tools // 0)|tostring)}, {valueKey:"servers",kind:"jsonSchemaType",type:"string",stringValue:((.servers // 0)|tostring)}, {valueKey:"delegates",kind:"jsonSchemaType",type:"string",stringValue:((.delegates // 0)|tostring)}, {valueKey:"approvals",kind:"jsonSchemaType",type:"string",stringValue:((.approvals // 0)|tostring)}, {valueKey:"owner",kind:"jsonSchemaType",type:"string",stringValue:(.owner // "—"),color:"var(--gray-color)"}, (if (.gateway // "") == "" then {valueKey:"gateway",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"gateway",kind:"tag",stringValue:.gateway,color:(.gatewayColor // "red")} end), (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end), {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
   apiRef:
     name: agents-list
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items: []

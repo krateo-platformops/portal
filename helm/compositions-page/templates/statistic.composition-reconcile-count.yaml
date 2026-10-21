@@ -1,0 +1,24 @@
+{{/* Reconciles-in-window for THIS composition — the real span count from */}}
+{{/* composition-reconcile-perf (fixed 6h window, labelled on the card). 0 is an */}}
+{{/* honest value here (no reconcile activity in the window). */}}
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-reconcile-count
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-reconcile-perf
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Reconciles
+    value: 0
+  widgetDataTemplate:
+    - forPath: value
+      expression: '${ .n // 0 }'
+  resourcesRefs:
+    items: []

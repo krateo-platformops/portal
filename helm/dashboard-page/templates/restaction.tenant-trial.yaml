@@ -1,0 +1,45 @@
+{{/* Trial countdown data for the dashboard (listy.dashboard-trial). */}}
+{{/* */}}
+{{/* SOURCE: the ConfigMap `tenant-trial` in this namespace, written by whatever provisioned */}}
+{{/* this Krateo as a time-limited trial (the selfservice blueprint seeds it into each trial */}}
+{{/* child). Keys: `expiresAt` (RFC 3339, UTC, required) and `plan` (optional label). */}}
+{{/* No ConfigMap = not a trial: the step's error is kept under `trialError`, the filter */}}
+{{/* returns {trial: null} and the card hides itself. */}}
+{{/* */}}
+{{/* The time left is computed HERE, per request (`now`), so the card counts down live rather */}}
+{{/* than showing a number frozen at provisioning time. */}}
+{{/* */}}
+{{/* Read as the caller (no UAF, a namespaced path): whoever can read ConfigMaps in this */}}
+{{/* namespace sees the card; anyone else gets the error branch and no card. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: tenant-trial
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: trialCm
+    path: /api/v1/namespaces/{{ .Release.Namespace }}/configmaps/tenant-trial
+    verb: GET
+    continueOnError: true
+    errorKey: trialError
+  filter: |
+    ((.trialCm.data // {}).expiresAt // "") as $exp
+    | if $exp == "" then {trial: null}
+      else
+        (($exp | fromdateiso8601?) // null) as $end
+        | if $end == null then {trial: null}
+          else
+            (($end - now) | floor) as $left
+            | {trial: {
+                expiresAt: $exp,
+                plan: ((.trialCm.data.plan) // "trial"),
+                secondsLeft: $left,
+                expired: ($left <= 0),
+                days: (if $left > 0 then (($left / 86400) | floor) else 0 end),
+                hours: (if $left > 0 then ((($left % 86400) / 3600) | floor) else 0 end)
+              }}
+          end
+      end

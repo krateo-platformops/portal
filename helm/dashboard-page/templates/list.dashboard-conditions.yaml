@@ -1,0 +1,37 @@
+{{/* Per-condition COVERAGE gauges — the honest aggregate of the REAL status.conditions across all */}}
+{{/* compositions (replaces the invented Healthy/Pending/Failed donut). For each distinct condition */}}
+{{/* TYPE (Ready, Synced, …) a bar shows how many compositions have it True ("N/M"), cyan fill; the */}}
+{{/* unfilled trail is the gap. Nothing derived — straight off `.conditions[].type`/`.status`. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-conditions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, scope, status]
+  apiRef:
+    name: compositions-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      {{/* ONLY the Ready row is clickable (route baked server-side): its unfilled trail */}}
+      {{/* IS the failed set, so it drills into /compositions?status=failed. The other */}}
+      {{/* condition types have no equivalent pre-filtered view — route:"" keeps them */}}
+      {{/* inert (never a broken link). */}}
+      navigateTo: '{route}'
+      primaryText: '{type}'
+      bar:
+        percent: '{percent}'
+        label: '{label}'
+        color:
+          value: cyan
+        variant: line
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ (.list // []) as $l | ([ $l[].conditions[]?.type ] | unique) as $types | [ $types[] | . as $t | ([ $l[] | select(any(.conditions[]?; .type == $t and .status == "True")) ] | length) as $tc | ([ $l[] | select(any(.conditions[]?; .type == $t)) ] | length) as $n | { type: $t, percent: (if $n > 0 then ($tc * 100 / $n | floor) else 0 end), label: (($tc | tostring) + "/" + ($n | tostring)), route: (if $t == "Ready" then "/compositions?status=failed" else "" end) } ] }'
+  resourcesRefs:
+    items: []

@@ -48,8 +48,13 @@ import yaml
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NS = 'krateo-system'
-CHARTS = ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page',
-          'clusters-page', 'settings-page', 'reviews-page', 'builders-page', 'observability-page')
+# DISCOVERED, not listed. The page-per-namespace split (#261) added eleven charts in three
+# batches and a hardcoded list went stale each time — twice silently, once as a confusing failure.
+# Every chart under helm/ is checked except builder-publish, which is a BLUEPRINT chart that CDC
+# renders with a composition's own values and whose closed schema rejects the values used here.
+CHARTS = tuple(sorted(os.path.basename(os.path.dirname(p))
+                      for p in glob.glob(os.path.join(REPO, 'helm', '*', 'Chart.yaml'))
+                      if os.path.basename(os.path.dirname(p)) != 'builder-publish'))
 EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
 PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/main/'
             'chart/files/component-pins.yaml')

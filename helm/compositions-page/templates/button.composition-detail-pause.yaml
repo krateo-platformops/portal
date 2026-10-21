@@ -1,0 +1,57 @@
+{{/* Pause / Resume reconciliation — a stateful toggle on the real Krateo annotation */}}
+{{/* krateo.io/paused. Driven by the composition's CURRENT value (from composition-detail */}}
+{{/* .detail): the label/icon flip (Pause ⇄ Resume) and the PATCH sets the opposite value. */}}
+{{/* After it fires, the engine's post-rest cache invalidation re-reads the object, so the */}}
+{{/* button flips itself. Target GVR resolved server-side (.gvr) — no hardcode. */}}
+{{/* NOTE: on kind there's no controller for the democlaims seeds, so this fires + is */}}
+{{/* RBAC-scoped but its reconcile effect isn't observable here (verified-by-construction). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-pause
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Pause
+    icon: fa-pause
+    type: default
+    size: middle
+    clickActionId: toggle-pause
+    actions:
+      rest:
+        - id: toggle-pause
+          type: rest
+          resourceRefId: toggle-pause-composition
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          successMessage: Reconciliation paused
+          payload:
+            metadata:
+              annotations:
+                krateo.io/paused: "true"
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ if (((.detail.metadata.annotations // {})["krateo.io/paused"]) == "true") then "Resume" else "Pause" end }'
+    - forPath: icon
+      expression: '${ if (((.detail.metadata.annotations // {})["krateo.io/paused"]) == "true") then "fa-play" else "fa-pause" end }'
+    - forPath: actions
+      expression: '${ ((((.detail.metadata.annotations // {})["krateo.io/paused"]) == "true")) as $paused | { rest: [ { id: "toggle-pause", type: "rest", resourceRefId: "toggle-pause-composition", headers: ["Content-Type: application/merge-patch+json"], successMessage: (if $paused then "Reconciliation resumed" else "Reconciliation paused" end), payload: { metadata: { annotations: { "krateo.io/paused": (if $paused then "false" else "true" end) } } }, loading: { display: true } } ] } }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: toggle-pause-composition
+        apiVersion: ${ .gvr.apiVersion }
+        resource: ${ .gvr.resource }
+        name: ${ .gvr.name }
+        namespace: ${ .gvr.namespace }
+        verb: PATCH

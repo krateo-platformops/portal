@@ -1,0 +1,44 @@
+{{/* WHO SEES /compositions (#261). The sidebar discovers the namespaces where the CALLER may `list`
+     page roots, so a group with no RoleBinding here never sees the entry, and isNavEntryAllowed
+     drops it again because the ref cannot resolve. A deep link still routes and the content /call
+     returns 403 — the defence is at the content layer.
+
+     `list` is granted and cannot be narrowed: `resourceNames` does not apply to it, which is why
+     the namespace is the boundary at all. Add a group here to give it these pages; never a
+     ClusterRole (scripts/lint-caller-cluster-reads.py enforces that). */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-compositions-pages
+  namespace: {{ $.Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-compositions-pages
+  namespace: {{ $.Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-compositions-pages
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

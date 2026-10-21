@@ -13,15 +13,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TPL = 'templates/restaction.composition-events.yaml'
+# composition-events moved to compositions-page when every page became its own chart (#261).
+# Located rather than hardcoded, so the next move does not break this harness silently.
+CHART_DIR = next(p.parent.parent for p in (ROOT / 'helm').glob('*/' + TPL))
 
 
 def rendered_filter() -> str:
     """The final filter as the chart actually ships it (not the template source)."""
-    chart = ROOT / 'helm/portal/Chart.yaml'
+    chart = CHART_DIR / 'Chart.yaml'
     original = chart.read_text(encoding='utf-8')
     chart.write_text(original.replace('version: CHART_VERSION', 'version: 0.0.0-test'), encoding='utf-8')
     try:
-        out = subprocess.run(['helm', 'template', 'portal', str(ROOT / 'helm/portal'),
+        out = subprocess.run(['helm', 'template', 'portal', str(CHART_DIR),
                               '--namespace', 'krateo-system', '-s', TPL],
                              capture_output=True, text=True, check=True).stdout
     finally:

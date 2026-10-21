@@ -83,8 +83,12 @@ def render(chart_dir):
 # is what a running cluster has. Rendered with their real default namespaces, not flattened back
 # onto krateo-system, so a test that silently assumed one namespace fails here rather than in
 # production.
-PAGE_CHARTS = ('incidents-page', 'alerts-page', 'marketplace-page',
-               'clusters-page', 'settings-page', 'reviews-page', 'builders-page', 'observability-page')
+# DISCOVERED: every page chart beside the portal, so a new one is covered the day it lands.
+PAGE_CHARTS = tuple(sorted(
+    os.path.basename(os.path.dirname(p))
+    for p in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'helm',
+                                    '*', 'Chart.yaml'))
+    if os.path.basename(os.path.dirname(p)) not in ('portal', 'builder-publish')))
 
 
 def render_portal_and_pages(repo_helm=None):

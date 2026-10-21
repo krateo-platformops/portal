@@ -1,0 +1,40 @@
+{{/* WHO SEES /agents (#261). Same mechanism as every other page chart: the sidebar discovers the
+     namespaces where the CALLER may `list` page roots, so a group with no RoleBinding here never
+     sees the entry. `list` cannot be narrowed by `resourceNames`, which is why the namespace is
+     the boundary. Never a ClusterRole. */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-agents-pages
+  namespace: {{ $.Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-agents-pages
+  namespace: {{ $.Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-agents-pages
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

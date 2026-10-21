@@ -560,9 +560,15 @@ def check_nav_discovery(charts):
                                              'krateo.io/nav-label': 'Team A thing',
                                              'krateo.io/nav-order': '500'})
     roots = nav_flexes(chart, extra=[other])
+    # HOME is the namespace holding most nav roots. It used to be the release namespace, because
+    # every page lived with the shell; after #261 the shell renders NO nav root at all and each
+    # page has its own namespace, so the check derives its subject rather than assuming one. The
+    # assertion is unchanged in substance: a caller who may read exactly one page namespace sees
+    # exactly that namespace's pages.
+    HOME = max((ns for ns in roots if ns != other[0]), key=lambda n: len(roots[n]))
     serve = {ns: {'items': items} for ns, items in roots.items()}
     everywhere = {'items': [i for items in roots.values() for i in items]}
-    cluster_ns = nav_namespaces(NS, 'team-a', 'kube-system')
+    cluster_ns = nav_namespaces(*sorted(set(roots) | {NS, 'team-a', 'kube-system'}))
 
     def run(label, caller, ns_resp, pages):
         try:
@@ -578,26 +584,25 @@ def check_nav_discovery(charts):
             f.append(f'sidebar-nav, {label}: the resolve was truncated — the sidebar is blank')
         return reqs, None, out
 
-    here = tenant({NAV_GROUP: [NS]})
-    both = tenant({NAV_GROUP: [NS, 'team-a']})
     nowhere = tenant({NAV_GROUP: []})
 
-    _, _, base = run('release namespace only', here, cluster_ns, {NAV_PATH % NS: serve[NS]})
+    _, _, base = run('one page namespace only', tenant({NAV_GROUP: [HOME]}), cluster_ns,
+                      {NAV_PATH % HOME: serve[HOME]})
     if base is not None:
         if not base.get('items') or not base.get('refs'):
-            f.append(f'sidebar-nav, release namespace only: {len(base.get("items") or [])} items, '
+            f.append(f'sidebar-nav, one page namespace only: {len(base.get("items") or [])} items, '
                      f'{len(base.get("refs") or [])} refs — the sidebar is empty')
-        if any(r['namespace'] != NS for r in base.get('refs') or []):
-            f.append('sidebar-nav, release namespace only: a ref outside the release namespace')
+        if any(r['namespace'] != HOME for r in base.get('refs') or []):
+            f.append(f'sidebar-nav, one page namespace only: a ref outside {HOME}')
         if any(i.get('path') == other[2]['krateo.io/nav-path'] for i in base.get('items') or []):
-            f.append('sidebar-nav, release namespace only: served a page from a namespace the '
+            f.append('sidebar-nav, one page namespace only: served a page from a namespace the '
                      'caller cannot read')
 
-    reqs, _, out = run('two namespaces', both, cluster_ns,
-                       {NAV_PATH % ns: serve[ns] for ns in (NS, 'team-a')})
+    reqs, _, out = run('two namespaces', tenant({NAV_GROUP: [HOME, 'team-a']}), cluster_ns,
+                       {NAV_PATH % ns: serve[ns] for ns in (HOME, 'team-a')})
     if out is not None:
         paths = sorted(p for n, p, _ in reqs if n == 'pages')
-        if paths != sorted(NAV_PATH % ns for ns in (NS, 'team-a')):
+        if paths != sorted(NAV_PATH % ns for ns in (HOME, 'team-a')):
             f.append(f'sidebar-nav, two namespaces: listed {paths}')
         if not any(i.get('path') == '/team-a-thing' for i in out['items']):
             f.append('sidebar-nav, two namespaces: the page installed in team-a is not in the nav')
@@ -607,14 +612,33 @@ def check_nav_discovery(charts):
             f.append(f'sidebar-nav, two namespaces: {len(out["items"])} items, expected '
                      f'{len(base["items"]) + 1}')
 
-    reqs, _, out = run('the namespaces stage failed', both, None, {NAV_PATH % NS: serve[NS]})
+    # THE RELEASE-NAMESPACE FALLBACK IS NOW VESTIGIAL, AND THAT IS THE POINT OF THIS CASE.
+    #
+    # sidebar-nav's iterator falls back to the RELEASE namespace when the userAccessFilter stage
+    # yields nothing (1.8.75): `if length > 0 then . else [release] end`. That was a real safety
+    # net while the pages lived with the shell — a snowplow-side failure cost the pages in other
+    # namespaces and left the release namespace's.
+    #
+    # After #261 the shell renders NO nav root at all. So the fallback now lists a namespace with
+    # no pages in it, and a userAccessFilter failure means an EMPTY SIDEBAR rather than a reduced
+    # one. There is no longer a single namespace worth falling back to, because the pages are
+    # distributed by design.
+    #
+    # This asserts the real behaviour rather than the old intent: the fallback still dials exactly
+    # the release namespace (so the stage is still gated and still makes one well-formed request,
+    # which is what lint-ra-paths cares about) and the result is empty. If someone later gives the
+    # nav a better degraded mode, this case should fail and be rewritten — it is the record of a
+    # known, accepted gap, not of desired behaviour.
+    reqs, _, out = run('the namespaces stage failed', tenant({NAV_GROUP: [HOME]}), None,
+                       {NAV_PATH % HOME: serve[HOME]})
     if out is not None:
-        if base is None or json.dumps(out, sort_keys=True) != json.dumps(base, sort_keys=True):
-            f.append('sidebar-nav, the namespaces stage failed: the fallback did not leave the '
-                     "release namespace's pages")
         if [p for n, p, _ in reqs if n == 'pages'] != [NAV_PATH % NS]:
-            f.append(f'sidebar-nav, the namespaces stage failed: listed '
-                     f'{[p for n, p, _ in reqs if n == "pages"]}')
+            f.append(f'sidebar-nav, the namespaces stage failed: the fallback dialled '
+                     f'{[p for n, p, _ in reqs if n == "pages"]}, not the release namespace')
+        if out.get('items') or out.get('refs'):
+            f.append(f'sidebar-nav, the namespaces stage failed: expected an EMPTY sidebar (the '
+                     f'release namespace holds no page since #261) but got '
+                     f'{len(out["items"])} items')
 
     # DENIED, not empty: the fallback still dials the release namespace and the apiserver refuses
     # it (`pages` carries no userAccessFilter — it is the caller's own LIST). A path-keyed
@@ -637,8 +661,9 @@ def check_nav_discovery(charts):
                      {'krateo.io/nav-path': '/probe-ds', 'krateo.io/nav-label': 'Probe',
                       'krateo.io/nav-order': '100'}))
     sb = nav_flexes(chart, extra=[other] + sb_roots)
-    _, _, out = run('the preview sandbox is never listed', tenant({NAV_GROUP: [NS, sandbox]}),
-                    nav_namespaces(NS, sandbox), {NAV_PATH % ns: {'items': sb[ns]} for ns in sb})
+    _, _, out = run('the preview sandbox is never listed', tenant({NAV_GROUP: [HOME, sandbox]}),
+                    nav_namespaces(HOME, sandbox),
+                    {NAV_PATH % ns: {'items': sb[ns]} for ns in sb})
     if out is not None:
         leaked = [i for i in out['items'] if (i.get('path') or '').startswith(('/dry-event-sites', '/probe-ds'))]
         if leaked:
@@ -648,7 +673,7 @@ def check_nav_discovery(charts):
             f.append('sidebar-nav, the preview sandbox is never listed: a ref in the sandbox')
         if base is not None and len(out['items']) != len(base['items']):
             f.append(f'sidebar-nav, the preview sandbox is never listed: {len(out["items"])} items, '
-                     f'expected the release namespace\'s {len(base["items"])}')
+                     f'expected {HOME}\'s {len(base["items"])}')
 
     reqs, _, out = run('admin (cluster-list collapse)', ADMIN, cluster_ns,
                        {NAV_CLUSTER_PATH: everywhere})

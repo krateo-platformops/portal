@@ -1,0 +1,36 @@
+{{/* Edit — opens a Drawer hosting the schema-driven composition-edit Form. The form */}}
+{{/* resolves the composition from the detail route params (?extras) via composition-editdef, */}}
+{{/* pre-fills its current spec, and submits a merge-PATCH. No apiRef/.gvr needed on the */}}
+{{/* button itself — it just points the drawer at the form (the form owns the per-composition */}}
+{{/* resolution + the PATCH target). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-edit
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    label: Edit
+    icon: fa-pen
+    type: default
+    size: middle
+    clickActionId: open-edit
+    actions:
+      openDrawer:
+        - id: open-edit
+          type: openDrawer
+          resourceRefId: edit-form
+          title: Edit composition
+          size: large
+  resourcesRefs:
+    items:
+      - id: edit-form
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-edit
+        namespace: {{ $.Values.namespace }}
+        resource: forms
+        verb: GET

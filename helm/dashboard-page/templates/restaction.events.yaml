@@ -1,0 +1,92 @@
+{{/* Dashboard recent-activity — real events from the events-presenter (krateo-sse-proxy), */}}
+{{/* the canonical krateo events source (k8s -> OTel -> ClickHouse -> sse-proxy), NOT raw */}}
+{{/* k8s core events. No composition filter here: the dashboard shows ALL recent activity. */}}
+{{/* Thin/generic: raw GET + exportJwt; the EventList shapes/caps. DEPENDS ON the platform's */}}
+{{/* `sse-proxy-internal-endpoint` Endpoint + the sse-proxy stack; absent that, getEvents fails */}}
+{{/* gracefully (continueOnError) and the card is empty. */}}
+{{/* */}}
+{{/* Per-row deep-link: sse-proxy (>= 1.1.0) stamps `compositionId` on every event (from the */}}
+{{/* LogAttributes['krateo.io/composition-id'] label — the same field composition-events scopes */}}
+{{/* by). The crds→comps walk below (mirrors composition-events' crds→found) resolves that id */}}
+{{/* back to the composition's {ns,name} SERVER-SIDE. */}}
+{{/* */}}
+{{/* Feedback: the row DISPLAYS its involvedObject (Kind/Name) and then navigated somewhere */}}
+{{/* else — the owning composition — so clicking a blueprint's event landed on a composition */}}
+{{/* page, and an event with no composition tag did nothing at all. The route is now resolved */}}
+{{/* from the object the row is actually about, falling back to the composition: */}}
+{{/*   CompositionDefinition → /blueprints/<ns>/<name>   (the object's OWN detail page) */}}
+{{/*   anything with a resolvable compositionId → /compositions/<ns>/<name>   (its owner) */}}
+{{/*   otherwise → ""  (inert; ListView only marks a row clickable when navigateTo is set, so */}}
+{{/*                    an unroutable row is visibly inert rather than a dead click) */}}
+{{/* Kinds with no detail page in the portal stay inert deliberately — inventing a route to a */}}
+{{/* page that does not exist trades a dead click for a 404, which is worse. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: events
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* COMPOSITION KINDS FROM CompositionDefinitions, NOT FROM CRDs. Same {plural, version}
+         out; `compositions-list` has read them this way all along. A cluster-scoped CRD LIST is
+         dialled AS THE CALLER and so needs a ClusterRole on every persona that loads this page;
+         a CompositionDefinition LIST with a userAccessFilter is dialled by snowplow's SA and
+         narrowed per item, so it needs none. That is what lets `devs` carry no ClusterRole at
+         all (#261) — cyberjoker cannot `list compositiondefinitions` in any namespace but
+         demo-system, and the Compositions page has always worked for him regardless. */}}
+    - name: crds
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, version: (.status.apiVersion | split(\"/\")[1])}] | unique"
+      continueOnError: true
+    - name: comps
+      dependsOn:
+        name: crds
+        iterator: .crds
+      path: ${ "/apis/composition.krateo.io/" + .version + "/" + .plural }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      filter: "[.comps.items[]? | {name: .metadata.name, namespace: .metadata.namespace, compositionId: (.metadata.labels[\"krateo.io/composition-id\"] // \"\")}]"
+    - name: getEvents
+      endpointRef:
+        name: sse-proxy-internal-endpoint
+        namespace: {{ $.Values.namespace }}
+      path: /events
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      exportJwt: true
+      continueOnError: true
+  filter: >
+    ( [ (.comps // [])[] | select((.compositionId // "") != "")
+        | { key: .compositionId, value: { ns: .namespace, name: .name } } ]
+      | from_entries ) as $byCid
+    | {
+      list: (
+        ( .getEvents | if type == "array" then . elif type == "object" then (.resources // .items // []) else [] end )
+        | group_by((.involvedObject.uid // "") + "|" + (.reason // "") + "|" + (.message // ""))
+        | map(max_by(.lastTimestamp // .eventTime // .firstTimestamp // ""))
+        | sort_by(.lastTimestamp // .eventTime // .firstTimestamp // "")
+        | reverse
+        | .[0:50]
+        | map(. + { route: ( ($byCid[(.compositionId // "")] // null) as $c
+                             | (.involvedObject.kind // "") as $k
+                             | (.involvedObject.name // "") as $n
+                             | (.involvedObject.namespace // "") as $ons
+                             | if $k == "CompositionDefinition" and $n != "" and $ons != ""
+                               then ("/blueprints/" + $ons + "/" + $n)
+                               elif $c != null then ("/compositions/" + $c.ns + "/" + $c.name)
+                               else "" end ) })
+      )
+    }

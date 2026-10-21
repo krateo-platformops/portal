@@ -1,0 +1,23 @@
+{{/* "Metadata" card → namespace/uid/created + labels, as a Descriptions list (right column). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-blueprint-detail-metadata
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Metadata
+    items:
+      - resourceRefId: descriptions-blueprint-detail-metadata
+  resourcesRefs:
+    items:
+      - id: descriptions-blueprint-detail-metadata
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: descriptions-blueprint-detail-metadata
+        namespace: {{ $.Values.namespace }}
+        resource: descriptions
+        verb: GET
