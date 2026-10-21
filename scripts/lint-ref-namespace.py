@@ -61,9 +61,12 @@ WIDGET_GROUP = 'widgets.templates.krateo.io'
 
 # A ref whose namespace is deliberately neither sentinel: an object another chart owns. Keyed by
 # (chart, ref id) -> the value expected and why.
+# A WIDGET ref that legitimately resolves to dataNamespace: an object the page points at but does
+# NOT own, because the portal keeps it (the tenant-facing Dashboard uses it too). Keyed by
+# (chart, ref id) -> why. Anything not listed here follows the plain rule.
 CROSS_CHART = {
-    ('observability-page', 'stat-healthy'): 'the Dashboard Statistic that stays with the portal',
-    ('observability-page', 'stat-failed'): 'the Dashboard Statistic that stays with the portal',
+    ('observability-page', 'stat-healthy'): 'a Dashboard Statistic that stays with the portal',
+    ('observability-page', 'stat-failed'): 'a Dashboard Statistic that stays with the portal',
 }
 
 
@@ -146,10 +149,10 @@ def main():
                 checked += 1
                 is_widget = res in plurals
                 if (chart, rid) in CROSS_CHART:
-                    if ns in (NSPAGE, NSDATA):
+                    if ns != NSDATA:
                         findings.append(f'{chart}: {owner} ref {rid} ({res}) is declared a '
-                                        f'cross-chart ref ({CROSS_CHART[(chart, rid)]}) but resolves '
-                                        f'to {ns}')
+                                        f'portal-owned ref ({CROSS_CHART[(chart, rid)]}) so it must '
+                                        f'resolve to dataNamespace, not {ns}')
                     continue
                 if is_widget and ns == NSDATA:
                     findings.append(f'{chart}: {owner} ref {rid} points at the WIDGET {res} but in '

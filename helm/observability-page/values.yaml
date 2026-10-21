@@ -6,7 +6,7 @@
 namespace: krateo-observability
 
 # @schema
-# description: Namespace holding the clickhouse-endpoint Secret these pages read telemetry through — the DATA, not the pages.
+# description: The portal's own namespace — where the things these pages point at but do not own live. Two kinds: the clickhouse-endpoint Secret they read telemetry through, and three objects the tenant-facing Dashboard also uses and which therefore stay with the portal (the `stat-healthy` and `stat-failed` Statistic widgets and the `compositions-list` RESTAction). Duplicating the last of those would have meant two RESTActions running the same cluster-scope composition list on every page load.
 # type: string
 # default: "krateo-system"
 # @schema
@@ -18,13 +18,6 @@ dataNamespace: krateo-system
 # @schema
 readerGroups:
   - admins
-
-# @schema
-# description: The portal's own namespace. These pages reference three objects that deliberately STAY with the portal — the `stat-healthy` and `stat-failed` Statistic widgets and the `compositions-list` RESTAction, all of which the tenant-facing Dashboard also uses — so the refs point here rather than carrying duplicates.
-# type: string
-# default: "krateo-system"
-# @schema
-portalNamespace: krateo-system
 
 # @schema
 # description: Optional URL of the external observability console. When set, a "View in console" link appears; empty hides it.
