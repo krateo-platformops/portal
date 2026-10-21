@@ -144,6 +144,39 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-caller-cluster-reads.py
 
+  # Every other widget check in this repo validates against `frontend-crds` pulled with NO
+  # --version, i.e. whatever is latest at CI time. The CLUSTER runs whatever the installer pins.
+  # When those differ, CI is green on a chart the live apiserver will refuse — widget CRDs are
+  # strict, so an undeclared field is not tolerated. That is not hypothetical: #313 added
+  # `ellipsis` to three Listy row templates, 1.8.9 was published so CI passed, and krateo-057 was
+  # pinned at 1.8.8 which does not declare it. The next portal tag would have shipped widgets the
+  # live CRD refuses, and only a person reading a cross-session message caught it.
+  #
+  # This reads the pinned version from krateo-platformops/installer (public, so the default token
+  # suffices) and checks the widgets this repo AUTHORS against it. It is the `CRD before consumer`
+  # ordering enforced instead of remembered.
+  pinned-crds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Widgets must be admitted by the PINNED frontend-crds, not merely the latest
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-pinned-crds.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A
