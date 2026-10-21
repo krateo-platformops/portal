@@ -4,8 +4,6 @@
   "properties": {
     "acceptance": {
       "description": "Acceptance-test scaffolding. Off everywhere except a bench cluster running the snowplow live-refresh acceptance harness. Separate from observability.snowplowSli because they answer different questions: that one is a dashboard an operator may want, this is test scaffolding nobody else should carry.",
-      "title": "acceptance",
-      "type": "object",
       "properties": {
         "s6Probe": {
           "default": false,
@@ -13,21 +11,23 @@
           "title": "s6Probe",
           "type": "boolean"
         }
-      }
+      },
+      "title": "acceptance",
+      "type": "object"
     },
     "agents": {
-      "type": "object",
+      "default": {
+        "enabled": false
+      },
       "description": "The agent control plane ships as the separate portal-agents chart.",
       "properties": {
         "enabled": {
-          "type": "boolean",
           "default": false,
-          "description": "Show the Agents sidebar entry and its /agents routes. Set true ONLY when portal-agents is installed: a nav ref whose target is missing stays visible and 404s."
+          "description": "Show the Agents sidebar entry and its /agents routes. Set true ONLY when portal-agents is installed: a nav ref whose target is missing stays visible and 404s.",
+          "type": "boolean"
         }
       },
-      "default": {
-        "enabled": false
-      }
+      "type": "object"
     },
     "enableAdminUser": {
       "default": true,
@@ -48,32 +48,52 @@
       "type": "boolean"
     },
     "marketplace": {
-      "type": "object",
       "description": "Where the portal reads the blueprint/operator marketplace catalog. configmap (default) = the in-cluster ConfigMap the krateo-marketplace-catalog composition renders; external = the legacy blueprints-endpoint Helm-repo (one-release fallback).",
       "properties": {
+        "configMapName": {
+          "default": "blueprints-catalog-index",
+          "type": "string"
+        },
+        "liveIndex": {
+          "description": "With source=configmap, the blueprint RESTActions also read the live blueprints index (through the blueprints-endpoint Secret) and add every chart a blueprint repository's release published there (krateo.io/source-repo annotation) whose name the ConfigMap does not carry. Unset means on; false keeps the marketplace to the ConfigMap and does not render the Secret.",
+          "type": "boolean"
+        },
         "source": {
-          "type": "string",
+          "default": "configmap",
           "enum": [
             "configmap",
             "external"
           ],
-          "default": "configmap"
-        },
-        "configMapName": {
-          "type": "string",
-          "default": "blueprints-catalog-index"
-        },
-        "liveIndex": {
-          "type": "boolean",
-          "description": "With source=configmap, the blueprint RESTActions also read the live blueprints index (through the blueprints-endpoint Secret) and add every chart a blueprint repository's release published there (krateo.io/source-repo annotation) whose name the ConfigMap does not carry. Unset means on; false keeps the marketplace to the ConfigMap and does not render the Secret."
+          "type": "string"
         }
-      }
+      },
+      "type": "object"
     },
     "observabilityConsoleUrl": {
       "default": "",
       "description": "Optional URL of the external observability console (e.g. the clickstack/HyperDX UI). When set, a \"View in console\" link appears on the /observability page and opens it in a new tab; empty hides the link. No default target is invented \u2014 a deployer must point this at their own console.",
       "title": "observabilityConsoleUrl",
       "type": "string"
+    },
+    "previewSandbox": {
+      "additionalProperties": false,
+      "description": "Where the builders keep drafts: each person's draft records and the page previews' widget CRs. MUST match the frontend chart's previewSandbox, which OWNS the namespace and its RBAC. This chart creates nothing there: it lists the caller's drafts and the unowned legacy page previews, whose Discard deletes one as the person.",
+      "properties": {
+        "namespace": {
+          "default": "krateo-preview",
+          "description": "Namespace holding draft records and preview drafts.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "readerGroups": {
+      "description": "Groups granted read of the portal SHELL (layout, theme, header, sidebar Menu, and the shared RESTActions the pages read) in the release namespace. This is the floor beneath every page grant: a group needs this AND the readerGroups of each page chart it should see. Empty grants nobody anything.",
+      "items": {
+        "type": "string"
+      },
+      "title": "readerGroups",
+      "type": "array"
     },
     "spokeReadbackCluster": {
       "default": "krateo-spoke-demo",
@@ -98,18 +118,6 @@
       "description": "Display name of the platform tenant \u2014 shown in the sider tenant chip and the page eyebrows (dashboard greeting, compositions, observability). A deployer-set label, not derived data; defaults to krateo-enterprise.",
       "title": "tenant",
       "type": "string"
-    },
-    "previewSandbox": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Where the builders keep drafts: each person's draft records and the page previews' widget CRs. MUST match the frontend chart's previewSandbox, which OWNS the namespace and its RBAC. This chart creates nothing there: it lists the caller's drafts and the unowned legacy page previews, whose Discard deletes one as the person.",
-      "properties": {
-        "namespace": {
-          "type": "string",
-          "default": "krateo-preview",
-          "description": "Namespace holding draft records and preview drafts."
-        }
-      }
     }
   },
   "type": "object"

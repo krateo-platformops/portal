@@ -1,0 +1,47 @@
+{{/* WHO SEES THE CHROME (#261). The shell renders the layout, the theme, the header and the
+     sidebar Menu, plus the sidebar-nav RESTAction and the shared data RESTActions the pages read.
+     None of that is a page: every page root lives in its own chart and namespace now. But a group
+     with NO grant here gets no layout at all, so this is the floor beneath every page grant --
+     a group needs this AND the readerGroups of each page it should see.
+
+     Empty by default, which grants nobody anything. The `devs` grants in rbac.cyberjoker-rbac.yaml
+     are still hardcoded and are deliberately left alone; this is the value-driven path for groups
+     that only exist on some clusters (CMP tenants), set through the installer's componentValues
+     rather than a chart default. Never a ClusterRole -- scripts/lint-caller-cluster-reads.py
+     enforces that. */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-portal-shell
+  namespace: {{ $.Release.Namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-portal-shell
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-portal-shell
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
