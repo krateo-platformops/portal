@@ -33,6 +33,8 @@ spec:
     items:
     - resourceRefId: dashboard-page-header
     - resourceRefId: dashboard-range-chips
+    {{/* Trial countdown — self-hides unless this Krateo is a trial (tenant-trial ConfigMap). */}}
+    - resourceRefId: dashboard-trial
     {{/* First-run onboarding — self-hides once the user owns a composition (hideWhenEmpty */}}
     {{/* gate on compositions-list). Sits under the greeting header, above the stats. */}}
     - resourceRefId: onboarding-empty
@@ -55,6 +57,12 @@ spec:
     - id: dashboard-range-chips
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: dashboard-range-chips
+      namespace: {{ .Release.Namespace }}
+      resource: listies
+      verb: GET
+    - id: dashboard-trial
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-trial
       namespace: {{ .Release.Namespace }}
       resource: listies
       verb: GET
