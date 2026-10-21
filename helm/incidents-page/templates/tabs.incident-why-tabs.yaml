@@ -1,0 +1,59 @@
+{{/* WHY TABS — "Why did it happen" section as three tabs. "Reasoning trace" (antd Steps showing */}}
+{{/* the agent's audit trail) is first and therefore default-active. "Verdict" shows the root-cause */}}
+{{/* statement as a Paragraph. "Gaps" shows the missing-context / assumptions Alert. */}}
+{{/* Tabs CRD allowedResources enum was extended to include `steps` and `alerts` (regenerated from */}}
+{{/* Tabs.schema.json → krateoctl gen-widget — do NOT hand-edit the CRD YAML). */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-why-tabs
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - steps
+    - paragraphs
+    - alerts
+    items:
+    - label: Reasoning trace
+      resourceRefId: incident-trace
+    - label: Verdict
+      resourceRefId: incident-rootcause-statement
+    - label: Gaps
+      resourceRefId: incident-gaps
+  widgetDataTemplate:
+    {{/* Gate each tab on its sections flag — suppress the "Verdict" tab when there's no */}}
+    {{/* root-cause statement, and the "Gaps" tab when there's no gaps/assumptions data. */}}
+    {{/* Reasoning trace always shows when the why-card is included (sections.trace is the gate). */}}
+    - forPath: items
+      expression: >-
+        ${ (.sections // {}) as $s
+        | [ { label: "Reasoning trace", resourceRefId: "incident-trace" } ]
+        + (if ($s.rootcause // false) then [ { label: "Verdict",           resourceRefId: "incident-rootcause-statement" } ] else [] end)
+        + (if ($s.gaps     // false) then [ { label: "Gaps & assumptions", resourceRefId: "incident-gaps" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: incident-trace
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-trace
+      namespace: {{ $.Values.namespace }}
+      resource: steps
+      verb: GET
+    - id: incident-rootcause-statement
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-rootcause-statement
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: incident-gaps
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-gaps
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET

@@ -1,0 +1,38 @@
+{{/* "Open in HyperDX" external deep-link — the alert in the HyperDX/clickstack console */}}
+{{/* (status.hyperdxAlertId under .Values.observabilityConsoleUrl). The frontend's navigate */}}
+{{/* action opens absolute http(s) targets in a new tab (globalThis.open, noopener) — same */}}
+{{/* mechanism as button.obs-console-link. The concrete URL is baked server-side by alert-detail */}}
+{{/* (.alertLink); the page Flex only includes this widget when the console section exists (a */}}
+{{/* configured console URL AND a recorded id), so no default URL is invented and the link is */}}
+{{/* simply absent otherwise (nothing-hardcoded, honest). type:default (blue/neutral) — an */}}
+{{/* external link is non-status. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-hyperdx-alert
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Open alert in HyperDX
+    type: default
+    size: small
+    variant: outlined
+    icon: fa-arrow-up-right-from-square
+    clickActionId: open-hyperdx-alert
+    actions:
+      navigate:
+        - id: open-hyperdx-alert
+          type: navigate
+          path: '#'
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open-hyperdx-alert", type: "navigate", path: (.alertLink // "#") } ] } }'
+  resourcesRefs:
+    items: []

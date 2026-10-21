@@ -1,0 +1,51 @@
+{{/* The incident page's actions: Diagnose (Autopilot ?ask) · Close (spec.closed, hidden once */}}
+{{/* Resolved or Closed) · Discard (delete the incident, confirmed; hidden when it does not exist). The */}}
+{{/* buttons read their target from incident-detail (.diagnoseHref / .incidentGvr). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-actions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    allowedResources:
+      - buttons
+    items:
+      - resourceRefId: incident-detail-diagnose
+      - resourceRefId: incident-detail-discard
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "incident-detail-diagnose" } ]
+        + (if (.canClose // false) then [ { resourceRefId: "incident-detail-close" } ] else [] end)
+        + (if (.canDiscard // false) then [ { resourceRefId: "incident-detail-discard" } ] else [] end) }
+  resourcesRefs:
+    items:
+      - id: incident-detail-diagnose
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-diagnose
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
+      - id: incident-detail-close
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-close
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
+      - id: incident-detail-discard
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-discard
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET

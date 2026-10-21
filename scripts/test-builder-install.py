@@ -77,6 +77,24 @@ def render(chart_dir):
         return [d for d in yaml.safe_load_all(proc.stdout) if isinstance(d, dict)]
 
 
+# The portal's pages no longer all live in helm/portal: /incidents, /alerts and /marketplace are
+# their own charts in their own namespaces (#261). A test that renders only helm/portal therefore
+# cannot find their RESTActions, so render the page charts beside it and work on the union — which
+# is what a running cluster has. Rendered with their real default namespaces, not flattened back
+# onto krateo-system, so a test that silently assumed one namespace fails here rather than in
+# production.
+PAGE_CHARTS = ('incidents-page', 'alerts-page', 'marketplace-page')
+
+
+def render_portal_and_pages(repo_helm=None):
+    """Every doc the portal's pages render to, across the chart split."""
+    helm = repo_helm or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'helm')
+    docs = list(render(os.path.join(helm, 'portal')))
+    for name in PAGE_CHARTS:
+        docs += render(os.path.join(helm, name))
+    return docs
+
+
 class Chart:
     def __init__(self, docs):
         self.docs = docs
@@ -1138,7 +1156,7 @@ def main():
         crds_dir = args[i + 1]
         del args[i:i + 2]
     chart_dir = args[0] if args else 'helm/portal'
-    chart = Chart(render(chart_dir))
+    chart = Chart(render_portal_and_pages() if chart_dir.rstrip('/').endswith('portal') else render(chart_dir))
     failed = 0
     for check in CHECKS:
         try:

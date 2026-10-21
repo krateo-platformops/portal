@@ -52,6 +52,11 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NS = 'krateo-system'
 EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
 
+# Every first-class chart in helm/. The page-set charts split out of portal (#261) carry page
+# RESTActions of their own, so they are checked on the same terms — a cluster-scoped caller dial is
+# no more acceptable for living in its own chart.
+CHARTS = ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page')
+
 # (RESTAction, step) -> why a caller-dialled cluster-scoped read is acceptable here.
 # Only ever an ADMIN-ONLY page: `admins` is bound to cluster-admin, so the grant already exists and
 # is not a tenant persona's. A dev-reachable page must never appear in this list — change the
@@ -71,6 +76,19 @@ ALLOWED = {
                                   'ConfigMap on its own, so a caller who cannot read CRDs still gets the real '
                                   'form. Verified: the no-CRD path yields one value with stringSchema populated '
                                   'and no "still being registered"',
+}
+
+
+# Portal personas. None may hold a ClusterRole for a portal read — the questions the portal asks
+# are namespaced now, and `resourceNames` cannot narrow a `list`, so a cluster grant here is always
+# all-or-nothing over every tenant's data.
+PERSONA_GROUPS = {'devs', 'sre'}
+
+# Cluster bindings this chart MAY make for a persona, because they are not portal reads.
+ALLOWED_CLUSTER_BINDINGS = {
+    'sre-incident-responder': 'binds krateo-incident-responder, a ClusterRole this chart does not '
+                              'render — it ships with the incident-controller and is the SRE\'s '
+                              'actual work permission, not a page or widget read',
 }
 
 
@@ -101,7 +119,7 @@ def cluster_scoped(path):
 
 def main():
     findings, checked, allowed_hit = [], 0, set()
-    for chart in ('portal', 'portal-agents'):
+    for chart in CHARTS:
         for doc in render(chart):
             if doc.get('kind') == 'RESTAction':
                 ra = doc['metadata']['name']
@@ -126,9 +144,12 @@ def main():
             # The requirement itself, structurally.
             if doc.get('kind') in ('ClusterRole', 'ClusterRoleBinding'):
                 subjects = [s.get('name') for s in (doc.get('subjects') or [])]
-                if 'devs' in subjects:
-                    findings.append(f'{doc["kind"]}/{doc["metadata"]["name"]} binds the `devs` group. '
-                                    f'devs carries no cluster-scoped RBAC (#261); use a Role in a namespace.')
+                hit = PERSONA_GROUPS & set(subjects)
+                if hit and doc['metadata']['name'] not in ALLOWED_CLUSTER_BINDINGS:
+                    findings.append(f'{doc["kind"]}/{doc["metadata"]["name"]} binds {sorted(hit)} '
+                                    f'cluster-wide. A persona carries no cluster-scoped RBAC (#261); '
+                                    f'use a Role in a namespace, or list it in '
+                                    f'ALLOWED_CLUSTER_BINDINGS with why it is not a portal read.')
 
     for key in sorted(set(ALLOWED) - allowed_hit):
         findings.append(f'{key[0]}/{key[1]} is in ALLOWED but no longer exists — drop the entry.')

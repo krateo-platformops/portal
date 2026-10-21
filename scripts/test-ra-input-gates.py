@@ -658,9 +658,33 @@ def check_nav_discovery(charts):
             f.append(f'sidebar-nav, admin: expected one cluster-scope list, got {paths}')
         if not any(i.get('path') == '/team-a-thing' for i in out['items']):
             f.append('sidebar-nav, admin: the collapse lost the page installed in team-a')
-        if base is not None and len(out['items']) != len(base['items']) + 1:
-            f.append(f'sidebar-nav, admin: {len(out["items"])} items, expected '
-                     f'{len(base["items"]) + 1}')
+        # NOT base+1 any more: /incidents, /alerts and /marketplace are their own charts in their
+        # own namespaces (#261), so the union an admin can read legitimately carries their roots
+        # too. Assert the RELATIONSHIP rather than a count — everything the release namespace
+        # offers, plus every root in another namespace, and nothing invented.
+        if base is not None:
+            base_paths = {i.get('path') for i in base['items']}
+            got_paths = {i.get('path') for i in out['items']}
+            missing = base_paths - got_paths
+            if missing:
+                f.append(f'sidebar-nav, admin: lost {sorted(missing)[:4]} that the release '
+                         f'namespace alone offers')
+            want_other = {(a or {}).get('krateo.io/nav-path')
+                          for ns, _n, a in [other] if ns != NS}
+            if not want_other <= got_paths:
+                f.append(f'sidebar-nav, admin: missing the out-of-namespace page(s) '
+                         f'{sorted(want_other - got_paths)}')
+            # A root contributes its nav-path AND every comma-separated krateo.io/nav-alias, so
+            # the legitimate set is both. (A divider has no path and drops out with the None.)
+            declared = set()
+            for items in roots.values():
+                for r in items:
+                    a = r['metadata']['annotations'] or {}
+                    declared.add(a.get('krateo.io/nav-path'))
+                    declared |= {x for x in (a.get('krateo.io/nav-alias') or '').split(',') if x}
+            invented = got_paths - declared - {None}
+            if invented:
+                f.append(f'sidebar-nav, admin: invented path(s) {sorted(invented)[:4]}')
     return f
 
 
@@ -671,7 +695,7 @@ def main():
         i = args.index('--crds')
         crds_dir = args[i + 1]
         del args[i:i + 2]
-    portal = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal')))
+    portal = tbi.Chart(tbi.render_portal_and_pages())
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}
     failed, total = 0, 0

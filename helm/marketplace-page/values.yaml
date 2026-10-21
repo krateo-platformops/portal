@@ -1,0 +1,29 @@
+# @schema
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the whole chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal's sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created (krateo-system on the platform install); only the page objects live here.
+# type: string
+# default: "krateo-marketplace"
+# @schema
+namespace: krateo-marketplace
+
+# @schema
+# description: Namespace the catalog ConfigMap and the blueprints-endpoint Secret live in — the DATA, not the pages. The krateo-marketplace-catalog composition renders the ConfigMap into the portal's release namespace and this chart does not move it, so these pages read it there explicitly.
+# type: string
+# default: "krateo-system"
+# @schema
+dataNamespace: krateo-system
+
+# @schema
+# description: Groups granted read of these pages in `namespace`. A group listed here sees /marketplace in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. `devs` is deliberately NOT a default — keeping it out is the point of the split (#261).
+# type: array
+# @schema
+readerGroups:
+  - admins
+
+# @schema
+# description: Where these pages read the blueprint/operator catalog. `configmap` (default) reads the two indexes from the in-cluster ConfigMap the krateo-marketplace-catalog composition renders, in `dataNamespace`; `external` fetches the Helm-repo index through the blueprints-endpoint Secret, also in `dataNamespace`. MUST match the portal chart's marketplace.source — both read the same catalog.
+# type: object
+# @schema
+marketplace:
+  source: configmap
+  configMapName: blueprints-catalog-index
+  liveIndex: true

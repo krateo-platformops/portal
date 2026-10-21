@@ -1,0 +1,77 @@
+{{/* The alert chip under the incident title, all from incident-detail: */}}
+{{/* · the alert that opened the incident, a link to /alerts/{ns}/{name} (spec.alertRef, exact), */}}
+{{/*   or inert text when the Alert no longer exists; */}}
+{{/* · its live state (OK / ALERT / PENDING, or "not found"); */}}
+{{/* · how long it has been OK (Alert.status.okSince), only while OK; */}}
+{{/* · which incident of that alert this is ("#3 of this alert"). */}}
+{{/* Then the affected composition as a link, when the analysis isolated one. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - tags
+    - buttons
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: incident-alert-text
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (if (.alertName // "") == "" then []
+            elif (.alertRoute // "") != "" then [ { resourceRefId: "incident-alert-link" } ]
+            else [ { resourceRefId: "incident-alert-text" } ] end)
+        + (if (.alertStateLabel // "") != "" then [ { resourceRefId: "incident-alert-state" } ] else [] end)
+        + (if (.alertOkFor // "") != "" then [ { resourceRefId: "incident-alert-oksince" } ] else [] end)
+        + (if (.ordinalLabel // "") != "" then [ { resourceRefId: "incident-alert-ordinal" } ] else [] end)
+        + (if (.refRoute // "") != "" then [ { resourceRefId: "incident-ref-link" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: incident-alert-link
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-link
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+    - id: incident-alert-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-text
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-alert-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-state
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-alert-oksince
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-oksince
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-alert-ordinal
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-ordinal
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
+    - id: incident-ref-link
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-ref-link
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

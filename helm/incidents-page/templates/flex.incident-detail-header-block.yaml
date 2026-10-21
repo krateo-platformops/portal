@@ -1,0 +1,35 @@
+{{/* The rows under the incident page header: the alert chip (and the affected composition, when */}}
+{{/* one was isolated), then the meta line (started / analyzed / ended). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-header-block
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+    - flexes
+    - cards
+    vertical: true
+    gap: small
+    items:
+    - resourceRefId: incident-detail-chips
+    - resourceRefId: incident-meta-card
+  resourcesRefs:
+    items:
+    - id: incident-detail-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-chips
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: incident-meta-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-meta-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

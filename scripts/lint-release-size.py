@@ -33,10 +33,10 @@ Re-derive against the live record with:
       | base64 -d | base64 -d | gunzip | wc -c
 """
 import base64
-import glob
 import gzip
 import io
 import json
+import glob
 import os
 import shutil
 import subprocess
@@ -93,7 +93,16 @@ CDC_LABEL_BLOCK = '''
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Every chart in this repo that becomes a composition gets its own release record and therefore its
 # own 1 MiB budget — which is the entire point of having split portal-agents out of portal.
-CHARTS = [os.path.join(REPO, 'helm', name) for name in ('portal', 'portal-agents')]
+# Each chart is ONE release record with its own 1 MiB budget, which is the point of having split
+# portal-agents — and now the three page charts (#261) — out of portal. Every first-class chart
+# in helm/ is modelled: a chart absent from this list is a chart whose record nothing watches,
+# which is how portal crossed the cap unnoticed in September.
+CHARTS = [os.path.join(REPO, 'helm', name) for name in
+          ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page')]
+# NOT globbed: helm/builder-publish is a BLUEPRINT chart that CDC renders with a composition's
+# own values and whose schema is closed, so rendering it with the portal values this script
+# uses fails on 'additional properties not allowed'. It is a different kind of artifact with a
+# different release record, and listing charts explicitly is what keeps that distinction.
 
 
 def render(chart_dir):
