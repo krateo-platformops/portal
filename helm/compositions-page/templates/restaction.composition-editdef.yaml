@@ -1,0 +1,129 @@
+{{/* Edit-form data source — resolves, for ONE composition (?extras .name/.namespace): */}}
+{{/* schemaSpec : the form fields — from the blueprint's jsonschema ConfigMap (values.schema.json), */}}
+{{/* NOT the CRD openAPIV3Schema (#74: a namespace-scoped tenant can't GET a cluster- */}}
+{{/* scoped CRD, and a CD .status doesn't carry the schema). */}}
+{{/* values     : the current .spec (pre-fills the form) */}}
+{{/* gvr        : apiVersion/resource/name/namespace (the PATCH target) */}}
+{{/* Compositions are heterogeneous per-blueprint kinds, so discover the TYPE generically. #74 (tenant */}}
+{{/* self-service — sibling of #66/#70/#72): discover via a CompositionDefinition list under a */}}
+{{/* userAccessFilter (snowplow lists as its SA, then refilters to the CDs the CALLER can list) — covers */}}
+{{/* every namespace the caller is granted, with NO cluster-wide customresourcedefinitions list (which */}}
+{{/* runs as the caller and 403s for a tenant → empty form). The schema comes from the per-version */}}
+{{/* jsonschema ConfigMap the core-provider/cdc publishes in the CD's OWN namespace (namespaced, tenant- */}}
+{{/* readable), keyed <resource>-<version>-jsonschema-configmap — the SAME source the create form uses */}}
+{{/* (restaction.blueprint-formdef, #66). Only fetched when the Edit drawer opens. Extras reach RA api */}}
+{{/* steps on this snowplow (same as composition-detail). */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: composition-editdef
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    krateo.io/verbose: "true"
+spec:
+  api:
+    {{/* Type discovery via CompositionDefinitions under a UAF (#74) — plural/version/kind/group + the */}}
+    {{/* CD's own namespace (where its jsonschema ConfigMap lives). No CRD schema here (a CD .status */}}
+    {{/* doesn't carry it — the schema is read from the CM below). */}}
+    - name: crds
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      {{/* Guarded: a 404/odd body can make .crds a non-object (string) or an item's .status a */}}
+      {{/* scalar — type-guard .items and `try` the select so a malformed response yields [] (no */}}
+      {{/* discovered types → empty form) instead of a "Cannot index" crash that surfaces as the */}}
+      {{/* generic "couldn't reach the server" widget error. */}}
+      filter: "[(.crds // {} | if type == \"object\" then .items else null end) // [] | .[]? | select((try (.status.resource != null and .status.apiVersion != null) catch false)) | {plural: .status.resource, kind: (.status.kind // \"\"), group: ((.status.apiVersion | split(\"/\")[0]) // \"\"), version: ((.status.apiVersion | split(\"/\")[1]) // \"\"), cdNamespace: (.metadata.namespace // \"\")}]"
+    - name: found
+      dependsOn:
+        name: crds
+        iterator: 'if (.namespace // "") == "" or (.name // "") == "" then [] else [ .crds | arrays | .[] | objects ] | unique_by([.version, .plural]) end'
+      {{/* One CLUSTER-SCOPE list per composition kind under a userAccessFilter, as composition-detail */}}
+      {{/* reads them (see its `found` for why not a per-namespace list: snowplow's cluster-list collapse */}}
+      {{/* read only the first kind for an admin, so nothing resolved on portal 1.8.56). snowplow lists */}}
+      {{/* as its SA and keeps the items in namespaces where the CALLER may list that kind, so a */}}
+      {{/* namespace-scoped tenant still resolves its own compositions (#72/#74). */}}
+      {{/* GATED ON ?extras namespace + name (the input gate, scripts/lint-ra-paths.py): without them */}}
+      {{/* the step makes no call. */}}
+      path: ${ "/apis/composition.krateo.io/" + .version + "/" + .plural }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
+      {{/* Guarded: a 404/odd body can make .found a non-object (string) — type-guard .items so it */}}
+      {{/* yields [] (composition not found → empty form) instead of a "Cannot index" crash. `del` */}}
+      {{/* is wrapped in `try` (bind the item, catch returns it unchanged) so an item with a scalar */}}
+      {{/* .metadata survives rather than aborting the whole step. */}}
+      filter: "(.extras.name // \"\") as $n | (.extras.namespace // \"\") as $ns | [(.found // {} | if type == \"object\" then .items else null end) // [] | .[]? | select((try (.metadata.name == $n and .metadata.namespace == $ns) catch false)) | . as $it | (try ($it | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])) catch $it)]"
+    {{/* #74: the form SCHEMA — the per-version jsonschema ConfigMap in the CD's OWN namespace */}}
+    {{/* (namespaced, tenant-readable), keyed <resource>-<version>-jsonschema-configmap. Iterate ONLY the */}}
+    {{/* CD whose kind matches THIS composition (from found), so exactly one CM is fetched. The */}}
+    {{/* crds→found→jsonschema dependsOn chain guarantees both .crds and .found are resolved when this */}}
+    {{/* step's iterator + path evaluate. continueOnError: absent CM → null → empty schema (no error). */}}
+    - name: jsonschema
+      dependsOn:
+        name: found
+        iterator: '.name as $n | .namespace as $ns | ([ .found[]? | select((try (.metadata.name == $n and .metadata.namespace == $ns) catch false)) ][0].kind // "") as $k | [ .crds[]? | select((try ($k != "" and .kind == $k) catch false)) ]'
+      path: ${ "/api/v1/namespaces/" + .cdNamespace + "/configmaps/" + .plural + "-" + .version + "-jsonschema-configmap" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: jsonschemaError
+  {{/* LITERAL block (|), NOT folded (>): the filter carries `#` comments, and folding joins lines with */}}
+  {{/* spaces so a `#` would swallow the jq after it (the composition-events filter shipped broken this */}}
+  {{/* way once). `|` preserves newlines so comments terminate. */}}
+  filter: |
+    .name as $n
+    | .namespace as $ns
+    # The matched composition ($d). `.found[]?` swallows a non-array `.found`; the inner `try`
+    # guards a `found` item whose `.metadata` is a scalar (error body / odd shape) so a malformed
+    # item is skipped rather than crashing the whole filter. `[0] // {}` → composition-not-found
+    # still yields an object.
+    | ([ .found[]? | select((try (.metadata.name == $n and .metadata.namespace == $ns) catch false)) ][0] // {}) as $d
+    | ($d.apiVersion // "") as $av
+    | ([ .crds[]? | select((try (.group == ($av | split("/")[0]) and .kind == $d.kind) catch false)) ][0] // {}) as $crd
+    # Form fields from the blueprint's values.schema.json (in the jsonschema CM), parsed to an object
+    # for the Form's `schema` (form.composition-edit reads .schemaSpec). Absent/malformed CM → empty
+    # schema (the form shows no fields rather than erroring). Field ORDER isn't preserved (the Form
+    # consumes the parsed object, not a stringSchema) — same as the prior CRD-derived schema.
+    # A 404/absent CM can hand back a non-object `.jsonschema` (error string) or a non-object `.data`;
+    # type-guard each hop so it degrades to null → {} instead of a "Cannot index string" crash (the
+    # path that was surfacing the generic "couldn't reach the server" widget error).
+    | (((.jsonschema // {}) | if type == "object" then .data else {} end) // {}) as $data
+    | ((if ($data | type) == "object" then $data["values.schema.json"] else null end) // null) as $raw
+    # fromjson yields Go json.Number for numeric literals (ports/replicas/min/max in every real
+    # blueprint schema) — snowplow's jqutil encoder has no `case json.Number` and PANICS ("invalid
+    # type: json.Number"), aborting the connection with no response (the Edit drawer's "Couldn't
+    # reach the server" / Failed to fetch). Coerce every number back to a plain gojq int/float with
+    # `walk(if type == "number" then . + 0 else . end)` — the `+ 0` forces gojq arithmetic, which
+    # emits a native number the encoder can serialize. INSIDE the try/catch so a missing/invalid
+    # schema still degrades to {} (no crash path reintroduced).
+    | (if $raw == null then {} else (try ($raw | fromjson | walk(if type == "number" then . + 0 else . end)) catch {}) end) as $parsed
+    # fromjson can yield valid-but-non-object JSON (a bare string/number) → coerce to {} so the
+    # `.properties` lookups below never index a scalar.
+    | (if ($parsed | type) == "object" then $parsed else {} end) as $schema
+    | ([ (($schema.properties) // {}) | (if type == "object" then to_entries[] else empty end) | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden
+    | {
+        schemaSpec: $schema,
+        values: (($d.spec // {}) | if type == "object" then . else {} end),
+        propertiesToHide: $hidden,
+        gvr: {
+          apiVersion: $av,
+          resource: ($crd.plural // ""),
+          name: (($d.metadata // {} | if type == "object" then .name else null end) // $n),
+          namespace: (($d.metadata // {} | if type == "object" then .namespace else null end) // $ns)
+        }
+      }

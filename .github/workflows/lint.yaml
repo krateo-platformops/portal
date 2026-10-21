@@ -177,6 +177,35 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-pinned-crds.py
 
+  # In a page chart (#261) a resourcesRefs item pointing at a WIDGET says where that object LIVES;
+  # one pointing at anything else says where the DATA is. The two take different values —
+  # .Values.namespace vs .Values.dataNamespace — and conflating them sends a read or a write to a
+  # namespace that holds no such object. marketplace-page 1.8.78 shipped and rolled with the
+  # Marketplace Install POST creating a CompositionDefinition in krateo-marketplace instead of
+  # krateo-system; eleven such refs existed across the page charts and only ONE was caught by a
+  # test, because the suites assert that a flow works and not where it writes.
+  ref-namespace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: A widget ref is a location; any other ref is data
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-ref-namespace.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A

@@ -1,0 +1,62 @@
+{{/* The component's pods — name / ready x/y / restarts / state / age / image, all real */}}
+{{/* values shaped by the component-detail RA. State shows the first waiting reason */}}
+{{/* (e.g. CrashLoopBackOff, ImagePullBackOff) when a container is stuck, else the pod */}}
+{{/* phase. State renders as a FILLED TAG (status-pill spec — no bare coloured status */}}
+{{/* text): Running/Completed/Succeeded → green, transitional (Pending/ContainerCreating/ */}}
+{{/* PodInitializing) → orange, stuck (CrashLoopBackOff, ImagePullBackOff, …) → red; the */}}
+{{/* state word stays the truthful k8s value. Count cells still tint only when something */}}
+{{/* needs the eye (not-ready → crimson, restarts>0 → orange). */}}
+{{/* Rows deep-link to the observability log stream scoped to the pod (CTA audit #89 F8: */}}
+{{/* a pod row was a dead end — "which of these is spewing errors?" had no answer). The */}}
+{{/* hand-off is /observability?serviceName={name} where {name} is the raw pod name; obs-log-stream */}}
+{{/* RESOLVES that pod name to its owning OTel ServiceName server-side (the ServiceName whose */}}
+{{/* "<name>-" prefixes the pod name — e.g. pod snowplow-6dd6…-mgmqh → ServiceName "snowplow") */}}
+{{/* then exact-matches, scoping to EXACTLY that service and NOT its sibling *-controller/*-agent */}}
+{{/* services that merely share the leading token. (This exact resolution replaced an earlier */}}
+{{/* bidirectional substring match that could bleed siblings in.) Empty/absent name → the */}}
+{{/* Table's buildRowPath returns undefined, so the row is inert (no broken link). */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: component-detail-pods
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of the default horizontal scrollbar. */}}
+    {{/* A wide cell ellipsis-truncates and carries its full value on hover (P19), which reads far */}}
+    {{/* better than a sideways scroll inside a card. Unset is NOT neutral — it sets */}}
+    {{/* scroll.x: max-content, so leaving it out chooses the scrollbar by omission. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    {{/* Row → observability log stream, scoped to this pod's owning service (see header). */}}
+    {{/* &tab=Telemetry (feedback S): the Tabs widget defaults to the first tab (Reconciliation), */}}
+    {{/* so without this the svc-scoped log deep-link landed on Reconciliation instead of the logs. */}}
+    rowNavigateTo: /observability?serviceName={name}&tab=Telemetry
+    columns:
+    - valueKey: name
+      title: Pod
+    - valueKey: ready
+      title: Ready
+    - valueKey: restarts
+      title: Restarts
+    - valueKey: state
+      title: State
+    - valueKey: age
+      title: Age
+    - valueKey: image
+      title: Image
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.pods // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, ({valueKey:"ready",kind:"jsonSchemaType",type:"string",stringValue:.ready} + ((.ready | split("/")) as $p | if $p[0] == $p[1] then {} else {color:"#cf1322"} end)), ({valueKey:"restarts",kind:"jsonSchemaType",type:"string",stringValue:(.restarts|tostring)} + (if .restarts > 0 then {color:"#d48806"} else {color:"#8c8c8c"} end)), {valueKey:"state",kind:"tag",stringValue:.state,color:(if (.state == "Running" or .state == "Completed" or .state == "Succeeded") then "green" elif (.state == "Pending" or .state == "ContainerCreating" or .state == "PodInitializing") then "orange" else "red" end)}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:.created,format:"relative"}, {valueKey:"image",kind:"jsonSchemaType",type:"string",stringValue:(.images | join(", ")),color:"#8c8c8c"} ] ] }'
+  apiRef:
+    name: component-detail
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

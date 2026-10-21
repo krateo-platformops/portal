@@ -1,0 +1,45 @@
+{{/* Incidents on the composition-detail page: the release namespace's Incidents */}}
+{{/* (incidents.observability.krateo.io) whose analysis touched THIS composition — an */}}
+{{/* analyzedResources entry whose .gvr contains "composition" and whose .name/.namespace match */}}
+{{/* the route params (?extras .name/.namespace). Newest first; the Listy hides when empty. */}}
+{{/* Each row: title (the root cause, else the alert name), state, stateColor, and route — */}}
+{{/* /incidents/<the incident's namespace>/<name>. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: composition-incidents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/incidents
+      verb: GET
+      continueOnError: true
+      errorKey: incidentsError
+  {{/* Literal `|` block: a jq `#` comment in a folded block would swallow the code after it. */}}
+  filter: |
+    (.name // "") as $n
+    | (.namespace // "") as $ns
+    | [ ((.incidents.items) // [])[]
+        | (.status.state // "Analyzing") as $state
+        # keep only incidents whose analysis touched this composition
+        | ([ (.status.analyzedResources // [])[]
+             | select((.gvr // "") | contains("composition"))
+             | select((.name // "") == $n and (.namespace // "") == $ns) ] | first) as $comp
+        | select($comp != null)
+        | {
+            title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
+                    else ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // .metadata.name // "") end),
+            state: $state,
+            stateColor: ({ Open: "red", Verifying: "orange", Resolved: "green" }[$state] // "gray"),
+            # the incident's own namespace; a namespaced list omits it per item, so fall back to the listed one
+            route: ("/incidents/" + (.metadata.namespace // "{{ .Release.Namespace }}") + "/" + (.metadata.name // "")),
+            when: (.spec.triggeredAt // .metadata.creationTimestamp // "")
+          }
+      ] | sort_by(.when) | reverse
+      # Exception-only (P14): a Resolved or Closed incident is the healthy state, so the strip
+      # lists only the active ones (Analyzing, Open, Verifying). The rest are counted, and the strip's footer links to them.
+      | ([ .[] | select(.state != "Resolved" and .state != "Closed") ]) as $active
+      | { rows: $active, activeCount: ($active | length), resolvedCount: ((length) - ($active | length)) }

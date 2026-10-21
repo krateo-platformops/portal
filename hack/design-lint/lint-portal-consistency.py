@@ -1143,14 +1143,27 @@ RULES = {
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('target', help='a chart directory (rendered with helm), a directory of rendered YAML, or a single YAML file')
+    ap.add_argument('target', nargs='+', help='one or more chart directories (rendered with helm), '
+                                              'directories of rendered YAML, or single YAML files')
     ap.add_argument('--rule', help='comma-separated subset of: ' + ', '.join(RULES))
     ap.add_argument('--quiet', action='store_true', help='only print violations')
     args = ap.parse_args()
 
-    crs, unreadable = load_crs(args.target)
+    # Several targets, not one. The portal was a single chart holding every page until #261 split
+    # each page into its own chart; `page-discovery-alive` then reported ZERO page roots against
+    # helm/portal and failed the run, which is exactly what it is for. The cross-chart rules
+    # (dangling-ref, missing-target, containment) are only meaningful over the UNION of the shell
+    # and every page chart, so the union is what this lint now loads. Each CR's filename is
+    # prefixed with its chart so a violation is still locatable.
+    crs, unreadable = [], []
+    for target in args.target:
+        chart = os.path.basename(os.path.normpath(target))
+        t_crs, t_unreadable = load_crs(target)
+        crs.extend((f'{chart}/{fname}', doc) for fname, doc in t_crs)
+        unreadable.extend((f'{chart}/{fname}', err) for fname, err in t_unreadable)
     if not args.quiet:
-        print(f'lint-portal-consistency: {len(crs)} CRs from {args.target}')
+        print(f'lint-portal-consistency: {len(crs)} CRs from {len(args.target)} target(s): '
+              f'{", ".join(args.target)}')
     for fname, err in unreadable:
         print(f'  UNREADABLE {fname}: {err}', file=sys.stderr)
 

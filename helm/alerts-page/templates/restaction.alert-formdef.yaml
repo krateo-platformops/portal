@@ -51,8 +51,8 @@ spec:
   filter: |
     "v1alpha1" as $ver
     | (.namespaces // []) as $nsAll
-    | (if ($nsAll | length) > 0 then $nsAll else ["{{ $.Values.dataNamespace }}"] end) as $nsOpts
-    | (if ($nsOpts | index("{{ $.Values.dataNamespace }}")) then "{{ $.Values.dataNamespace }}" else $nsOpts[0] end) as $nsDefault
+    | (if ($nsAll | length) > 0 then $nsAll else ["{{ $.Release.Namespace }}"] end) as $nsOpts
+    | (if ($nsOpts | index("{{ $.Release.Namespace }}")) then "{{ $.Release.Namespace }}" else $nsOpts[0] end) as $nsDefault
     | (.crd.spec.versions[]? | select(.name == $ver) | .schema.openAPIV3Schema.properties.spec) as $spec
     # Per-user client draft key (localStorage), seeded into initialValues as __owner but never
     # rendered/validated — same mechanism as blueprint-create. .username is the snowplow-injected

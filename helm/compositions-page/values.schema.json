@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": true,
+  "properties": {
+    "namespace": {
+      "default": "krateo-compositions",
+      "description": "The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for \u2014 a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays in the portal's namespace (the shell), and only these objects live here.",
+      "title": "namespace",
+      "type": "string"
+    },
+    "readerGroups": {
+      "description": "Groups granted read of these pages in `namespace`. A group listed here sees /compositions in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. No schema default: the installer applies schema defaults, so one here would silently re-assert itself over a group set through componentValues. The chart default lives in values.yaml instead.",
+      "items": {
+        "type": "string"
+      },
+      "title": "readerGroups",
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

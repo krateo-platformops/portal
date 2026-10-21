@@ -1,0 +1,84 @@
+{{/* Convention page root for /compositions/{namespace}/{name}. Matches the */}}
+{{/* enterprise-detail mockup: a pagehead (title + status Tag + subtitle) over a */}}
+{{/* 2-column grid (Row, 1.7fr:1fr ≈ size 15/9): left = Specification/Events/Manifest, */}}
+{{/* right = Health/Relations/Metadata. Every field is shaped server-side by the */}}
+{{/* composition-detail RA. Deferred: object-level live-refresh. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-composition-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-order": "900"
+    "krateo.io/nav-path": "/compositions/{namespace}/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - pageheaders
+      - rows
+      - listies
+    items:
+      - resourceRefId: composition-detail-page-header
+      {{/* #6: Incidents strip — troubleshooting reports that analyzed THIS composition. Sits */}}
+      {{/* directly under the pagehead so an active incident is visible up front. EXCEPTION-ONLY: */}}
+      {{/* the Listy hideWhenEmpty renders nothing for a healthy composition (no incidents), and */}}
+      {{/* the vertical Flex gap collapses around the absent child — the calm default shows no strip. */}}
+      - resourceRefId: composition-incidents
+      {{/* The composition's topology and where it is in it (mockup 14), first thing under the */}}
+      {{/* header because it answers "what is this made of, and what is it waiting for". Only for a */}}
+      {{/* composition whose chart renders an architecture ConfigMap: for every other one the Row's */}}
+      {{/* items resolve to [] and it renders nothing, so this page looks exactly as it did before. */}}
+      - resourceRefId: composition-detail-architecture-row
+      {{/* Rail wrapped in a full-width Row (composition-detail-rail-row) so it shares the grid's */}}
+      {{/* gutter inset and aligns with the Spec/Health cards below (was a bare full-width card). */}}
+      - resourceRefId: composition-detail-rail-row
+      {{/* Conditions promoted to the top (full-width, under the rail) so the composition's */}}
+      {{/* status — including the ReconcileError reason+message — is visible up front, not */}}
+      {{/* buried in the Manifest YamlViewer further down the grid. Wrapped in a Row */}}
+      {{/* (composition-detail-health-row) so it shares the grid gutter inset and aligns */}}
+      {{/* with the rail above and the Spec/Relations cards below (a bare card read wider). */}}
+      - resourceRefId: composition-detail-health-row
+      - resourceRefId: composition-detail-grid
+  resourcesRefs:
+    items:
+      - id: composition-detail-page-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-page-header
+        namespace: {{ $.Values.namespace }}
+        resource: pageheaders
+        verb: GET
+      - id: composition-incidents
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-incidents
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET
+      - id: composition-detail-architecture-row
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-architecture-row
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET
+      - id: composition-detail-rail-row
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-rail-row
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET
+      - id: composition-detail-health-row
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-health-row
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET
+      - id: composition-detail-grid
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-grid
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET

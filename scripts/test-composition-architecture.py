@@ -812,7 +812,14 @@ def main():
     parser.add_argument('--crds', help='a frontend-crds chart directory, to validate the widget CRs')
     parser.add_argument('--update', action='store_true', help='rewrite the expected files and .jq copies')
     args = parser.parse_args()
-    ctx = {'portal': render('portal'), 'cases': load('cases.json'), 'crds': args.crds, 'update': args.update,
+    # The composition-detail RESTActions moved to compositions-page when every page became its
+    # own chart (#261). 'portal' here means "everything the portal ships", so it is the union.
+    portal_docs = render('portal')
+    for _c in sorted(os.path.basename(os.path.dirname(_p))
+                     for _p in glob.glob(os.path.join(REPO, 'helm', '*', 'Chart.yaml'))
+                     if os.path.basename(os.path.dirname(_p)) not in ('portal', 'builder-publish')):
+        portal_docs = portal_docs + render(_c)
+    ctx = {'portal': portal_docs, 'cases': load('cases.json'), 'crds': args.crds, 'update': args.update,
            'outputs': {}, 'widgets': {}, 'gates': {}}
     failed = 0
     for check in CHECKS:

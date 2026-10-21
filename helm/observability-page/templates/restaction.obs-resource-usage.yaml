@@ -1,0 +1,41 @@
+{{/* Platform resource usage from ClickHouse (clickstack otel_metrics_gauge — k8s cluster/kubelet */}}
+{{/* receiver). Step `pods` = the top 25 pods by memory with their latest CPU (millicores) + memory */}}
+{{/* working-set (MiB); step `totals` = cluster-wide pod CPU cores + memory GiB + pod count. Both */}}
+{{/* take the LATEST gauge value per pod (argMax over TimeUnix, last 5 min) — a live snapshot, not a */}}
+{{/* window aggregate, so it MUST stay tightly time-bound (5m) against this 7M-row table. Exposes */}}
+{{/* {rows[], cpu, mem, pods}. External-fetch endpointRef, ClickHouse FORMAT JSON. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-resource-usage
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: pods
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ $.Values.namespace }}
+      path: /?query=SELECT%20ns%2C%20pod%2C%20round%28maxIf%28v%2Cm%3D%27cpu%27%29%2A1000%2C0%29%20AS%20cpu_m%2C%20round%28maxIf%28v%2Cm%3D%27mem%27%29%2F1048576%2C0%29%20AS%20mem_mib%20FROM%20%28%20SELECT%20ResourceAttributes%5B%27k8s.namespace.name%27%5D%20AS%20ns%2C%20ResourceAttributes%5B%27k8s.pod.name%27%5D%20AS%20pod%2C%20multiIf%28MetricName%3D%27k8s.pod.cpu.usage%27%2C%27cpu%27%2C%27mem%27%29%20AS%20m%2C%20argMax%28Value%2C%20TimeUnix%29%20AS%20v%20FROM%20otel_metrics_gauge%20WHERE%20MetricName%20IN%20%28%27k8s.pod.cpu.usage%27%2C%27k8s.pod.memory.working_set%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%205%20MINUTE%20GROUP%20BY%20ns%2C%20pod%2C%20m%20%29%20GROUP%20BY%20ns%2C%20pod%20ORDER%20BY%20mem_mib%20DESC%20LIMIT%2025%20FORMAT%20JSON
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: podsError
+    - name: totals
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ $.Values.namespace }}
+      path: /?query=SELECT%20round%28sumIf%28v%2Cm%3D%27cpu%27%29%2C1%29%20AS%20cpu_cores%2C%20round%28sumIf%28v%2Cm%3D%27mem%27%29%2F1073741824%2C1%29%20AS%20mem_gib%2C%20countIf%28m%3D%27mem%27%29%20AS%20pods%20FROM%20%28%20SELECT%20ResourceAttributes%5B%27k8s.namespace.name%27%5D%20AS%20ns%2C%20ResourceAttributes%5B%27k8s.pod.name%27%5D%20AS%20pod%2C%20multiIf%28MetricName%3D%27k8s.pod.cpu.usage%27%2C%27cpu%27%2C%27mem%27%29%20AS%20m%2C%20argMax%28Value%2CTimeUnix%29%20AS%20v%20FROM%20otel_metrics_gauge%20WHERE%20MetricName%20IN%20%28%27k8s.pod.cpu.usage%27%2C%27k8s.pod.memory.working_set%27%29%20AND%20TimeUnix%20%3E%20now%28%29-INTERVAL%205%20MINUTE%20GROUP%20BY%20ns%2C%20pod%2C%20m%20%29%20FORMAT%20JSON
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: totalsError
+  {{/* pods => {data:[{ns,pod,cpu_m,mem_mib}]}; totals => {data:[{cpu_cores,mem_gib,pods}]}. */}}
+  filter: >
+    { rows: ((.pods.data) // []),
+      cpu:  (((.totals.data) // [])[0].cpu_cores // 0),
+      mem:  (((.totals.data) // [])[0].mem_gib // 0),
+      pods: (((.totals.data) // [])[0].pods // 0) }

@@ -1,0 +1,41 @@
+{{/* Left column (wider): the Details card (chart / versions / status / synced / created) */}}
+{{/* + the Running compositions card (the blueprint's live instances — IA followup F1). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-detail-col-left
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - cards
+    items:
+      - resourceRefId: card-blueprint-detail-info
+      - resourceRefId: card-blueprint-detail-metadata
+      - resourceRefId: card-blueprint-detail-compositions
+  resourcesRefs:
+    items:
+      - id: card-blueprint-detail-info
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-blueprint-detail-info
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
+      - id: card-blueprint-detail-metadata
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-blueprint-detail-metadata
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
+      - id: card-blueprint-detail-compositions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-blueprint-detail-compositions
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET

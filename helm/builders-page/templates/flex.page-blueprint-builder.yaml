@@ -1,0 +1,70 @@
+{{/* Convention page root for /blueprint-builder — the Blueprint Builder's home: a header that says */}}
+{{/* what a blueprint is and carries both routes into the composer ("Compose a blueprint", primary; */}}
+{{/* "Ask Autopilot", a link that lands in the same composer), the person's drafts (each resumes in */}}
+{{/* the composer), and a titled Card holding a note and the deliverables table (each row links to */}}
+{{/* its change request, then to its blueprint). */}}
+{{/* */}}
+{{/* Authoring does not happen on this page. It happens at /blueprint-builder/compose, a static */}}
+{{/* frontend route (frontend >= 1.6.59); this page is the way in and the record of what shipped. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-blueprint-builder
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-group": "Builders"
+    "krateo.io/nav-icon": "fa-pen-ruler"
+    "krateo.io/nav-label": "Blueprint Builder"
+    "krateo.io/nav-order": "22"
+    "krateo.io/nav-path": "/blueprint-builder"
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* Each plural goes when the last child that needed it does. `flexes` went with */}}
+    {{/* flex.blueprint-builder-ask-cta (the header right-aligns its own actions); `tables` went */}}
+    {{/* when the deliverables Table moved inside card.blueprint-builder-deliverables, because a */}}
+    {{/* Table cannot render a heading of its own. `cards` now means that Card — the one */}}
+    {{/* card.author-blueprint used to need it for is gone. */}}
+    allowedResources:
+    - pageheaders
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: blueprint-builder-page-header
+    {{/* ONE WAY TO BUILD A BLUEPRINT, and it is the composer. This page used to mount
+         card.author-blueprint: a Form whose only chart control was a JSON textarea, into which a
+         person pasted the whole tree as one object of path → file contents. It existed because
+         SchemaFields has no repeatable-row control, so a chart TREE had no other home in a Form —
+         and it closed a real gap, since until then only the rail could author a blueprint at all.
+
+         The composer closes the same gap without the textarea: it starts a chart from a name,
+         edits each file as a file, draws the resources and what each waits on from
+         architecture.yaml, previews a real render, and publishes through the same BuilderPublish
+         claim behind a confirm. Two peer-looking ways to build the same thing, one of which asks
+         for hand-escaped JSON, is worse than one that works. The Portal Builder made the same
+         decision about its two Forms (flex.page-portal-builder). */}}
+    {{/* The person's drafts first (the mockup's order): a closed tab no longer loses a chart, */}}
+    {{/* and this is where it comes back. What already shipped follows. */}}
+    - resourceRefId: blueprint-builder-drafts-card
+    - resourceRefId: blueprint-builder-deliverables-card
+  resourcesRefs:
+    items:
+    - id: blueprint-builder-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: blueprint-builder-page-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: blueprint-builder-drafts-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: blueprint-builder-drafts-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: blueprint-builder-deliverables-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: blueprint-builder-deliverables-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

@@ -1,0 +1,23 @@
+# @schema
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays in the portal's namespace (the shell), and only these objects live here.
+# type: string
+# default: "krateo-search"
+# @schema
+namespace: krateo-search
+
+# @schema
+# description: Groups granted read of these pages in `namespace`. A group listed here sees /search in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders.
+# type: array
+# @schema
+readerGroups:
+  - admins
+  - devs
+
+# @schema
+# description: Where these pages read the blueprint/operator catalog, which lives in the release namespace. MUST match the portal chart's marketplace.source.
+# type: object
+# @schema
+marketplace:
+  source: configmap
+  configMapName: blueprints-catalog-index
+  liveIndex: true

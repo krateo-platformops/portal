@@ -1,0 +1,35 @@
+{{/* "View in marketplace" — forward cross-link (IA followup F3): from an installed blueprint */}}
+{{/* back to its marketplace catalog entry. blueprint-detail builds .marketplaceHref server-side */}}
+{{/* (/marketplace/{chart} when the chart is a helm-repo catalog entry, else the /marketplace */}}
+{{/* index) so the click is a plain literal navigate — never a 404. Mirrors the shipped */}}
+{{/* composition-detail-blueprint / blueprint-detail-back buttons. type:default (secondary) so */}}
+{{/* Create stays the primary action and Delete stays the danger action. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-detail-marketplace
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: View in marketplace
+    type: default
+    size: middle
+    icon: fa-store
+    clickActionId: marketplace
+    actions:
+      navigate:
+        - id: marketplace
+          type: navigate
+          path: /marketplace
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "marketplace", type: "navigate", path: (if (.marketplaceHref // "") != "" then .marketplaceHref else "/marketplace" end) } ] } }'
+  resourcesRefs:
+    items: []

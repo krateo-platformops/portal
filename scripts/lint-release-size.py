@@ -97,8 +97,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # portal-agents — and now the three page charts (#261) — out of portal. Every first-class chart
 # in helm/ is modelled: a chart absent from this list is a chart whose record nothing watches,
 # which is how portal crossed the cap unnoticed in September.
-CHARTS = [os.path.join(REPO, 'helm', name) for name in
-          ('portal', 'portal-agents', 'incidents-page', 'alerts-page', 'marketplace-page')]
+# DISCOVERED, not listed: each chart is ONE release record with its own 1 MiB budget, and a
+# chart absent from this list is a chart whose record nothing watches — which is how portal
+# crossed the cap unnoticed in September. builder-publish is excluded: CDC renders it with a
+# composition's own values and its closed schema rejects the values used here.
+CHARTS = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(REPO, 'helm', '*', 'Chart.yaml'))
+                if os.path.basename(os.path.dirname(p)) != 'builder-publish')
 # NOT globbed: helm/builder-publish is a BLUEPRINT chart that CDC renders with a composition's
 # own values and whose schema is closed, so rendering it with the portal values this script
 # uses fails on 'additional properties not allowed'. It is a different kind of artifact with a

@@ -1,0 +1,23 @@
+{{/* Installed blueprints — count of the cluster's CompositionDefinitions (.cards from */}}
+{{/* blueprints-cards, the same RA the Blueprints page + dashboard "Recent blueprints" use). */}}
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-stat-blueprints
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q]
+  widgetData:
+    title: Installed blueprints
+    value: 0
+  widgetDataTemplate:
+  - forPath: value
+    expression: '${ (.cards // []) | length }'
+  apiRef:
+    name: blueprints-cards
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
