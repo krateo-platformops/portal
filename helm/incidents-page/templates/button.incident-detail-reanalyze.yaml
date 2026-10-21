@@ -1,0 +1,33 @@
+{{/* Re-run analysis: a drawer with an optional note on what the analysis got wrong, whose submit */}}
+{{/* asks alert-provider for a new one. The action Flex shows it on an Open or Verifying incident */}}
+{{/* while no request is waiting (.canReanalyze). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-reanalyze
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    label: Re-run analysis
+    icon: fa-rotate
+    type: default
+    size: middle
+    clickActionId: open-reanalyze
+    actions:
+      openDrawer:
+        - id: open-reanalyze
+          type: openDrawer
+          resourceRefId: incident-reanalyze
+          title: Re-run the analysis
+          size: default
+  resourcesRefs:
+    items:
+      - id: incident-reanalyze
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-reanalyze
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET

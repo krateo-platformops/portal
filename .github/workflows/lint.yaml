@@ -357,6 +357,31 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-apply.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+  # The incident page's Re-run analysis: shown for Open and Verifying incidents only, its drawer form
+  # merge-PATCHes spec.reanalysis {feedback} on the incident, and an unknown check result shows what
+  # the run printed. Evaluated over krateo-057-shaped Incidents, every widget validated against the
+  # newest released frontend CRDs.
+  incident-reanalyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Incident Re-run analysis, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-incident-reanalyze.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # A composition's topology on its detail page is one builder-publish template, one RESTAction of
   # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's

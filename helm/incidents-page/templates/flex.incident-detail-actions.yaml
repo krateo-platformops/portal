@@ -1,6 +1,7 @@
-{{/* The incident page's actions: Diagnose (Autopilot ?ask) · Close (spec.closed, hidden once */}}
-{{/* Resolved or Closed) · Discard (delete the incident, confirmed; hidden when it does not exist). The */}}
-{{/* buttons read their target from incident-detail (.diagnoseHref / .incidentGvr). */}}
+{{/* The incident page's actions: Diagnose (Autopilot ?ask) · Re-run analysis (spec.reanalysis, */}}
+{{/* Open or Verifying only) · Close (spec.closed, hidden once Resolved or Closed) · Discard (delete */}}
+{{/* the incident, confirmed; hidden when it does not exist). The buttons read their target from */}}
+{{/* incident-detail (.diagnoseHref / .incidentGvr). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -27,6 +28,7 @@ spec:
     - forPath: items
       expression: >-
         ${ [ { resourceRefId: "incident-detail-diagnose" } ]
+        + (if (.canReanalyze // false) then [ { resourceRefId: "incident-detail-reanalyze" } ] else [] end)
         + (if (.canClose // false) then [ { resourceRefId: "incident-detail-close" } ] else [] end)
         + (if (.canDiscard // false) then [ { resourceRefId: "incident-detail-discard" } ] else [] end) }
   resourcesRefs:
@@ -34,6 +36,12 @@ spec:
       - id: incident-detail-diagnose
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: incident-detail-diagnose
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
+      - id: incident-detail-reanalyze
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: incident-detail-reanalyze
         namespace: {{ $.Values.namespace }}
         resource: buttons
         verb: GET

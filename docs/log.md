@@ -14,6 +14,13 @@ Curated history, newest first. Point-in-time records live as archives (the
 ([marketplace-registry-discovery](./marketplace-registry-discovery.md),
 [snowplow-yaml-api-step-enabler](./snowplow-yaml-api-step-enabler.md)).
 
+## 2026-10-21 — Re-run analysis on the incident page
+
+An `Open` or `Verifying` incident can be analyzed again: **Re-run analysis** asks alert-provider
+for a new analysis (`spec.reanalysis`), with an optional note on what the previous one got wrong.
+A check that gave no verdict now shows what its run printed (`status.lastChecks.<script>.output`),
+so a broken script reads as broken rather than as a silent "unknown".
+
 ## 2026-10-09 — incident pages read lastChecks, and show absolute times
 
 incident-controller writes an Incident only when something changes (incident-controller#7,
