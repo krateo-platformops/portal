@@ -202,13 +202,20 @@ spec:
         total: ($cards | length),
         count: ($shown | length),
         countLabel: $countLabel,
+        # A facet with one value filters nothing: with no popular keyword (and none selected) the
+        # row would be a lone "All" chip repeating the source toggle's "All" above it (P3), so it
+        # is empty and the Listy hides it.
         categories: (
-          [ {key: "all", label: "All", count: ($cards | length), active: ($sel == "all"),
-             route: qstr({category: "", source: (if $src == "all" then "" else $src end), q: $q, sort: (if $sort == "name" then "" else $sort end)})} ]
-          + ( [ $cards[] | .keywords[] ] | group_by(.)
-              | map({key: .[0], label: .[0], count: length, active: (.[0] == $sel),
-                     route: qstr({category: .[0], source: (if $src == "all" then "" else $src end), q: $q, sort: (if $sort == "name" then "" else $sort end)})})
-              | map(select(.count >= 5)) | sort_by(.count) | reverse )
+          ( [ $cards[] | .keywords[] ] | group_by(.)
+            | map({key: .[0], label: .[0], count: length, active: (.[0] == $sel),
+                   route: qstr({category: .[0], source: (if $src == "all" then "" else $src end), q: $q, sort: (if $sort == "name" then "" else $sort end)})})
+            | map(select(.count >= 5)) | sort_by(.count) | reverse ) as $popular
+          | if ($popular | length) == 0 and $sel == "all" then []
+            else
+              [ {key: "all", label: "All", count: ($cards | length), active: ($sel == "all"),
+                 route: qstr({category: "", source: (if $src == "all" then "" else $src end), q: $q, sort: (if $sort == "name" then "" else $sort end)})} ]
+              + $popular
+            end
         ),
         sources: [
           {key: "all", label: "All", active: ($src == "all"),

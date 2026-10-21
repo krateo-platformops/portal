@@ -23,6 +23,9 @@ spec:
     items: []
   widgetDataTemplate:
     - forPath: items
-      expression: '${ [ { label: "Namespace", value: (.detail.metadata.namespace // "") }, { label: "UID", value: (.detail.metadata.uid // "") }, { label: "Created", value: (.detail.metadata.creationTimestamp // "") } ] + ((.detail.metadata.labels // {}) | to_entries | map({ section: "labels", label: .key, value: .value })) }'
+      {{/* Only what the page does not already say. Namespace and age are in the header's subtitle and */}}
+      {{/* every label is in the Manifest beside this card, so the card was ~1,100px of repetition. */}}
+      {{/* It keeps the UID and the three labels a person looks for, under readable names. */}}
+      expression: '${ (.detail.metadata.labels // {}) as $l | [ { label: "UID", value: (.detail.metadata.uid // "") }, { label: "Blueprint", value: ($l["krateo.io/composition-definition-name"] // "") }, { label: "Installed version", value: ($l["krateo.io/composition-installed-version"] // "") }, { label: "Managed by", value: ($l["app.kubernetes.io/managed-by"] // "") } ] | map(select(.value != "")) }'
   resourcesRefs:
     items: []

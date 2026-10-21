@@ -116,16 +116,20 @@ def check_note_above_the_table():
     note = tbi.resolved_widget(CHART, 'Paragraph', 'settings-users-note', {}, {}, 'settings-users-note')
     expect(f, 'note', {k: note['spec']['widgetData'].get(k) for k in ('text', 'type')},
            {'text': NOTE, 'type': 'secondary'})
+    # The note and the table are the Users panel's, which the page stacks under its header.
     page = CHART.get('Flex', 'page-settings')['spec']
-    refs = {r['id']: r for r in page['resourcesRefs']['items']}
-    items = [i['resourceRefId'] for i in page['widgetData']['items']]
+    if 'settings-users-card' not in [i['resourceRefId'] for i in page['widgetData']['items']]:
+        f.append('page-settings does not show the Users panel')
+    card = CHART.get('Card', 'settings-users-card')['spec']
+    refs = {r['id']: r for r in card['resourcesRefs']['items']}
+    items = [i['resourceRefId'] for i in card['widgetData']['items']]
     expect(f, 'note sits right above the table',
            items[items.index('settings-users-note') + 1:][:1] if 'settings-users-note' in items else [],
            ['settings-users'])
     expect(f, 'note ref', {k: (refs.get('settings-users-note') or {}).get(k) for k in ('name', 'resource')},
            {'name': 'settings-users-note', 'resource': 'paragraphs'})
-    if 'paragraphs' not in page['widgetData']['allowedResources']:
-        f.append('page-settings does not allow paragraphs')
+    if 'paragraphs' not in card['widgetData']['allowedResources']:
+        f.append('settings-users-card does not allow paragraphs')
     return f
 
 
