@@ -1,0 +1,53 @@
+{{/* A merge-PATCH of spec.reanalysis {feedback} on the Incident, with the user's token: */}}
+{{/* krateo-incident-responder grants it. feedback is always sent, "" for none, so the request is */}}
+{{/* never an empty object. At most 2000 characters (the CRD's bound). */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-reanalyze-form
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    layout: vertical
+    submitActionId: reanalyze
+    schema:
+      type: object
+      properties:
+        feedback:
+          type: string
+          title: What is wrong with the analysis (optional)
+          maxLength: 2000
+    buttonConfig:
+      primary:
+        label: Re-run analysis
+    actions:
+      rest:
+        - id: reanalyze
+          type: rest
+          resourceRefId: reanalyze-incident
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          successMessage: New analysis requested
+          payload:
+            spec:
+              reanalysis:
+                feedback: ""
+          payloadToOverride:
+            - name: spec.reanalysis.feedback
+              value: '${ .json.feedback // "" }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: reanalyze-incident
+        apiVersion: ${ .incidentGvr.apiVersion }
+        resource: ${ .incidentGvr.resource }
+        name: ${ .incidentGvr.name }
+        namespace: ${ .incidentGvr.namespace }
+        verb: PATCH

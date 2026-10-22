@@ -72,14 +72,15 @@ blueprint-preview seam) and the marketplace catalog index — each through an
 
 | API | Owner | Read by | Written by the portal |
 |---|---|---|---|
-| `incidents.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents`, `/incidents/{namespace}/{name}`, the composition page's Incidents strip, `/alerts/{namespace}/{name}`, the alerts summary band, global search | `spec.applied: true` (Apply or "I applied it"), `spec.closed: true` (Close), and DELETE (Discard), each as the clicking user |
+| `incidents.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents`, `/incidents/{namespace}/{name}`, the composition page's Incidents strip, `/alerts/{namespace}/{name}`, the alerts summary band, global search | `spec.applied: true` (Apply or "I applied it"), `spec.closed: true` (Close), `spec.reanalysis: {feedback}` (Re-run analysis), and DELETE (Discard), each as the clicking user |
 | `incidentapplies.observability.krateo.io/v1alpha1` | [incident-controller](https://github.com/krateo-platformops/incident-controller) | `/incidents/{namespace}/{name}` (the Apply runs tab, and whether Run apply shows) | POST of `{spec: {incidentRef: {name}}}` (Run apply), as the clicking user |
 | `alerts.observability.krateo.io/v1alpha1` | [alert-provider](https://github.com/krateo-platformops/alert-troubleshooter) | `/alerts`, `/alerts/{namespace}/{name}`, the incident page's alert chip (`status.state`, `status.okSince`) | the alert create/edit/delete forms |
 
 An Incident lives in its Alert's namespace and carries the label
 `observability.krateo.io/alert: <alert name>`; the pages join incidents to alerts on that
 label (and `spec.alertRef`), never on display names. The incident page reads each step's
-latest result from `status.lastChecks` (`{exit, since}` per script) rather than `spec.applied`,
+latest result from `status.lastChecks` (`{exit, since}` per script, plus `output` for a result
+that gave no verdict, shown as what the run printed) rather than `spec.applied`,
 which the controller resets once it records the `apply` result. Users need `get`/`list` on both resources, and `patch`/`delete`
 on `incidents` for the incident page's actions.
 
@@ -103,6 +104,15 @@ The button waits up to 3 minutes for the run's `ApplyFinished` Event and shows i
 newest first, with each run's phase, exit code, message and output. Each run is also the incident's
 latest `apply` result, with its exit, which the apply step shows; exit 0 moves the incident to Verifying. The user needs `create` on
 `incidentapplies` (incident-controller's `krateo-incident-responder`).
+
+**Re-run analysis.** An `Open` or `Verifying` incident offers **Re-run analysis** beside Ask
+Autopilot, while no earlier request waits. It opens a drawer with an optional note on what the
+analysis got wrong (at most 2000 characters) and merge-PATCHes `spec.reanalysis: {feedback}` on
+the incident, `feedback: ""` for none. alert-provider consumes the request: it clears the analysis
+and its check results, moves the incident to `Analyzing` and runs the analysis again with the
+previous one, its scripts' last results and the note. The page's meta items show a waiting
+request, then the latest reanalysis (`status.reanalysis`: its number, time and note). It needs the
+same `patch` on `incidents` as Close.
 
 ## The nightly review's CronJob
 

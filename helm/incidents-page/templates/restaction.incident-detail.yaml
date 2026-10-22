@@ -85,7 +85,7 @@ spec:
     | ($st.assumptions // []) as $assump
     | (($st.reasoningTrace // []) | sort_by(.step // 0)) as $trace
     | ($st.howToFix // {}) as $fix
-    # status.lastChecks: the latest result of each script, {exit, since}, tagged with its script for outcome.
+    # status.lastChecks: the latest result of each script, {exit, since, output}, tagged with its script for outcome.
     | ($st.lastChecks // {}) as $lc
     | (["precondition", "apply", "verify"] | map(. as $k | ($lc[$k] // null) | if . == null then null else . + { script: $k } end)) as $lastResults
     | ($st.error // "") as $err
@@ -106,6 +106,9 @@ spec:
     | ([ $all[] | select(alertlabel == $alertName and $alertName != "") ] | sort_by([when, .metadata.name])) as $siblings
     | (($siblings | map(.metadata.name) | index($n)) // null) as $ordinal
     | ($sp.applied // false) as $appliedPending
+    # spec.reanalysis: a request for a new analysis, until alert-provider consumes it.
+    | (($sp.reanalysis // null) != null) as $reanalysisPending
+    | ($st.reanalysis // null) as $reanalysis
     # Apply sends applyAction; "I applied it" stays for an incident whose fix is only a script.
     | ($state == "Open" and $aaOk and ($appliedPending | not)) as $canApplyAction
     | ($state == "Open" and ($fix.apply // "") != "" and ($appliedPending | not) and ($aaOk | not)) as $canApply
@@ -149,7 +152,7 @@ spec:
          + (if .script == "apply" then " · at " else " · since " end) + (.since | stamp)) end)) as $lastLines
     | ([ { key: "precondition", title: "Precondition", status: $preStatus, last: $lastLines[0],
            lead: "Does the incident still hold? The controller runs this every minute in a read-only sandbox while the incident is Open: exit **1** means it holds, **0** that it is gone.",
-           note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, or close the incident." else "" end) },
+           note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, re-run the analysis, or close the incident." else "" end) },
          { key: "apply", title: "Review & apply", status: $applyStatus,
            last: (if $appliedPending then "applied, waiting for the controller to verify"
                   elif $runActive != null then ("Run apply in progress, as " + ($runActive.spec.requestedBy.username // "you") + " · " + ($runActive._when | stamp))
@@ -171,11 +174,14 @@ spec:
            note: "" } ] else [] end)
        | to_entries | map(.key as $i | .value as $s
          | (($fix[$s.key] // "") | rtrimstr("\n")) as $script
+         # What an unknown precondition or verify run printed: why it gave no verdict.
+         | ((($lc[$s.key] // {}).output // "") | rtrimstr("\n")) as $printed
          | $s + {
              i: $i,
              eyebrow: (if $s.key == "rollback" then "optional" else ("step " + (($i + 1) | tostring)) end),
              md: ($s.lead
                + (if $s.key == "rollback" then "" else ("\n\n**Last run:** " + ($s.last // (if $s.key == "apply" then "not applied yet" else "never" end))) end)
+               + (if $printed != "" and $s.key != "apply" then ("\n\nIt printed:\n\n" + ($printed | fence) + "text\n" + $printed + "\n" + ($printed | fence)) else "" end)
                + $s.note
                + (if $script != "" then ("\n\n" + ($script | fence) + "bash\n" + $script + "\n" + ($script | fence)) else "\n\n_No " + $s.key + " script._" end)) })) as $fixSteps
     # Apply runs: a row per Run apply click, then each run's message, output and, when it is not the apply step's, script.
@@ -237,6 +243,8 @@ spec:
         # A Resolved incident was proven fixed by its verify script; the portal offers Close only before that.
         canClose: ($exists and $state != "Closed" and $state != "Resolved"),
         canDiscard: $exists,
+        # Re-run analysis: an Open or Verifying incident, while no request waits for alert-provider.
+        canReanalyze: ($exists and ($state == "Open" or $state == "Verifying") and ($reanalysisPending | not)),
         canApply: $canApply,
         # Run apply: the same incidents as "I applied it", while no run of this incident is unfinished.
         canRunApply: $canRunApply,
@@ -245,6 +253,10 @@ spec:
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
                       (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
+                      (if $reanalysisPending then { label: "Re-analysis", value: "requested, waiting to start" }
+                       elif $reanalysis != null then { label: "Re-analysis", value: ("#" + (($reanalysis.count // 1) | tostring) + " · " + ($reanalysis.at | stamp)
+                         + (if ($reanalysis.feedback // "") != "" then (" · \"" + ($reanalysis.feedback | if length > 200 then (.[0:200] + "…") else . end) + "\"") else "" end)) }
+                       else empty end),
                       (if ($st.resolution.at // "") != "" then { label: (if $st.resolution.by == "verify" then "Resolved" else "Closed" end), value: (($st.resolution.at | stamp) + (if $st.resolution.by == "verify" then " by the verify script" else " by a person" end)) } else empty end) ]),
         summary: {
           whatHappened: ($title + (if $comp then (" — affecting " + (($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "")) else "" end)),
