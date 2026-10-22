@@ -9,7 +9,7 @@ status.reanalysis {at, feedback, count} and runs the analysis again. The rules, 
 what a reader would see:
   - Re-run analysis shows for an Open or Verifying incident while no request waits for alert-provider,
     and never for an Analyzing, Resolved or Closed one;
-  - it opens a drawer whose form merge-PATCHes this incident with {spec: {reanalysis: {feedback}}},
+  - it opens a drawer holding only its form, one labelled field, which merge-PATCHes this incident with {spec: {reanalysis: {feedback}}},
     feedback "" when the person writes none (never an empty object), bounded like the CRD (2000);
   - a waiting request and a recorded reanalysis show in the incident's meta items;
   - a precondition or verify whose last run gave no verdict shows what the run printed
@@ -41,7 +41,6 @@ tbi = tpr.tbi
 NS = tbi.NS
 expect, apply_overrides, ref_template = tpr.expect, tpr.apply_overrides, tpr.ref_template
 WIDGETS = (('Flex', 'incident-detail-actions'), ('Button', 'incident-detail-reanalyze'),
-           ('Flex', 'incident-reanalyze'), ('Paragraph', 'incident-reanalyze-intro'),
            ('Form', 'incident-reanalyze-form'),
            ('Markdown', 'incident-rem-step-md-0'), ('Markdown', 'incident-rem-step-md-1'),
            ('Markdown', 'incident-rem-step-md-2'))
@@ -104,10 +103,10 @@ def check_drawer_form_patches_spec_reanalysis(chart):
     f = []
     out, w = resolve(chart, incident('form-1'), 'form')
     drawer = w['incident-detail-reanalyze']['actions']['openDrawer'][0]
-    expect(f, 'the button opens the drawer', (drawer['type'], drawer['resourceRefId']), ('openDrawer', 'incident-reanalyze'))
-    expect(f, 'the drawer holds the intro and the form', [i['resourceRefId'] for i in w['incident-reanalyze']['items']],
-           ['incident-reanalyze-intro', 'incident-reanalyze-form'])
+    expect(f, 'the button opens the form in a drawer', (drawer['type'], drawer['resourceRefId']), ('openDrawer', 'incident-reanalyze-form'))
     form = w['incident-reanalyze-form']
+    expect(f, 'one field, labelled and nothing more', (list(form['schema']['properties']), form['schema']['properties']['feedback'].get('title'),
+           'description' in form['schema']['properties']['feedback']), (['feedback'], 'What is wrong with the analysis (optional)', False))
     act = form['actions']['rest'][0]
     expect(f, 'submit is the PATCH', (form['submitActionId'], act['id'], act['type']), ('reanalyze', 'reanalyze', 'rest'))
     expect(f, 'a merge-patch', act['headers'], ['Content-Type: application/merge-patch+json'])
