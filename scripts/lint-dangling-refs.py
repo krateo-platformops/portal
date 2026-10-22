@@ -51,9 +51,20 @@ CHARTS = [d for d in sorted(glob.glob(os.path.join(REPO, 'helm', '*')))
           and os.path.basename(d) != 'builder-publish']
 
 
-def boolean_flags(chart):
-    """Every boolean leaf in a chart's values.yaml, as --set paths. These are the feature gates;
-    a gate that only renders the defaults cannot see behind any of them."""
+# A gate is anything a template tests for truthiness, and helm's truthiness covers more than
+# `bool`. An EMPTY STRING is just as much an off-switch as `false`: `{{- if .Values.
+# observabilityConsoleUrl }}` wraps a Button that exists only on installs configuring a console.
+# Sweeping booleans alone missed exactly that -- obs-console-link sat in the shell while the
+# observability page referenced it at its own namespace, a dangling ref no default render and no
+# boolean sweep could reach. The page's own comment had already predicted the blind spot: "X13
+# cannot catch this one: both sides are behind the same helm conditional."
+SENTINEL = 'https://zz-sentinel.invalid'
+
+
+def gate_flags(chart):
+    """Every values leaf that acts as an on/off gate, as (path, on_value) pairs: booleans flipped
+    to true, and empty strings set to a sentinel. A gate that only renders the defaults is blind to
+    every gated feature in the repo by construction."""
     path = os.path.join(chart, 'values.yaml')
     if not os.path.isfile(path):
         return []
@@ -65,7 +76,9 @@ def boolean_flags(chart):
             for k, v in node.items():
                 walk(v, f'{prefix}.{k}' if prefix else k)
         elif isinstance(node, bool):
-            out.append(prefix)
+            out.append((prefix, 'true'))
+        elif isinstance(node, str) and node == '':
+            out.append((prefix, SENTINEL))
     walk(values)
     return out
 
@@ -125,14 +138,14 @@ def main():
               'is not a clean run.', file=sys.stderr)
         return 1
 
-    # One state per boolean flag, plus the defaults. Not the power set: a single-flag sweep catches
+    # One state per gate, plus the defaults. Not the power set: a single-flag sweep catches
     # a feature whose widgets and refs disagree, which is the failure this exists for, and stays
     # linear instead of exponential in the number of gates.
     states = [('defaults', {})]
     for chart in CHARTS:
-        for flag in boolean_flags(chart):
-            states.append((f'{os.path.basename(chart)}:{flag}=true',
-                           {chart: [f'{flag}=true']}))
+        for flag, on in gate_flags(chart):
+            states.append((f'{os.path.basename(chart)}:{flag}={on}',
+                           {chart: [f'{flag}={on}']}))
 
     total = 0
     for label, overrides in states:
