@@ -2,13 +2,13 @@
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* Reconcile latency p99 — EXACT, from the reconcile span Duration (otel_traces) via */}}
-{{/* obs-reconcile-perf. Red = the worst-case tail (e.g. the installer composition ~40s). */}}
+{{/* Reconcile latency p50 (median) — EXACT, from the reconcile span Duration (otel_traces) */}}
+{{/* via obs-reconcile-perf. Cyan = the healthy/typical case. */}}
 kind: Statistic
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: obs-perf-p99
-  namespace: {{ .Release.Namespace }}
+  name: obs-perf-p50
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
@@ -16,20 +16,20 @@ spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [range]
   widgetData:
-    title: Reconcile p99
+    title: Reconcile p50
     value: 0
     suffix: ' ms'
     valueStyle:
-      color: var(--red-color)
+      color: var(--cyan-color)
   {{/* HONESTY (IA obs-deepdive): em-dash, not "0 ms", when zero reconcile spans in range. */}}
   widgetDataTemplate:
   - forPath: value
-    expression: '${ if (.n // 0) == 0 then "—" else (.p99 // 0) end }'
+    expression: '${ if (.n // 0) == 0 then "—" else (.p50 // 0) end }'
   - forPath: suffix
     expression: '${ if (.n // 0) == 0 then "" else " ms" end }'
   apiRef:
     name: obs-reconcile-perf
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items: []
 {{- end }}

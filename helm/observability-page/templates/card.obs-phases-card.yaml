@@ -8,7 +8,7 @@ kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: obs-phases-card
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
@@ -27,13 +27,13 @@ spec:
     expression: '${ "avg " + ((.avg // 0)|tostring) + "ms · " + ((.n // 0)|tostring) + " reconciles" }'
   apiRef:
     name: obs-reconcile-perf
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items:
     - id: obs-reconcile-phases
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-reconcile-phases
-      namespace: {{ .Release.Namespace }}
+      namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
 {{- end }}

@@ -65,8 +65,21 @@ WIDGET_GROUP = 'widgets.templates.krateo.io'
 # NOT own, because the portal keeps it (the tenant-facing Dashboard uses it too). Keyed by
 # (chart, ref id) -> why. Anything not listed here follows the plain rule.
 CROSS_CHART = {
-    ('observability-page', 'stat-healthy'): 'a Dashboard Statistic that stays with the portal',
-    ('observability-page', 'stat-failed'): 'a Dashboard Statistic that stays with the portal',
+    # A widget ref that legitimately resolves to the SHELL: an object a page points at but does not
+    # own, because TWO pages use it and neither chart can own it. The shell is readable by anything
+    # holding the chrome grant, which is the floor beneath every page grant, so this resolves for
+    # any group that can see the page at all.
+    ('compositions-page', 'new-composition'): 'the New-composition Button, shared with the Dashboard',
+    ('dashboard-page', 'new-composition'): 'the New-composition Button, shared with Compositions',
+    # REMOVED, and the reason is worth keeping: ('observability-page', 'stat-healthy') and
+    # ('observability-page', 'stat-failed') were exempted here as "a Dashboard Statistic that stays
+    # with the portal" -- which was never true. That Statistic moved to dashboard-page/
+    # krateo-dashboard with the Dashboard, so the exemption REQUIRED the refs to name the release
+    # namespace and thereby ENFORCED two permanently dangling refs: obs-stat-card-healthy and
+    # obs-stat-card-failed were broken live on 057 for the whole 1.8.78-1.8.81 window. An exemption
+    # written from belief rather than measurement does not merely fail to catch a bug, it protects
+    # it from the rule that would have caught it. The page owns its own obs-stat-healthy /
+    # obs-stat-failed now, exactly as it always owned obs-stat-pending and obs-stat-total.
 }
 
 

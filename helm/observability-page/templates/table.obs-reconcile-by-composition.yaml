@@ -12,7 +12,7 @@ kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: obs-reconcile-by-composition
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
@@ -52,7 +52,7 @@ spec:
     expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind}, {valueKey:"reconciles",kind:"jsonSchemaType",type:"string",stringValue:(.reconciles|tostring)}, {valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:((.p95_ms|tostring)+" ms"),color:((.p95_ms|tonumber) | if . > 3000 then "#cf1322" elif . > 1500 then "#d48806" else "#8c8c8c" end)}, {valueKey:"avg",kind:"jsonSchemaType",type:"string",stringValue:((.avg_ms|tostring)+" ms"),color:"#8c8c8c"} ] ] }'
   apiRef:
     name: obs-reconcile-by-composition
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items: []
 {{- end }}

@@ -13,7 +13,7 @@ apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
   name: obs-reconcile-perf
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -21,7 +21,7 @@ spec:
     - name: pctl
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ .Release.Namespace }}
+        namespace: {{ $.Values.namespace }}
       path: '${ (.range // "6h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "6%20HOUR" end) as $iv | "/?query=SELECT%20round%28quantile%280.5%29%28Duration%29%2F1e6%2C0%29%20AS%20p50_ms%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C0%29%20AS%20p95_ms%2C%20round%28quantile%280.99%29%28Duration%29%2F1e6%2C0%29%20AS%20p99_ms%2C%20round%28avg%28Duration%29%2F1e6%2C0%29%20AS%20avg_ms%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
       verb: GET
       headers:
@@ -31,7 +31,7 @@ spec:
     - name: phases
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ .Release.Namespace }}
+        namespace: {{ $.Values.namespace }}
       path: '${ (.range // "6h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "6%20HOUR" end) as $iv | "/?query=SELECT%20metric%2C%20round%28sum%28dsum%29%2Fnullif%28sum%28dcount%29%2C0%29%2A1000%2C%200%29%20AS%20mean_ms%2C%20sum%28dcount%29%20AS%20samples%20FROM%20%28%20SELECT%20MetricName%20AS%20metric%2C%20ResourceAttributes%5B%27service.instance.id%27%5D%20AS%20sid%2C%20ResourceAttributes%5B%27krateo.io%2Fcomposition-gvr%27%5D%20AS%20gvr%2C%20max%28Sum%29-min%28Sum%29%20AS%20dsum%2C%20max%28Count%29-min%28Count%29%20AS%20dcount%20FROM%20otel_metrics_histogram%20WHERE%20MetricName%20IN%20%28%27unstructured_runtime.reconcile.queue.wait.duration_seconds%27%2C%27unstructured_runtime.reconcile.get.duration_seconds%27%2C%27composition_rbac_generation_duration_seconds%27%2C%27composition_rbac_apply_duration_seconds%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20metric%2C%20sid%2C%20gvr%20%29%20GROUP%20BY%20metric%20FORMAT%20JSON" }'
       verb: GET
       headers:
