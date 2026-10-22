@@ -81,7 +81,7 @@ spec:
     - name: getEvents
       endpointRef:
         name: sse-proxy-internal-endpoint
-        namespace: {{ $.Values.namespace }}
+        namespace: {{ .Release.Namespace }}
       dependsOn:
         name: found
         iterator: '[ select((.name // "") != "" and (.namespace // "") != "") | { path: (.name as $n | .namespace as $ns | ([(.found // empty) | .. | objects | select(.name? == $n and .namespace? == $ns)] | first | (.uid? // "") | tostring) as $uid | "/events?limit=200" + (if ($uid | test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) then "&composition_id=" + $uid else "" end)) } ]'

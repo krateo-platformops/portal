@@ -39,6 +39,21 @@ are. Then every resourcesRefs item is classified by its `resource`:
     resource is a widget plural      -> expect NSPAGE (or the shell, for one the portal keeps)
     resource is anything else        -> expect the shell namespace; NSPAGE is a finding
 
+A RESTAction's `endpointRef` is governed by the same question and gets the same answer. It names a
+SECRET holding a backend's URL and credentials -- clickhouse-endpoint, sse-proxy-internal-endpoint,
+blueprint-render-endpoint -- and those are infrastructure the shell and the installer create in the
+RELEASE namespace. A page chart never ships one. So an endpointRef is always DATA and may never
+name the page namespace.
+
+That check was missing because this lint walked only widget docs, and an endpointRef lives on a
+RESTAction (`templates.krateo.io/v1`). The loop skipped those documents outright, so the field was
+never visited -- the same shape of blind spot as the resourcesRefs one above, one API group over.
+It cost 37 endpointRefs across five charts, live on krateo-057 at 1.8.83 and measured in a 6h
+snowplow window: 364 failures for clickhouse-endpoint @ krateo-observability (the whole
+Observability page), 28 for blueprint-render-endpoint, 27 for clickhouse-endpoint @ krateo-agents,
+and 51 for sse-proxy-internal-endpoint, which is the live event feed on both Compositions and
+Dashboard.
+
 Widget plurals come from the released frontend-crds chart, so the lint tracks the real widget set
 rather than a hand-kept list. Charts declaring no `namespace` (portal,
 portal-agents) are skipped: they have one namespace and the distinction does not arise.
@@ -143,6 +158,21 @@ def render(chart_dir):
     return [d for d in yaml.safe_load_all(r.stdout) if d]
 
 
+def find_endpoint_refs(node):
+    """Every endpointRef mapping anywhere in a RESTAction spec (one per api step)."""
+    out = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == 'endpointRef' and isinstance(v, dict):
+                out.append(v)
+            else:
+                out.extend(find_endpoint_refs(v))
+    elif isinstance(node, list):
+        for i in node:
+            out.extend(find_endpoint_refs(i))
+    return out
+
+
 def main():
     plurals = widget_plurals()
     if not plurals:
@@ -157,6 +187,22 @@ def main():
     for cd in charts:
         chart = os.path.basename(cd)
         for doc in render(cd):
+            # endpointRef lives on RESTActions, a different API group, so it has to be read
+            # before the widget-only filter below -- which is exactly why it went unchecked.
+            if doc.get('kind') == 'RESTAction':
+                ra = f"RESTAction/{(doc.get('metadata') or {}).get('name')}"
+                for ep in find_endpoint_refs(doc.get('spec') or {}):
+                    ns = ep.get('namespace')
+                    if ns is None:
+                        continue
+                    checked += 1
+                    if ns == NSPAGE:
+                        findings.append(
+                            f'{chart}: {ra} endpointRef {ep.get("name")} names the PAGE '
+                            f'namespace. An endpointRef names a Secret, and endpoint Secrets are '
+                            f'created by the shell and the installer in the release namespace -- '
+                            f'no page chart ships one. Use .Release.Namespace (or a dedicated '
+                            f'value, as clusters-page does for spoke readback).')
             if not str(doc.get('apiVersion', '')).startswith(WIDGET_GROUP + '/'):
                 continue
             owner = f"{doc.get('kind')}/{(doc.get('metadata') or {}).get('name')}"
@@ -187,7 +233,8 @@ def main():
                                     f'Install POST).')
     for f in findings:
         print(f'  {f}')
-    print(f'\nlint-ref-namespace: {len(charts)} page chart(s), {checked} resourcesRefs item(s), '
+    print(f'\nlint-ref-namespace: {len(charts)} page chart(s), {checked} resourcesRefs item(s) '
+          f'+ endpointRef(s), '
           f'{len(plurals)} widget plural(s), {len(findings)} finding(s)')
     return len(findings)
 

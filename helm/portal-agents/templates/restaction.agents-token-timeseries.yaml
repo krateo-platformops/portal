@@ -25,7 +25,7 @@ spec:
     - name: series
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ $.Values.namespace }}
+        namespace: {{ .Release.Namespace }}
       path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | (if $r=="1h" then "2%20MINUTE" elif $r=="6h" then "15%20MINUTE" elif $r=="7d" then "6%20HOUR" else "1%20HOUR" end) as $bk | "/?query=SELECT%20toUnixTimestamp%28toStartOfInterval%28Timestamp%2C%20INTERVAL%20" + $bk + "%29%29%20AS%20t%2C%20count%28%29%20AS%20calls%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%20AS%20input_total%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%20AS%20output_total%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20AS%20cached_total%2C%20round%28avg%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%2C%200%29%20AS%20input_avg%2C%20round%28avg%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%2C%200%29%20AS%20output_avg%20FROM%20otel_traces%20WHERE%20has%28mapKeys%28SpanAttributes%29%2C%20%27gen_ai.usage.input_tokens%27%29%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20t%20ORDER%20BY%20t%20FORMAT%20JSON" }'
       verb: GET
       headers:

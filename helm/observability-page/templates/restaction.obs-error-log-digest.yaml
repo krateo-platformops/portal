@@ -34,7 +34,7 @@ spec:
     - name: digest
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ $.Values.namespace }}
+        namespace: {{ .Release.Namespace }}
       path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20ServiceName%20AS%20service%2C%20substring%28coalesce%28nullIf%28JSONExtractString%28Body%2C%27msg%27%29%2C%27%27%29%2C%20nullIf%28Body%2C%27%27%29%2C%20%27unlabeled%20error%27%29%2C1%2C160%29%20AS%20msg%2C%20count%28%29%20AS%20occurrences%2C%20formatDateTime%28max%28Timestamp%29%2C%20%27%25Y-%25m-%25dT%25H%3A%25i%3A%25SZ%27%29%20AS%20last_ts%20FROM%20otel_logs%20WHERE%20lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20AND%20TimestampTime%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20service%2C%20msg%20ORDER%20BY%20occurrences%20DESC%20LIMIT%2040%20FORMAT%20JSON" }'
       verb: GET
       headers:
@@ -44,7 +44,7 @@ spec:
     - name: tot
       endpointRef:
         name: clickhouse-endpoint
-        namespace: {{ $.Values.namespace }}
+        namespace: {{ .Release.Namespace }}
       path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20count%28%29%20AS%20total%2C%20uniqExact%28%28ServiceName%2C%20substring%28coalesce%28nullIf%28JSONExtractString%28Body%2C%27msg%27%29%2C%27%27%29%2C%20nullIf%28Body%2C%27%27%29%2C%20%27unlabeled%20error%27%29%2C1%2C160%29%29%29%20AS%20distinct_problems%20FROM%20otel_logs%20WHERE%20lower%28JSONExtractString%28Body%2C%27level%27%29%29%3D%27error%27%20AND%20TimestampTime%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
       verb: GET
       headers:
