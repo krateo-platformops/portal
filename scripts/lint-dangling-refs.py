@@ -25,8 +25,19 @@ WHY NO GATE SAW THEM. Two reasons, and both are the point of this script:
      breakage only exists in a state no gate ever built. A default-only gate is blind to every
      gated feature in the repo by construction.
 
-So: render every chart, in every single-flag-on state, and resolve every widget ref against the
-objects the whole fleet actually produced. Exit 1 on any that does not resolve.
+  3. NOBODY FOLLOWED apiRef AT ALL. This script's first version collected only widget CRs into
+     `defined` and read only `spec.resourcesRefs`. But a widget names its DATA SOURCE through
+     `spec.apiRef`, which resolves to a RESTAction -- a different group, reached through a
+     different field. That whole axis was uncovered, so when the split left 21 apiRefs naming
+     `{{ $.Values.namespace }}` for `compositions-list` and `blueprints-cards`, which the shell
+     still owns, the gate stayed green while the Dashboard, the Compositions table and the
+     Blueprints grid all rendered "Not found" on krateo-057. A gate that does not LOOK at a
+     field cannot assert anything about it.
+
+So: render every chart, in every single-flag-on state, and resolve every ref -- `resourcesRefs`
+items AND `apiRef` targets -- against the objects the whole fleet actually produced, always as the
+pair (name, namespace). Resolving by name alone passes on exactly the bug this exists to catch.
+Exit 1 on any that does not resolve.
 
 Run: python3 scripts/lint-dangling-refs.py
 """
@@ -43,6 +54,9 @@ import yaml
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHELL_NS = 'krateo-system'
 WIDGET_GROUP = 'widgets.templates.krateo.io'
+# A widget's apiRef resolves to a RESTAction, so the fleet's RESTActions are part of what a ref
+# may legitimately point at and must be collected alongside the widgets.
+RESTACTION_GROUP = 'templates.krateo.io'
 # builder-publish is a BLUEPRINT chart CDC renders with a composition's own values, not a portal
 # chart -- rendering it with portal values is meaningless. Same exclusion, same reason, as the
 # other gates.
@@ -107,6 +121,21 @@ def render(chart, sets=()):
                 if isinstance(d, dict) and d.get('kind')]
 
 
+def find_api_refs(node):
+    """Every apiRef mapping anywhere in a spec."""
+    out = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == 'apiRef' and isinstance(v, dict):
+                out.append(v)
+            else:
+                out.extend(find_api_refs(v))
+    elif isinstance(node, list):
+        for i in node:
+            out.extend(find_api_refs(i))
+    return out
+
+
 def collect(sets_for):
     """(defined, refs) across the fleet for one flag state. `sets_for(chart)` gives that chart's
     --set list, so a flag is applied only to the chart that declares it."""
@@ -116,19 +145,28 @@ def collect(sets_for):
         if docs is None:
             return None, None
         for d in docs:
-            if WIDGET_GROUP not in str(d.get('apiVersion', '')):
+            av = str(d.get('apiVersion', ''))
+            if WIDGET_GROUP not in av and d.get('kind') != 'RESTAction':
                 continue
             meta = d.get('metadata') or {}
             defined.add((meta.get('name'), meta.get('namespace')))
         for d in docs:
+            meta = d.get('metadata') or {}
+            owner, owner_ns = meta.get('name'), meta.get('namespace')
             items = ((d.get('spec') or {}).get('resourcesRefs') or {}).get('items') or []
             for it in items:
                 if not isinstance(it, dict) or WIDGET_GROUP not in str(it.get('apiVersion', '')):
                     continue
                 if it.get('name'):
                     refs.append((it['name'], it.get('namespace'),
-                                 os.path.basename(chart),
-                                 ((d.get('metadata') or {}).get('name'))))
+                                 os.path.basename(chart), owner))
+            # apiRef carries no apiVersion -- it always names a RESTAction. It can sit at the top
+            # of a spec or nested inside one, so walk rather than index. An omitted namespace
+            # resolves to the owner's own, which is how snowplow reads it.
+            for ref in find_api_refs(d.get('spec') or {}):
+                if ref.get('name'):
+                    refs.append((ref['name'], ref.get('namespace', owner_ns),
+                                 os.path.basename(chart), owner))
     return defined, refs
 
 

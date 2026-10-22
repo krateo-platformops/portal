@@ -27,8 +27,11 @@ spec:
   widgetDataTemplate:
     - forPath: options
       expression: '${ .options }'
+  {{/* SHELL-owned: the shell HEADER's project-select reads it too, and the shell cannot depend
+       on a page chart that may be absent -- so neither page chart can own it. Same rule, same
+       reason, as new-composition in the page headers. */}}
   apiRef:
     name: projects
-    namespace: {{ $.Values.namespace }}
+    namespace: {{ .Release.Namespace }}
   resourcesRefs:
     items: []

@@ -34,7 +34,7 @@ spec:
     expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | (if $s == null then "Unknown" elif $s.status == "True" then "Synced" else "NotSynced" end) as $base | if .workloadHealthy == false then ($base + " · Unhealthy") else $base end }'
   - forPath: extraStatus
     expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | if .workloadHealthy == false then "error" elif $s == null then "default" elif $s.status == "True" then "success" else "error" end }'
-  apiRef: { name: composition-detail, namespace: {{ .Release.Namespace }} }
+  apiRef: { name: composition-detail, namespace: {{ $.Values.namespace }} }
   resourcesRefs:
     items:
     - id: list-composition-detail-rail
