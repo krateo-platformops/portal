@@ -68,6 +68,16 @@ spec:
   {{/* Conditions degrade gracefully (kinds with none → empty list → the conditions card hides). */}}
   {{/* manifestJson = the whole object (managedFields + last-applied stripped) as a JSON string — */}}
   {{/* the YamlViewer widget renders JSON → YAML. */}}
+  {{/* A FORBIDDEN READ IS NOT A MISSING RESOURCE. The `object` stage is continueOnError with
+       errorKey objectError, so a 403 left `.object` empty and the subtitle fell through to
+       "Not found" — telling the user the resource does not exist when in fact they may not read
+       it. `devs` holds zero ClusterRoleBindings by design (#261), so that was the normal answer
+       for a non-admin on any resource outside their namespaces.
+       "not readable with your access" is this repo's existing phrase for exactly this (the
+       architecture page uses it, including as "N of M not readable with your access"), so the
+       wording is the house one rather than a new one.
+       Keyed on the CODE, never the reason: an upstream's recorded reason can be its own claim —
+       a 500 calling itself Forbidden — which is why #714 settled that the code decides. */}}
   filter: >
     {{- include "portal.fetchableDefs" . | nindent 4 }}
     (.object // {}) as $o
@@ -85,7 +95,8 @@ spec:
             ([ (if $nsd then ("namespace " + ($o.metadata.namespace // (.namespace // ""))) else "cluster-scoped" end),
                (if ($o.metadata.creationTimestamp // "") != "" then ("created " + ($o.metadata.creationTimestamp)) else empty end) ] | join(" · "))
           else
-            (if (((if ($g == "" or $g == "core") then "/api/" else "/apis/" + $g + "/" end) + (.version // "v1") + "/" + $pl) | fetchablePath | not)
+            (if ((.objectError.code // 0) == 403) then "Not readable with your access"
+             elif (((if ($g == "" or $g == "core") then "/api/" else "/apis/" + $g + "/" end) + (.version // "v1") + "/" + $pl) | fetchablePath | not)
              then ("Not read: the portal does not read " + $pl)
              else ("Not found" + (if (.namespace // "") != "" then (" in namespace " + .namespace) else "" end)) end)
           end),
