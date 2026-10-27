@@ -1,0 +1,26 @@
+{{/* A shared OPTIONS source for schema forms (`x-krateo-options`): the namespaces the caller can */}}
+{{/* list, as `[{label, value}]` — what a field with */}}
+{{/*   "x-krateo-options": { "ref": "<release namespace>/form-options-namespaces", "closed": true } */}}
+{{/* shows. A blueprint form gets it as one of its resourcesRefs (blueprint-formdef's optionRefs), so */}}
+{{/* snowplow checks the caller may GET this RESTAction before the browser calls it, and dials the */}}
+{{/* namespace list as the caller: someone who cannot list namespaces gets a failed load on that */}}
+{{/* field, never another user's list. No continueOnError for the same reason — a 403 must read as */}}
+{{/* "could not be loaded", not as "no namespaces". `krateo.io/form-options` marks it for */}}
+{{/* scripts/lint-form-options.py, which checks every such RESTAction answers with a list and never */}}
+{{/* splices a typed value into a path unescaped. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: form-options-namespaces
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/form-options: "true"
+spec:
+  api:
+    - name: namespaces
+      path: /api/v1/namespaces
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      filter: '[.namespaces.items[]? | .metadata.name | strings]'
+  filter: '[(.namespaces // [])[] | {label: ., value: .}]'

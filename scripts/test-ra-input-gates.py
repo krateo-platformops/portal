@@ -713,6 +713,31 @@ def check_nav_discovery(charts):
     return f
 
 
+def check_edit_form_loads_field_options(charts):
+    """The composition Edit form reads the same values.schema.json as the create form, so a field
+    with `x-krateo-options` needs the same GET ref there: composition-editdef emits one per source
+    (a bare name in the CompositionDefinition's namespace), and form.composition-edit iterates it."""
+    chart = charts['composition-editdef']
+    ra = chart.get('RESTAction', 'composition-editdef')
+    schema = {'type': 'object', 'properties': {
+        'region': {'type': 'string', 'x-krateo-options': {'ref': 'regions'}},
+        'ns': {'type': 'string', 'x-krateo-options': {'ref': f'{NS}/form-options-namespaces'}},
+        'bad': {'type': 'string', 'x-krateo-options': {'ref': 'Not A Name!'}}}}
+    responses = {'crds': {'items': [CD_OTHER, CD]}, 'found': FOUND,
+                 'jsonschema': {'data': {'values.schema.json': json.dumps(schema)}}}
+    _, _, out = resolve(ra, {'namespace': 'team-a', 'name': 'c1'}, responses)
+    problems = []
+    want = [{'id': f'{NS}/form-options-namespaces', 'name': 'form-options-namespaces', 'namespace': NS},
+            {'id': 'regions', 'name': 'regions', 'namespace': NS}]
+    if out.get('optionRefs') != want:
+        problems.append(f'optionRefs: {out.get("optionRefs")!r}, want {want!r}')
+    form = chart.get('Form', 'composition-edit')
+    iterators = [e for e in form['spec'].get('resourcesRefsTemplate') or [] if 'optionRefs' in (e.get('iterator') or '')]
+    if len(iterators) != 1 or iterators[0]['template'].get('verb') != 'GET' or iterators[0]['template'].get('resource') != 'restactions':
+        problems.append('form.composition-edit has no GET restactions ref per optionRefs entry')
+    return problems
+
+
 def main():
     args = sys.argv[1:]
     crds_dir = None
@@ -724,7 +749,8 @@ def main():
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}
     failed, total = 0, 0
-    for check in (check_no_input, check_with_input, check_degraded_reads, check_nav_discovery):
+    for check in (check_no_input, check_with_input, check_degraded_reads, check_nav_discovery,
+                  check_edit_form_loads_field_options):
         total += 1
         try:
             problems = check(charts)
