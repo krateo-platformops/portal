@@ -467,6 +467,14 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-cluster-compositions.py
 
+      # A test script nobody invokes reports nothing and looks like coverage. Same job as above
+      # because it needs the same helm and jq, and runs the chart's own jq the same way.
+      - name: Resource detail subtitle, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-resource-detail.py
+
   # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
   # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
   # logged 601 GETs of `…/builderpublishes/review-`, 358 of `/apis/none.krateo.io/v1/none` and 67 of
