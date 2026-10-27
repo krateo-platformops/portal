@@ -1,0 +1,52 @@
+# The options sources the demo blueprint's schema names (x-krateo-options.ref), in the
+# namespace its CompositionDefinition lives in: a bare `ref` resolves there. Apply with the
+# CompositionDefinition. The catalogue is a ConfigMap so the example needs no cloud API; a
+# real source reads whatever lists the choices, under the same rules (README).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: form-demo-catalog
+  namespace: demo-system
+data:
+  catalog.json: |
+    {
+      "regions": [{ "id": "eu", "name": "Europe" }, { "id": "us", "name": "United States" }],
+      "zones": { "eu": ["eu-west-1a", "eu-west-1b"], "us": ["us-east-1a"] }
+    }
+---
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: form-demo-regions
+  namespace: demo-system
+  annotations:
+    krateo.io/form-options: "true"
+spec:
+  api:
+    - name: catalog
+      path: /api/v1/namespaces/demo-system/configmaps/form-demo-catalog
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+  filter: '[((.catalog.data["catalog.json"] // "{}") | fromjson | .regions // [])[] | {label: .name, value: .id}]'
+---
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: form-demo-zones
+  namespace: demo-system
+  annotations:
+    krateo.io/form-options: "true"
+spec:
+  api:
+    # Gated on the region the form sends (extras.region): with none, no call. The region never
+    # reaches the path; it only picks from the answer.
+    - name: catalog
+      dependsOn:
+        name: ""
+        iterator: '[ { region: (.region // "") } | select(.region != "") ]'
+      path: /api/v1/namespaces/demo-system/configmaps/form-demo-catalog
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+  filter: '(.region // "") as $region | [((.catalog.data["catalog.json"] // "{}") | fromjson | .zones[$region] // [])[] | {label: ., value: .}]'
