@@ -56,6 +56,19 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
+      {{- /* The stage above explains why a cluster-scoped LIST needs a userAccessFilter, and this
+           one is the same cluster-scoped LIST — it was the only composition list on this page
+           still dialled AS THE CALLER. `cyberjoker` cannot list compositions outside
+           demo-system, so it was denied, `continueOnError` swallowed the denial, and $byCid
+           below came out empty: every event then fell to its un-named fallback, which is a bell
+           that silently stops naming compositions for exactly the personas #261 exists for.
+           `resourcesFrom` rather than `resource` because the plural is iterated, which is the
+           same form dashboard-data's `allCompositions` stage uses. */}}
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
       continueOnError: true
       filter: "[.comps.items[]? | {name: .metadata.name, namespace: .metadata.namespace, compositionId: (.metadata.labels[\"krateo.io/composition-id\"] // \"\")}]"
     - name: getEvents
