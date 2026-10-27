@@ -458,6 +458,15 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-composition-architecture.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # portal#333. Same shape as the step above and in the same job for the same reason: it needs
+      # helm and jq, and it runs the chart's OWN jq rather than a copy, so it is only a gate if CI
+      # actually runs it. A test script nobody invokes reports nothing and looks like coverage.
+      - name: Clusters readiness summary, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-cluster-compositions.py
+
       # A test script nobody invokes reports nothing and looks like coverage. Same job as above
       # because it needs the same helm and jq, and runs the chart's own jq the same way.
       - name: Resource detail subtitle, over the chart's own jq
