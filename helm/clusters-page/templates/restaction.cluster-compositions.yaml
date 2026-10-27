@@ -169,22 +169,42 @@ spec:
                       syncedColor: (if .synced == "True" then "green" elif .synced == "False" then "violet" else "gray" end) } ]
        else [] end) as $rows
     | ($rows | length) as $total
-    | ([ $rows[] | select(.ready == "True") ] | length) as $ready
+    {{/* THREE states, counted as three (portal#333). Ready is a Kubernetes CONDITION: True, False
+         or Unknown — and `notReady` was the COMPLEMENT of True, so it absorbed Unknown as well as
+         False. The row LABEL has always had the third state (readyLabel above), so the summary
+         contradicted the rows it summarised.
+         core-provider 2.13.36 makes that reachable: a composition whose child-health rollup
+         evaluated ZERO children reports Ready=Unknown with reason ZeroEvidence — deliberately
+         "not measured", NOT "unhealthy". On 057 that is krateo-system/event-health and
+         krateo-system/model-configs, both healthy, which would have shown as 2 not-ready on a
+         cluster where nothing is wrong, permanently.
+         Counting each state by its own predicate rather than by subtraction also means the next
+         status added to the vocabulary cannot land in a bucket silently, which is how this one
+         arrived. */}}
+    | ([ $rows[] | select(.ready == "True")  ] | length) as $ready
+    | ([ $rows[] | select(.ready == "False") ] | length) as $notReady
+    | ([ $rows[] | select(.ready != "True" and .ready != "False") ] | length) as $unknown
     | {
         cluster: $n,
         reachable: ($named and $reachable),
         rows: $rows,
-        counts: { total: $total, ready: $ready, notReady: ($total - $ready) },
+        counts: { total: $total, ready: $ready, notReady: $notReady, unknown: $unknown },
         statusText: (
           if ($named | not) then "No cluster selected."
           elif ($reachable | not) then ("Live read-back unavailable for \($n) — no endpoint secret (\($n)-endpoint) is provisioned for this cluster, or the spoke apiserver is unreachable.")
           elif ($total == 0) then "No compositions deployed to this spoke yet."
-          else (($total | tostring) + " resource(s) live on this cluster, read directly from the spoke apiserver — " + ($ready | tostring) + " Ready.")
+          else (($total | tostring) + " resource(s) live on this cluster, read directly from the spoke apiserver — " + ($ready | tostring) + " Ready"
+                + (if $notReady > 0 then (", " + ($notReady | tostring) + " not ready") else "" end)
+                + (if $unknown > 0 then (", " + ($unknown | tostring) + " not reported") else "" end) + ".")
           end),
+        {{/* Same vocabulary as the rows: a FALSE is the problem (orange), an Unknown is withheld
+             evidence (gray), and green is claimed only when every row actually reported True.
+             Marking the cluster green while some rows never reported would overclaim health. */}}
         statusColor: (
           if ($named | not) then "gray"
           elif ($reachable | not) then "red"
           elif ($total == 0) then "gray"
-          elif ($ready < $total) then "orange"
+          elif ($notReady > 0) then "orange"
+          elif ($unknown > 0) then "gray"
           else "green" end)
       }
