@@ -53,6 +53,18 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
+      {{/* A cluster-scoped LIST dialled AS THE CALLER demands a ClusterRole from every persona
+           that opens a blueprint, and `devs` carries none by design (#261). It was denied,
+           `continueOnError` swallowed it, and the blueprint's "running compositions" came back
+           empty for every non-admin. `resourcesFrom` because the plural comes from the
+           CompositionDefinition this page is about; `group` is static because every
+           CompositionDefinition's status.apiVersion is in composition.krateo.io. Same form
+           dashboard-page's allCompositions stage already ships with. */}}
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: '[ .compdef | objects | (.status.resource // "") | select(. != "") ]'
+        namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: compsError
   filter: |

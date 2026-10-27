@@ -71,6 +71,17 @@ spec:
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
+      {{/* A cluster-scoped LIST dialled AS THE CALLER demands a ClusterRole from every persona
+           that loads this page, and `devs` carries none by design (#261) — zero
+           ClusterRoleBindings, measured. So this was denied, `continueOnError` swallowed it, and
+           the palette came back empty for every non-admin. With a userAccessFilter snowplow
+           dials with its own ServiceAccount and refilters per object through the CALLER's RBAC,
+           which is the same form dashboard-page's `crds` stage has shipped with all along. */}}
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: compdefsError
       filter: >
@@ -89,6 +100,16 @@ spec:
         iterator: '(.compdefs // []) | unique_by([(.apiVersion | split("/"))[0], .plural])'
       path: ${ "/apis/" + .apiVersion + "/" + .plural }
       verb: GET
+      {{/* Same reasoning, and `resourcesFrom` rather than `resource` because the plural is
+           iterated. `group` is static, as the field requires: every CompositionDefinition's
+           status.apiVersion is in composition.krateo.io (68 of 68 on 057, and dashboard-page's
+           own allCompositions stage hardcodes that group in its path), so one API group covers
+           the whole iterated set. */}}
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: '[ (.compdefs // [])[] | .plural ]'
+        namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: runningError
       filter: >
