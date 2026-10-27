@@ -74,8 +74,19 @@ def req(**over):
 
 CASES = [
     # THE FIX: a 403 must say so, not claim the resource is absent.
-    ('403 forbidden', req(objectError={'code': 403, 'reason': 'Forbidden'}),
+    ('403 forbidden, as an object', req(objectError={'code': 403, 'reason': 'Forbidden'}),
      'Not readable with your access'),
+    # AN errorKey CAN HOLD A LIST. An iterated stage records one error per item, and my first
+    # version of this test only fed an object — so `.objectError.code` passed here and failed
+    # lint-ra-paths, which feeds an EMPTY ARRAY for an absent input. `[] | .code` is a hard jq
+    # error, and a jq error in this filter fails the whole resolve: the page would break for
+    # everyone, not just for the caller who was denied.
+    ('403 forbidden, as a list', req(objectError=[{'code': 403, 'reason': 'Forbidden'}]),
+     'Not readable with your access'),
+    ('an empty list, which is how an absent error arrives', req(objectError=[]),
+     'Not found in namespace other-team'),
+    ('a list with no 403 in it', req(objectError=[{'code': 404}, {'code': 500}]),
+     'Not found in namespace other-team'),
     # CONTROL: a genuine absence must still read as Not found, or the fix has just relabelled
     # every empty read as a permission problem.
     ('404 absent', req(objectError={'code': 404, 'reason': 'NotFound'}),

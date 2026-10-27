@@ -77,7 +77,14 @@ spec:
        architecture page uses it, including as "N of M not readable with your access"), so the
        wording is the house one rather than a new one.
        Keyed on the CODE, never the reason: an upstream's recorded reason can be its own claim —
-       a 500 calling itself Forbidden — which is why #714 settled that the code decides. */}}
+       a 500 calling itself Forbidden — which is why #714 settled that the code decides.
+
+       Shape-safe on purpose. `.objectError.code` reads naturally and is WRONG: an errorKey can
+       hold an object, a LIST of them (an iterated stage records one per item), or nothing — and
+       on the absent case lint-ra-paths feeds an empty array, where `[] | .code` is a hard jq
+       error. A jq error in this filter fails the WHOLE resolve, so the page would break for
+       everyone rather than just for the caller who was denied. Flattening to a list of objects
+       and asking whether ANY of them is a 403 is total over all four shapes. */}}
   filter: >
     {{- include "portal.fetchableDefs" . | nindent 4 }}
     (.object // {}) as $o
@@ -95,7 +102,8 @@ spec:
             ([ (if $nsd then ("namespace " + ($o.metadata.namespace // (.namespace // ""))) else "cluster-scoped" end),
                (if ($o.metadata.creationTimestamp // "") != "" then ("created " + ($o.metadata.creationTimestamp)) else empty end) ] | join(" · "))
           else
-            (if ((.objectError.code // 0) == 403) then "Not readable with your access"
+            (if ([ .objectError ] | flatten | map(select(type == "object") | .code // 0) | any(. == 403))
+             then "Not readable with your access"
              elif (((if ($g == "" or $g == "core") then "/api/" else "/apis/" + $g + "/" end) + (.version // "v1") + "/" + $pl) | fetchablePath | not)
              then ("Not read: the portal does not read " + $pl)
              else ("Not found" + (if (.namespace // "") != "" then (" in namespace " + .namespace) else "" end)) end)
