@@ -10,9 +10,10 @@ WHAT IT GUARDS.
   files; this chart ships them to the cluster. Two copies of one declaration drift unless something
   compares them, so this does:
   1. helm/portal/files/builders/<name>.builder.yaml is BYTE-IDENTICAL to each fixture on
-     krateo-platformops/frontend (main, or --frontend-ref) — the frontend's builderFixtures.test.ts
-     pins those bytes by sha256 — and the chart renders each as a Builder of the same name, in the
-     release namespace, with an equal spec, and renders no Builder the frontend does not declare.
+     krateo-platformops/frontend at FRONTEND_REF, the pinned revision these copies were taken from
+     — the frontend's builderFixtures.test.ts pins those bytes by sha256 — and the chart renders
+     each as a Builder of the same name, in the release namespace, with an equal spec, and renders
+     no Builder the frontend does not declare.
   2. The CRs agree with the chart: each draftKind is a portal.draftBuilders kind whose route the
      Builder's route sits under, each spec.portal.draftsCard names a widget the chart renders, and
      each preview.restActionRef names a RESTAction the chart renders.
@@ -20,8 +21,24 @@ WHAT IT GUARDS.
      builders — and nothing that writes — with the chart's defaults AND with the demo users off,
      so the frontend's /list?category=builders reads them as any signed-in caller (ADR 0001).
 
-  When the frontend changes a fixture, check 1 goes red here until the chart's copy follows: that
-  is the point, not a flake.
+WHY A PINNED REVISION AND NOT main.
+  This compared against frontend `main` until 2026-10-28, which turned every branch of this repo
+  red the moment the frontend merged a fixture change — before anyone here had decided to adopt it,
+  and with no action available in this repo's own PR to make it green. The comparison is about
+  PROVENANCE: are these bytes the frontend's declaration? A moving ref cannot answer that. It
+  answers "are these the frontend's LATEST declaration?", which is a different claim, and not one
+  this chart makes — what the chart ships has to match the frontend the installer deploys beside
+  it, which is a pinned version too, not main.
+
+  So FRONTEND_REF names the revision the copies came from, and adopting a newer fixture is a
+  deliberate commit here that moves the bytes and the pin together. Check 1 still goes red for a
+  copy that drifts from the pin: a hand edit in this repo is exactly what it was built to catch.
+
+  Losing the red-on-their-merge signal would hide a pending adoption, so the gate REPORTS when the
+  frontend has moved ahead of the pin. That report never fails the run — adopting a fixture is this
+  repo's decision, not one the frontend's merge queue makes for it — but it is printed on every
+  run, so the choice is visible rather than discovered at release. To make it blocking for one run,
+  pass `--frontend-ref main`.
 
 Usage: test-builder-crs.py [--fixtures DIR | --frontend-ref REF]. Exit code = failed checks.
 """
@@ -42,6 +59,13 @@ CHART_DIR = os.path.join(HERE, '..', 'helm', 'portal')
 CHART_FILES = os.path.join(CHART_DIR, 'files', 'builders')
 FIXTURES = ('portal-builder', 'blueprint-builder', 'controller-builder')
 RAW = 'https://raw.githubusercontent.com/krateo-platformops/frontend/{ref}/ui/src/builders/fixtures/{name}.builder.yaml'
+# The frontend revision helm/portal/files/builders/*.builder.yaml were taken from: 672b22b,
+# "feat(controller-builder): round 2 — pinned served version, ids from status, oasgen 0.25
+# validator (#434)", the last frontend commit to touch ui/src/builders/fixtures/. Move it in the
+# SAME commit that copies new fixture bytes in, never on its own — the pin is this repo's claim
+# about where those bytes came from, so the pin without the bytes (or the bytes without the pin)
+# makes the claim false. Same convention as hack/design-lint's VENDORED AT stamp.
+FRONTEND_REF = '672b22bdab3bb472b91d183afe72ab7760d44f9e'
 GROUP = 'builders.templates.krateo.io'
 WRITE_VERBS = {'create', 'update', 'patch', 'delete', 'deletecollection', '*'}
 
@@ -188,12 +212,28 @@ def check_every_signed_in_user_can_read_builders(docs, fx):
     return problems
 
 
+def report_pin_drift(fx):
+    """Print whether the frontend has moved ahead of FRONTEND_REF. Never fails and never changes the
+    exit code: this is the notice that an adoption is pending, not a verdict that one is overdue."""
+    try:
+        latest = fixtures(None, 'main')
+    except OSError as exc:
+        print(f'[ ?? ] the pin vs frontend main: could not read main ({type(exc).__name__}: {exc})')
+        return
+    behind = sorted(name for name, text in latest.items() if text != fx[name])
+    if behind:
+        print(f'[NOTE] frontend main has moved ahead of the pin at {", ".join(behind)} — adopt it by '
+              'copying those fixtures into files/builders and moving FRONTEND_REF in the same commit')
+    else:
+        print('[ OK ] the pin is current — frontend main declares the same fixture bytes')
+
+
 CHECKS = [check_the_crs_are_the_frontends, check_the_crs_agree_with_the_chart, check_every_signed_in_user_can_read_builders]
 
 
 def main():
     args = sys.argv[1:]
-    fixtures_dir, ref = None, 'main'
+    fixtures_dir, ref = None, FRONTEND_REF
     if '--fixtures' in args:
         i = args.index('--fixtures')
         fixtures_dir = args[i + 1]
@@ -203,7 +243,17 @@ def main():
         ref = args[i + 1]
         del args[i:i + 2]
     docs = tbi.render(args[0]) if args else tbi.render_portal_and_pages()
-    fx = fixtures(fixtures_dir, ref)
+    try:
+        fx = fixtures(fixtures_dir, ref)
+    except OSError as exc:
+        # Red, but with the reason: nothing here drifted, the comparison could not be made. Without
+        # this the same bad morning ends in a urllib traceback, which reads as a defect in the chart
+        # — and a lint that needs the network is a lint that fails on a bad morning, so when it does
+        # it should say so (the same reasoning as .github/workflows/design-system.yaml).
+        print(f'[FAIL] could not read the frontend fixtures at '
+              f'{fixtures_dir or "krateo-platformops/frontend@" + ref} — nothing in this repo '
+              f'drifted, the comparison could not be made: {type(exc).__name__}: {exc}')
+        return 1
     failed = 0
     for check in CHECKS:
         try:
@@ -214,6 +264,8 @@ def main():
         for p in problems:
             print(f'        {p}')
         failed += bool(problems)
+    if fixtures_dir is None and ref == FRONTEND_REF:
+        report_pin_drift(fx)
     print(f'\n{len(CHECKS) - failed} of {len(CHECKS)} checks passed '
           f'(fixtures: {fixtures_dir or "krateo-platformops/frontend@" + ref})')
     return failed
