@@ -153,7 +153,7 @@ def ending($pr):
   that shares an index name and carries a registration file is still offered Install, and lands
   on the index chart. The note above the form says so in that case (builderFile is how it knows),
   so nobody installs the index chart believing it is theirs; refusing the name when it is
-  published, in the composer, is the fix.
+  published, in the builder, is the fix.
 
   CHART_VERSION is not a version. A page set's file carries that placeholder because a release tag
   decides the version and the release stamps it into the published copy; the branch never learns
@@ -232,7 +232,7 @@ def installNoun($bp):
 
 {{/*
   portal.draftBuilders — the builders whose draft records "Your drafts" lists, keyed by the
-  record's krateo.io/draft-kind: the route its composer lives under, and whether its tree is a
+  record's krateo.io/draft-kind: the route its builder lives under, and whether its tree is a
   chart (a Chart.yaml whose version the row shows) or a page set (the row says "page"), and the
   card on that builder's page where a published draft's change request is followed to the end
   (the record knows only that it was published, never whether the change request merged).

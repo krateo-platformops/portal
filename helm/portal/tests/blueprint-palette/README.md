@@ -1,7 +1,7 @@
 # blueprint-palette jq fixtures
 
 Self-contained jq fixtures for the `blueprint-palette` RESTAction: the kinds a person may
-place on the Blueprint Composer's canvas, read as that person. The composer fetches the RA
+place on the Blueprint Builder's canvas, read as that person. The builder fetches the RA
 through snowplow `/call` with the caller's Bearer. Every step is a plain apiserver call with
 no `endpointRef` and no `userAccessFilter`, which is how an RA asks snowplow to run it under
 the caller's own credential. snowplow 1.12.13 does not always do so. A collection GET its
@@ -79,7 +79,7 @@ done
 | `probe-failed` | Both probes failed (a 500) and both lists have items, so the probes claim nothing and each class is whatever its list returned. |
 | `probe-unauthorized` | The cyberjoker shape on krateo-057's snowplow 1.12.13, with its cache on. Both probes are answered 401, because the POST carries his snowplow session JWT. The CRD list has items, so `custom` is that list. The definition list comes back narrowed to empty, and an empty list nobody could check may be a denial, so `compositions` is the probe's own 401 and never "none installed". |
 | `probe-unauthorized-empty` | The cost of that rule: when both probes cannot answer and both lists are empty, both classes are errors, even for an admin on a cluster with nothing installed. |
-| `running-partial` | One kind's instance list failed. Its count reads 0 and `runningPartial` is `true`, so the composer shows no count rather than a false 0. |
+| `running-partial` | One kind's instance list failed. Its count reads 0 and `runningPartial` is `true`, so the builder shows no count rather than a false 0. |
 | `empty` | Nothing is installed and both probes allow. The result is empty lists, not errors. |
 
 ## Contract notes
