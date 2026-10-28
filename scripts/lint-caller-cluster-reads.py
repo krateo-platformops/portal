@@ -51,7 +51,10 @@ import yaml
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NS = 'krateo-system'
-EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
+# enableIncidentResponse renders the one cluster binding this chart is allowed to make for a
+# persona (#340 gates it; see ALLOWED_CLUSTER_BINDINGS). Without it this gate would pass
+# because the binding is switched off, not because it is acceptable.
+EXTRA_VALUES = {'portal': ['observability.snowplowSli=true', 'enableIncidentResponse=true']}
 
 # Every first-class chart in helm/. The page-set charts split out of portal (#261) carry page
 # RESTActions of their own, so they are checked on the same terms — a cluster-scoped caller dial is
@@ -95,7 +98,9 @@ PERSONA_GROUPS = {'devs', 'sre'}
 ALLOWED_CLUSTER_BINDINGS = {
     'sre-incident-responder': 'binds krateo-incident-responder, a ClusterRole this chart does not '
                               'render — it ships with the incident-controller and is the SRE\'s '
-                              'actual work permission, not a page or widget read',
+                              'actual work permission, not a page or widget read. Gated on '
+                              'enableIncidentResponse (#340), which is why this gate renders the '
+                              'chart with that flag set.',
 }
 
 
