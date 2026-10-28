@@ -2,7 +2,7 @@
 # output under its name, and each stage's errors, accumulated as a list, under its errorKey.
 def truthy: . != null and . != false and . != "" and . != 0 and . != [] and . != {};  # Helm `if`
 # readyWhen has TWO forms and both have to evaluate here, because Helm's `readinessGuard` compiles both
-# (see the composer's readyWhen.ts). Reading only the field form leaves a condition-form node waiting
+# (see the builder's readyWhen.ts). Reading only the field form leaves a condition-form node waiting
 # forever on a resource that is ready, with nothing to search for. `[capture(...)] | first` rather than
 # a bare capture: on no match capture emits NOTHING, which drops the whole node from the array around it.
 def condType($rw): [ $rw | capture("^\\.status\\.conditions\\[\\] \\| select\\(\\.type == \"(?<t>\\w+)\"\\) \\| \\.status == \"True\"$") ] | first | .t;
