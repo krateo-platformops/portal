@@ -75,27 +75,53 @@ def rows(*readys):
     `ready` is the condition's own `.status` string, as the upstream stage projects it
     (`[.status.conditions[] | select(.type=="Ready") | .status] | first // ""`), so a composition
     with no Ready condition at all arrives as "" — which must count as unknown, not as not-ready.
+    Each item is either a Ready status string, or a (status, reason) pair. The REASON is the
+    contract core-provider maintains (`Available`, `Creating`, `Unavailable`, `ZeroEvidence`) —
+    never the message, which is prose they change freely.
     """
+    def one(r):
+        ready, reason = r if isinstance(r, tuple) else (r, '')
+        return {'ready': ready, 'reason': reason, 'synced': 'True'}
+
     return {
         'name': 'spoke-a',
         'spokeCrds': {'items': []},
-        'spokeCompositions': [{'ready': r, 'synced': 'True'} for r in readys],
+        'spokeCompositions': [one(r) for r in readys],
         'spokeCompositionDefinitions': [],
     }
 
 
+C0 = {'converging': 0}
 CASES = [
     # (ready values, expected counts, expected statusColor)
-    (['True', 'True'],            {'total': 2, 'ready': 2, 'notReady': 0, 'unknown': 0}, 'green'),
-    (['True', 'False'],           {'total': 2, 'ready': 1, 'notReady': 1, 'unknown': 0}, 'orange'),
+    (['True', 'True'],            {'total': 2, 'ready': 2, 'notReady': 0, 'unknown': 0, **C0}, 'green'),
+    (['True', 'False'],           {'total': 2, 'ready': 1, 'notReady': 1, 'unknown': 0, **C0}, 'orange'),
     # THE REGRESSION: Unknown is not not-ready. Two healthy-but-unmeasured compositions on a
     # cluster where nothing is wrong must not be counted as problems.
-    (['True', 'Unknown'],         {'total': 2, 'ready': 1, 'notReady': 0, 'unknown': 1}, 'gray'),
+    (['True', 'Unknown'],         {'total': 2, 'ready': 1, 'notReady': 0, 'unknown': 1, **C0}, 'gray'),
     # A composition with no Ready condition at all — same treatment, by the same predicate.
-    (['True', ''],                {'total': 2, 'ready': 1, 'notReady': 0, 'unknown': 1}, 'gray'),
+    (['True', ''],                {'total': 2, 'ready': 1, 'notReady': 0, 'unknown': 1, **C0}, 'gray'),
     # A real failure still outranks withheld evidence.
-    (['False', 'Unknown'],        {'total': 2, 'ready': 0, 'notReady': 1, 'unknown': 1}, 'orange'),
-    ([],                          {'total': 0, 'ready': 0, 'notReady': 0, 'unknown': 0}, 'gray'),
+    (['False', 'Unknown'],        {'total': 2, 'ready': 0, 'notReady': 1, 'unknown': 1, **C0}, 'orange'),
+    ([],                          {'total': 0, 'ready': 0, 'notReady': 0, 'unknown': 0, **C0}, 'gray'),
+
+    # core-provider#234 / 2.13.40: Ready=False with reason `Creating` is CONVERGING, not broken.
+    # It was landing in notReady — the same shape as the portal#333 regression above, one state
+    # later: a bucket absorbing a state that is not a failure.
+    ([('False', 'Creating')],     {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 1, 'unknown': 0}, 'blue'),
+    # Converging must NOT fall through to green: the row never reported True.
+    ([('True', 'Available'), ('False', 'Creating')],
+                                  {'total': 2, 'ready': 1, 'notReady': 0, 'converging': 1, 'unknown': 0}, 'blue'),
+    # A real failure still outranks progress.
+    ([('False', 'Unavailable'), ('False', 'Creating')],
+                                  {'total': 2, 'ready': 0, 'notReady': 1, 'converging': 1, 'unknown': 0}, 'orange'),
+    # Progress outranks withheld evidence.
+    ([('False', 'Creating'), ('Unknown', 'ZeroEvidence')],
+                                  {'total': 2, 'ready': 0, 'notReady': 0, 'converging': 1, 'unknown': 1}, 'blue'),
+    # An UNRECOGNISED False reason stays not-ready, deliberately: `notReady` is False-and-not-
+    # Creating rather than False-and-Unavailable, so a reason added to the vocabulary later reads
+    # as needing attention instead of vanishing into `unknown`.
+    ([('False', 'SomeNewReason')], {'total': 1, 'ready': 0, 'notReady': 1, 'converging': 0, 'unknown': 0}, 'orange'),
 ]
 
 
@@ -111,6 +137,9 @@ def main():
             failures.append(f'{label}: statusColor {got.get("statusColor")!r} != {want_color!r}')
         # The summary must never contradict the labels it summarises.
         labels = [r.get('readyLabel') for r in got.get('rows', [])]
+        if labels.count('Creating') != got.get('counts', {}).get('converging'):
+            failures.append(f'{label}: Creating pills={labels.count("Creating")} but '
+                            f'converging={got.get("counts", {}).get("converging")}')
         if labels.count('NotReady') != got.get('counts', {}).get('notReady'):
             failures.append(f'{label}: {labels.count("NotReady")} NotReady rows but '
                             f'notReady={got.get("counts", {}).get("notReady")}')
