@@ -7,7 +7,26 @@
 {{/* · read and patch the compositions in demo-system, so Apply of an incident whose fix patches a */}}
 {{/*   composition there succeeds, and read what those compositions run (the built-in `view`, which */}}
 {{/*   reads no Secrets). */}}
-{{/* Gated with the demo-system namespace: the persona exists for that demo. */}}
+{{/* Gated with the demo-system namespace: the persona exists for that demo. The incident binding
+     below carries a SECOND gate of its own. */}}
+{{- if .Values.enableIncidentResponse }}
+{{/* SECOND GATE (#340). `enableIncidentResponse` states that incident-controller is installed HERE.
+     That is a different question from "the demo namespace exists", and inferring one from the other
+     is what broke: krateo-demo ran with enableDemoSystemNamespace and no incident-controller, so
+     this roleRef dangled from 2026-10-19 19:31Z. A dangling binding grants nothing, so nothing
+     failed closed and nothing alerted — but snowplow logged a WARN per RBAC evaluation against it
+     (~790/s, 392M rows, 95% of all otel_logs, 133 GiB of Body), which filled that cluster's 14.66
+     GiB ClickHouse and dropped telemetry ingestion from 2026-10-25. Demo observability and the S4
+     budget alerts were blind for six days, and the only symptom was log volume.
+
+     A VALUES FLAG, deliberately, and not a `lookup` of the ClusterRole: `lookup` returns empty
+     under `helm template`, which is how CDC renders this chart and how every gate in this repo
+     evaluates it. A lookup-gated binding would render as absent on exactly those paths — silently
+     revoking SRE incident response wherever it IS installed, with no gate able to see it go.
+
+     It ships UNSET (the schema declares no default, and the installer applies schema defaults), so
+     an install that wants SRE incident response turns it on where the controller is deployed. The
+     binding itself stays exactly as #291 wrote it; see the note below. */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -20,6 +39,7 @@ subjects:
 - kind: Group
   name: sre
   apiGroup: rbac.authorization.k8s.io
+{{- end }}
 ---
 {{/* THE SRE PERSONA CARRIES NO CLUSTER-SCOPED PORTAL READ EITHER (#261).
 
@@ -34,7 +54,11 @@ subjects:
      does not render — it comes with the incident-controller and is the SRE's actual work
      permission, not a portal read. Removing it would break incident response; it is listed in
      scripts/lint-caller-cluster-reads.py as the one cluster binding this chart is allowed to make
-     for a persona. */}}
+     for a persona (that gate renders this chart with enableIncidentResponse=true so the allow-list
+     entry keeps being exercised rather than passing because the binding is switched off).
+
+     What #340 changed is WHERE it ships, not whether: it is gated on `enableIncidentResponse`
+     above instead of riding on the demo-namespace flag. */}}
 ---
 {{/* krateo-system: the portal's widgets and RESTActions (every page), and the alerts the incident */}}
 {{/* pages link to. Read-only. */}}
