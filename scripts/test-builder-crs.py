@@ -59,13 +59,13 @@ CHART_DIR = os.path.join(HERE, '..', 'helm', 'portal')
 CHART_FILES = os.path.join(CHART_DIR, 'files', 'builders')
 FIXTURES = ('portal-builder', 'blueprint-builder', 'controller-builder')
 RAW = 'https://raw.githubusercontent.com/krateo-platformops/frontend/{ref}/ui/src/builders/fixtures/{name}.builder.yaml'
-# The frontend revision helm/portal/files/builders/*.builder.yaml were taken from: 672b22b,
-# "feat(controller-builder): round 2 — pinned served version, ids from status, oasgen 0.25
-# validator (#434)", the last frontend commit to touch ui/src/builders/fixtures/. Move it in the
+# The frontend revision helm/portal/files/builders/*.builder.yaml were taken from: 878d235,
+# "refactor(builders): the golden chain says builder, and two dangling paths are fixed (#531)",
+# the last frontend commit to touch ui/src/builders/fixtures/. Move it in the
 # SAME commit that copies new fixture bytes in, never on its own — the pin is this repo's claim
 # about where those bytes came from, so the pin without the bytes (or the bytes without the pin)
 # makes the claim false. Same convention as hack/design-lint's VENDORED AT stamp.
-FRONTEND_REF = '672b22bdab3bb472b91d183afe72ab7760d44f9e'
+FRONTEND_REF = '878d23591357f4a144ccfd5facffdaa8896cb034'
 GROUP = 'builders.templates.krateo.io'
 WRITE_VERBS = {'create', 'update', 'patch', 'delete', 'deletecollection', '*'}
 

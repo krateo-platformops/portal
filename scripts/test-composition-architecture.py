@@ -86,13 +86,13 @@ WIDGETS = [
 ]
 GATE = ('Row', 'composition-detail-architecture-row', 'items')
 
-# helm/builder-publish/templates/architecture.yaml is not authored here. It is the Blueprint Composer's
-# golden for this chart (frontend ui/src/pages/BlueprintComposer/__fixtures__/builder-publish/
-# expected.architecture-template.yaml, S11a, frontend 71216cd), copied byte for byte: the composer owns
+# helm/builder-publish/templates/architecture.yaml is not authored here. It is the Blueprint
+# Builder's golden for this chart (frontend ui/src/pages/BlueprintBuilder/__fixtures__/builder-publish/
+# expected.architecture-template.yaml, S11a, frontend 878d235), copied byte for byte: the builder owns
 # the compiled `krateo:graph` block and refuses a descriptor whose block is not byte-equal to its own
-# compile (lint L3). A hand edit here would drift from what the composer would write, so it fails
+# compile (lint L3). A hand edit here would drift from what the builder would write, so it fails
 # until the golden is regenerated there and copied again.
-COMPOSER_GOLDEN_SHA256 = 'b7c9ec9de8e095d5d925afa2a55bfdfbfcee299b67fdd3d6c416fc4ab8d5efe0'
+BUILDER_GOLDEN_SHA256 = '94fe8bd186ea9fa48a1cca93c0cefb831824e7993db4173cb408b842cfa4b39a'
 
 
 # ---------------------------------------------------------------------------------------------
@@ -513,7 +513,7 @@ def check_builder_publish_names_what_it_renders(ctx):
     f = []
     template = os.path.join(REPO, 'helm', 'builder-publish', 'templates', 'architecture.yaml')
     expect(f, 'templates/architecture.yaml is the composer golden (sha256)',
-           hashlib.sha256(open(template, 'rb').read()).hexdigest(), COMPOSER_GOLDEN_SHA256)
+           hashlib.sha256(open(template, 'rb').read()).hexdigest(), BUILDER_GOLDEN_SHA256)
     for key, fixture in ctx['cases']['compositions'].items():
         if 'names' not in fixture:
             continue
