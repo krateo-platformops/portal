@@ -1,0 +1,51 @@
+{{/* A shared OPTIONS source for schema forms (`x-krateo-options`): the namespaces the caller can */}}
+{{/* list, as `[{label, value}]` — what a field with */}}
+{{/*   "x-krateo-options": { "ref": "<release namespace>/form-options-namespaces", "closed": true } */}}
+{{/* shows. A blueprint form gets it as one of its resourcesRefs (blueprint-formdef's optionRefs), so */}}
+{{/* snowplow checks the caller may GET this RESTAction before the browser calls it. */}}
+{{/* */}}
+{{/* IT IS NOT DIALLED AS THE CALLER, and that is the opposite of how this started. Reading */}}
+{{/* /api/v1/namespaces as the caller sounds like the privacy-preserving choice — you can only ever */}}
+{{/* see what you are allowed to see — but listing namespaces CLUSTER-WIDE is an admin grant, so for */}}
+{{/* every tenant persona the field did not show a narrowed list, it failed outright. The caller */}}
+{{/* needed a ClusterRole merely to open a form. lint-caller-cluster-reads is the gate that says so. */}}
+{{/* */}}
+{{/* The userAccessFilter gets the same guarantee AND works: snowplow dials its OWN SA */}}
+{{/* (resolveStageEndpoint, api/resolve.go:386) and narrows downstream by SubjectAccessReview per */}}
+{{/* namespace, so the caller needs no cluster-wide grant of any kind and still never sees a */}}
+{{/* namespace that is not theirs. Same read, same privacy, one fewer ClusterRole. */}}
+{{/* */}}
+{{/* THE PREDICATE IS `list flexes`, matching restaction.sidebar-nav. "Your namespaces" already has */}}
+{{/* a definition in this chart — the ones whose portal pages you can list — and reusing it means the */}}
+{{/* namespaces a form offers are the namespaces whose pages you can already see. A form that offered */}}
+{{/* a namespace the sidebar hides, or hid one it shows, would be the more confusing answer. */}}
+{{/* */}}
+{{/* STILL NO continueOnError, deliberately, and NOT copied from sidebar-nav. There the fallback is */}}
+{{/* load-bearing because an empty list means a blank sidebar; here an empty list would read as "no */}}
+{{/* namespaces exist", which is a lie a person would act on. A failure must surface as "could not be */}}
+{{/* loaded" — the original author's reasoning, and it survives this change unaltered. */}}
+{{/* */}}
+{{/* `krateo.io/form-options` marks it for */}}
+{{/* scripts/lint-form-options.py, which checks every such RESTAction answers with a list and never */}}
+{{/* splices a typed value into a path unescaped. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: form-options-namespaces
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    krateo.io/form-options: "true"
+spec:
+  api:
+    - name: namespaces
+      path: /api/v1/namespaces
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: widgets.templates.krateo.io
+        resource: flexes
+        namespaceFrom: .metadata.name
+      filter: '[.namespaces.items[]? | .metadata.name | strings]'
+  filter: '[(.namespaces // [])[] | {label: ., value: .}]'

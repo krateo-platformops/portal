@@ -116,8 +116,19 @@ spec:
     # `.properties` lookups below never index a scalar.
     | (if ($parsed | type) == "object" then $parsed else {} end) as $schema
     | ([ (($schema.properties) // {}) | (if type == "object" then to_entries[] else empty end) | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden
+    # x-krateo-options sources, exactly as blueprint-formdef emits them for the create form (see the
+    # note there): one GET ref per `ref`, a bare name living in the blueprint's own namespace (the
+    # CompositionDefinition's, where its jsonschema ConfigMap is read from).
+    | (($crd.cdNamespace // "") | tostring) as $cdNs
+    | ([ $schema | .. | objects | .["x-krateo-options"]? | objects | .ref? | strings
+         | gsub("^\\s+|\\s+$"; "")
+         | select(test("^([a-z0-9]([-a-z0-9]*[a-z0-9])?/)?[a-z0-9]([-.a-z0-9]*[a-z0-9])?$")) ]
+       | unique
+       | map(split("/") as $p | { id: ., name: $p[-1], namespace: (if ($p | length) == 2 then $p[0] else $cdNs end) })
+       | map(select(.namespace != ""))) as $optionRefs
     | {
         schemaSpec: $schema,
+        optionRefs: $optionRefs,
         values: (($d.spec // {}) | if type == "object" then . else {} end),
         propertiesToHide: $hidden,
         gvr: {

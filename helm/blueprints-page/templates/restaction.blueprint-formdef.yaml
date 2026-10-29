@@ -122,6 +122,38 @@ spec:
   {{/* blueprint's own `namespace` spec field is untouched; only real, create-permitted namespaces are */}}
   {{/* offered. Was previously pinned to a single [$blueprintNs] which 403'd every tenant create. */}}
   filter: |
+    # Where the value of the TOP-LEVEL key $key opens (the index of its `{`) in JSON text, or null.
+    # A string scan that tracks depth and skips string contents, because `index("\"properties\": ")`
+    # finds the FIRST occurrence: a blueprint whose schema puts an `if: { properties: … }` (or any
+    # nested `properties`) before its own top-level `properties` had the identity fields spliced
+    # into that inner object, and the form lost its Name and Namespace. The text is never parsed and
+    # re-emitted (gojq would sort the keys); only the position is computed. `first` stops the scan
+    # at the match, which in every real schema is in its first few hundred characters.
+    def toplevel_object_start($key):
+      . as $s
+      | ("\"" + $key + "\"") as $needle
+      | ($needle | length) as $nl
+      | ($s | explode) as $cs
+      | (first(
+          foreach range(0; $cs | length) as $i (
+            { d: 0, str: false, esc: false, hit: null };
+            .hit = null
+            | if .str then
+                if .esc then .esc = false
+                elif $cs[$i] == 92 then .esc = true
+                elif $cs[$i] == 34 then .str = false
+                else . end
+              elif $cs[$i] == 34 then
+                (if .d == 1 and $s[$i:($i + $nl)] == $needle
+                    and ($s[($i + $nl):] | test("^\\s*:\\s*\\{")) then .hit = $i else . end)
+                | .str = true
+              elif $cs[$i] == 123 or $cs[$i] == 91 then .d += 1
+              elif $cs[$i] == 125 or $cs[$i] == 93 then .d -= 1
+              else . end;
+            select(.hit != null) | .hit
+          )
+        ) // null) as $h
+      | if $h == null then null else $h + $nl + ($s[($h + $nl):] | index("{")) end;
     # NOT READY — the CompositionDefinition has no generated kind yet (core-provider has not
     # reconciled it: the first seconds after an Install), its CRD is not served yet, or this runs with
     # no blueprint named (a background prewarm). Every path above is null-safe for it, and the form
@@ -150,6 +182,7 @@ spec:
                                         + (if $why == null then "" else " core-provider reports: " + $why end)) },
             propertiesToHide: [],
             initialValues: { __owner: $ownerKey },
+            optionRefs: [],
             apiVersion: "", kind: "", resource: "" }
       else
     ($cdApiVersion | split("/")[1]) as $ver
@@ -197,14 +230,15 @@ spec:
     # "" (never null) when there is no raw schema: the Form CRD types stringSchema a string and snowplow
     # refuses a resolved widget it does not admit; the Form reads "" as absent and uses schemaSpec.
     | (if $raw == null then ""
-       else ("\"properties\": ") as $n
-         | ($raw | index($n)) as $pi
+       else ($raw | toplevel_object_start("properties")) as $pi
          | (if $pi == null then ""
-            else ($raw[0:($pi + ($n | length))]) as $pfx
-              | ($raw[($pi + ($n | length)):]) as $rst
+            else ($raw[0:$pi]) as $pfx
+              | ($raw[$pi:]) as $rst
               | ({ __composition_name__:      { type: "string", title: "Name",      description: "Name for the new composition instance" },
                    __composition_namespace__: { type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts, default: $nsDefault } } | tojson) as $id
-              | ($pfx + $id[:-1] + "," + $rst[1:]) as $spliced
+              # `{}` (a schema that declares no fields yet) takes the identity object whole: a
+              # trailing comma before its `}` would make the string unparseable.
+              | ($pfx + $id[:-1] + (if ($rst[1:] | test("^\\s*\\}")) then "" else "," end) + $rst[1:]) as $spliced
               # The two identity keys MUST be `required` so they render UP-FRONT, not under the
               # "Advanced" collapse (SchemaFields partitions on required). The old code PREPENDED a
               # "required":[...] key, but the blueprint's raw schema carries its OWN top-level
@@ -220,14 +254,34 @@ spec:
               | ($body + ",\"required\":" + ($req | tojson) + "}")
             end)
        end) as $stringSchema
+    # x-krateo-options sources (a field whose options a RESTAction returns): every `ref` in the raw
+    # schema becomes one GET ref of the Form (form.blueprint-create's resourcesRefsTemplate), so
+    # snowplow resolves the path and whether THIS user may call it — the browser never builds a
+    # call from schema text. `ref` is `name` (a RESTAction in the blueprint's own namespace, applied
+    # with its CompositionDefinition) or `namespace/name` (a shared one, e.g. the portal's
+    # form-options-namespaces). Anything that is not a Kubernetes name is dropped, never sent.
+    # Read from the RAW schema only: the CRD drops every x-krateo-* key, so the schemaSpec fallback
+    # has none.
+    | ((.compdef.metadata.namespace // $blueprintNs) | tostring) as $cdNs
+    | ([ (try ($raw | fromjson) catch null) | .. | objects | .["x-krateo-options"]? | objects | .ref? | strings
+         | gsub("^\\s+|\\s+$"; "")
+         | select(test("^([a-z0-9]([-a-z0-9]*[a-z0-9])?/)?[a-z0-9]([-.a-z0-9]*[a-z0-9])?$")) ]
+       | unique
+       | map(split("/") as $p | { id: ., name: $p[-1], namespace: (if ($p | length) == 2 then $p[0] else $cdNs end) })) as $optionRefs
     | {
         stringSchema: $stringSchema,
+        optionRefs: $optionRefs,
         schemaSpec: ($spec
           | .properties = ({
               __composition_name__:      { type: "string", title: "Name",      description: "Name for the new composition instance" },
               __composition_namespace__: { type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts, default: $nsDefault }
             } + (.properties // {}))
-          | .required = (["__composition_name__", "__composition_namespace__"] + (.required // []))),
+          | .required = (["__composition_name__", "__composition_namespace__"] + (.required // []))
+          # Only read when stringSchema is "" (no jsonschema ConfigMap): say what that costs,
+          # instead of silently rendering a form without its field order or dynamic options.
+          | if $stringSchema == "" then
+              .["x-krateo-notice"] = "This form is built from the blueprint's CRD because its schema ConfigMap was not found: fields are in alphabetical order, and options a field loads at runtime are not available."
+            else . end),
         propertiesToHide: $hidden,
         initialValues: { __owner: $draftKey },
         apiVersion: .compdef.status.apiVersion,

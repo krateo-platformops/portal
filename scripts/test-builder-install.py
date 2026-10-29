@@ -775,6 +775,82 @@ def check_create_form_says_when_the_blueprint_is_not_registered_yet(chart):
     return f
 
 
+def option_refs(chart, kind, name, ra_output):
+    """The GET refs a form's options iterator (resourcesRefsTemplate) makes from its RA's output."""
+    refs = []
+    for entry in chart.get(kind, name)['spec'].get('resourcesRefsTemplate') or []:
+        iterator = (entry.get('iterator') or '').strip()
+        if not iterator:
+            continue
+        for item in jq(iterator[2:-1], ra_output) or []:
+            refs.append({k: (jq(v.strip()[2:-1], item) if isinstance(v, str) and v.strip().startswith('${') else v)
+                         for k, v in entry['template'].items()})
+    return refs
+
+
+def check_create_form_loads_field_options(chart):
+    """A blueprint field with `x-krateo-options` (frontend widgets/Form/fieldOptions.ts) names its
+    options RESTAction by `ref`; the create form must carry one GET ref per source so snowplow
+    resolves the path and `allowed`. The raw schema is spliced, never re-emitted, and a schema whose
+    `if` (or any nested `properties`) comes BEFORE its top-level `properties` must still get the
+    identity fields at the top level. With no jsonschema ConfigMap the form says what it lost."""
+    f = []
+    extras = {'name': 'my-bp', 'namespace': 'team-bp', 'username': 'admin'}
+    registered = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+                  'metadata': {'name': 'my-bp', 'namespace': 'team-bp'},
+                  'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'MyBp', 'resource': 'mybps'}}
+    crd = {'spec': {'versions': [{'name': 'v0-1-0', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'properties': {'region': {'type': 'string'}}}}}}}]}}
+    namespaces = {'items': [{'metadata': {'name': 'team-bp'}}]}
+    raw = (
+        '{\n  "$schema": "http://json-schema.org/draft-07/schema#",\n'
+        '  "description": "a \\"properties\\": { trap in a string",\n'
+        '  "if": { "properties": { "tier": { "const": "gold" } } },\n'
+        '  "then": { "required": ["zone"] },\n'
+        '  "properties"  :  {\n'
+        '    "region": { "type": "string", "x-krateo-options": { "ref": "regions" } },\n'
+        '    "zone": { "type": "string", "x-krateo-options": { "ref": "krateo-system/form-options-namespaces", "closed": true } },\n'
+        '    "nested": { "type": "object", "properties": { "again": { "type": "string", "x-krateo-options": { "ref": " regions " } } } },\n'
+        '    "bad": { "type": "string", "x-krateo-options": { "ref": "Not A Name!" } },\n'
+        '    "tier": { "type": "string" }\n'
+        '  },\n'
+        '  "required": ["region"]\n}\n')
+
+    def create(label, schema_text):
+        responses = {'compdef': registered, 'crd': crd, 'namespaces': namespaces,
+                     'jsonschema': 'ERROR' if schema_text is None else {'data': {'values.schema.json': schema_text}}}
+        out = resolve(chart, 'blueprint-formdef', responses, extras)
+        return out, resolved_widget(chart, 'Form', 'blueprint-create', out, extras, f'blueprint-create ({label})')
+
+    out, doc = create('options', raw)
+    schema = json.loads(doc['spec']['widgetData']['stringSchema'])
+    expect(f, 'identity fields at the TOP level, before the blueprint\'s own, in order',
+           list(schema['properties']), ['__composition_name__', '__composition_namespace__', 'region', 'zone', 'nested', 'bad', 'tier'])
+    expect(f, 'the `if` that precedes `properties` is untouched', schema['if'], {'properties': {'tier': {'const': 'gold'}}})
+    expect(f, 'identity fields are required, then the blueprint\'s own', schema['required'], ['__composition_name__', '__composition_namespace__', 'region'])
+    expect(f, 'one ref per distinct source; a bare name lives in the blueprint namespace; a non-name is dropped', out['optionRefs'], [
+        {'id': 'krateo-system/form-options-namespaces', 'name': 'form-options-namespaces', 'namespace': 'krateo-system'},
+        {'id': 'regions', 'name': 'regions', 'namespace': 'team-bp'}])
+    expect(f, 'the form gets a GET ref per source', option_refs(chart, 'Form', 'blueprint-create', out), [
+        {'id': 'krateo-system/form-options-namespaces', 'apiVersion': 'templates.krateo.io/v1', 'resource': 'restactions',
+         'name': 'form-options-namespaces', 'namespace': 'krateo-system', 'verb': 'GET'},
+        {'id': 'regions', 'apiVersion': 'templates.krateo.io/v1', 'resource': 'restactions',
+         'name': 'regions', 'namespace': 'team-bp', 'verb': 'GET'}])
+    expect(f, 'a ConfigMap schema carries no CRD-fallback notice', 'x-krateo-notice' in doc['spec']['widgetData']['schema'], False)
+
+    out, doc = create('no fields yet', '{"type": "object", "properties": {}}')
+    schema = json.loads(doc['spec']['widgetData']['stringSchema'])
+    expect(f, 'a schema with `properties: {}` still parses, with the identity fields', list(schema['properties']),
+           ['__composition_name__', '__composition_namespace__'])
+    expect(f, 'no sources, no refs', option_refs(chart, 'Form', 'blueprint-create', out), [])
+
+    out, doc = create('no ConfigMap', None)
+    expect(f, 'CRD fallback: the form says field order and runtime options are lost',
+           'options a field loads at runtime are not available' in doc['spec']['widgetData']['schema'].get('x-krateo-notice', ''), True)
+    expect(f, 'CRD fallback: no option refs (the CRD has no x-krateo-* keys)', out['optionRefs'], [])
+    return f
+
+
 def check_marketplace_detail_resolves_without_a_name(chart):
     """The marketplace detail RESTAction behind /marketplace/<name> and the Install page header. The
     background prewarm resolves it with no ?extras.name, and `.entries[null]` raised "expected a
@@ -1102,6 +1178,7 @@ CHECKS = [
     check_register_sets_the_upgrade_policy,
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
+    check_create_form_loads_field_options,
     check_marketplace_detail_resolves_without_a_name,
     check_render_draft_reads_the_chart_from_its_configmap,
     check_my_drafts_are_the_callers_own,
