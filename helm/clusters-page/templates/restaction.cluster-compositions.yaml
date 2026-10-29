@@ -165,20 +165,34 @@ spec:
     | (.spokeCrds != null) as $reachable
     | (if ($named and $reachable)
        then [ (.spokeCompositions // [])[], (.spokeCompositionDefinitions // [])[]
-              | . + { readyLabel: (if .ready == "True" then "Ready"
+              | . + { readyLabel: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "Paused"
+                                   elif .ready == "True" then "Ready"
                                    elif (.ready == "False" and .reason == "Creating") then "Creating"
                                    elif .ready == "False" then "NotReady" else "Unknown" end),
-                      readyColor: (if .ready == "True" then "green"
+                      readyColor: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "slate"
+                                   elif .ready == "True" then "green"
                                    elif (.ready == "False" and .reason == "Creating") then "blue"
                                    elif .ready == "False" then "red" else "gray" end),
                       syncedLabel: (if .synced == "True" then "Synced" elif .synced == "False" then "Drift" else "Unknown" end),
                       syncedColor: (if .synced == "True" then "green" elif .synced == "False" then "violet" else "gray" end) } ]
        else [] end) as $rows
     | ($rows | length) as $total
-    {{/* FOUR states, counted as four (portal#333, then core-provider#234). A Ready CONDITION is
-         True, False or Unknown, and a False carries a REASON that distinguishes broken from
-         converging — so `Creating` is counted apart from `Unavailable`. The reason is the
-         contract; the message is prose core-provider changes freely, so nothing keys on it.
+    {{/* FIVE states, counted as five (portal#333, then core-provider#234, then #238). A Ready
+         CONDITION is True, False or Unknown, and it carries a REASON that splits those: a FALSE
+         distinguishes broken from converging, so `Creating` is counted apart from `Unavailable`
+         — and a TRUE distinguishes maintained from paused, so `ReconcileGracefullyPaused` is
+         counted apart from `Available`. The reason is the contract; the message is prose
+         core-provider changes freely, so nothing keys on it.
+
+         PAUSE IS A TRUE, WHICH IS THE PART THAT SURPRISES. `ReconcileGracefullyPaused` stamps
+         Status=TRUE, so a paused composition is NOT a failure and never shows red. But True there
+         is a claim about the LAST OBSERVED state, not about being maintained: nothing is
+         converging a paused composition, nothing corrects its drift, and its children can rot
+         without the condition changing. "Ready" is not false, it is less true than it looks —
+         hence a neutral `Paused` pill rather than green. It is COUNTED as well as labelled,
+         because a label and a count over the same field under DIFFERENT rules is the shape where
+         one of them is always lying, which is the whole reason this block exists. Reachable from
+         core-provider#238; 0 of 83 on 057 are paused today, so nothing moves until one is.
          Ready is a Kubernetes CONDITION: True, False
          or Unknown — and `notReady` was the COMPLEMENT of True, so it absorbed Unknown as well as
          False. The row LABEL has always had the third state (readyLabel above), so the summary
@@ -191,7 +205,8 @@ spec:
          Counting each state by its own predicate rather than by subtraction also means the next
          status added to the vocabulary cannot land in a bucket silently, which is how this one
          arrived. */}}
-    | ([ $rows[] | select(.ready == "True")  ] | length) as $ready
+    | ([ $rows[] | select(.ready == "True" and .reason != "ReconcileGracefullyPaused") ] | length) as $ready
+    | ([ $rows[] | select(.ready == "True" and .reason == "ReconcileGracefullyPaused") ] | length) as $paused
     | ([ $rows[] | select(.ready == "False" and .reason == "Creating") ] | length) as $converging
     | ([ $rows[] | select(.ready == "False" and .reason != "Creating") ] | length) as $notReady
     | ([ $rows[] | select(.ready != "True" and .ready != "False") ] | length) as $unknown
@@ -199,7 +214,7 @@ spec:
         cluster: $n,
         reachable: ($named and $reachable),
         rows: $rows,
-        counts: { total: $total, ready: $ready, notReady: $notReady, converging: $converging, unknown: $unknown },
+        counts: { total: $total, ready: $ready, notReady: $notReady, converging: $converging, paused: $paused, unknown: $unknown },
         statusText: (
           if ($named | not) then "No cluster selected."
           elif ($reachable | not) then ("Live read-back unavailable for \($n) — no endpoint secret (\($n)-endpoint) is provisioned for this cluster, or the spoke apiserver is unreachable.")
@@ -207,6 +222,7 @@ spec:
           else (($total | tostring) + " resource(s) live on this cluster, read directly from the spoke apiserver — " + ($ready | tostring) + " Ready"
                 + (if $notReady > 0 then (", " + ($notReady | tostring) + " not ready") else "" end)
                 + (if $converging > 0 then (", " + ($converging | tostring) + " still coming up") else "" end)
+                + (if $paused > 0 then (", " + ($paused | tostring) + " paused") else "" end)
                 + (if $unknown > 0 then (", " + ($unknown | tostring) + " not reported") else "" end) + ".")
           end),
         {{/* Same vocabulary as the rows: a FALSE/Unavailable is the problem (orange), a
@@ -217,7 +233,16 @@ spec:
              when `converging` was first counted and this chain was not updated with it).
              Order: a real failure outranks progress, and progress outranks absent evidence —
              "still coming up" is a statement about the cluster, "not reported" is the lack of
-             one, so the informative state wins when both are present. */}}
+             one, so the informative state wins when both are present.
+
+             PAUSED IS DELIBERATELY ABSENT FROM THIS CHAIN. A paused row DID report True, and the
+             rule above is about rows that never reported, so it does not turn the dot. The dot
+             answers "did anything fail to report healthy?" — no — while the row pill answers "is
+             this one being maintained?" — Paused. Two questions, two honest answers. The
+             consequence, stated so it is a decision and not an oversight: a cluster whose every
+             composition is paused shows GREEN. If that should read neutral instead, the condition
+             is `$paused == $total`, not `$paused > 0` — one paused row among fifty says nothing
+             about the cluster. */}}
         statusColor: (
           if ($named | not) then "gray"
           elif ($reachable | not) then "red"

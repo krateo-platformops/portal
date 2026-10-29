@@ -76,8 +76,9 @@ def rows(*readys):
     (`[.status.conditions[] | select(.type=="Ready") | .status] | first // ""`), so a composition
     with no Ready condition at all arrives as "" — which must count as unknown, not as not-ready.
     Each item is either a Ready status string, or a (status, reason) pair. The REASON is the
-    contract core-provider maintains (`Available`, `Creating`, `Unavailable`, `ZeroEvidence`) —
-    never the message, which is prose they change freely.
+    contract core-provider maintains (`Available`, `Creating`, `Unavailable`, `ZeroEvidence`,
+    `ReconcileGracefullyPaused`) — never the message, which is prose they change freely. Note that
+    `ReconcileGracefullyPaused` carries Status=TRUE, not False.
     """
     def one(r):
         ready, reason = r if isinstance(r, tuple) else (r, '')
@@ -91,7 +92,15 @@ def rows(*readys):
     }
 
 
-C0 = {'converging': 0}
+# Every row pill, label -> colour. The colour is checked as well as the label because they are
+# derived from the same two fields by two separate if-chains, which is the same shape as a label
+# disagreeing with a count: one of them can be wrong on its own. And a wrong colour NAME does not
+# fail anywhere — the frontend's getColorCode returns palette.dark for a name it does not know, so
+# a typo renders as near-black ink rather than raising. These five names are all in ui/src/theme
+# tokens.ts, in both the light and dark tables.
+LABEL_COLOR = {'Creating': 'blue', 'NotReady': 'red', 'Paused': 'slate', 'Ready': 'green', 'Unknown': 'gray'}
+
+C0 = {'converging': 0, 'paused': 0}
 CASES = [
     # (ready values, expected counts, expected statusColor)
     (['True', 'True'],            {'total': 2, 'ready': 2, 'notReady': 0, 'unknown': 0, **C0}, 'green'),
@@ -108,20 +117,39 @@ CASES = [
     # core-provider#234 / 2.13.40: Ready=False with reason `Creating` is CONVERGING, not broken.
     # It was landing in notReady — the same shape as the portal#333 regression above, one state
     # later: a bucket absorbing a state that is not a failure.
-    ([('False', 'Creating')],     {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 1, 'unknown': 0}, 'blue'),
+    ([('False', 'Creating')],     {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 1, 'paused': 0, 'unknown': 0}, 'blue'),
     # Converging must NOT fall through to green: the row never reported True.
     ([('True', 'Available'), ('False', 'Creating')],
-                                  {'total': 2, 'ready': 1, 'notReady': 0, 'converging': 1, 'unknown': 0}, 'blue'),
+                                  {'total': 2, 'ready': 1, 'notReady': 0, 'converging': 1, 'paused': 0, 'unknown': 0}, 'blue'),
     # A real failure still outranks progress.
     ([('False', 'Unavailable'), ('False', 'Creating')],
-                                  {'total': 2, 'ready': 0, 'notReady': 1, 'converging': 1, 'unknown': 0}, 'orange'),
+                                  {'total': 2, 'ready': 0, 'notReady': 1, 'converging': 1, 'paused': 0, 'unknown': 0}, 'orange'),
     # Progress outranks withheld evidence.
     ([('False', 'Creating'), ('Unknown', 'ZeroEvidence')],
-                                  {'total': 2, 'ready': 0, 'notReady': 0, 'converging': 1, 'unknown': 1}, 'blue'),
+                                  {'total': 2, 'ready': 0, 'notReady': 0, 'converging': 1, 'paused': 0, 'unknown': 1}, 'blue'),
     # An UNRECOGNISED False reason stays not-ready, deliberately: `notReady` is False-and-not-
     # Creating rather than False-and-Unavailable, so a reason added to the vocabulary later reads
     # as needing attention instead of vanishing into `unknown`.
-    ([('False', 'SomeNewReason')], {'total': 1, 'ready': 0, 'notReady': 1, 'converging': 0, 'unknown': 0}, 'orange'),
+    ([('False', 'SomeNewReason')], {'total': 1, 'ready': 0, 'notReady': 1, 'converging': 0, 'paused': 0, 'unknown': 0}, 'orange'),
+
+    # core-provider#238: `ReconcileGracefullyPaused` is Status=TRUE. A paused composition is not a
+    # failure and must never show red — but "Ready" claims it is being maintained, which is the one
+    # thing it is not, so it is labelled and counted apart from Available.
+    ([('True', 'ReconcileGracefullyPaused')],
+                                  {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 1, 'unknown': 0}, 'green'),
+    ([('True', 'Available'), ('True', 'ReconcileGracefullyPaused')],
+                                  {'total': 2, 'ready': 1, 'notReady': 0, 'converging': 0, 'paused': 1, 'unknown': 0}, 'green'),
+    # A real failure still outranks a pause.
+    ([('True', 'ReconcileGracefullyPaused'), ('False', 'Unavailable')],
+                                  {'total': 2, 'ready': 0, 'notReady': 1, 'converging': 0, 'paused': 1, 'unknown': 0}, 'orange'),
+    # Withheld evidence still turns the dot; a pause on its own does not.
+    ([('True', 'ReconcileGracefullyPaused'), ('Unknown', 'ZeroEvidence')],
+                                  {'total': 2, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 1, 'unknown': 1}, 'gray'),
+    # The mirror of the unrecognised-False case: an unrecognised TRUE reason stays READY. `paused`
+    # is a named-reason predicate, NOT True-and-not-Available, so a reason core-provider adds on
+    # the True side cannot silently become a pause.
+    ([('True', 'SomeNewTrueReason')],
+                                  {'total': 1, 'ready': 1, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 0}, 'green'),
 ]
 
 
@@ -143,6 +171,21 @@ def main():
         if labels.count('NotReady') != got.get('counts', {}).get('notReady'):
             failures.append(f'{label}: {labels.count("NotReady")} NotReady rows but '
                             f'notReady={got.get("counts", {}).get("notReady")}')
+        # Both True-side states, which is where an if-chain in the wrong order shows up: test
+        # `.ready == "True"` before the paused arm and a paused row is LABELLED Ready while being
+        # COUNTED paused — the mismatch these assertions exist to make impossible.
+        if labels.count('Paused') != got.get('counts', {}).get('paused'):
+            failures.append(f'{label}: Paused pills={labels.count("Paused")} but '
+                            f'paused={got.get("counts", {}).get("paused")}')
+        if labels.count('Ready') != got.get('counts', {}).get('ready'):
+            failures.append(f'{label}: Ready pills={labels.count("Ready")} but '
+                            f'ready={got.get("counts", {}).get("ready")}')
+        for row in got.get('rows', []):
+            want = LABEL_COLOR.get(row.get('readyLabel'))
+            if want is None:
+                failures.append(f'{label}: row label {row.get("readyLabel")!r} is not one of {sorted(LABEL_COLOR)}')
+            elif row.get('readyColor') != want:
+                failures.append(f'{label}: a {row.get("readyLabel")} pill is {row.get("readyColor")!r}, want {want!r}')
     for f in failures:
         print(f'FAIL  {f}')
     print(f'{len(CASES) - len({f.split(":")[0] for f in failures})}/{len(CASES)} cases ok')
