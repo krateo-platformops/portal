@@ -283,10 +283,13 @@ jobs:
           python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # The Builder CRs (files/builders/*.builder.yaml, rendered by templates/builders.yaml) are byte-identical copies of the frontend's fixtures
-  # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with frontend main,
-  # checks they agree with the chart (draft kinds, drafts cards, preview RESTActions), and that every
-  # signed-in user (system:authenticated) may read them, demo users on or off. Red after a frontend
-  # fixture change means: copy it here.
+  # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with the frontend
+  # revision FRONTEND_REF pins — NOT main, so a fixture change over there cannot redden a branch
+  # here before anyone has adopted it — checks they agree with the chart (draft kinds, drafts cards,
+  # preview RESTActions), and that every signed-in user (system:authenticated) may read them, demo
+  # users on or off. Red means a copy here drifted from the pin: restore it, or adopt a new fixture
+  # by moving the bytes and the pin in one commit. A [NOTE] line (never a failure) says when the
+  # frontend has moved ahead of the pin.
   builder-crs:
     runs-on: ubuntu-latest
     steps:
