@@ -36,6 +36,8 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 
 ## Authoring rules (for chart contributors)
 
+- [form-options](./form-options.md) — how a blueprint field's `x-krateo-options` reaches a
+  RESTAction, the shared options sources, and the CI rules for them.
 - [authoring-keyextras](./authoring-keyextras.md) — the `spec.keyExtras` cache-key
   declaration rule, CI-enforced by `scripts/lint-keyextras.py`.
 
