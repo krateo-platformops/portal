@@ -3,7 +3,7 @@
 lint-form-options — a RESTAction that feeds a form field's options never splices a typed value into
 a path unescaped, and never reads Secrets.
 
-WHAT IT GUARDS. A schema field with `x-krateo-options` (frontend: widgets/Form/fieldOptions.ts)
+WHAT IT GUARDS. A schema field with `autocomplete` (frontend: widgets/Form/fieldOptions.ts)
 calls its RESTAction with the value of another field, or with what the person is typing, in
 `?extras` — `{"region": "eu-west-1"}`, `{"q": "pay"}`. snowplow hands those extras to the
 RESTAction's jq as top-level keys, and a step path built from them is a request to the API server

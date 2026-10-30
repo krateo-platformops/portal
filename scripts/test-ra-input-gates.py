@@ -715,14 +715,14 @@ def check_nav_discovery(charts):
 
 def check_edit_form_loads_field_options(charts):
     """The composition Edit form reads the same values.schema.json as the create form, so a field
-    with `x-krateo-options` needs the same GET ref there: composition-editdef emits one per source
+    with `autocomplete` needs the same GET ref there: composition-editdef emits one per source
     (a bare name in the CompositionDefinition's namespace), and form.composition-edit iterates it."""
     chart = charts['composition-editdef']
     ra = chart.get('RESTAction', 'composition-editdef')
     schema = {'type': 'object', 'properties': {
-        'region': {'type': 'string', 'x-krateo-options': {'ref': 'regions'}},
-        'ns': {'type': 'string', 'x-krateo-options': {'ref': f'{NS}/form-options-namespaces'}},
-        'bad': {'type': 'string', 'x-krateo-options': {'ref': 'Not A Name!'}}}}
+        'region': {'type': 'string', 'autocomplete': {'resourceRefId': 'regions'}},
+        'ns': {'type': 'string', 'autocomplete': {'resourceRefId': f'{NS}/form-options-namespaces'}},
+        'bad': {'type': 'string', 'autocomplete': {'resourceRefId': 'Not A Name!'}}}}
     responses = {'crds': {'items': [CD_OTHER, CD]}, 'found': FOUND,
                  'jsonschema': {'data': {'values.schema.json': json.dumps(schema)}}}
     _, _, out = resolve(ra, {'namespace': 'team-a', 'name': 'c1'}, responses)

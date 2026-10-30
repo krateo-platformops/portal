@@ -116,11 +116,11 @@ spec:
     # `.properties` lookups below never index a scalar.
     | (if ($parsed | type) == "object" then $parsed else {} end) as $schema
     | ([ (($schema.properties) // {}) | (if type == "object" then to_entries[] else empty end) | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden
-    # x-krateo-options sources, exactly as blueprint-formdef emits them for the create form (see the
-    # note there): one GET ref per `ref`, a bare name living in the blueprint's own namespace (the
+    # autocomplete sources, exactly as blueprint-formdef emits them for the create form (see the
+    # note there): one GET ref per `resourceRefId`, a bare name living in the blueprint's own namespace (the
     # CompositionDefinition's, where its jsonschema ConfigMap is read from).
     | (($crd.cdNamespace // "") | tostring) as $cdNs
-    | ([ $schema | .. | objects | .["x-krateo-options"]? | objects | .ref? | strings
+    | ([ $schema | .. | objects | .autocomplete? | objects | .resourceRefId? | strings
          | gsub("^\\s+|\\s+$"; "")
          | select(test("^([a-z0-9]([-a-z0-9]*[a-z0-9])?/)?[a-z0-9]([-.a-z0-9]*[a-z0-9])?$")) ]
        | unique

@@ -254,16 +254,16 @@ spec:
               | ($body + ",\"required\":" + ($req | tojson) + "}")
             end)
        end) as $stringSchema
-    # x-krateo-options sources (a field whose options a RESTAction returns): every `ref` in the raw
+    # autocomplete sources (a field whose options a RESTAction returns): every `resourceRefId` in the raw
     # schema becomes one GET ref of the Form (form.blueprint-create's resourcesRefsTemplate), so
     # snowplow resolves the path and whether THIS user may call it — the browser never builds a
-    # call from schema text. `ref` is `name` (a RESTAction in the blueprint's own namespace, applied
+    # call from schema text. `resourceRefId` is `name` (a RESTAction in the blueprint's own namespace, applied
     # with its CompositionDefinition) or `namespace/name` (a shared one, e.g. the portal's
     # form-options-namespaces). Anything that is not a Kubernetes name is dropped, never sent.
-    # Read from the RAW schema only: the CRD drops every x-krateo-* key, so the schemaSpec fallback
+    # Read from the RAW schema only: the CRD drops `autocomplete` like every unknown key, so the schemaSpec fallback
     # has none.
     | ((.compdef.metadata.namespace // $blueprintNs) | tostring) as $cdNs
-    | ([ (try ($raw | fromjson) catch null) | .. | objects | .["x-krateo-options"]? | objects | .ref? | strings
+    | ([ (try ($raw | fromjson) catch null) | .. | objects | .autocomplete? | objects | .resourceRefId? | strings
          | gsub("^\\s+|\\s+$"; "")
          | select(test("^([a-z0-9]([-a-z0-9]*[a-z0-9])?/)?[a-z0-9]([-.a-z0-9]*[a-z0-9])?$")) ]
        | unique
@@ -280,7 +280,7 @@ spec:
           # Only read when stringSchema is "" (no jsonschema ConfigMap): say what that costs,
           # instead of silently rendering a form without its field order or dynamic options.
           | if $stringSchema == "" then
-              .["x-krateo-notice"] = "This form is built from the blueprint's CRD because its schema ConfigMap was not found: fields are in alphabetical order, and options a field loads at runtime are not available."
+              .notice = "This form is built from the blueprint's CRD because its schema ConfigMap was not found: fields are in alphabetical order, and options a field loads at runtime are not available."
             else . end),
         propertiesToHide: $hidden,
         initialValues: { __owner: $draftKey },

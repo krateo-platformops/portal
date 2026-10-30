@@ -1,7 +1,7 @@
 ---
 type: Example
 title: A blueprint whose create form loads options, cascades and hides fields
-description: A demo blueprint using every x-krateo-* schema extension — a region → zone cascade from a RESTAction, the shared namespaces source, a field shown only for NodePort, titled host rows, key/value image pull secrets — with its options RESTActions.
+description: A demo blueprint using every form schema key (autocomplete, dependsOn, displayDependency, objectField) — a region → zone cascade from a RESTAction, the shared namespaces source, a field shown only for NodePort, titled host rows, key/value image pull secrets — with its options RESTActions.
 resource: oci://ghcr.io/krateo-platformops/charts/portal
 tags: [portal, blueprints, forms, restactions]
 timestamp: 2026-10-27T00:00:00Z
@@ -9,7 +9,7 @@ timestamp: 2026-10-27T00:00:00Z
 
 # A blueprint whose create form loads options, cascades and hides fields
 
-The keywords are documented in the frontend's
+The keys are documented in the frontend's
 [form-schema-extensions](https://github.com/krateo-platformops/frontend/blob/main/ui/docs/form-schema-extensions.md);
 this is one blueprint that uses all of them, and the RESTActions it needs.
 
@@ -34,7 +34,7 @@ What the create form does with it:
 ## How the refs are wired
 
 The portal's `blueprint-formdef` reads the schema from core-provider's jsonschema ConfigMap,
-collects every `x-krateo-options.ref`, and the create form turns each into a GET ref:
+collects every `autocomplete.resourceRefId`, and the create form turns each into a GET ref:
 `form-demo-regions` and `form-demo-zones` (bare names) resolve in the blueprint's namespace,
 `krateo-system/form-options-namespaces` where it says. snowplow resolves each path and whether
 the caller may call it, so the RESTActions need the usual RBAC: whoever creates this blueprint

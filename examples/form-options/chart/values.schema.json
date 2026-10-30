@@ -5,18 +5,19 @@
     "region": {
       "type": "string",
       "title": "Region",
-      "x-krateo-options": { "ref": "form-demo-regions", "closed": true }
+      "autocomplete": { "resourceRefId": "form-demo-regions", "closed": true }
     },
     "zone": {
       "type": "string",
       "title": "Zone",
       "description": "The zones of the region picked above.",
-      "x-krateo-options": { "ref": "form-demo-zones", "closed": true, "dependsOn": { "field": "region", "param": "region" } }
+      "autocomplete": { "resourceRefId": "form-demo-zones", "closed": true },
+      "dependsOn": { "name": "region", "extra": { "key": "region" } }
     },
     "targetNamespace": {
       "type": "string",
       "title": "Target namespace",
-      "x-krateo-options": { "ref": "krateo-system/form-options-namespaces", "closed": true }
+      "autocomplete": { "resourceRefId": "krateo-system/form-options-namespaces", "closed": true }
     },
     "service": {
       "type": "object",
@@ -28,7 +29,7 @@
           "title": "Node port",
           "minimum": 30000,
           "maximum": 32767,
-          "x-krateo-visible-when": { "field": "type", "equals": "NodePort" }
+          "displayDependency": { "dependsOn": { "name": "type" }, "conditionType": "value", "value": "NodePort" }
         }
       },
       "if": { "properties": { "type": { "const": "NodePort" } } },
@@ -39,7 +40,7 @@
       "title": "Hosts",
       "minItems": 1,
       "maxItems": 5,
-      "x-krateo-row-title": "host",
+      "objectField": { "displayField": "host" },
       "items": {
         "type": "object",
         "required": ["host"],
