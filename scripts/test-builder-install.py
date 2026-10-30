@@ -789,7 +789,7 @@ def option_refs(chart, kind, name, ra_output):
 
 
 def check_create_form_loads_field_options(chart):
-    """A blueprint field with `x-krateo-options` (frontend widgets/Form/fieldOptions.ts) names its
+    """A blueprint field with `autocomplete` (frontend widgets/Form/fieldOptions.ts) names its
     options RESTAction by `ref`; the create form must carry one GET ref per source so snowplow
     resolves the path and `allowed`. The raw schema is spliced, never re-emitted, and a schema whose
     `if` (or any nested `properties`) comes BEFORE its top-level `properties` must still get the
@@ -808,10 +808,10 @@ def check_create_form_loads_field_options(chart):
         '  "if": { "properties": { "tier": { "const": "gold" } } },\n'
         '  "then": { "required": ["zone"] },\n'
         '  "properties"  :  {\n'
-        '    "region": { "type": "string", "x-krateo-options": { "ref": "regions" } },\n'
-        '    "zone": { "type": "string", "x-krateo-options": { "ref": "krateo-system/form-options-namespaces", "closed": true } },\n'
-        '    "nested": { "type": "object", "properties": { "again": { "type": "string", "x-krateo-options": { "ref": " regions " } } } },\n'
-        '    "bad": { "type": "string", "x-krateo-options": { "ref": "Not A Name!" } },\n'
+        '    "region": { "type": "string", "autocomplete": { "resourceRefId": "regions" } },\n'
+        '    "zone": { "type": "string", "autocomplete": { "resourceRefId": "krateo-system/form-options-namespaces", "closed": true } },\n'
+        '    "nested": { "type": "object", "properties": { "again": { "type": "string", "autocomplete": { "resourceRefId": " regions " } } } },\n'
+        '    "bad": { "type": "string", "autocomplete": { "resourceRefId": "Not A Name!" } },\n'
         '    "tier": { "type": "string" }\n'
         '  },\n'
         '  "required": ["region"]\n}\n')
@@ -836,7 +836,7 @@ def check_create_form_loads_field_options(chart):
          'name': 'form-options-namespaces', 'namespace': 'krateo-system', 'verb': 'GET'},
         {'id': 'regions', 'apiVersion': 'templates.krateo.io/v1', 'resource': 'restactions',
          'name': 'regions', 'namespace': 'team-bp', 'verb': 'GET'}])
-    expect(f, 'a ConfigMap schema carries no CRD-fallback notice', 'x-krateo-notice' in doc['spec']['widgetData']['schema'], False)
+    expect(f, 'a ConfigMap schema carries no CRD-fallback notice', 'notice' in doc['spec']['widgetData']['schema'], False)
 
     out, doc = create('no fields yet', '{"type": "object", "properties": {}}')
     schema = json.loads(doc['spec']['widgetData']['stringSchema'])
@@ -846,8 +846,8 @@ def check_create_form_loads_field_options(chart):
 
     out, doc = create('no ConfigMap', None)
     expect(f, 'CRD fallback: the form says field order and runtime options are lost',
-           'options a field loads at runtime are not available' in doc['spec']['widgetData']['schema'].get('x-krateo-notice', ''), True)
-    expect(f, 'CRD fallback: no option refs (the CRD has no x-krateo-* keys)', out['optionRefs'], [])
+           'options a field loads at runtime are not available' in doc['spec']['widgetData']['schema'].get('notice', ''), True)
+    expect(f, 'CRD fallback: no option refs (the CRD has no autocomplete keys)', out['optionRefs'], [])
     return f
 
 
