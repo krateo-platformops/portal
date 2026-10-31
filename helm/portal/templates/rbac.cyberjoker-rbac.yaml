@@ -1,3 +1,19 @@
+{{- /*
+  THE `cyberjoker` DEMO USER — a sample account for demos and walkthroughs, not a platform role.
+
+  This file creates a `basic.authn.krateo.io` User named `cyberjoker` ("Cyber Joker", avatar from
+  i.pravatar.cc) in group `devs` with a generated password, plus namespace-scoped Roles letting that
+  group read widgets and templates and self-serve the demo application kinds in `demo-system`.
+
+  So `devs` is NOT a platform group. It is the group a sample user happens to belong to, and every
+  grant below exists to make a demo work.
+
+  `enableCyberjokerUser` defaults to FALSE. It used to default to true, which shipped this sample
+  user — pravatar avatar and all — on every install unless an operator knew to turn it off.
+
+  Written down because its absence had a measurable cost: an RBAC investigation in one session and a
+  false-negative probe in another, both spent establishing what this file is for.
+*/}}
 {{- if .Values.enableCyberjokerUser }}
 {{/* krateo-system permissions */}}
 {{- /* Preserve an existing password across re-renders (see rbac.admin-rbac.yaml): an
@@ -166,11 +182,44 @@ kind: Role
 metadata:
   name: devs-create-get-list-any-composition-in-demo-namespace
   namespace: demo-system
+{{- /*
+  AN ALLOWLIST of the demo application kinds — not a wildcard, and not a denylist.
+
+  `resources: ['*']` read as "any composition kind in the demo namespace", which was the intent and
+  is idiomatic. It over-delivered, because `composition.krateo.io` carries the PLATFORM kinds too:
+  `installers`, `portals`, `snowplows`, `authns`. Probed on krateo-057, a member of `devs` could
+  create an Installer composition in `demo-system` — and, via the sibling role below, patch it.
+
+  Why an allowlist rather than subtracting the platform kinds — both reasons measured by the
+  installer session rather than argued:
+
+    1. The installer does NOT pin its own kind. So a denylist built from "everything the installer
+       pins" would still admit `installers`, the umbrella owning all 67 components. The most
+       dangerous kind is exactly the one such a list leaves out.
+    2. A denylist rots in the wrong direction and silently. The platform set grows whenever a
+       component is wired into the installer — six installer versions shipped in a single day while
+       this was being written — and each addition would need an edit HERE, in this repo, by someone
+       working in another. Miss one and the new kind is implicitly allowed, with nothing to notice.
+       An allowlist fails the other way: a genuinely new demo kind does not work until it is added,
+       and that is seen immediately.
+
+  Deliberately NOT included: `builderpublishes`, because creating one triggers a publish that writes
+  to an SCM or registry with the CONTROLLER's credentials rather than the creator's, and deleting
+  one has stranded children with held finalizers in production. `eventhealths` is out as well —
+  nobody could establish what it is, and exclusion is this list's safe default.
+*/}}
 rules:
 - apiGroups:
   - composition.krateo.io
   resources:
-  - '*'
+  # The demo APPLICATION kinds, by their live plural names (read from
+  # `kubectl api-resources --api-group=composition.krateo.io`, not derived by pluralising the Kind).
+  - acmefeedbacks
+  - awsrdsstacks
+  - eventfeedbacks
+  - eventsites
+  - meetupsites
+  - rdscharts
   verbs:
   - create
   - get
@@ -197,11 +246,27 @@ kind: Role
 metadata:
   name: devs-patch-any-composition-in-demo-namespace
   namespace: demo-system
+{{- /*
+  Narrowed to the same allowlist as the create/get/list role above, for the same reasons.
+
+  This role is why that one mattered more than it first appeared. The investigation that found the
+  wildcard probed `create` only, and noted that `devs` holds no `delete` — so a dev could stand
+  something up but neither change nor remove it, making it an orphan rather than a risk. That read
+  was incomplete: `patch` lives HERE, with the same wildcard, so `devs` could create AND modify any
+  composition kind in `demo-system`, platform kinds included.
+*/}}
 rules:
 - apiGroups:
   - composition.krateo.io
   resources:
-  - '*'
+  # The demo APPLICATION kinds, by their live plural names (read from
+  # `kubectl api-resources --api-group=composition.krateo.io`, not derived by pluralising the Kind).
+  - acmefeedbacks
+  - awsrdsstacks
+  - eventfeedbacks
+  - eventsites
+  - meetupsites
+  - rdscharts
   verbs:
   - patch
 ---
