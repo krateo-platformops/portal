@@ -1,0 +1,75 @@
+{{/* /service-desk data source — one row per Ticket, shaped server-side.
+
+     rows   : summary, state, requester, assignee, age, and the kind; filtered by the ?state= chip.
+     counts : per-state totals, for the chips' live counts.
+
+     THE FILTER IS A LABEL SELECTOR, NOT A jq PASS OVER THE WHOLE NAMESPACE, and that is the only
+     mitigation available for the query ceiling a CRD gives us. The apiserver field-selects on
+     `metadata.name` and `metadata.namespace` and nothing else, so filtering by state or assignee has
+     to go through labels — which is why the Ticket CRD mirrors `spec.state` and `spec.assignee` into
+     `krateo.io/ticket-state` and `krateo.io/ticket-assignee`. With a chip selected we ask the
+     apiserver for that state's tickets; without one we ask for the open set. We never list the
+     namespace and discard most of it.
+
+     WHAT THIS STILL CANNOT DO, so nobody discovers it later: no full-text search of a description,
+     no sort by an arbitrary field, and the counts below DO list the namespace (a count is a count of
+     everything, and there is no aggregate API). At service-desk volumes that is fine. At thousands
+     of tickets the counts leg is the first thing that hurts, and the answer then is a real database,
+     not a cleverer jq.
+
+     The jq runs in snowplow, as the caller, not in the browser — so a ticket the caller may not read
+     is never shaped, never counted and never sent. The filtering is not a presentation convenience;
+     it is where the data stops. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: tickets-list
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* The selected state, or the open set. `Waiting on requester` carries a space, so the label
+         value is the state slugged — the CRD mirrors it that way for exactly this reason: a label
+         value cannot hold a space, and discovering that at apply time would be worse. */}}
+    - name: tickets
+      path: ${ "/apis/servicedesk.krateo.io/v1alpha1/namespaces/{{ $.Values.namespace }}/tickets?labelSelector=krateo.io%2Fticket-state%3D" + ((.state // "open") | ascii_downcase | gsub(" "; "-")) }
+      verb: GET
+      continueOnError: true
+      errorKey: ticketsError
+    {{/* The counts leg lists the namespace, deliberately and knowingly — see the header. It is the
+         one read here that does not scale, and it is separated so that when it has to go, the rows
+         leg is untouched. */}}
+    - name: all
+      path: /apis/servicedesk.krateo.io/v1alpha1/namespaces/{{ $.Values.namespace }}/tickets
+      verb: GET
+      continueOnError: true
+      errorKey: countsError
+  filter: |
+    def slug: (. // "") | ascii_downcase | gsub(" "; "-");
+    ((.tickets.items) // []) as $items
+    | ((.all.items) // []) as $all
+    | {
+        rows: ($items | map({
+          name: (.metadata.name // ""),
+          # A namespaced list omits .metadata.namespace per item; these are in the namespace listed.
+          namespace: "{{ $.Values.namespace }}",
+          summary: (.spec.summary // ""),
+          state: (.spec.state // "Open"),
+          stateKey: (.spec.state | slug),
+          kind: (.spec.kind // ""),
+          requester: (.spec.requester // ""),
+          # Absent assignee is a FACT about the ticket, not a missing value: an unassigned ticket is
+          # the queue's most important row. It reads as "Unassigned" rather than as an empty cell.
+          assignee: (.spec.assignee // "Unassigned"),
+          assigned: ((.spec.assignee // "") != ""),
+          age: (.metadata.creationTimestamp // ""),
+          urgency: (.spec.urgency // ""),
+        }) | sort_by(.age) | reverse),
+        counts: ($all
+          | map(.spec.state // "Open")
+          | group_by(.)
+          | map({ key: (.[0] | slug), value: length })
+          | from_entries),
+        total: ($all | length),
+      }

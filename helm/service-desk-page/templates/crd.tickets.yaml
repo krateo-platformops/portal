@@ -93,8 +93,14 @@ spec:
                   description: >-
                     Where the ticket is. TICKET vocabulary, not Kubernetes PascalCase: the hard
                     K8s-vocab rule has an explicit boundary for non-K8s domains, the same boundary
-                    that lets GitHub PRs say Open/Merged/Closed. Mirrored to the
-                    `krateo.io/ticket-state` label so a list can be filtered server-side.
+                    that lets GitHub PRs say Open/Merged/Closed.
+
+                    MIRRORED TO `krateo.io/ticket-state`, SLUGGED — lowercased with spaces turned to
+                    `-`, so `Waiting on requester` becomes `waiting-on-requester`. The slug is not
+                    cosmetic: a Kubernetes label VALUE cannot contain a space, so mirroring this
+                    verbatim would be rejected at apply time for exactly one of the five states. The
+                    read path builds its selector with the same rule, and the printer column reads
+                    the SPEC, so a mirror that drifts from it is visible in `kubectl get tickets`.
                   enum:
                     - Open
                     - In progress
@@ -121,8 +127,13 @@ spec:
                   type: string
                   description: >-
                     Who is on it, or absent. A group or a user; the page does not distinguish,
-                    because the desk assigns to whichever is meaningful. Mirrored to the
-                    `krateo.io/ticket-assignee` label.
+                    because the desk assigns to whichever is meaningful.
+
+                    Mirrored to `krateo.io/ticket-assignee` under the same slug rule. An ABSENT
+                    assignee mirrors to no label at all rather than to an empty value, because
+                    `labelSelector=...-assignee=` matches the empty string and would return every
+                    unassigned ticket to a query asking for a named one. Unassigned is selected with
+                    `!krateo.io/ticket-assignee`.
                 urgency:
                   type: string
                   description: >-

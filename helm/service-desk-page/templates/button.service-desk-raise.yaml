@@ -1,0 +1,35 @@
+{{/* "Raise a ticket" — the queue's one primary action.
+
+     Navigates rather than opening a modal. A ticket form asks three required fields and branches on
+     the request kind, which is too much for a modal and gives the person nowhere to land if they
+     need to go and look something up. A route can be left and come back to.
+
+     `type: primary` is the only primary on this page. The desk's actions — assign, resolve — live on
+     a ticket, where there is a ticket to act on. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-raise
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    label: Raise a ticket
+    type: primary
+    icon: fa-plus
+    actions:
+      navigate:
+      - id: raise
+        name: raise
+        type: navigate
+        resourceRefId: service-desk-raise-route
+  resourcesRefs:
+    items:
+    - id: service-desk-raise-route
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: page-service-desk
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+      path: /service-desk/new

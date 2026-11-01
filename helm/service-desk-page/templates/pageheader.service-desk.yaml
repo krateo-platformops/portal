@@ -1,0 +1,29 @@
+{{/* The /service-desk header: title, a one-line description that says what the page is FOR rather
+     than what it contains, and the one primary action.
+
+     "Raise a ticket" is the primary. It is deliberately NOT "Ask Autopilot" — that is the one
+     approved CTA label for asking the assistant, and this page's primary action is a human one.
+     Autopilot belongs on a ticket, where there is something to reason about, not on the queue. */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-header
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Service desk
+    description: Requests raised by people on this platform.
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: service-desk-raise
+  resourcesRefs:
+    items:
+    - id: service-desk-raise
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-raise
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
