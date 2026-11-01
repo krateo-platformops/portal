@@ -1,0 +1,19 @@
+# @schema
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the whole chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal's sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created; only the page objects and the tickets live here. Changing it after install orphans the previous namespace's objects, which Helm will not prune because it no longer renders them — and for this chart that would orphan the TICKETS too, which is worse than orphaning a page.
+# type: string
+# default: "krateo-service-desk"
+# @schema
+namespace: krateo-service-desk
+
+# @schema
+# description: Groups granted read of these pages and of every ticket in `namespace`. A group listed here sees /service-desk in the sidebar, can open it, and sees the whole queue — this is the DESK, not the requesters. Keep it small for the same reason the page-split exists.
+# type: array
+# @schema
+readerGroups:
+  - admins
+
+# @schema
+# description: Groups granted CREATE on tickets in `namespace`, without read of the queue. This is what makes a service desk different from every other page in this repo: the people who raise tickets are not the people who work them, so the two grants are separate. A group here can raise a ticket and cannot list anyone else's. Deliberately NOT defaulted to a broad group — who may raise a ticket is a policy decision for whoever installs this, not a default worth inheriting silently.
+# type: array
+# @schema
+requesterGroups: []
