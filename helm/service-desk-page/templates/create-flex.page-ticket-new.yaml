@@ -7,17 +7,26 @@
      namespace.yaml. The TICKET the form writes still goes to the QUEUE's namespace — only the
      screen lives here; form.ticket-new.yaml says why that works.
 
-     NO NAV ANNOTATIONS BEYOND THE PATH, deliberately — no nav-group, no nav-label, no nav-icon.
-     The portal lists the page roots the caller may `list` and shows the ones carrying a label; a
-     sub-route root carries only its path, so it routes without earning a second sidebar entry
-     next to "Service desk". Same shape as page-alert-create at /alerts/new. nav-order is kept
-     only so the ordering of the non-displayed roots is stable; 943 is the next free value.
+     THIS ROOT CARRIES A NAV-LABEL, UNLIKE EVERY OTHER SUB-ROUTE IN THIS REPO, AND THAT IS THE POINT.
 
-     A CONSEQUENCE OF THE SPLIT THAT IS NOT VISIBLE FROM HERE: with no nav-label this root is
-     reachable only by a route, and the one link to it — the queue's "Raise a ticket" Button —
-     lives in a namespace requesters cannot read. A requester who is never handed a link has no way
-     in. A nav-label here would be the fix; that is a product decision rather than a repair, so it
-     is not made here.
+     The convention for a create sub-route is to carry only its path: it then routes without earning
+     a second sidebar entry, and the page it belongs to links to it with a Button. That is what
+     page-alert-create does at /alerts/new, and this file followed it at first.
+
+     It does not work here, because of the namespace split. The portal lists the page roots THE
+     CALLER may `list` and shows the ones carrying a label, so a requester's sidebar is built only
+     from `raiseNamespace`. The one link to this screen — the queue's "Raise a ticket" Button — lives
+     in `namespace`, which requesters cannot read. No label plus no readable link is no way in: the
+     screen would have shipped reachable only by someone typing the URL. Moving the Button does not
+     help either, because a requester cannot read the queue page at all, wherever the Button sits.
+
+     So the label is the entry point, not a convenience. The cost is accepted and worth stating: the
+     DESK reads both namespaces, so the desk sees two sidebar entries — "Service desk" and "Raise a
+     ticket" — for what they think of as one feature. That is cosmetic. An unreachable screen is not.
+     nav-order 41 puts it directly after the queue's 40 for the readers who see both.
+
+     The queue's Button stays. It is the right affordance where the desk actually works, and the
+     approved design put it there deliberately; it is simply not the requester's route in.
 
      allowedResources lists the child plurals. The released Flex CRD no longer declares an enum
      there (the per-widget enums drifted and enforced nothing), so a missing plural is now caught
@@ -32,7 +41,9 @@ metadata:
   name: page-ticket-new
   namespace: {{ $.Values.raiseNamespace }}
   annotations:
-    "krateo.io/nav-order": "943"
+    "krateo.io/nav-group": "Platform"
+    "krateo.io/nav-label": "Raise a ticket"
+    "krateo.io/nav-order": "41"
     "krateo.io/nav-path": "/service-desk/new"
     "krateo.io/verbose": "true"
 spec:
