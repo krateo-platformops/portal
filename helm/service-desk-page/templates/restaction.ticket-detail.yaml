@@ -144,9 +144,27 @@ spec:
     | ((.object // {}) | if type == "object" and ((.metadata.name // "") != "") then . else null end) as $obj
     | ($obj != null) as $objRead
     | (if $objRead then ($obj.status.conditions // []) else [] end) as $conds
-    # The activity, oldest first. The CRD says the array is stored that way; sorting it here means
-    # the page does not depend on every writer having kept that promise.
+    # TWO BINDINGS, AND MIXING THEM UP CORRUPTS DATA. Read this before using either.
+    #
+    #   $acts     spec.activity ONLY — what the reply form patches back (see activityExisting).
+    #   $allActs  spec + status.activity, merged — what the page DISPLAYS.
+    #
+    # The ticket carries activity in two places: `spec.activity`, written by people through the
+    # portal, and `status.activity`, written by backends through the /status endpoint (today the
+    # CMP's Zendesk bridge). The view has to show both, in one conversation, ordered by time.
+    #
+    # But the reply form patches `spec.activity` WHOLESALE — a merge-patch replaces an array, so
+    # every existing entry is resent with the new one. So its payload must be the SPEC array alone.
+    # Feed it the merged list and every backend entry gets copied into spec on the next reply: the
+    # bridge's words become user-written, they duplicate against the status copy, and the /status
+    # boundary that the subresource exists to create is gone. Hence $acts stays spec-only and is
+    # used for exactly one thing.
+    #
+    # Sorting both: the CRD says each array is stored oldest-first, and sorting here means the page
+    # does not depend on every writer having kept that promise.
     | (($sp.activity // []) | sort_by(.at // "")) as $acts
+    | ((($t.status // {}).activity // []) | sort_by(.at // "")) as $statusActs
+    | (($acts + $statusActs) | sort_by(.at // "")) as $allActs
     | {
         exists: $exists,
         # The summary is the page title; the id is its one line of context. An absent ticket says
@@ -203,7 +221,7 @@ spec:
           elif ($objRead | not) then "Its conditions could not be read: the object may be gone, or you may not have access to it."
           elif ($conds | length) == 0 then "The object reports no conditions."
           else "" end),
-        activityRows: ($acts | map({
+        activityRows: ($allActs | map({
           text: (.text // ""),
           who: (.who // "unknown"),
           at: (.at // ""),
@@ -224,7 +242,7 @@ spec:
         # appends, or a resourceVersion precondition the Form cannot send. At desk pace it is
         # unlikely; at desk pace it is also not acceptable to pretend it cannot happen.
         activityExisting: $acts,
-        activityCount: ($acts | length),
+        activityCount: ($allActs | length),
         # A fallback `at` for the new entry, so the stub is valid even if the submit-time override
         # does not land. It is the time the page was SERVED, which is why it is only a fallback:
         # the form overrides it with the time the reply was sent.
@@ -236,7 +254,7 @@ spec:
           # readable conditions still has an identity worth showing, and an empty table saying
           # "No data" says nothing about why. The card's own note says why instead.
           conditions: (($conds | length) > 0),
-          activity: (($acts | length) > 0),
+          activity: (($allActs | length) > 0),
           # Gated on the ticket only, NOT on `me`. The page root does not declare
           # identityContext — identity would multiply its cache cell per person for nothing — so
           # `me` is empty in the root's own resolution. The form declares it and resolves its own.

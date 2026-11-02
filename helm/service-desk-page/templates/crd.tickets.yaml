@@ -49,6 +49,22 @@ spec:
     - name: v1alpha1
       served: true
       storage: true
+      {{/* A STATUS SUBRESOURCE, AND IT HAS A REAL WRITER — which is the only reason it is here.
+
+           This CRD shipped without one deliberately: declaring a status that nothing writes is the
+           wart this repo already carries 44 times over (every widget CRD declares one, and 288 live
+           objects have `status: {}` with no conditions). I was not going to add the 45th.
+
+           The CMP's Zendesk bridge changed that. It writes agent replies back into the ticket, and
+           with everything in `spec` it would write the same field, with the same verb, as the person
+           who raised the ticket — no field-level ownership, and RBAC cannot express per-field. The
+           subresource gives it its own boundary: the bridge gets `patch` on `tickets/status` and
+           NOTHING on spec, so a bug in it cannot overwrite the words a requester typed.
+
+           Note the consequence: once this exists, a write to `.status` through the main resource is
+           silently IGNORED. Anything meaning to write status must use the /status endpoint. */}}
+      subresources:
+        status: {}
       additionalPrinterColumns:
         - name: State
           type: string
@@ -71,6 +87,53 @@ spec:
           required:
             - spec
           properties:
+            {{/* WHO WRITES WHAT. `spec` is user-written: what the requester said, and the desk's own
+                 edits to assignee and state. `status` is controller-written and the portal never
+                 posts to it.
+
+                 Both carry an `activity` array of the same shape, and the ticket view merges them
+                 ordered by `at`. Two arrays rather than one because the SOURCE is the information:
+                 a reply that came back from Zendesk is not the same fact as one typed in the portal,
+                 and a single array cannot say which is which without trusting a field that the
+                 writer of the other kind could also set. */}}
+            status:
+              type: object
+              description: >-
+                Controller-written. The portal reads this and never writes it; anything here arrived
+                through the /status endpoint from a backend such as the CMP's Zendesk bridge.
+              properties:
+                activity:
+                  type: array
+                  description: >-
+                    Entries written by a backend, oldest first. Same shape as `spec.activity`; the
+                    ticket view merges both ordered by `at`.
+                  maxItems: 200
+                  items:
+                    type: object
+                    required:
+                      - at
+                      - who
+                      - text
+                    properties:
+                      at:
+                        type: string
+                        format: date-time
+                      who:
+                        type: string
+                      kind:
+                        type: string
+                        description: >-
+                          What sort of entry this is. Values match `spec.activity[].kind` so the view
+                          renders a merged list consistently; `autopilot` marks a machine-written one.
+                        enum:
+                          - comment
+                          - assigned
+                          - state-change
+                          - autopilot
+                        default: comment
+                      text:
+                        type: string
+                        maxLength: 8000
             spec:
               type: object
               required:
