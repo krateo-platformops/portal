@@ -29,26 +29,41 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    {{/* The selected state, or the open set. `Waiting on requester` carries a space, so the label
-         value is the state slugged — the CRD mirrors it that way for exactly this reason: a label
-         value cannot hold a space, and discovering that at apply time would be worse. */}}
+    {{/* ONE read, with a literal path. An earlier version of this file had a second, state-filtered
+         leg whose path was a `${ … }` expression carrying a jq default:
+
+             path: ${ "…/tickets?labelSelector=krateo.io%2Fticket-state%3D"
+                      + ((.state // "open") | …) }
+
+         `scripts/lint-ra-paths.py` rejects a `//` inside a path expression, and it is right to: on
+         snowplow's Phase-1 walk the request extras are nil, so the default turns "no state asked
+         for" into a real query and the step dials it on every prewarm. The lint's docstring records
+         what that cost on 057 — one pod making hundreds of defaulted GETs in 20 minutes, every one
+         hidden by continueOnError.
+
+         The fix is not to gate that leg, it is that THE LEG WAS NEVER NEEDED. This leg already
+         lists every ticket in the namespace, so the filtered leg could only ever return a subset of
+         rows this one already has — a second request for data in hand. And the approved queue
+         design has no state-filter control: every ticket is shown with its state as a pill, with
+         counts in the header. There was nothing to filter server-side. So the state selection is
+         gone rather than gated, which is one request fewer, no expression in any path, and nothing
+         to dial at prewarm.
+
+         This leg lists the namespace, deliberately and knowingly — see the header comment. It is the
+         read here that does not scale, and now it is the only one, so when it has to become a paged
+         walk there is exactly one place to change. */}}
     - name: tickets
-      path: ${ "/apis/servicedesk.krateo.io/v1alpha1/namespaces/{{ $.Values.namespace }}/tickets?labelSelector=krateo.io%2Fticket-state%3D" + ((.state // "open") | ascii_downcase | gsub(" "; "-")) }
-      verb: GET
-      continueOnError: true
-      errorKey: ticketsError
-    {{/* The counts leg lists the namespace, deliberately and knowingly — see the header. It is the
-         one read here that does not scale, and it is separated so that when it has to go, the rows
-         leg is untouched. */}}
-    - name: all
       path: /apis/servicedesk.krateo.io/v1alpha1/namespaces/{{ $.Values.namespace }}/tickets
       verb: GET
       continueOnError: true
-      errorKey: countsError
+      errorKey: ticketsError
   filter: |
     def slug: (. // "") | ascii_downcase | gsub(" "; "-");
-    ((.tickets.items) // []) as $items
-    | ((.all.items) // []) as $all
+    # One leg now, so rows and counts are both derived from it. `// []` here is a GUARD on a step
+    # result, not a default in a path: the step is absent from the dict when it failed under
+    # continueOnError, and an absent key must render an empty queue rather than a jq error.
+    ((.tickets.items) // []) as $all
+    | $all as $items
     | {
         rows: ($items | map({
           name: (.metadata.name // ""),

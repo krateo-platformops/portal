@@ -1,0 +1,32 @@
+{{/* "Activity" — the ticket's conversation, oldest first. Shown only when there is one
+     (`sections.activity`); a ticket nobody has answered yet shows the reply box and no empty log.
+
+     A card of its own, above the reply, rather than the reply living in this card's footer: the
+     Card footer slot takes widget children and no chart here uses it that way, and a conversation
+     is readable without its composer being inside the same box. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-activity-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Activity
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: ticket-activity
+  resourcesRefs:
+    items:
+    - id: ticket-activity
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-activity
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

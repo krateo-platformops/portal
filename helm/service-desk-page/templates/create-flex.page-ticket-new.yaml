@@ -1,0 +1,64 @@
+{{/* Page root for /service-desk/new: the header, then the one form.
+
+     THIS ROOT AND ITS TWO CHILDREN LIVE IN `raiseNamespace`, NOT the queue's namespace, and that
+     is the whole point of the second namespace: the namespace IS the RBAC boundary, and the people
+     who raise tickets are not the desk that works them. Requesters are bound here and nowhere
+     else, so they can read this screen and cannot list the queue. See values.yaml and
+     namespace.yaml. The TICKET the form writes still goes to the QUEUE's namespace — only the
+     screen lives here; form.ticket-new.yaml says why that works.
+
+     NO NAV ANNOTATIONS BEYOND THE PATH, deliberately — no nav-group, no nav-label, no nav-icon.
+     The portal lists the page roots the caller may `list` and shows the ones carrying a label; a
+     sub-route root carries only its path, so it routes without earning a second sidebar entry
+     next to "Service desk". Same shape as page-alert-create at /alerts/new. nav-order is kept
+     only so the ordering of the non-displayed roots is stable; 943 is the next free value.
+
+     A CONSEQUENCE OF THE SPLIT THAT IS NOT VISIBLE FROM HERE: with no nav-label this root is
+     reachable only by a route, and the one link to it — the queue's "Raise a ticket" Button —
+     lives in a namespace requesters cannot read. A requester who is never handed a link has no way
+     in. A nav-label here would be the fix; that is a product decision rather than a repair, so it
+     is not made here.
+
+     allowedResources lists the child plurals. The released Flex CRD no longer declares an enum
+     there (the per-widget enums drifted and enforced nothing), so a missing plural is now caught
+     by the chart containment lint rather than by the apiserver — list them anyway: the lint is
+     the thing that checks it.
+
+     THE FORM IS A DIRECT CHILD, not wrapped in a Card the way /alerts/new wraps its form. That is
+     the approved mockup — a header and one form — and `forms` is a listed Flex child. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-ticket-new
+  namespace: {{ $.Values.raiseNamespace }}
+  annotations:
+    "krateo.io/nav-order": "943"
+    "krateo.io/nav-path": "/service-desk/new"
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - forms
+    vertical: true
+    {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
+    gap: middle
+    items:
+    - resourceRefId: ticket-new-header
+    - resourceRefId: ticket-new-form
+  resourcesRefs:
+    {{/* Both children are widgets this chart SHIPS, so they are a location: they name the
+         namespace the screen lives in, which for this screen is raiseNamespace. */}}
+    items:
+    - id: ticket-new-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-new-header
+      namespace: {{ $.Values.raiseNamespace }}
+      resource: pageheaders
+      verb: GET
+    - id: ticket-new-form
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-new
+      namespace: {{ $.Values.raiseNamespace }}
+      resource: forms
+      verb: GET

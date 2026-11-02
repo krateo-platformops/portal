@@ -6,6 +6,13 @@
 namespace: krateo-service-desk
 
 # @schema
+# description: The namespace this chart CREATES and installs the RAISE-A-TICKET screen into — the page root at /service-desk/new, its header and its form. A SECOND namespace because the namespace IS the RBAC boundary in this design, and the two audiences of a service desk are different people: the requesters who raise tickets are not the desk that works them. One namespace cannot express that. `resourceNames` does not apply to `list`, so a group granted `list` on the page roots of a namespace sees EVERY root in it — give requesters read of the queue's namespace so they can open the create screen and the portal also offers them "Service desk", whose body then 403s. Splitting the screen off is the only way to give requesters the create page without giving them the queue. NO TICKETS LIVE HERE: the form posts into `namespace`, with the queue (see form.ticket-new.yaml), because `create` does not require read — which is the whole point of the split and the first thing a tidy-up would break. Changing this after install orphans the previous namespace's three widgets, which Helm will not prune because it no longer renders them; unlike `namespace` that costs nobody their data.
+# type: string
+# default: "krateo-service-desk-raise"
+# @schema
+raiseNamespace: krateo-service-desk-raise
+
+# @schema
 # description: Groups granted read of these pages and of every ticket in `namespace`. A group listed here sees /service-desk in the sidebar, can open it, and sees the whole queue — this is the DESK, not the requesters. Keep it small for the same reason the page-split exists.
 # type: array
 # @schema
