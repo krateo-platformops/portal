@@ -1,0 +1,40 @@
+{{/* The ticket's state, as the one pill on the page.
+
+     TICKET VOCABULARY, NOT KUBERNETES — Open / In progress / Waiting on requester / Resolved /
+     Closed. The hard K8s-vocab rule has an explicit boundary for non-Kubernetes domains, the same
+     one that lets a GitHub PR say Open/Merged/Closed; a ticket's lifecycle is human and nothing
+     reconciles it. The CRD's enum is this list, so the label is the spec value verbatim.
+
+     The colour is a palette NAME resolved per theme by getColorCode, and it comes from the
+     RESTAction (ticket-detail `.stateColor`) rather than from a map repeated here: the queue's
+     table carries the same five states, and two copies of a colour map are two chances to drift.
+     Resolved is `faint`, never green — see the RESTAction for why that is a rule and not taste.
+
+     It sits here rather than in the PageHeader's own `tags` because that field's colour is an enum
+     of seven names and `slate`/`gold`/`faint` are not among them (pageheader.ticket-detail.yaml). */}}
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-state
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    {{/* Both templated below. A colour with no label would carry its meaning by colour alone
+         (design rule C13), so the label is never allowed to resolve empty — the RESTAction
+         defaults the state to Open, which is what an unset `spec.state` means to the CRD. */}}
+    label: Open
+    color: slate
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ .state // "Open" }'
+    - forPath: color
+      expression: '${ .stateColor // "slate" }'
+  resourcesRefs:
+    items: []

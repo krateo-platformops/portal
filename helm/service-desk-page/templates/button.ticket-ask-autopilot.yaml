@@ -1,0 +1,49 @@
+{{/* "Ask Autopilot →" — the assistant entry point for this ticket. It navigates to THIS page with
+     an ?ask seed the rail consumes on mount, so the conversation starts already holding the
+     ticket: what was asked, the object it is about and that object's live conditions are all on
+     the page, and the page is the envelope.
+
+     THE LABEL, THE ICON AND THE FILL ARE FIXED. A4: every Autopilot entry point in the portal is
+     the same object — a filled `type: primary` button labelled exactly `Ask Autopilot →` with
+     `fa-wand-magic-sparkles`. The design lint recognises one by what it does as well as by its
+     label (a Button that navigates to `?ask=`, or reads an `…Href` its RESTAction builds with
+     one), so a differently-worded version of this button is a finding, not a variation. Being
+     filled does not take the header's one primary: Resolve keeps it (P6).
+
+     The href is built server-side (ticket-detail `.askHref`, @uri-encoded) and named `askHref`
+     for the same reason — two "Diagnose" buttons once hid from this rule by calling it something
+     else. The click is a plain literal navigate.
+
+     Graceful when Autopilot is off: frontend >= 1.3.76 shows an honest "Autopilot is not enabled
+     on this portal" notice and strips the ?ask. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-ask-autopilot
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Autopilot →
+    type: primary
+    size: middle
+    icon: fa-wand-magic-sparkles
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /service-desk
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to the queue — never a 404 —
+         if askHref is empty, which it is for a ticket that does not exist. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/service-desk" end) } ] } }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,34 @@
+{{/* "What was asked" — the ticket's own words, the first section under the header.
+
+     It is ALWAYS rendered, even for a ticket whose `spec.detail` is empty: that a requester wrote
+     only a summary is a fact about the request, and a desk reading "No detail was given" knows to
+     ask rather than wondering whether the page dropped something. The RESTAction supplies that
+     sentence, so the card never renders blank.
+
+     Same card language as every other section on this page: eyebrow title, outlined. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-asked-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: What was asked
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - paragraphs
+    items:
+    - resourceRefId: ticket-detail-text
+  resourcesRefs:
+    items:
+    - id: ticket-detail-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-detail-text
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

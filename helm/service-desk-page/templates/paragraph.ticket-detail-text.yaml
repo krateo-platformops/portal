@@ -1,0 +1,36 @@
+{{/* The ticket's detail text, verbatim.
+
+     A PARAGRAPH AND NOT A MARKDOWN, on purpose. Nobody writes a ticket in Markdown. Rendering
+     `spec.detail` as Markdown would reinterpret what the requester typed — a pasted log line
+     starting `#` becomes a heading, `*` either disappears or turns a phrase italic, and an
+     indented stack trace becomes a code block or is reflowed. A Paragraph shows the characters
+     they sent.
+
+     THE COST, stated rather than discovered: a Paragraph is HTML, so blank lines collapse. A
+     multi-paragraph request reads as one run of text, and a pasted log loses its line breaks. That
+     is the trade the other way round, and it is the better one here — losing the shape of text is
+     recoverable by reading it; having it silently rewritten is not. If multi-line fidelity becomes
+     the thing that matters, the honest fix is a Markdown whose content the RESTAction wraps in a
+     fence, not switching this to a Markdown that interprets it. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-detail-text
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    {{/* `text` is the Paragraph's one required field; the RESTAction always sends a sentence, so
+         the literal is only what a resolution with no data would render. */}}
+    text: ' '
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ .detailText // " " }'
+  resourcesRefs:
+    items: []

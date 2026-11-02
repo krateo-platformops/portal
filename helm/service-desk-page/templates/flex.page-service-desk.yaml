@@ -1,0 +1,49 @@
+{{/* Page root for /service-desk: the header, then the queue.
+
+     THE NAV ANNOTATIONS ARE HALF THE RBAC STORY. The portal discovers the namespaces where the
+     CALLER may `list` page roots and lists the roots in each as that caller, so a group with no
+     RoleBinding in this namespace never sees the entry — see rbac.page-readers.yaml. The annotations
+     only say where it goes once someone is allowed to see it.
+
+     Under "Platform" rather than its own group: a service desk is not an observability surface and
+     not a builder. nav-order 40 puts it after the authoring and observability entries — someone
+     raising a ticket is not in the middle of a task, they have stopped and gone looking.
+
+     allowedResources lists the child PLURALS. It is an enum, so a child kind missing from it is
+     refused rather than ignored — adding a widget below means adding its plural here. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-service-desk
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-group": "Platform"
+    "krateo.io/nav-icon": "fa-headset"
+    "krateo.io/nav-label": "Service desk"
+    "krateo.io/nav-order": "40"
+    "krateo.io/nav-path": "/service-desk"
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - tables
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: service-desk-header
+    - resourceRefId: tickets-table
+  resourcesRefs:
+    items:
+    - id: service-desk-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: tickets-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: tickets-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
