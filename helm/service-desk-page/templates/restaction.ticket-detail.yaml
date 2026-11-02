@@ -243,6 +243,13 @@ spec:
         # unlikely; at desk pace it is also not acceptable to pretend it cannot happen.
         activityExisting: $acts,
         activityCount: ($allActs | length),
+        # WHAT A BRIDGE DROPPED, said out loud. `status.activityOmitted` is written by a backend that
+        # hit the array's maxItems and kept the newest rather than failing its sync. Without this the
+        # page would render a conversation that silently begins mid-history and looks complete.
+        # Empty string when nothing was dropped, so the Card's footer renders nothing at all.
+        activityOmittedNote: ((($t.status // {}).activityOmitted // 0) as $n
+          | if $n > 0 then (($n | tostring) + " earlier update" + (if $n == 1 then "" else "s" end) + " not shown")
+            else "" end),
         # A fallback `at` for the new entry, so the stub is valid even if the submit-time override
         # does not land. It is the time the page was SERVED, which is why it is only a fallback:
         # the form overrides it with the time the reply was sent.

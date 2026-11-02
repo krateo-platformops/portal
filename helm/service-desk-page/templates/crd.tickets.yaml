@@ -134,6 +134,27 @@ spec:
                       text:
                         type: string
                         maxLength: 8000
+                      ref:
+                        type: string
+                        maxLength: 256
+                        description: >-
+                          The writing backend's own id for this entry, e.g. "zendesk:comment:123".
+                          NEVER RENDERED — it exists so a bridge can be idempotent. Re-syncing an
+                          upstream ticket must not duplicate entries, and matching on (at, who, text)
+                          is not safe because an agent can edit a comment: the text changes while the
+                          entry is the same one. Only `status` has this. `spec.activity` is written by
+                          people through the portal, where there is nothing upstream to correlate to.
+                activityOmitted:
+                  type: integer
+                  minimum: 0
+                  description: >-
+                    How many older entries the writing backend dropped to stay under `maxItems`.
+                    A full array REJECTS the patch rather than truncating it, so a bridge at the
+                    ceiling keeps the newest and drops the oldest — and this is how it says so.
+                    The page shows "N earlier updates not shown" rather than pretending the history
+                    starts at the first entry it holds. Silently losing history is the failure this
+                    field exists to prevent; the full record stays upstream, which the tenant cannot
+                    see, so the count is the only honest signal the portal can give.
             spec:
               type: object
               required:

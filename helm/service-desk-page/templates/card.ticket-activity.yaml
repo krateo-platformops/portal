@@ -22,6 +22,16 @@ spec:
     - listies
     items:
     - resourceRefId: ticket-activity
+  {{/* The footer says what is NOT here. A bridge that hit `status.activity`'s maxItems keeps the
+       newest entries and drops the oldest rather than failing its sync, and reports the count in
+       `status.activityOmitted`. Rendering that count is the difference between a truncated
+       conversation and a conversation that LOOKS complete — the second is the dishonest one, and it
+       is the reason the field exists at all.
+
+       Empty string when nothing was dropped, so a normal ticket shows no footer. */}}
+  widgetDataTemplate:
+    - forPath: footer
+      expression: '${ .activityOmittedNote // "" }'
   resourcesRefs:
     items:
     - id: ticket-activity
