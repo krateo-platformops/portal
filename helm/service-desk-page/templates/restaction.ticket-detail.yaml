@@ -136,7 +136,13 @@ spec:
     | ($t.spec // {}) as $sp
     | ($sp.state // "Open") as $state
     | ($sp.summary // "") as $summary
+{{- if $.Values.deskActions }}
     | ($sp.assignee // "") as $assignee
+{{- else }}
+    {{/* Not read when this install does not work tickets: a value authoritative elsewhere must not
+         reach the page, and canAssign below is its only consumer. */}}
+    | "" as $assignee
+{{- end }}
     | ($sp.objectRef // {}) as $ref
     # The live read, or nothing. A step that failed leaves its error under `objectError` and its
     # own key absent, but a non-object here would make every `.status…` below a jq error on a page

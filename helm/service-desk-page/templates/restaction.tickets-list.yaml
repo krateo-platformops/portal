@@ -74,10 +74,15 @@ spec:
           stateKey: (.spec.state | slug),
           kind: (.spec.kind // ""),
           requester: (.spec.requester // ""),
-          # Absent assignee is a FACT about the ticket, not a missing value: an unassigned ticket is
-          # the queue's most important row. It reads as "Unassigned" rather than as an empty cell.
+          # ONLY when this install works tickets (deskActions). An absent assignee is then a FACT
+          # about the ticket rather than a missing value — the queue's most important row — and reads
+          # as "Unassigned". Where tickets are worked elsewhere the field is not emitted at all,
+          # because "Unassigned" would be unactionable AND can be false while an external agent
+          # has it.
+{{- if $.Values.deskActions }}
           assignee: (.spec.assignee // "Unassigned"),
           assigned: ((.spec.assignee // "") != ""),
+{{- end }}
           age: (.metadata.creationTimestamp // ""),
           urgency: (.spec.urgency // ""),
         }) | sort_by(.age) | reverse),

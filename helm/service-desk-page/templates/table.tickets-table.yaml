@@ -1,5 +1,5 @@
 {{/* The queue — one row per Ticket off tickets-list (which applies the ?state= chip as a LABEL
-     SELECTOR, server-side). Summary, state, requester, assignee, age. Row click → the ticket.
+     SELECTOR, server-side). Summary, state, requester, age, and assignee when deskActions is on. Row click → the ticket.
 
      THE STATE COLOURS FOLLOW THE STATUS-PILL SPEC, which is stricter than it first looks and which
      parts of this repo do not follow — incidents-table maps `Resolved: "green"`, and green is
@@ -57,8 +57,10 @@ spec:
       title: State
     - valueKey: requester
       title: Requester
+    {{- if $.Values.deskActions }}
     - valueKey: assignee
       title: Assignee
+    {{- end }}
     - valueKey: age
       title: Raised
     dataSource: []
@@ -67,7 +69,7 @@ spec:
        columns carry no width knobs, so a long first cell is the one thing that wrecks the layout.
        The CRD caps it at 200, so this truncates rather than assuming. */}}
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"summary",kind:"jsonSchemaType",type:"string",stringValue:((.summary // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Open"),color:({ "Open": "slate", "In progress": "gold", "Waiting on requester": "gold", "Resolved": "faint", "Closed": "faint" }[.state // "Open"] // "slate")}, {valueKey:"requester",kind:"jsonSchemaType",type:"string",stringValue:(.requester // "")}, {valueKey:"assignee",kind:"jsonSchemaType",type:"string",stringValue:(.assignee // "Unassigned"),color:(if .assigned then "text" else "faint" end)}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"summary",kind:"jsonSchemaType",type:"string",stringValue:((.summary // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Open"),color:({ "Open": "slate", "In progress": "gold", "Waiting on requester": "gold", "Resolved": "faint", "Closed": "faint" }[.state // "Open"] // "slate")}, {valueKey:"requester",kind:"jsonSchemaType",type:"string",stringValue:(.requester // "")}, {{ if $.Values.deskActions }}{valueKey:"assignee",kind:"jsonSchemaType",type:"string",stringValue:(.assignee // "Unassigned"),color:(if .assigned then "text" else "faint" end)}, {{ end }}{valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
   apiRef:
     name: tickets-list
     namespace: {{ $.Values.namespace }}
