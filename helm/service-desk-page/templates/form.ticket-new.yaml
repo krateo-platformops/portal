@@ -87,8 +87,20 @@ spec:
          strings appear in THREE places: this enum, the visible-when rule on objectName, and the
          submit mapping. Change them together — a mismatch in the mapping 422s loudly at the
          apiserver, but a mismatch in the rule silently stops asking which object. */}}
+    {{- if and $.Values.servicePickerNamespace $.Values.servicePickerName }}
+    {{/* The service picker, when the deployment supplies a source. `closed: true` so the form
+         rejects client-side what admission refuses server-side; `fallback: manual` so a failed
+         read degrades to typed input rather than an empty closed picker that blocks every
+         ticket. No `search`: a routing table is a handful of entries, so load once and filter
+         locally. The ref it names is in resourcesRefs under the same condition. */}}
+    autocomplete:
+      - name: service
+        resourceRefId: service-choices
+        closed: true
+        fallback: manual
+    {{- end }}
     stringSchema: |-
-      {"type":"object","required":["kind","summary","objectName","detail","urgency"],"properties":{"kind":{"type":"string","title":"What kind of request is this?","description":"Something is broken — a platform object is not doing what it should · I need a resource — a cluster, a namespace, a database, more quota · I need access — a permission, a group, a credential","enum":["Something is broken","I need a resource","I need access"]},"summary":{"type":"string","title":"Summary","description":"One line. The queue shows this, so say the thing rather than the category.","minLength":1,"maxLength":200},"objectName":{"type":"string","title":"Which object is it about?","description":"The name of the composition or resource that is misbehaving. The desk looks the rest up from there.","minLength":1,"maxLength":253,"x-krateo-visible-when":{"field":"kind","equals":"Something is broken"}},"detail":{"type":"string","title":"Detail","description":"What happened, or what is needed. One line of input — the form has no multi-line control.","minLength":1,"maxLength":8000},"urgency":{"type":"string","title":"Urgency","description":"Plainly worded on purpose: P1/P2/P3 means different things to different teams, and you are not the person who calibrated that scale.","enum":["Blocking me now","Needed this week","No particular date"],"default":"Needed this week"},"onBehalfOf":{"type":"string","title":"On behalf of","description":"A group you belong to, when the request is not for you. Leave it empty for yourself.","maxLength":253}}}
+      {"type":"object","required":["kind","summary","objectName","detail","urgency"],"properties":{"kind":{"type":"string","title":"What kind of request is this?","description":"Something is broken \u2014 a platform object is not doing what it should \u00b7 I need a resource \u2014 a cluster, a namespace, a database, more quota \u00b7 I need access \u2014 a permission, a group, a credential","enum":["Something is broken","I need a resource","I need access"]},"summary":{"type":"string","title":"Summary","description":"One line. The queue shows this, so say the thing rather than the category.","minLength":1,"maxLength":200},"objectName":{"type":"string","title":"Which object is it about?","description":"The name of the composition or resource that is misbehaving. The desk looks the rest up from there.","minLength":1,"maxLength":253,"x-krateo-visible-when":{"field":"kind","equals":"Something is broken"}},"detail":{"type":"string","title":"Detail","description":"What happened, or what is needed. One line of input \u2014 the form has no multi-line control.","minLength":1,"maxLength":8000},"urgency":{"type":"string","title":"Urgency","description":"Plainly worded on purpose: P1/P2/P3 means different things to different teams, and you are not the person who calibrated that scale.","enum":["Blocking me now","Needed this week","No particular date"],"default":"Needed this week"},"onBehalfOf":{"type":"string","title":"On behalf of","description":"A group you belong to, when the request is not for you. Leave it empty for yourself.","maxLength":253},"service":{"type":"string","title":"Which service is this about?","description":"The service the request concerns, not the team that will handle it. Leave it empty if nothing in particular.","maxLength":63,"pattern":"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}}}
     buttonConfig:
       primary:
         label: Raise ticket
@@ -176,3 +188,15 @@ spec:
         apiVersion: servicedesk.krateo.io/v1alpha1
         resource: tickets
         verb: POST
+
+      {{- if and $.Values.servicePickerNamespace $.Values.servicePickerName }}
+      {{/* The service picker's source, named by the autocomplete entry above. Cross-namespace on
+           purpose: one source in one place, rather than a copy per tenant namespace to drift.
+           Resolved AS THE CALLER, so whoever raises a ticket needs `get` on restactions there. */}}
+      - id: service-choices
+        apiVersion: templates.krateo.io/v1
+        name: {{ $.Values.servicePickerName }}
+        namespace: {{ $.Values.servicePickerNamespace }}
+        resource: restactions
+        verb: GET
+      {{- end }}
