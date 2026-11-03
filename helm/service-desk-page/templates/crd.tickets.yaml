@@ -49,22 +49,21 @@ spec:
     - name: v1alpha1
       served: true
       storage: true
-      {{/* A STATUS SUBRESOURCE, AND IT HAS A REAL WRITER — which is the only reason it is here.
+      {{/* NO STATUS SUBRESOURCE, AND THAT IS A DECISION — do not add one back without a writer.
 
-           This CRD shipped without one deliberately: declaring a status that nothing writes is the
-           wart this repo already carries 44 times over (every widget CRD declares one, and 288 live
-           objects have `status: {}` with no conditions). I was not going to add the 45th.
+           An earlier version of this chart declared `subresources: {status: {}}` and a
+           `status.activity[]`, justified by a Zendesk bridge controller that would write agent
+           replies back. That design was dropped: the ticket page now talks to Zendesk live through
+           RESTActions, so nothing writes a status at all.
 
-           The CMP's Zendesk bridge changed that. It writes agent replies back into the ticket, and
-           with everything in `spec` it would write the same field, with the same verb, as the person
-           who raised the ticket — no field-level ownership, and RBAC cannot express per-field. The
-           subresource gives it its own boundary: the bridge gets `patch` on `tickets/status` and
-           NOTHING on spec, so a bug in it cannot overwrite the words a requester typed.
+           Removed rather than kept, because a declared-and-never-written status is a wart this repo
+           already carries 44 times over — every widget CRD declares one and 288 live objects hold
+           `status: {}` with no conditions. Keeping a 45th "for a future backend" is how that
+           happened the first 44 times.
 
-           Note the consequence: once this exists, a write to `.status` through the main resource is
-           silently IGNORED. Anything meaning to write status must use the /status endpoint. */}}
-      subresources:
-        status: {}
+           Free to remove because nothing is installed yet: no stored object carries a status and no
+           served version changes. If a backend ever does write back, adding the subresource THEN is
+           a smaller change than carrying a dead one until then. */}}
       additionalPrinterColumns:
         - name: State
           type: string
@@ -87,53 +86,15 @@ spec:
           required:
             - spec
           properties:
-            {{/* WHO WRITES WHAT. `spec` is user-written: what the requester said, and the desk's own
-                 edits to assignee and state. `status` is controller-written and the portal never
-                 posts to it.
+            {{/* `status` IS ABSENT, deliberately — see the note on subresources above. Nothing writes
+                 one, so there is nothing to declare, and declaring it without a subresource would be
+                 actively worse than either alternative: a write to `.status` through the main
+                 resource would then be ACCEPTED AND STORED rather than ignored, so any client could
+                 put anything there and the page would render it as though a controller had.
 
-                 Both carry an `activity` array of the same shape, and the ticket view merges them
-                 ordered by `at`. Two arrays rather than one because the SOURCE is the information:
-                 a reply that came back from Zendesk is not the same fact as one typed in the portal,
-                 and a single array cannot say which is which without trusting a field that the
-                 writer of the other kind could also set. */}}
-            status:
-              type: object
-              description: >-
-                Controller-written. The portal reads this and never writes it; anything here arrived
-                through the /status endpoint from a backend such as the CMP's Zendesk bridge.
-              properties:
-                activity:
-                  type: array
-                  description: >-
-                    Entries written by a backend, oldest first. Same shape as `spec.activity`; the
-                    ticket view merges both ordered by `at`.
-                  maxItems: 200
-                  items:
-                    type: object
-                    required:
-                      - at
-                      - who
-                      - text
-                    properties:
-                      at:
-                        type: string
-                        format: date-time
-                      who:
-                        type: string
-                      kind:
-                        type: string
-                        description: >-
-                          What sort of entry this is. Values match `spec.activity[].kind` so the view
-                          renders a merged list consistently; `autopilot` marks a machine-written one.
-                        enum:
-                          - comment
-                          - assigned
-                          - state-change
-                          - autopilot
-                        default: comment
-                      text:
-                        type: string
-                        maxLength: 8000
+                 (I removed the subresource first and left this property behind, which produced
+                 exactly that state for one render. The verification caught it; reading the rendered
+                 CRD back rather than trusting the edit is what caught it.) */}}
             spec:
               type: object
               required:
@@ -179,17 +140,36 @@ spec:
                   type: string
                   description: What happened, or what is needed. Free text; no search over it (see the CRD comment).
                   maxLength: 8000
+                service:
+                  type: string
+                  maxLength: 63
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  description: >-
+                    Which service the ticket is about, as a service id rather than a queue or team
+                    name. Optional, and DELIBERATELY NOT AN ENUM: the valid set is whatever the
+                    deployment routes, it grows as a catalog gains services, and baking it in here
+                    would mean a portal release every time one is added. The pattern is the RFC1123
+                    label shape, so a value is safe to use as a label value or a routing-table key.
+
+                    A ticket about nothing in particular is the COMMON case, not the edge — "I
+                    cannot log in", "I need access" — which is why this is its own field rather than
+                    derived from `objectRef`. Deriving it would silently route every such ticket to
+                    whatever the fallback is, with no way to tell a routed ticket from an unroutable
+                    one. A deployment that wants the convenience defaults this field from
+                    `objectRef` in admission and WRITES the result here, so the answer stays visible
+                    on the ticket instead of being recomputed by every reader.
                 requester:
                   type: string
                   description: >-
-                    Who raised it. Set from the caller's identity, never from form input — snowplow
-                    establishes the caller from their JWT, so a requester the client could choose
-                    would be a claim rather than a fact.
-                  minLength: 1
-                assignee:
-                  type: string
-                  description: >-
-                    Who is on it, or absent. A group or a user; the page does not distinguish,
+                    Who raised it. THE API DOES NOT ENFORCE THIS — do not build an authorization
+                    decision on it. The portal sets it from the caller's identity (snowplow
+                    establishes the caller from their validated JWT, so the client cannot choose it
+                    on that path), but anyone with `create` on tickets can set any value via kubectl
+                    or a direct call. An earlier version of this description implied the field was
+                    guaranteed, which is worse than saying nothing: a consumer would have trusted it.
+                    A deployment that needs the guarantee enforces it in admission — overwrite it
+                    from `request.userInfo.username` on create and refuse changes afterwards. The
+                    CMP does exactly that in its tenant namespaces.
                     because the desk assigns to whichever is meaningful.
 
                     Mirrored to `krateo.io/ticket-assignee` under the same slug rule. An ABSENT

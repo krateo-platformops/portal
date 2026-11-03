@@ -144,27 +144,36 @@ spec:
     | ((.object // {}) | if type == "object" and ((.metadata.name // "") != "") then . else null end) as $obj
     | ($obj != null) as $objRead
     | (if $objRead then ($obj.status.conditions // []) else [] end) as $conds
-    # TWO BINDINGS, AND MIXING THEM UP CORRUPTS DATA. Read this before using either.
+    # TWO BINDINGS, AND THEY MUST NOT BE COLLAPSED INTO ONE. Read this before using either.
     #
     #   $acts     spec.activity ONLY — what the reply form patches back (see activityExisting).
-    #   $allActs  spec + status.activity, merged — what the page DISPLAYS.
+    #   $allActs  what the page DISPLAYS. Identical to $acts today; see below.
     #
-    # The ticket carries activity in two places: `spec.activity`, written by people through the
-    # portal, and `status.activity`, written by backends through the /status endpoint (today the
-    # CMP's Zendesk bridge). The view has to show both, in one conversation, ordered by time.
+    # The split exists because the reply form patches `spec.activity` WHOLESALE — a merge-patch
+    # replaces an array, so every existing entry is resent with the new one. Anything that did not
+    # come from spec must therefore be kept OUT of the form's payload, or on the next reply it gets
+    # copied into spec and becomes user-written.
     #
-    # But the reply form patches `spec.activity` WHOLESALE — a merge-patch replaces an array, so
-    # every existing entry is resent with the new one. So its payload must be the SPEC array alone.
-    # Feed it the merged list and every backend entry gets copied into spec on the next reply: the
-    # bridge's words become user-written, they duplicate against the status copy, and the /status
-    # boundary that the subresource exists to create is gone. Hence $acts stays spec-only and is
-    # used for exactly one thing.
+    # THIS IS WHERE AN EXTERNAL CONVERSATION LEG GOES, and the reason both bindings survive even
+    # though they currently hold the same thing. A deployment reading replies live from a ticketing
+    # system (the CMP's Zendesk design) adds its shaped entries as a second term:
     #
-    # Sorting both: the CRD says each array is stored oldest-first, and sorting here means the page
-    # does not depend on every writer having kept that promise.
+    #     | (($acts + $externalActs) | sort_by(.at // "")) as $allActs
+    #
+    # with $acts FIRST. jq's sort_by is stable, so an exact timestamp tie puts the human reply before
+    # the external one — verified against a fixture of five entries interleaved across both sources
+    # with a deliberate tie at one timestamp. Reorder that concatenation and you silently change which
+    # of two simultaneous replies reads first, with nothing failing.
+    #
+    # An earlier version sourced the second term from `status.activity`, written by a bridge
+    # controller through the /status endpoint. That design was dropped and the status subresource went
+    # with it (see crd.tickets.yaml), so reading it here would mean reading a field the CRD no longer
+    # declares: harmless under the `// []` guard, and a lie in the comment above it.
+    #
+    # Sorting: the CRD says the array is stored oldest-first, and sorting here means the page does not
+    # depend on every writer having kept that promise.
     | (($sp.activity // []) | sort_by(.at // "")) as $acts
-    | ((($t.status // {}).activity // []) | sort_by(.at // "")) as $statusActs
-    | (($acts + $statusActs) | sort_by(.at // "")) as $allActs
+    | ($acts | sort_by(.at // "")) as $allActs
     | {
         exists: $exists,
         # The summary is the page title; the id is its one line of context. An absent ticket says

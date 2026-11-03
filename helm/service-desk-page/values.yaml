@@ -24,3 +24,24 @@ readerGroups:
 # type: array
 # @schema
 requesterGroups: []
+
+# @schema
+# description: Whether the ticket page offers the DESK's own write actions — "Assign to me" and "Resolve". True for a desk whose readers work the queue in this portal. Set FALSE where the tickets are worked somewhere else and the portal is a window onto them: in the CMP, assignment and state come from Zendesk, so a tenant clicking "Assign to me" would write a field the Zendesk side owns and then watch it be overwritten. The buttons also hide per TICKET (already assigned, already resolved) via the page's own canAssign/canResolve; this flag is the per-INSTALL answer, and the two are independent. It does not affect "Ask Autopilot", which reads and reasons but writes nothing.
+# type: boolean
+# default: true
+# @schema
+deskActions: true
+
+# @schema
+# description: Namespace of a RESTAction that supplies the raise form's "service" choices, or empty for a free-text field. Set it together with `servicePickerName`; the picker renders only when BOTH are set, so a half-configured install gets free text rather than a broken closed picker. The RESTAction's filter must emit a top-level array at `.status` of `[{value, label}]` (`description` optional, a muted second line); anything that is not an array reads as a FAILED LOAD rather than "no options", which is what lets the field fall back to typed input instead of presenting an empty picker nobody can satisfy. The read happens AS THE CALLER, so whoever raises a ticket needs `get` on that RESTAction in this namespace — a separate grant from any ConfigMap behind it, and the thing most likely to work for an admin and 403 for a tenant. A cross-namespace reference is deliberate and supported: one source in one place beats a copy per tenant namespace, which is one more thing to drift.
+# type: string
+# default: ""
+# @schema
+servicePickerNamespace: ""
+
+# @schema
+# description: Name of the RESTAction supplying the raise form's "service" choices. See `servicePickerNamespace` for the output contract and the RBAC it needs. Empty (with the namespace empty) means the service field takes free text, which is the right default: the valid set of services is deployment-specific, and the API does not enforce it either — a deployment that needs the value constrained does it in admission, where it cannot be bypassed by a direct create.
+# type: string
+# default: ""
+# @schema
+servicePickerName: ""

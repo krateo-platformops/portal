@@ -36,26 +36,32 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ (if (.canAssign // false) then [ { resourceRefId: "ticket-assign-to-me" } ] else [] end)
-        + [ { resourceRefId: "ticket-ask-autopilot" } ]
-        + (if (.canResolve // false) then [ { resourceRefId: "ticket-resolve" } ] else [] end) }
+        ${ {{ if $.Values.deskActions }}(if (.canAssign // false) then [ { resourceRefId: "ticket-assign-to-me" } ] else [] end) +{{ end }}
+        [ { resourceRefId: "ticket-ask-autopilot" } ]
+        {{- if $.Values.deskActions }}
+        + (if (.canResolve // false) then [ { resourceRefId: "ticket-resolve" } ] else [] end)
+        {{- end }} }
   resourcesRefs:
     items:
+    {{- if $.Values.deskActions }}
     - id: ticket-assign-to-me
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: ticket-assign-to-me
       namespace: {{ $.Values.namespace }}
       resource: buttons
       verb: GET
+    {{- end }}
     - id: ticket-ask-autopilot
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: ticket-ask-autopilot
       namespace: {{ $.Values.namespace }}
       resource: buttons
       verb: GET
+    {{- if $.Values.deskActions }}
     - id: ticket-resolve
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: ticket-resolve
       namespace: {{ $.Values.namespace }}
       resource: buttons
       verb: GET
+    {{- end }}
