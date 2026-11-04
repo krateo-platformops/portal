@@ -8,6 +8,21 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: auditrecords.audit.krateo.io
+  annotations:
+    # KEEP. An audit trail that a component version bump can delete is not an audit trail.
+    # Deleting this CRD cascade-deletes every AuditRecord in the cluster, and the portal chart is
+    # uninstalled and recreated whenever its pin moves — so without this, the record of who asked
+    # for which gated write would be destroyed by routine maintenance, silently, with the symptom
+    # being an empty audit page rather than an error.
+    #
+    # Found by scripts/lint-crd-retention.py on the run that added it, not by a person reading
+    # this file: the same defect had already shipped in service-desk-page's Ticket CRD, and the
+    # gate written for that one immediately named this second instance.
+    #
+    # AuditRecords live in the RELEASE namespace, which this chart does not create, so there is no
+    # namespace of ours whose deletion could defeat this. (`demo-system`, the one namespace this
+    # chart does create, is an RBAC sandbox for the demo application kinds and holds no records.)
+    helm.sh/resource-policy: keep
 spec:
   group: audit.krateo.io
   scope: Namespaced
