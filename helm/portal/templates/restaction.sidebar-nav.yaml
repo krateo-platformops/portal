@@ -139,6 +139,37 @@ spec:
           | { metadata: { name: .metadata.name,
                           namespace: .metadata.namespace,
                           annotations: (.metadata.annotations // {}) } } ]
+  {{/* LINK-ONLY ENTRIES (`krateo.io/nav-link-only: "true"`) — an entry that is a LINK, not a page.
+
+       Every other root here is both at once: its `nav-path` becomes the route AND the sidebar
+       entry's link. That is right while the root that owns the page is also the one linking to it.
+       It breaks when ONE shared page must be reached at a path only the CALLER's context can
+       spell — because the item below stamps `resourceRefId: $root` on every root, and the frontend
+       resolves content from that ref FIRST, in that root's own namespace. No annotation redirects
+       content elsewhere, so a nav object generated into a tenant namespace can only ever open
+       ITSELF.
+
+       The CMP service desk is the case: one shared desk, tickets per tenant namespace, so the
+       route is `/service-desk/{namespace}` and each tenant needs a link with their own filled in.
+       A labelled shared root would navigate to the literal string `/service-desk/{namespace}` —
+       an entry's key IS its path and the Menu navigates it verbatim, nothing substitutes params
+       into a nav link.
+
+       So the jobs split. The shared root carries the templated `nav-path` and NO label: it routes
+       and owns the content. One generated object per tenant carries the label, the concrete path
+       and this annotation: it links and owns nothing. ONLY the exact string "true" enables it, so
+       a half-recognised truthy value fails visibly instead of silently claiming the route back.
+
+       Two consequences, both deliberate:
+         - NO `resourceRefId`, so the frontend's `isNavEntryAllowed` fail-opens for it. That IS the
+           gate: the object lives in the tenant's own namespace, so whether they may `list` it
+           decides whether they see the entry.
+         - EXCLUDED from `refs` below. It has no content to resolve, so a ref would cost a
+           per-tenant RBAC resolve for nothing — and would put its id in the frontend's
+           denied-ref bookkeeping, which is load-bearing for OTHER entries' fail-open logic.
+
+       `nav-alias` is suppressed for a link-only root: an alias adds route-only paths to the same
+       CONTENT, and a link-only root has none. */}}
   filter: >
     [ (.pages // [])[]
       | select(((.metadata.annotations // {})["krateo.io/nav-path"] // "") != "")
@@ -148,16 +179,24 @@ spec:
       | (.metadata.name) as $root
       | (.metadata.name | sub("^page-"; "")) as $slug
       | (($a["krateo.io/nav-order"] // "100") | tonumber) as $ord
-      | ( { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, resourceRefId: $root }
+      | ((($a["krateo.io/nav-link-only"] // "") == "true") as $linkOnly
+      | ( (if $linkOnly
+             then { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, linkOnly: true }
+             else { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, resourceRefId: $root }
+           end)
           + (if $a["krateo.io/nav-label"] then { label: $a["krateo.io/nav-label"] } else {} end)
           + (if $a["krateo.io/nav-icon"]  then { icon:  $a["krateo.io/nav-icon"]  } else {} end)
           + (if $a["krateo.io/nav-group"] then { group: $a["krateo.io/nav-group"] } else {} end) ),
-        ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
-          | { path: ., page: $slug, order: $ord, resourceRefId: $root } )
+        ( if $linkOnly then empty
+          else ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
+                 | { path: ., page: $slug, order: $ord, resourceRefId: $root } )
+          end ))
     ] ) as $entries
     | ( [ $entries[] | select(.label != null and .group != null) ]
         | group_by(.group) | map({ group: .[0].group, min: (map(.order) | min) })
         | sort_by(.min) | .[1:]
         | map({ type: "divider", order: (.min - 1) }) ) as $dividers
     | { items: ( ($entries | map(del(.group)) | unique) + $dividers | sort_by(.order) ),
-        refs:  ( [ $roots[] | { id: .metadata.name, name: .metadata.name, namespace: .metadata.namespace } ] | unique ) }
+        refs:  ( [ $roots[]
+                    | select((((.metadata.annotations // {})["krateo.io/nav-link-only"]) // "") != "true")
+                    | { id: .metadata.name, name: .metadata.name, namespace: .metadata.namespace } ] | unique ) }
