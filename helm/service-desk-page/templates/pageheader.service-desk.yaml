@@ -12,6 +12,23 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* Reads tickets-list so the header can say when the queue could not be READ, as opposed to
+       being empty. Those were indistinguishable: the RA runs under continueOnError and guards the
+       absent step with `// []`, so a 403, a missing Ticket CRD and a genuinely quiet desk all drew
+       the same empty table with nothing said anywhere.
+
+       It matters more now than it did. Under the per-ticket RBAC model a requester has no `list`
+       at all and every ticket arrives through snowplow's refilter, so a misconfigured grant
+       produces exactly that empty-looking queue — the silent case became the DEFAULT failure.
+
+       THE HEADER RATHER THAN AN ALERT, and the reason is the CRDs. No widget in the set has a
+       visibility flag and Table has no empty-state field, so an Alert would be a box that is
+       always drawn and usually says nothing. A PageHeader `tags` array renders nothing when it is
+       empty, which makes a tag conditional by construction — and the portal's rule is that status
+       indicators are exception-only: nothing marks the healthy case. */}}
+  apiRef:
+    name: tickets-list
+    namespace: {{ $.Values.namespace }}
   widgetData:
     title: Service desk
     {{/* `subtitle`, not `description`. The PageHeader CRD declares
@@ -28,6 +45,24 @@ spec:
     - buttons
     items:
     - resourceRefId: service-desk-raise
+  widgetDataTemplate:
+    {{/* Empty on the healthy path, so nothing is drawn. The three failures are distinguished
+         because the remedies differ completely: a 403 is a grant to fix, a 404 is a component that
+         is not installed, and anything else is unknown and must not be described as either. */}}
+    - forPath: tags
+      expression: '${ if (.failed // false) then [ { label: (if (.denied // false) then "Your access to these tickets could not be confirmed" elif (.absent // false) then "The service desk is not installed on this cluster" else "These tickets could not be read" end), color: "red" } ] else [] end }'
+    {{/* The subtitle is REPLACED on a failed read, because the normal line ("Requests you have
+         raised.") is a claim about what an empty table means and on a failed read it is the wrong
+         claim — it tells someone they have no tickets when nobody managed to look.
+
+         Both branches return a concrete string rather than relying on `null` to mean "keep the
+         static default". Whether a null expression result preserves the value or blanks the field
+         is snowplow's behaviour to define, not something this chart should bet the healthy path on,
+         and the healthy path is the one that renders every time. So the normal subtitle is written
+         here too, which means it appears TWICE in this file — the static widgetData default below
+         for a render with no data, and here for the templated path. They must stay in agreement. */}}
+    - forPath: subtitle
+      expression: '${ if (.failed // false) then (if (.denied // false) then "Your access could not be confirmed, so this list is not your tickets — it is nothing at all. Tell an administrator." elif (.absent // false) then "No service desk is installed here, so there is nothing to show." else "This list is empty because the read failed, not because you have no tickets." end) else {{ if $.Values.deskActions }}"Requests raised by people on this platform."{{ else }}"Requests you have raised."{{ end }} end }'
   resourcesRefs:
     items:
     - id: service-desk-raise
