@@ -85,8 +85,13 @@ def rows(*readys):
     carry Status=TRUE, not False.
     """
     def one(r):
-        ready, reason = r if isinstance(r, tuple) else (r, '')
-        return {'ready': ready, 'reason': reason, 'synced': 'True'}
+        # A bare status, a (status, reason) pair, or a (status, reason, synced) triple. Synced
+        # defaults to True so every existing case reads as "the Ready condition alone decides the
+        # Ready bucket" — which is the property most of them are about. The triple exists for the
+        # states that only OCCUR alongside a Synced failure, where a fixture pinning the Ready half
+        # in isolation would be asserting a state that never happens.
+        ready, reason, synced = (tuple(r) + ('True',))[:3] if isinstance(r, tuple) else (r, '', 'True')
+        return {'ready': ready, 'reason': reason, 'synced': synced}
 
     return {
         'name': 'spoke-a',
@@ -165,6 +170,30 @@ CASES = [
     ([('Unknown', 'ChildrenForbidden')],
                                   {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
     ([('Unknown', 'InventoryNotRecorded')],
+                                  {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
+    # BOTH Synced values occur with InventoryNotRecorded, and the case ABOVE — synced=True — is the
+    # COMMON one. That is the opposite of what I first wrote here, and the correction is worth
+    # keeping because the wrong version is the intuitive one: "reports drift" sounds like
+    # "Synced=False".
+    #
+    # It is not. unstructured-runtime's drift branch (pkg/controller/worker.go:773) writes the
+    # handler's conditions — Ready — and NO Synced condition at all, then queues an Update. So
+    # Synced keeps whatever it already held, which for a composition that has been reconciling
+    # successfully is Synced=True/ReconcileSuccess. The sequence:
+    #
+    #   Observe finds the inventory absent -> Ready=Unknown/InventoryNotRecorded persisted
+    #                                      -> Synced UNTOUCHED, still True
+    #                                      -> an Update is queued, writes status.managed
+    #                                      -> the next Observe reports something else entirely
+    #
+    # Synced=False alongside it is the SECOND-ORDER case: it occurs only when that queued Update
+    # then fails for its own reasons. This row covers that half; the row above covers the half a
+    # dashboard will actually catch.
+    #
+    # And the reason is TRANSIENT BY DESIGN either way, unlike ZeroEvidence which is a steady state
+    # nobody can clear. A composition STUCK on InventoryNotRecorded is a second defect rather than
+    # the expected case — worth knowing before someone reads a persistent gray pill as normal.
+    ([('Unknown', 'InventoryNotRecorded', 'False')],
                                   {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
     # A real failure still outranks withheld evidence, whichever reason withheld it.
     ([('Unknown', 'ChildrenForbidden'), ('False', 'Unavailable')],
