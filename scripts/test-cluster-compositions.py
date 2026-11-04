@@ -76,9 +76,10 @@ def rows(*readys):
     (`[.status.conditions[] | select(.type=="Ready") | .status] | first // ""`), so a composition
     with no Ready condition at all arrives as "" — which must count as unknown, not as not-ready.
     Each item is either a Ready status string, or a (status, reason) pair. The REASON is the
-    contract core-provider maintains (`Available`, `Creating`, `Unavailable`, `ZeroEvidence`,
-    `ReconcileGracefullyPaused`) — never the message, which is prose they change freely. Note that
-    `ReconcileGracefullyPaused` carries Status=TRUE, not False.
+    contract core-provider maintains (`Available`, `AvailablePartialCoverage`, `Creating`,
+    `Unavailable`, `ZeroEvidence`, `ReconcileGracefullyPaused`) — never the message, which is prose
+    they change freely. Note that `ReconcileGracefullyPaused` AND `AvailablePartialCoverage` both
+    carry Status=TRUE, not False.
     """
     def one(r):
         ready, reason = r if isinstance(r, tuple) else (r, '')
@@ -150,6 +151,34 @@ CASES = [
     # the True side cannot silently become a pause.
     ([('True', 'SomeNewTrueReason')],
                                   {'total': 1, 'ready': 1, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 0}, 'green'),
+
+    # core-provider#297: `AvailablePartialCoverage` is Status=TRUE — Available's condition with a
+    # different reason, stamped when MOST CHILDREN COULD NOT BE HEALTH-EVALUATED.
+    #
+    # The case above already pins the property that keeps this right: an unrecognised True reason
+    # counts as ready. So this adds no new behaviour, and that is the point of writing it by name
+    # anyway — the generic case proves the predicate is a complement rather than an enumeration,
+    # while a NAMED case records what core-provider actually ships, so the next reader of this
+    # table sees the real vocabulary instead of inferring it. When a value is populous, "it would
+    # have worked anyway" is not the same as "we know it works".
+    #
+    # Populous it is: on 057, 30 of 85 compositions had a majority of children unevaluated, and
+    # portal-agents was 118 of 121.
+    #
+    # WHAT THIS DOES NOT ASSERT, so nobody reads it as reassurance: the row is green and counted
+    # ready, which is CORRECT — the composition is available. It is not honest, because the pill is
+    # identical to one backed by every child, and the number of children behind the claim is not
+    # shown anywhere. Fixing that needs the coverage count on the status; it is not a counting bug
+    # and no change to this table can address it. See core-provider#318 for the worse sibling: a
+    # child the controller cannot READ is counted healthy and surfaced nowhere at all.
+    ([('True', 'AvailablePartialCoverage')],
+                                  {'total': 1, 'ready': 1, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 0}, 'green'),
+    # It is READY, not PAUSED: both are Status=True, and only the named reason separates them.
+    ([('True', 'AvailablePartialCoverage'), ('True', 'ReconcileGracefullyPaused')],
+                                  {'total': 2, 'ready': 1, 'notReady': 0, 'converging': 0, 'paused': 1, 'unknown': 0}, 'green'),
+    # And a real failure still outranks it, so partial coverage cannot mask a broken sibling.
+    ([('True', 'AvailablePartialCoverage'), ('False', 'Unavailable')],
+                                  {'total': 2, 'ready': 1, 'notReady': 1, 'converging': 0, 'paused': 0, 'unknown': 0}, 'orange'),
 ]
 
 
