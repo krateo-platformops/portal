@@ -96,6 +96,27 @@ CASES = [
      conds(('Ready', 'Unknown', 'NotObserved'), ('Synced', 'True', 'ReconcileSuccess')), 'readyNotSet', 'ReadyNotSetAfterObserve'),
     ('Unknown, empty reason',
      conds(('Ready', 'Unknown', ''),), 'unknown', 'Unknown'),
+    # ObserveFailed is the SAME FACT as NotObserved, from unstructured-runtime rather than
+    # provider-runtime. Same state and same rank; the label stays verbatim per reason, because
+    # greppability is the point of the rule and an operator reading `ObserveFailed` can find it.
+    ('Unknown/ObserveFailed + Synced=False',
+     conds(('Ready', 'Unknown', 'ObserveFailed'), ('Synced', 'False', 'ReconcileError')), 'notObserved', 'ObserveFailed'),
+    ('Unknown/ObserveFailed + Synced=True',
+     conds(('Ready', 'Unknown', 'ObserveFailed'), ('Synced', 'True', 'ReconcileSuccess')), 'readyNotSet', 'ReadyNotSetAfterObserve'),
+    # Ready=False is not one thing either, and this was the MIRROR of the Unknown defect: these two
+    # are genuinely in progress and were rendering red.
+    ('Ready=False/Pending',  conds(('Ready', 'False', 'Pending'),),  'converging', 'Pending'),
+    ('Ready=False/Updating', conds(('Ready', 'False', 'Updating'),), 'converging', 'Updating'),
+    # And these two are TERMINAL — the controller has stopped and a human must act — where they
+    # previously rendered identically to a transient failure.
+    ('Ready=False/DriftNotConverging',
+     conds(('Ready', 'False', 'DriftNotConverging'),), 'terminal', 'DriftNotConverging'),
+    ('Ready=False/AuthorizationDenied',
+     conds(('Ready', 'False', 'AuthorizationDenied'),), 'terminal', 'AuthorizationDenied'),
+    # The set is OPEN: a Ready=False reason nothing here lists must stay a failure rather than
+    # become progress. That direction is the safe one and it is asserted, not assumed.
+    ('Ready=False/SomeNewReason',
+     conds(('Ready', 'False', 'SomeNewReason2028'),), 'failed', 'NotReady'),
 ]
 
 failures = []
@@ -120,7 +141,8 @@ for label, conditions, want_state, want_label in CASES:
     # THE PARTITION. Every checked row belongs to exactly one counted bucket; a state added later
     # must not land in an existing one silently, which is how Ready=Unknown became "pending".
     buckets = ['healthyCount', 'driftCount', 'failedCount', 'pendingCount',
-               'notObservedCount', 'readyNotSetCount', 'unknownCount']
+               'notObservedCount', 'readyNotSetCount', 'unknownCount',
+               'terminalCount', 'convergingCount']
     summed = sum(out.get(b, 0) for b in buckets)
     check(f'{label}: counts sum to total', summed, out['total'])
 

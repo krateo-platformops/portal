@@ -57,6 +57,11 @@ spec:
           notObserved: gray
           readyNotSet: orange
           unknown: gray
+          {{/* Ready=False split by reason: `converging` (Pending/Updating) is progress and must not
+               be red; `terminal` (DriftNotConverging/AuthorizationDenied) is a stopped controller
+               waiting on a human, so it is red like any failure but ranks below one. */}}
+          converging: orange
+          terminal: red
       primaryText: '{kind}'
       subPrimaryText: '{name}'
       {{/* Single-token label computed server-side (stateLabel); a filled Tag, not bare text. */}}
