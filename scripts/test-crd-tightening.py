@@ -149,8 +149,40 @@ CASES = [
 ]
 
 
+HINT_CASES = [
+    # The removed-property finding carries a QUERY, not an answer: the count of live objects still
+    # setting the field is what tells a reviewer a dead field from a load-bearing one, and both look
+    # identical in a diff. The count needs a cluster, which CI does not have and should not require.
+    ('a top-level spec property', 'tickets.servicedesk.krateo.io/v1alpha1.spec', ['onBehalfOf'],
+     "kubectl get tickets.servicedesk.krateo.io -A -o json | jq '[.items[] "
+     "| select(.spec.onBehalfOf != null)] | length'"),
+    ('nested, with an array on the way — [] becomes jq\'s []?',
+     'buttons.widgets.templates.krateo.io/v1beta1.spec.resourcesRefsTemplate[]', ['iterator'],
+     "select(.spec.resourcesRefsTemplate[]?.iterator != null)"),
+    ('an object map — {*} also becomes []?, which iterates values in jq',
+     'x.example.io/v1.spec.data{*}', ['k'], "select(.spec.data[]?.k != null)"),
+]
+
+# A hint that is wrong is worse than none, because it looks like evidence.
+NO_HINT = [
+    ('a path with no CRD segment', 'no-slash-in-this-path', ['a']),
+    ('a path that would break the shell quoting', "x.example.io/v1.spec.we'ird", ['a']),
+]
+
+
 def main():
     failed = 0
+    live_count_hint = import_module('lint-crd-tightening').live_count_hint
+    for label, path, lost, want in HINT_CASES:
+        got = live_count_hint(path, lost)
+        if want not in got:
+            print(f'FAIL hint {label}: want substring {want!r}, got {got!r}')
+            failed += 1
+    for label, path, lost in NO_HINT:
+        got = live_count_hint(path, lost)
+        if got != '':
+            print(f'FAIL hint {label}: must produce no hint, got {got!r}')
+            failed += 1
     for label, old, new, expect, path in CASES:
         found = hits(old, new)
         if len(found) != expect:
@@ -160,7 +192,8 @@ def main():
         elif path is not None and found and found[0][0] != path:
             print(f'FAIL {label}: finding is at {found[0][0]!r}, expected {path!r}')
             failed += 1
-    print(f'{len(CASES) - failed} of {len(CASES)} cases pass')
+    total = len(CASES) + len(HINT_CASES) + len(NO_HINT)
+    print(f'{total - failed} of {total} cases pass')
     return failed
 
 
