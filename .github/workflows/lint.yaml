@@ -469,6 +469,14 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-service-desk.py
 
+      # Ready=Unknown must not render as progress. Same job for the same reason as its neighbours:
+      # it needs helm and jq, and runs the chart's own jq rather than a copy.
+      - name: Composition resources readiness, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-resources.py
+
       # portal#333. Same shape as the step above and in the same job for the same reason: it needs
       # helm and jq, and it runs the chart's OWN jq rather than a copy, so it is only a gate if CI
       # actually runs it. A test script nobody invokes reports nothing and looks like coverage.

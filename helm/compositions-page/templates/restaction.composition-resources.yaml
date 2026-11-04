@@ -154,6 +154,39 @@ spec:
           | ([ $c[]? | select(.type == "Ready" or .type == "Available") ][0]) as $rc
           | ($rc.status == "True") as $ready
           | ($rc.status == "False") as $notready
+          {{/* THE THIRD STATE. A Ready condition is True, False or Unknown, and Unknown used to
+               fall off the end of the chain below into "pending" — which reads as PROGRESS about
+               something that may be permanently stuck. provider-runtime's words, and the reason
+               this is worth changing: a stuck resource looked like it was still working, so an
+               operator waited instead of looking.
+
+               Split by REASON, because the two Unknown cases have different causes and different
+               fixes. `NotObserved` with Synced=False is "we cannot observe it"; the same reason
+               with Synced=TRUE is a contract breach — the provider finished its Observe and never
+               set Ready — for which the runtime also records a Warning event, verbatim
+               `ReadyNotSetAfterObserve` (reconciler.ReasonReadyNotSetAfterObserve, v1.8.1). */}}
+          | ($rc.status == "Unknown") as $unknownReady
+          | ($rc.reason // "") as $reason
+          {{/* NotObserved and ObserveFailed ARE THE SAME FACT FROM TWO RUNTIMES, and which word
+               arrives depends only on whether the provider was built on provider-runtime
+               (markNotObserved, pkg/reconciler/ready.go:60, from a failed Connect or Observe) or on
+               unstructured-runtime (ObserveFailed, pkg/tools/unstructured/condition/condition.go:50).
+               That is an implementation detail no portal user can see, so both get the same STATE
+               and the same RANK — otherwise the identical failure sorts differently depending on
+               whether the resource came from oasgen-provider or rest-dynamic-controller.
+
+               The LABEL stays verbatim per reason, because the status-pill rule is to print what the
+               object says and greppability is the point: an operator reading `ObserveFailed` can
+               find that string. Same treatment, own word. */}}
+          | (($reason == "NotObserved") or ($reason == "ObserveFailed")) as $observeFailed
+          {{/* Ready=False IS NOT ONE THING EITHER, and treating it as one was the mirror of the
+               Unknown defect above: `Pending` and `Updating` are genuinely in progress and were
+               rendering RED, while `DriftNotConverging` and `AuthorizationDenied` are terminal —
+               the controller has stopped and a human must act — and rendered as a transient
+               failure. All four come from rest-dynamic-controller and the set is OPEN, so an
+               unrecognised Ready=False still falls to `failed` rather than to progress. */}}
+          | (($reason == "Pending") or ($reason == "Updating")) as $converging
+          | (($reason == "DriftNotConverging") or ($reason == "AuthorizationDenied")) as $terminal
           | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
           | (($c | length) == 0) as $noconds
           | ($m._getpath | fetchablePath) as $readable
@@ -170,13 +203,58 @@ spec:
                       elif $noconds then "healthy"
                       elif $ready and ($unsynced | not) then "healthy"
                       elif $ready and $unsynced then "drift"
+                      elif $notready and $converging then "converging"
+                      elif $notready and $terminal then "terminal"
                       elif $notready then "failed"
+                      elif $unknownReady and $observeFailed and $unsynced then "notObserved"
+                      elif $unknownReady and $observeFailed then "readyNotSet"
+                      elif $unknownReady then "unknown"
                       else "pending" end),
+              {{/* LABEL AND COLOUR ARE COMPUTED HERE, not derived from `state` by the widget.
+                   The list used to bind `color: value: '{state}'` through a `map:` of five entries
+                   and build the label by upper-casing the state's first letter. Both work only for
+                   a state the map happens to list: a state with no entry falls through to the raw
+                   string as a colour NAME, and getColorCode returns near-black for a name it does
+                   not know — so a new state renders as dark ink and nothing reports it.
+
+                   `cluster-compositions` already computes readyLabel/readyColor server-side for
+                   exactly this reason. Doing the same here makes the vocabulary and the palette one
+                   decision in one place, and the label verbatim rather than re-cased: the status
+                   pill rule is a single PascalCase K8s-native token, taken from the object where
+                   possible, and `NotObserved` / `ReadyNotSetAfterObserve` / `Unknown` all are. */}}
+              stateLabel: (if ($readable | not) then "Unread"
+                           elif ($found | not) then "Pending"
+                           elif $noconds or ($ready and ($unsynced | not)) then "Healthy"
+                           elif $ready and $unsynced then "Drift"
+                           {{/* Verbatim from the object for every reason the runtimes define, so
+                                the pill and `kubectl get -o yaml` read the same. */}}
+                           elif $notready and ($converging or $terminal) then $reason
+                           elif $notready then "NotReady"
+                           elif $unknownReady and $observeFailed and $unsynced then $reason
+                           {{/* ReadyNotSetAfterObserve IS NOT A REASON — do not look for a const.
+                                It is synthesised here from the condition PAIR: a successful Observe
+                                that left Ready at the marker breaks provider-runtime's contract, and
+                                the runtime records it as a Warning EVENT whose reason is this
+                                string (reconciler.ReasonReadyNotSetAfterObserve, v1.8.1). Printing
+                                it means the pill matches the event an operator will find. */}}
+                           elif $unknownReady and $observeFailed then "ReadyNotSetAfterObserve"
+                           elif $unknownReady then "Unknown"
+                           else "Pending" end),
+              {{/* notObserved is scored BELOW drift, per provider-runtime: a child we cannot
+                   observe is a weaker claim than one we can see has drifted. */}}
               healthPercent: (if ($readable | not) then 0
                               elif ($found | not) then 50
                               elif $noconds or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70
-                              elif $notready then 20 else 50 end),
+                              elif $notready and $converging then 50
+                              {{/* Terminal scores BELOW an unrecognised failure: the controller has
+                                   stopped and nothing will change it without a human. */}}
+                              elif $notready and $terminal then 15
+                              elif $notready then 20
+                              elif $unknownReady and $observeFailed and $unsynced then 40
+                              elif $unknownReady and $observeFailed then 60
+                              elif $unknownReady then 50
+                              else 50 end),
               # IA F5 + F5-full: composition.krateo.io children drill into the first-class
               # /compositions detail; EVERY other kind drills into the generic /resources view
               # (namespaced → its ns; cluster-scoped → the "cluster" filler; core group → "core").
@@ -205,6 +283,20 @@ spec:
         driftCount: ($rows | map(select(.state == "drift")) | length),
         failedCount: ($rows | map(select(.state == "failed")) | length),
         pendingCount: ($rows | map(select(.state == "pending")) | length),
+        {{/* Each state counted by its OWN predicate rather than by subtraction, so a state added
+             later cannot land in an existing bucket silently — which is how Ready=Unknown ended up
+             reported as pending in the first place. The test asserts the counts PARTITION the
+             checked rows, which is the only assertion that catches a state counted twice or not at
+             all. */}}
+        {{/* A state maps to exactly ONE count, and the test asserts the counts sum to total. The
+             two new Ready=False states fold into the buckets that match what they MEAN —
+             `converging` is progress, `terminal` is a failure — rather than earning chips of their
+             own, because the chip row answers "how much of this is wrong", not "how". */}}
+        notObservedCount: ($rows | map(select(.state == "notObserved")) | length),
+        terminalCount: ($rows | map(select(.state == "terminal")) | length),
+        convergingCount: ($rows | map(select(.state == "converging")) | length),
+        readyNotSetCount: ($rows | map(select(.state == "readyNotSet")) | length),
+        unknownCount: ($rows | map(select(.state == "unknown")) | length),
         convergencePercent: (if $total > 0 then (($healthy * 100 / $total) | floor) else 0 end),
         converged: (($rows | length) > 0 and $healthy == $total and ($whBad | not)),
         workloadUnhealthy: $whBad,
