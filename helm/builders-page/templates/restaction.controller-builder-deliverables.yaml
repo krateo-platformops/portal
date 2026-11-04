@@ -121,7 +121,11 @@ spec:
           | [ (.cds // [])[] | select(.apiVersion != "" and .resource != "")
               | select(.name as $n | $charts | index($n)) ]
           | unique_by([.apiVersion, .resource])
-      path: ${ "/apis/" + .apiVersion + "/" + .resource }
+          | [ .[] | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]
+      {{/* #1123: split the group/version apiVersion into two segments. The iterator guard excludes
+           a core-group value, where `split("/")` leaves $v null and `+ null` silently shortens the
+           path rather than failing. */}}
+      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/" + .resource }
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -184,11 +188,14 @@ spec:
         iterator: >-
           ([ (.installs // [])[] | "\(.namespace)/\(.name)" ]) as $mine
           | [ (.restdefs // [])[]
-              | select(.auth and .cfgKind != "" and (.cfgApiVersion | contains("/")))
+              | select(.auth and .cfgKind != "" and (.cfgApiVersion | test("^[^/]+/[^/]+$")))
               | select(("\(.compNs)/\(.compName)") as $k | $mine | index($k))
               | { apiVersion: .cfgApiVersion, plural: ((.cfgKind | ascii_downcase) + "s") } ]
           | unique
-      path: ${ "/apis/" + .apiVersion + "/" + .plural }
+      {{/* #1123: split the group/version apiVersion into two segments. The iterator's
+           `test("^[^/]+/[^/]+$")` above is what makes that safe — it was `contains("/")`, which
+           also admitted "a/b/c", where split keeps only the first two parts and drops the rest. */}}
+      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/" + .plural }
       verb: GET
       headers:
         - 'Accept: application/json'

@@ -53,8 +53,11 @@ spec:
     - name: comp
       dependsOn:
         name: arch
-        iterator: '[ .arch.graph.composition? | select(. != null and (.apiVersion // "") != "" and (.resource // "") != "" and (.name // "") != "") ]'
-      path: ${ "/apis/" + .apiVersion + "/namespaces/" + .namespace + "/" + .resource + "/" + .name }
+        iterator: '[ .arch.graph.composition? | select(. != null and (.apiVersion // "") != "" and (.resource // "") != "" and (.name // "") != "") | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]'
+      {{/* #1123: apiVersion split into its two segments; namespace, resource and name are each
+           already one segment. The iterator guard excludes a core-group apiVersion, which would
+           otherwise bind $v to null and silently shorten the path. */}}
+      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/namespaces/" + .namespace + "/" + .resource + "/" + .name }
       verb: GET
       headers:
         - 'Accept: application/json'

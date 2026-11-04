@@ -86,8 +86,10 @@ spec:
     - name: running
       dependsOn:
         name: compdefs
-        iterator: '(.compdefs // []) | unique_by([(.apiVersion | split("/"))[0], .plural])'
-      path: ${ "/apis/" + .apiVersion + "/" + .plural }
+        iterator: '[ ((.compdefs // []) | unique_by([(.apiVersion | split("/"))[0], .plural]))[] | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]'
+      {{/* #1123: split the group/version apiVersion into two segments; the iterator guard keeps a
+           core-group value out, because `split("/")` would leave $v null and shorten the path. */}}
+      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/" + .plural }
       verb: GET
       continueOnError: true
       errorKey: runningError

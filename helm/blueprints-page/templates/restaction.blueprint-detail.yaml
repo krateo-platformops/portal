@@ -48,8 +48,13 @@ spec:
     - name: comps
       dependsOn:
         name: compdef
-        iterator: '[ .compdef | objects | { apiVersion: (.status.apiVersion // ""), resource: (.status.resource // "") } | select(.apiVersion != "" and .resource != "") ]'
-      path: ${ "/apis/" + .apiVersion + "/" + .resource }
+        iterator: '[ .compdef | objects | { apiVersion: (.status.apiVersion // ""), resource: (.status.resource // "") } | select(.apiVersion != "" and .resource != "") | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]'
+      {{/* #1123: every value spliced into a path is ONE segment, so a `group/version` apiVersion
+           must be split into its two. The iterator guard above is the other half: `split("/")` on a
+           CORE-group apiVersion ("v1", no slash) binds $v to null, and jq's `+ null` is a no-op, so
+           the path would render SHORTER and dial the wrong thing silently. Excluding it in the
+           iterator means such an element is never dialled at all, rather than dialled wrongly. */}}
+      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/" + .resource }
       verb: GET
       headers:
         - 'Accept: application/json'

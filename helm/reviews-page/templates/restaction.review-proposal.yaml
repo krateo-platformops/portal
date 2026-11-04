@@ -54,8 +54,11 @@ spec:
     - name: claim
       dependsOn:
         name: bp
-        iterator: '[ { apiVersion: (.bp.status.apiVersion // ""), resource: (.bp.status.resource // ""), claim: ("review-" + ((.name // "") | ltrimstr("p-"))) } | select(.apiVersion != "" and .resource != "" and .claim != "review-") ]'
-      path: ${ "/apis/" + .apiVersion + "/namespaces/{{ $.Release.Namespace }}/" + .resource + "/" + .claim }
+        iterator: '[ { apiVersion: (.bp.status.apiVersion // ""), resource: (.bp.status.resource // ""), claim: ("review-" + ((.name // "") | ltrimstr("p-"))) } | select(.apiVersion != "" and .resource != "" and .claim != "review-") | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]'
+      {{/* #1123: apiVersion split into two segments; the namespace stays Helm-templated (it is
+           this chart's text, not a value) and resource/claim are each one segment. The iterator
+           guard keeps out a core-group apiVersion, which would shorten the path silently. */}}
+      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/namespaces/{{ $.Release.Namespace }}/" + .resource + "/" + .claim }
       verb: GET
       headers:
         - 'Accept: application/json'
