@@ -461,6 +461,14 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-composition-architecture.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # The Coverage cell, and that the table's cells still match its columns — a cell list that
+      # disagrees shifts every row silently. Same job for the same reason as its neighbours.
+      - name: Compositions table coverage, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-compositions-table.py
+
       # A refused read must not render as a quiet desk. Same job for the same reason as the steps
       # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
       - name: Service desk queue, over the chart's own jq

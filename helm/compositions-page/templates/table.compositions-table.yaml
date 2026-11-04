@@ -28,6 +28,22 @@ spec:
       title: Namespace
     - valueKey: status
       title: Status
+    {{/* BLANK UNLESS THE READING IS PARTIAL, which is what makes a column acceptable here at all.
+         core-provider's rollup reports Ready=True with reason AvailablePartialCoverage when MOST
+         CHILDREN COULD NOT BE HEALTH-EVALUATED — so the green pill beside this is correct and
+         carries far less evidence than an identical pill on a fully-read composition. On 057 that
+         was 30 of 85 compositions, with portal-agents at 118 of 121 children unevaluated.
+
+         A column reading 12/12 on every row would be noise and the portal's rule is that
+         indicators are exception-only; this one is empty for full coverage AND empty when there is
+         no reading at all, so a number here always means "look". It is a column rather than a
+         second line in the Status cell because a Table column has only color/minWidth/title/
+         valueKey/width — there is no secondary text to put it in, and the Status cell renders the
+         row's REAL conditions, so a synthetic entry there would have to be a PascalCase pill and
+         could not carry the count. */}}
+    - valueKey: coverage
+      title: Coverage
+      minWidth: 90
     - valueKey: reconcile
       title: Reconcile
     - valueKey: age
@@ -75,7 +91,7 @@ spec:
   {{/* dashboard sharing this RA) we fall back to the full `.filtered` — behaviour is */}}
   {{/* byte-identical to pre-pagination for those callers. */}}
   - forPath: dataSource
-    expression: '${ (if .slice then (.filtered[.slice.offset : (.slice.offset + .slice.perPage)]) else .filtered end) as $rows | [ $rows[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"status",kind:"conditions",stringValue:(((.conditions // []) | sort_by([(if .type=="Ready" then 0 elif .type=="Synced" then 1 else 2 end), .type]) | map({type:(if .status=="True" then .type elif .status=="False" then (if .type=="Workload" then "Unhealthy" else ("Not" + .type) end) else (.type + "Unknown") end), status:.status, color:(if .status=="True" then "green" elif .status=="False" then "red" else "gray" end)})) | tojson)}, {valueKey:"reconcile",kind:"tag",stringValue:( .railState | if .=="healthy" then "Converged" elif .=="failed" then "Failed" elif .=="drift" then "Drift" elif .=="degraded" then "Degraded" else "Pending" end),color:( .railState | if .=="healthy" then "green" elif .=="failed" then "red" elif .=="drift" then "violet" elif .=="degraded" then "orange" else "orange" end )}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:.ts,format:"relative"} ] ] }'
+    expression: '${ (if .slice then (.filtered[.slice.offset : (.slice.offset + .slice.perPage)]) else .filtered end) as $rows | [ $rows[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"status",kind:"conditions",stringValue:(((.conditions // []) | sort_by([(if .type=="Ready" then 0 elif .type=="Synced" then 1 else 2 end), .type]) | map({type:(if .status=="True" then .type elif .status=="False" then (if .type=="Workload" then "Unhealthy" else ("Not" + .type) end) else (.type + "Unknown") end), status:.status, color:(if .status=="True" then "green" elif .status=="False" then "red" else "gray" end)})) | tojson)}, {valueKey:"coverage",kind:"jsonSchemaType",type:"string",stringValue:(.coverage // "")}, {valueKey:"reconcile",kind:"tag",stringValue:( .railState | if .=="healthy" then "Converged" elif .=="failed" then "Failed" elif .=="drift" then "Drift" elif .=="degraded" then "Degraded" else "Pending" end),color:( .railState | if .=="healthy" then "green" elif .=="failed" then "red" elif .=="drift" then "violet" elif .=="degraded" then "orange" else "orange" end )}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:.ts,format:"relative"} ] ] }'
   {{/* Pager needs the TOTAL row count (the full filtered set) so it can render the right */}}
   {{/* number of pages while `dataSource` holds only the current window. `current` mirrors */}}
   {{/* the requested page (`.slice.page`) so the controlled pager stays in sync. */}}
