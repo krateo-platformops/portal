@@ -179,6 +179,15 @@ CASES = [
     # And a real failure still outranks it, so partial coverage cannot mask a broken sibling.
     ([('True', 'AvailablePartialCoverage'), ('False', 'Unavailable')],
                                   {'total': 2, 'ready': 1, 'notReady': 1, 'converging': 0, 'paused': 0, 'unknown': 0}, 'orange'),
+
+    # An unrecognised STATUS, as opposed to an unrecognised reason. `Unknown` and `""` are both
+    # covered above, but a Ready condition is only ever True/False/Unknown by the Kubernetes
+    # convention — so a third token here stands for the case where that convention is broken
+    # upstream, or where a projection bug puts something else in the field. It must land in the
+    # named `unknown` bucket and show the gray pill, not vanish: the partition invariant in main()
+    # is what makes "vanish" a failure rather than a silently smaller total.
+    ([('Degraded', 'SomeReason')],
+                                  {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
 ]
 
 
@@ -209,6 +218,32 @@ def main():
         if labels.count('Ready') != got.get('counts', {}).get('ready'):
             failures.append(f'{label}: Ready pills={labels.count("Ready")} but '
                             f'ready={got.get("counts", {}).get("ready")}')
+        # The FIFTH label, which was the only one not cross-checked — and `unknown` is exactly the
+        # bucket core-provider's ZeroEvidence landed in wrongly once, when `notReady` was the
+        # complement of True and absorbed it. Four of five checked is the shape where the unchecked
+        # one is the one that breaks.
+        if labels.count('Unknown') != got.get('counts', {}).get('unknown'):
+            failures.append(f'{label}: Unknown pills={labels.count("Unknown")} but '
+                            f'unknown={got.get("counts", {}).get("unknown")}')
+
+        # THE PARTITION INVARIANT, asserted on every case rather than written as another case.
+        #
+        # The five counts must sum to `total`: each row belongs to exactly one bucket. This is what
+        # catches a (status, reason) pair the vocabulary has not seen landing in NO bucket or in
+        # TWO, which no single fixture row can catch — a new value that falls through every
+        # predicate still satisfies each individual label-vs-count check, because the label chain
+        # has an `else` and the row simply stops being counted anywhere.
+        #
+        # This is the general form of the regression this file was written for. core-provider's
+        # ZeroEvidence was absorbed by a bucket defined by subtraction; the counts were rewritten as
+        # five positive predicates so that could not recur, and THIS is the assertion that proves
+        # the five still cover the space rather than merely being five.
+        counts = got.get('counts', {})
+        parts = ['ready', 'paused', 'converging', 'notReady', 'unknown']
+        summed = sum(counts.get(k, 0) for k in parts)
+        if summed != counts.get('total'):
+            failures.append(f'{label}: the five states sum to {summed} but total={counts.get("total")} — '
+                            f'a row is counted twice or not at all ({ {k: counts.get(k) for k in parts} })')
         for row in got.get('rows', []):
             want = LABEL_COLOR.get(row.get('readyLabel'))
             if want is None:
