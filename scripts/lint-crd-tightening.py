@@ -228,7 +228,7 @@ def compare(old, new, path, report):
     if lost and new.get(PRESERVE) is not True:
         report(path, f'no longer declares {lost}. Structural pruning drops an undeclared field '
                      f'SILENTLY and admits the object, so a stored value is lost on the next '
-                     f'write with no error reported anywhere.')
+                     f'write with no error reported anywhere.{live_count_hint(path, lost)}')
 
     for key in sorted(set(old.get('properties') or {}) & set(new.get('properties') or {})):
         compare(old['properties'][key], new['properties'][key], f'{path}.{key}', report)
@@ -237,6 +237,33 @@ def compare(old, new, path, report):
     for node in ('additionalProperties',):
         if isinstance(old.get(node), dict) and isinstance(new.get(node), dict):
             compare(old[node], new[node], f'{path}{{*}}', report)
+
+
+def live_count_hint(path, lost):
+    """Turn a schema fact into a decision.
+
+    "removed property X" says what changed; "removed property X, set on 412 live objects" says
+    whether it matters, and a reviewer cannot tell a dead field from a load-bearing one without the
+    second number — both look identical in a diff. The count needs a cluster, which CI does not have
+    and should not require, so the finding carries the QUERY rather than the answer: one paste and
+    the reviewer has the number.
+
+    Returns '' when the path cannot be turned into a selector, rather than emitting a command that
+    would silently count the wrong thing. A hint that is wrong is worse than no hint, because it
+    looks like evidence.
+    """
+    crd, _, rest = path.partition('/')
+    if not rest:
+        return ''
+    # Drop the version segment: 'v1alpha1.spec.foo' -> '.spec.foo'
+    rest = rest[rest.index('.'):] if '.' in rest else ''
+    # `[]?` iterates an array AND an object's values in jq, so both traversal markers map onto it.
+    sel = rest.replace('[]', '[]?').replace('{*}', '[]?')
+    if "'" in sel or '"' in sel or "'" in crd:
+        return ''
+    return ('\n    Live objects still setting it (the number that makes this a decision rather '
+            'than a diff):\n      kubectl get ' + crd + " -A -o json | jq '[.items[] | "
+            'select(' + sel + '.' + lost[0] + " != null)] | length'")
 
 
 def main():
