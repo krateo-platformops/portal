@@ -21,6 +21,27 @@ RESTAction a values flag leaves unrendered is checked as source instead: its tem
 removed, must not mention it at all. endpointRef is not flagged: snowplow resolves endpoint
 Secrets through its own AUTHN-namespace-scoped informer, not this path.
 
+WHAT IT CANNOT SEE, AND IS CITED IN REVIEW AS THOUGH IT COULD. This gate analyses the resources a
+RESTAction step NAMES — its path, its iterator, its userAccessFilter. It therefore cannot see a
+Secret value that arrives inside an object the step was entitled to read. The concrete route, from
+provider-runtime: every provider error lands verbatim in the Synced condition's message, because
+ReconcileError uses err.Error() unchanged. Their docs forbid credentials there (provider-runtime#28)
+but the runtime cannot enforce it, and the realistic leaks are a request URL carrying a token in its
+query string, a Go HTTP client error that prints that whole URL, or a vendor body that echoes
+request headers. oasgen-provider#433 is fixing that class at the source.
+
+So a token can reach a widget through `.status.conditions[].message` of a CompositionDefinition or a
+composition this lint correctly passed, and nothing here will say so. Two portal surfaces render
+such a message today — blueprints-page/restaction.blueprint-formdef.yaml (a Ready=False message, as
+form description text) and compositions-page/restaction.composition-architecture.yaml (the
+`exception` object). Both dial under the CALLER's credential, so the exposure is not wider than
+`kubectl get` on the same object — but it is wider than this gate's green tick implies.
+
+The deliberate non-decision: the portal does NOT redact those messages. A partial redactor invites
+the assumption that whatever got through is safe, and that message is frequently the only place an
+operator learns why a resource failed. The fix belongs where the error is composed. This paragraph
+exists so that nobody reads a passing lint-ra-secrets as covering the condition-message path.
+
 NO PATH CLIMBS. A path literal that contains "..", or "%2e" in any case, or whose literals joined
 contain ".." ("." + "."), fails: a literal "/apis/" or ".../configmaps/" fixes the resource only
 while nothing after it can walk back out of it ("/apis/../api/v1/" + …).
