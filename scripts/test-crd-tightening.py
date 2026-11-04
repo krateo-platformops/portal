@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""
+test-crd-tightening — the comparison in lint-crd-tightening.py, each clause fired and each
+NON-finding pinned.
+
+WHY THIS EXISTS BESIDE THE GATE. Five of the gate's six clauses can be controlled end to end by
+perturbing a chart and running it, and they were. The sixth cannot: dropping
+`x-kubernetes-preserve-unknown-fields` requires a BASELINE that sets it, and no CRD this repo owns
+does (widget-crd-schemas-strict is the rule). An uncontrolled clause is a clause that may not work,
+so it is exercised here rather than shipped on the strength of reading it.
+
+The negatives matter as much as the positives. This gate is deliberately one-directional — a
+LOOSENING is not a finding — and a gate that fired on both directions would be rejected within a
+week for noise, taking the tightening check with it.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from importlib import import_module
+
+compare = import_module('lint-crd-tightening').compare
+PRESERVE = 'x-kubernetes-preserve-unknown-fields'
+
+
+def hits(old, new):
+    found = []
+    compare(old, new, 'root', lambda p, why: found.append((p, why)))
+    return found
+
+
+CASES = [
+    # --- TIGHTENINGS: each must produce exactly one finding at the stated path ---
+    ('a new required name',
+     {'type': 'object', 'properties': {'a': {'type': 'string'}}},
+     {'type': 'object', 'required': ['a'], 'properties': {'a': {'type': 'string'}}},
+     1, 'root'),
+    ('an enum value removed',
+     {'enum': ['x', 'y', 'z']}, {'enum': ['x', 'y']}, 1, 'root'),
+    ('an enum introduced where nothing constrained',
+     {'type': 'string'}, {'type': 'string', 'enum': ['x']}, 1, 'root'),
+    ('a type change',
+     {'type': 'string'}, {'type': 'integer'}, 1, 'root'),
+    ('a format introduced',
+     {'type': 'string'}, {'type': 'string', 'format': 'date-time'}, 1, 'root'),
+    ('a format changed',
+     {'type': 'string', 'format': 'date'}, {'type': 'string', 'format': 'date-time'}, 1, 'root'),
+    # The clause no chart in this repo can control, which is the reason for this file.
+    ('preserve-unknown dropped (true -> absent)',
+     {'type': 'object', PRESERVE: True}, {'type': 'object'}, 1, 'root'),
+    ('preserve-unknown dropped (true -> false)',
+     {'type': 'object', PRESERVE: True}, {'type': 'object', PRESERVE: False}, 1, 'root'),
+
+    # --- LOOSENINGS AND NO-OPS: each must produce NOTHING ---
+    ('a required name dropped is a loosening',
+     {'required': ['a'], 'properties': {'a': {'type': 'string'}}},
+     {'properties': {'a': {'type': 'string'}}}, 0, None),
+    ('an enum value added is a loosening',
+     {'enum': ['x']}, {'enum': ['x', 'y']}, 0, None),
+    ('an enum removed entirely is a loosening',
+     {'type': 'string', 'enum': ['x']}, {'type': 'string'}, 0, None),
+    ('a format removed is a loosening',
+     {'type': 'string', 'format': 'date-time'}, {'type': 'string'}, 0, None),
+    ('preserve-unknown gained is a loosening',
+     {'type': 'object'}, {'type': 'object', PRESERVE: True}, 0, None),
+    ('a NEW property is not a finding — nothing stored uses it',
+     {'type': 'object', 'properties': {'a': {'type': 'string'}}},
+     {'type': 'object', 'properties': {'a': {'type': 'string'}, 'b': {'type': 'string'}}},
+     0, None),
+    ('identical schemas say nothing',
+     {'type': 'object', 'required': ['a'], 'properties': {'a': {'type': 'string', 'enum': ['x']}}},
+     {'type': 'object', 'required': ['a'], 'properties': {'a': {'type': 'string', 'enum': ['x']}}},
+     0, None),
+    ('a type ABSENT on one side is not a change — an untyped node is not a retype',
+     {'properties': {'a': {}}}, {'properties': {'a': {'type': 'string'}}}, 0, None),
+
+    # --- RECURSION: the walk must reach nested nodes, items, and additionalProperties ---
+    ('a tightening nested two levels down is found, with its path',
+     {'properties': {'a': {'properties': {'b': {'type': 'string'}}}}},
+     {'properties': {'a': {'properties': {'b': {'type': 'integer'}}}}},
+     1, 'root.a.b'),
+    ('a tightening inside array items is found',
+     {'type': 'array', 'items': {'type': 'object', 'properties': {'a': {'type': 'string'}}}},
+     {'type': 'array', 'items': {'type': 'object', 'required': ['a'],
+                                 'properties': {'a': {'type': 'string'}}}},
+     1, 'root[]'),
+    ('a tightening inside additionalProperties is found',
+     {'type': 'object', 'additionalProperties': {'type': 'string'}},
+     {'type': 'object', 'additionalProperties': {'type': 'integer'}},
+     1, 'root{*}'),
+    # The 1.8.20 defect itself, in the shape it shipped: a required name on items.
+    ('the 1.8.20 shape — items gains required',
+     {'properties': {'resourcesRefsTemplate': {
+         'type': 'array', 'items': {'type': 'object', 'properties': {
+             'iterator': {'type': 'string'}, 'template': {'type': 'object'}}}}}},
+     {'properties': {'resourcesRefsTemplate': {
+         'type': 'array', 'items': {'type': 'object', 'required': ['id'], 'properties': {
+             'iterator': {'type': 'string'}, 'template': {'type': 'object'}}}}}},
+     1, 'root.resourcesRefsTemplate[]'),
+]
+
+
+def main():
+    failed = 0
+    for label, old, new, expect, path in CASES:
+        found = hits(old, new)
+        if len(found) != expect:
+            print(f'FAIL {label}: expected {expect} finding(s), got {len(found)}: '
+                  f'{[f"{p} {w[:60]}" for p, w in found]}')
+            failed += 1
+        elif path is not None and found and found[0][0] != path:
+            print(f'FAIL {label}: finding is at {found[0][0]!r}, expected {path!r}')
+            failed += 1
+    print(f'{len(CASES) - failed} of {len(CASES)} cases pass')
+    return failed
+
+
+if __name__ == '__main__':
+    sys.exit(main())

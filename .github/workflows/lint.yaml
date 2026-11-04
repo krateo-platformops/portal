@@ -142,6 +142,40 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-crd-retention.py
 
+  # A CRD this repo owns must not become STRICTER than the one in the field. Stored objects are not
+  # revalidated when a CRD changes, so a tightening is silent at the roll and the failure arrives at
+  # the next WRITE to an existing object, attributed to whoever made that write. frontend-crds
+  # 1.8.20 shipped exactly that — a new `required` on a node — and cost a rollback with three gates
+  # green, because none of them was asking whether the new schema still admits what the old accepted.
+  #
+  # The unit test runs FIRST and is not redundant with the gate: five of the gate's six clauses can
+  # be controlled by perturbing a chart, but dropping x-kubernetes-preserve-unknown-fields cannot,
+  # since no CRD here sets it. That clause is covered only by the test.
+  crd-tightening:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The comparison itself
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-crd-tightening.py
+
+      - name: No CRD may become stricter than the one in the field
+        run: python3 scripts/lint-crd-tightening.py
+
   # `devs` carries no ClusterRole and no ClusterRoleBinding (#261). That is a property of this
   # chart, not of a cluster: a RESTAction step with no userAccessFilter and no endpointRef is
   # dialled as the CALLER (resolveStageEndpoint — "non-UAF stages go through the per-user
