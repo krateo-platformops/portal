@@ -54,11 +54,19 @@ spec:
     - name: claim
       dependsOn:
         name: bp
-        iterator: '[ { apiVersion: (.bp.status.apiVersion // ""), resource: (.bp.status.resource // ""), claim: ("review-" + ((.name // "") | ltrimstr("p-"))) } | select(.apiVersion != "" and .resource != "" and .claim != "review-") | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]'
-      {{/* #1123: apiVersion split into two segments; the namespace stays Helm-templated (it is
-           this chart's text, not a value) and resource/claim are each one segment. The iterator
-           guard keeps out a core-group apiVersion, which would shorten the path silently. */}}
-      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/namespaces/{{ $.Release.Namespace }}/" + .resource + "/" + .claim }
+        iterator: '[ { apiVersion: (.bp.status.apiVersion // ""), resource: (.bp.status.resource // ""), claim: ("review-" + ((.name // "") | ltrimstr("p-"))) } | select(.apiVersion != "" and .resource != "" and .claim != "review-") | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) | . + ((.apiVersion | split("/")) as $p | { group: $p[0], version: $p[1] }) ]'
+      {{/* #1123: every value spliced into a path is ONE segment, so a `group/version` apiVersion
+           must be split. THE SPLIT HAPPENS IN THE ITERATOR, not here, and that is deliberate:
+           `lint-ra-secrets` can only guard a data-driven path when each spliced value is a single
+           field of the iterator item, so `(.apiVersion | split("/")) as [$g,$v]` inside the path
+           defeats `fetchablePath` and the lint rejects it. Emitting `group` and `version` as their
+           own fields satisfies both — one segment per value, and each one analysable.
+
+           The iterator's `test("^[^/]+/[^/]+$")` is the other half. `split("/")` on a CORE-group
+           apiVersion ("v1", no slash) binds the version to null, and jq's `+ null` is a no-op, so
+           the path renders `/apis/v1//pods` — an empty segment, dialled silently. Excluded in the
+           iterator, such an element is never dialled at all. */}}
+      path: ${ "/apis/" + .group + "/" + .version + "/namespaces/{{ $.Release.Namespace }}/" + .resource + "/" + .claim }
       verb: GET
       headers:
         - 'Accept: application/json'

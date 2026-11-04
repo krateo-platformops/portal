@@ -187,11 +187,11 @@ spec:
       {{/* drops them, and $builtin in the final filter covers them as before. */}}
       dependsOn:
         name: getEvents
-        iterator: '[ (.getEvents // empty) | .. | objects | select(has("involvedObject")) | (.involvedObject.apiVersion // "") | select(type == "string" and test("^[^/]+/[^/]+$")) ] | unique | map({gv: .})'
+        iterator: '[ (.getEvents // empty) | .. | objects | select(has("involvedObject")) | (.involvedObject.apiVersion // "") | select(type == "string" and test("^[^/]+/[^/]+$")) ] | unique | map((. | split("/")) as $p | { gv: ., group: $p[0], version: $p[1] })'
       {{/* #1123: a value spliced into a path is ONE segment, and `.gv` is `group/version` — two.
            Split it. No new iterator guard is needed here: the iterator above already keeps only
            values matching `^[^/]+/[^/]+$`, so a core-group apiVersion never reaches this path. */}}
-      path: ${ (.gv | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v }
+      path: ${ "/apis/" + .group + "/" + .version }
       verb: GET
       headers:
         - 'Accept: application/json'

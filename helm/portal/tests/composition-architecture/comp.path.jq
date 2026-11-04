@@ -1,1 +1,1 @@
-"/apis/" + .apiVersion + "/namespaces/" + .namespace + "/" + .resource + "/" + .name
+"/apis/" + .group + "/" + .version + "/namespaces/" + .namespace + "/" + .resource + "/" + .name

@@ -86,10 +86,19 @@ spec:
     - name: running
       dependsOn:
         name: compdefs
-        iterator: '[ ((.compdefs // []) | unique_by([(.apiVersion | split("/"))[0], .plural]))[] | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) ]'
-      {{/* #1123: split the group/version apiVersion into two segments; the iterator guard keeps a
-           core-group value out, because `split("/")` would leave $v null and shorten the path. */}}
-      path: ${ (.apiVersion | split("/")) as [$g, $v] | "/apis/" + $g + "/" + $v + "/" + .plural }
+        iterator: '[ ((.compdefs // []) | unique_by([(.apiVersion | split("/"))[0], .plural]))[] | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) | . + ((.apiVersion | split("/")) as $p | { group: $p[0], version: $p[1] }) ]'
+      {{/* #1123: every value spliced into a path is ONE segment, so a `group/version` apiVersion
+           must be split. THE SPLIT HAPPENS IN THE ITERATOR, not here, and that is deliberate:
+           `lint-ra-secrets` can only guard a data-driven path when each spliced value is a single
+           field of the iterator item, so `(.apiVersion | split("/")) as [$g,$v]` inside the path
+           defeats `fetchablePath` and the lint rejects it. Emitting `group` and `version` as their
+           own fields satisfies both — one segment per value, and each one analysable.
+
+           The iterator's `test("^[^/]+/[^/]+$")` is the other half. `split("/")` on a CORE-group
+           apiVersion ("v1", no slash) binds the version to null, and jq's `+ null` is a no-op, so
+           the path renders `/apis/v1//pods` — an empty segment, dialled silently. Excluded in the
+           iterator, such an element is never dialled at all. */}}
+      path: ${ "/apis/" + .group + "/" + .version + "/" + .plural }
       verb: GET
       continueOnError: true
       errorKey: runningError
