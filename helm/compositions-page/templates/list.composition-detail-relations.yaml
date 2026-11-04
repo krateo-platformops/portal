@@ -32,6 +32,17 @@ spec:
       navigateTo: '{navHref}'
       rowVariant: tree
       iconVariant: dot
+      {{/* THE MAP IS THE DECOUPLING, and it must list EVERY state the RA can emit. A state absent
+           from it falls through to the raw state string as a colour NAME, and getColorCode returns
+           near-black for a name it does not know — so adding a state to the RA without adding it
+           here renders dark ink and nothing reports it.
+           scripts/test-composition-resources.py asserts the two sets are equal, because that is
+           the failure this comment cannot prevent on its own.
+           Palette names per the status-pill spec: green = health ONLY, red = failure, violet =
+           drift, orange = warning, gray = non-health. Neither Unknown case is red: nothing is
+           claimed broken. `readyNotSet` is orange because it will not resolve on its own and
+           someone must fix the provider; `notObserved` is gray because we genuinely do not know,
+           and the Synced failure beside it already carries the alarm. */}}
       color:
         value: '{state}'
         map:
@@ -41,6 +52,11 @@ spec:
           failed: red
           {{/* A managed Secret: declared, never read (restaction.composition-resources). */}}
           unread: gray
+          {{/* Ready=Unknown, split by reason — these used to be counted and coloured as `pending`,
+               which reads as progress about something that may be permanently stuck. */}}
+          notObserved: gray
+          readyNotSet: orange
+          unknown: gray
       primaryText: '{kind}'
       subPrimaryText: '{name}'
       {{/* Single-token label computed server-side (stateLabel); a filled Tag, not bare text. */}}
@@ -48,6 +64,10 @@ spec:
       secondaryTextAsTag: true
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ (.resources // []) | map({ kind: .kind, name: .name, ns: .ns, state: .state, stateLabel: ((.state // "") | if . == "" then "" else ((.[0:1] | ascii_upcase) + .[1:]) end), navHref: .navHref }) }'
+      {{/* stateLabel is taken VERBATIM from the RA, not built by upper-casing the state's first
+           letter. Re-casing in the chart is what the status-pill rule forbids — a label describing
+           a Kubernetes resource state is a single PascalCase token from the object, and
+           `ReadyNotSetAfterObserve` cannot be produced by capitalising anything. */}}
+      expression: '${ (.resources // []) | map({ kind: .kind, name: .name, ns: .ns, state: .state, stateLabel: .stateLabel, navHref: .navHref }) }'
   resourcesRefs:
     items: []

@@ -154,6 +154,19 @@ spec:
           | ([ $c[]? | select(.type == "Ready" or .type == "Available") ][0]) as $rc
           | ($rc.status == "True") as $ready
           | ($rc.status == "False") as $notready
+          {{/* THE THIRD STATE. A Ready condition is True, False or Unknown, and Unknown used to
+               fall off the end of the chain below into "pending" — which reads as PROGRESS about
+               something that may be permanently stuck. provider-runtime's words, and the reason
+               this is worth changing: a stuck resource looked like it was still working, so an
+               operator waited instead of looking.
+
+               Split by REASON, because the two Unknown cases have different causes and different
+               fixes. `NotObserved` with Synced=False is "we cannot observe it"; the same reason
+               with Synced=TRUE is a contract breach — the provider finished its Observe and never
+               set Ready — for which the runtime also records a Warning event, verbatim
+               `ReadyNotSetAfterObserve` (reconciler.ReasonReadyNotSetAfterObserve, v1.8.1). */}}
+          | ($rc.status == "Unknown") as $unknownReady
+          | (($rc.reason // "") == "NotObserved") as $notObserved
           | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
           | (($c | length) == 0) as $noconds
           | ($m._getpath | fetchablePath) as $readable
@@ -171,12 +184,42 @@ spec:
                       elif $ready and ($unsynced | not) then "healthy"
                       elif $ready and $unsynced then "drift"
                       elif $notready then "failed"
+                      elif $unknownReady and $notObserved and $unsynced then "notObserved"
+                      elif $unknownReady and $notObserved then "readyNotSet"
+                      elif $unknownReady then "unknown"
                       else "pending" end),
+              {{/* LABEL AND COLOUR ARE COMPUTED HERE, not derived from `state` by the widget.
+                   The list used to bind `color: value: '{state}'` through a `map:` of five entries
+                   and build the label by upper-casing the state's first letter. Both work only for
+                   a state the map happens to list: a state with no entry falls through to the raw
+                   string as a colour NAME, and getColorCode returns near-black for a name it does
+                   not know — so a new state renders as dark ink and nothing reports it.
+
+                   `cluster-compositions` already computes readyLabel/readyColor server-side for
+                   exactly this reason. Doing the same here makes the vocabulary and the palette one
+                   decision in one place, and the label verbatim rather than re-cased: the status
+                   pill rule is a single PascalCase K8s-native token, taken from the object where
+                   possible, and `NotObserved` / `ReadyNotSetAfterObserve` / `Unknown` all are. */}}
+              stateLabel: (if ($readable | not) then "Unread"
+                           elif ($found | not) then "Pending"
+                           elif $noconds or ($ready and ($unsynced | not)) then "Healthy"
+                           elif $ready and $unsynced then "Drift"
+                           elif $notready then "NotReady"
+                           elif $unknownReady and $notObserved and $unsynced then "NotObserved"
+                           elif $unknownReady and $notObserved then "ReadyNotSetAfterObserve"
+                           elif $unknownReady then "Unknown"
+                           else "Pending" end),
+              {{/* notObserved is scored BELOW drift, per provider-runtime: a child we cannot
+                   observe is a weaker claim than one we can see has drifted. */}}
               healthPercent: (if ($readable | not) then 0
                               elif ($found | not) then 50
                               elif $noconds or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70
-                              elif $notready then 20 else 50 end),
+                              elif $notready then 20
+                              elif $unknownReady and $notObserved and $unsynced then 40
+                              elif $unknownReady and $notObserved then 60
+                              elif $unknownReady then 50
+                              else 50 end),
               # IA F5 + F5-full: composition.krateo.io children drill into the first-class
               # /compositions detail; EVERY other kind drills into the generic /resources view
               # (namespaced → its ns; cluster-scoped → the "cluster" filler; core group → "core").
@@ -205,6 +248,14 @@ spec:
         driftCount: ($rows | map(select(.state == "drift")) | length),
         failedCount: ($rows | map(select(.state == "failed")) | length),
         pendingCount: ($rows | map(select(.state == "pending")) | length),
+        {{/* Each state counted by its OWN predicate rather than by subtraction, so a state added
+             later cannot land in an existing bucket silently — which is how Ready=Unknown ended up
+             reported as pending in the first place. The test asserts the counts PARTITION the
+             checked rows, which is the only assertion that catches a state counted twice or not at
+             all. */}}
+        notObservedCount: ($rows | map(select(.state == "notObserved")) | length),
+        readyNotSetCount: ($rows | map(select(.state == "readyNotSet")) | length),
+        unknownCount: ($rows | map(select(.state == "unknown")) | length),
         convergencePercent: (if $total > 0 then (($healthy * 100 / $total) | floor) else 0 end),
         converged: (($rows | length) > 0 and $healthy == $total and ($whBad | not)),
         workloadUnhealthy: $whBad,
