@@ -85,8 +85,13 @@ def rows(*readys):
     carry Status=TRUE, not False.
     """
     def one(r):
-        ready, reason = r if isinstance(r, tuple) else (r, '')
-        return {'ready': ready, 'reason': reason, 'synced': 'True'}
+        # A bare status, a (status, reason) pair, or a (status, reason, synced) triple. Synced
+        # defaults to True so every existing case reads as "the Ready condition alone decides the
+        # Ready bucket" — which is the property most of them are about. The triple exists for the
+        # states that only OCCUR alongside a Synced failure, where a fixture pinning the Ready half
+        # in isolation would be asserting a state that never happens.
+        ready, reason, synced = (tuple(r) + ('True',))[:3] if isinstance(r, tuple) else (r, '', 'True')
+        return {'ready': ready, 'reason': reason, 'synced': synced}
 
     return {
         'name': 'spoke-a',
@@ -165,6 +170,20 @@ CASES = [
     ([('Unknown', 'ChildrenForbidden')],
                                   {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
     ([('Unknown', 'InventoryNotRecorded')],
+                                  {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
+    # THE REALISTIC PAIRING for InventoryNotRecorded, which the case above does not produce because
+    # `rows()` defaults synced to True. core-provider: a composition in that state reports DRIFT, so
+    # the next Observe dispatches an Update, the Update writes status.managed, and the composition
+    # then reports whatever its children actually say. One Update per composition, once.
+    #
+    # So it is TRANSIENT BY DESIGN, unlike ZeroEvidence, which is a steady state nobody can clear.
+    # A composition stuck on InventoryNotRecorded is a second defect rather than the expected case —
+    # worth knowing before someone reads a persistent gray pill here as normal.
+    #
+    # Asserting the pair rather than the Ready condition alone: the Ready bucket is unaffected by
+    # Synced, but a fixture that only ever sets one half cannot say that, and "the bucket is right
+    # for the state that actually occurs" is the claim worth pinning.
+    ([('Unknown', 'InventoryNotRecorded', 'False')],
                                   {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
     # A real failure still outranks withheld evidence, whichever reason withheld it.
     ([('Unknown', 'ChildrenForbidden'), ('False', 'Unavailable')],
