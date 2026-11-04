@@ -15,7 +15,8 @@ Checks, in both directions:
   - every key with a default in values.yaml is described by the schema
   - every key the schema describes has a default in values.yaml
   - the default's JSON type matches the type the schema declares
-  - an AUTHORIZATION key (readerGroups) declares no schema default at all
+  - a key an INSTALL must be able to override declares no schema default at all
+    (authorization: readerGroups/requesterGroups; per-install policy: deskActions, servicePicker*)
 
 Exit 1 on any disagreement. Run: python3 scripts/lint-values-schema.py
 """
@@ -39,8 +40,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # applies its schema defaults and this check's whole premise is false for it. Its five
 # schema-described keys with no values.yaml default are legitimate -- the composition supplies
 # them -- and its schema is closed, unlike every chart here.
-CHARTS = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(ROOT, 'helm', '*', 'values.schema.json'))
-                if os.path.basename(os.path.dirname(p)) != 'builder-publish')
+# DISCOVERED FROM Chart.yaml, NOT FROM values.schema.json — and that distinction is the whole
+# reason service-desk-page shipped without a schema at all on green runs of this gate. Globbing
+# `helm/*/values.schema.json` means the gate finds charts BY THE ARTIFACT IT CHECKS: a chart with
+# no schema is not "failing", it is INVISIBLE. The comment above describes the hardcoded-list
+# version of this same defect; replacing a stale list with a glob over the artifact kept the shape
+# and only changed how it was spelled.
+#
+# Chart.yaml is the population. Every chart must have a schema, and a missing one now FAILS.
+EXCLUDED = ('builder-publish',)
+CHARTS = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(ROOT, 'helm', '*', 'Chart.yaml'))
+                if os.path.basename(os.path.dirname(p)) not in EXCLUDED)
 
 # Keys whose value is AUTHORIZATION, not structure. crdgen copies a chart schema `default:` into
 # the generated composition CRD, and the apiserver then materializes it into every CR spec -- so a
@@ -54,7 +64,16 @@ CHARTS = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(ROOT, 'helm',
 # installer `check-fill-defaults` does NOT catch a reintroduced default (confirmed by the installer
 # session with a negative control -- it just counts one more defaulted leaf), so this is the only
 # gate on either side that fails.
-NO_SCHEMA_DEFAULT = ('readerGroups',)
+# `deskActions` and the two servicePicker keys are not authorization, but they share the property
+# that matters here: AN INSTALL MUST BE ABLE TO OVERRIDE THEM, and a materialized default cannot be
+# overridden. `deskActions` is the sharpest case — its entire purpose is to be false in the CMP,
+# where assignment comes from Zendesk, so a defaulted `true` is precisely the install that cannot
+# turn the buttons off, and the symptom is a write that gets overwritten with nothing erroring.
+# An empty-string default is still a default: materialized, it stops an install ENABLING the
+# service picker. A key absent from a chart is simply not checked, so listing them is free for the
+# other sixteen.
+NO_SCHEMA_DEFAULT = ('deskActions', 'readerGroups', 'requesterGroups',
+                     'servicePickerName', 'servicePickerNamespace')
 JSON_TYPE = {dict: 'object', list: 'array', str: 'string', bool: 'boolean',
              int: 'integer', float: 'number', type(None): 'null'}
 
@@ -71,10 +90,10 @@ def walk(schema, values, path=''):
             continue
         sub = props[key]
         if key in NO_SCHEMA_DEFAULT and 'default' in sub:
-            problems.append(f'{here}: the schema declares a `default:` for an AUTHORIZATION key — '
-                            f'crdgen copies it into the composition CRD and the apiserver '
-                            f'materializes it into every CR, silently beating componentValues. '
-                            f'Keep the default in values.yaml only.')
+            problems.append(f'{here}: the schema declares a `default:` for a key AN INSTALL MUST '
+                            f'BE ABLE TO OVERRIDE — crdgen copies it into the composition CRD and '
+                            f'the apiserver materializes it into every CR, silently beating '
+                            f'componentValues. Keep the default in values.yaml only.')
         declared = sub.get('type')
         actual = JSON_TYPE.get(type(value))
         # An integer is an acceptable number; everything else must match exactly.
@@ -91,13 +110,22 @@ def walk(schema, values, path=''):
 
 def main():
     if not CHARTS:
-        print('lint-values-schema: FAILED — discovered ZERO charts under helm/*/values.schema.json. '
+        print('lint-values-schema: FAILED — discovered ZERO charts under helm/*/Chart.yaml. '
               'A run that checked nothing is not a clean run.', file=sys.stderr)
         return 1
     total = 0
     for chart in CHARTS:
         name = os.path.basename(chart)
-        schema = json.load(io.open(os.path.join(chart, 'values.schema.json'), encoding='utf-8'))
+        path = os.path.join(chart, 'values.schema.json')
+        # The check this gate could not make while it discovered charts by this very file. The
+        # installer enforces the SCHEMA, so a chart without one cannot be pinned at all: crdgen
+        # derives the CompositionDefinition kind from it, and there is nothing to derive from.
+        if not os.path.isfile(path):
+            print(f'  {name}: has no values.schema.json — the installer enforces the schema and '
+                  f'crdgen derives the composition kind from it, so this chart cannot be pinned')
+            total += 1
+            continue
+        schema = json.load(io.open(path, encoding='utf-8'))
         values = yaml.safe_load(io.open(os.path.join(chart, 'values.yaml'), encoding='utf-8').read()) or {}
         problems = walk(schema, values)
         total += len(problems)
