@@ -1,1 +1,1 @@
-[ .arch.graph.composition? | select(. != null and (.apiVersion // "") != "" and (.resource // "") != "" and (.name // "") != "") ]
+[ .arch.graph.composition? | select(. != null and (.apiVersion // "") != "" and (.resource // "") != "" and (.name // "") != "") | select((.apiVersion // "") | test("^[^/]+/[^/]+$")) | . + ((.apiVersion | split("/")) as $p | { group: $p[0], version: $p[1] }) ]

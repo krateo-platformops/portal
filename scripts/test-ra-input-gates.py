@@ -400,7 +400,20 @@ for _ra, _gated, _more in (('composition-detail', ['found'], {}),
     if _ra == 'composition-resources':
         _then.append(('resources', MANAGED))
     _then_b = [(s, p.replace(UID, TWIN['metadata']['uid']).replace('team-a', 'team-b')) for s, p in _then]
-    _then_none = [(s, '/events?limit=200') for s, _ in _then if s == 'getEvents']
+    # NOT-READ CASE: getEvents must dial NOTHING, which is a change from what this line asserted.
+    #
+    # It used to expect ('getEvents', '/events?limit=200') — the UNFILTERED window — because the
+    # old iterator fell back to it when no uid could be resolved. For this case that is exactly
+    # the wrong thing: the subject is a composition in another namespace that the tenant CANNOT
+    # read, so there is no uid, and the fallback dialled a cluster-wide events query. getEvents
+    # carries `endpointRef: sse-proxy-internal-endpoint`, so that dial does NOT use the caller's
+    # credential — it uses the proxy's. A caller who may not read the composition should not be
+    # the reason a privileged, unscoped events query is issued.
+    #
+    # snowplow#1123 forced the path to stop carrying its own query, and the iterator now yields
+    # nothing without a UUID-shaped uid. The stage does not run, continueOnError leaves the card
+    # on its honest empty state, and no unscoped dial happens. Hence [].
+    _then_none = []
     _responses = {'found': FOUND, 'getEvents': {'events': []},
                   'resources': {MANAGED: {}, MANAGED.replace('team-a', 'team-b'): {}}}
     GATES[_ra] = {'gated': _gated, 'free': dict({'crds': {'items': [CD_OTHER, CD]}}, **_more),
