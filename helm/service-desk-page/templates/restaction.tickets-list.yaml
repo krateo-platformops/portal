@@ -55,6 +55,34 @@ spec:
     - name: tickets
       path: /apis/servicedesk.krateo.io/v1alpha1/namespaces/{{ $.Values.namespace }}/tickets
       verb: GET
+      {{/* THE BOUNDARY IS THE APISERVER'S AUTHORIZER, NOT A jq PREDICATE.
+
+           A requester may read their OWN tickets and no others, and Kubernetes RBAC has no way to
+           say "mine" — so acmp's filing controller mints a per-ticket Role granting `get` on that
+           one ticket by `resourceNames`, bound to the requester. `tickets-open` loses list/watch
+           entirely; tenant-admin and org-admin hold `tickets-read-all` (get/list/watch).
+
+           Declaring a userAccessFilter is what switches this dial from the caller's token to
+           snowplow's ServiceAccount: snowplow lists the namespace once with its own credential,
+           then re-evaluates RBAC per item as the caller and drops what the caller may not read.
+           Without it this step dials as the requester, who cannot list, and the whole queue 403s.
+
+           `verb: get` AND NOT `list`, which is the part that fails silently if it is wrong. The
+           refilter passes the per-object name only for a name-scoped verb (snowplow#123); with
+           `list` no name is threaded, so a resourceNames-scoped grant matches nothing and EVERY
+           ticket is dropped — the page returns empty with no error, indistinguishable from a quiet
+           desk. snowplow's end-to-end test covers that case specifically.
+
+           namespaceFrom is explicit and verified rather than defaulted: the apiserver populates
+           `metadata.namespace` on every item of a namespaced list (checked on krateo-057 —
+           304 of 304 ConfigMaps in one namespace carry it), contrary to the comment this change
+           corrects below. */}}
+      userAccessFilter:
+        verb: get
+        group: servicedesk.krateo.io
+        resource: tickets
+        nameFrom: .metadata.name
+        namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: ticketsError
   filter: |
@@ -64,10 +92,29 @@ spec:
     # continueOnError, and an absent key must render an empty queue rather than a jq error.
     ((.tickets.items) // []) as $all
     | $all as $items
+    # A REFUSED READ MUST NOT RENDER AS A QUIET DESK. `continueOnError` plus the `// []` guard
+    # above turned every failure into an empty queue: a 403, a 404 on an install with no Ticket
+    # CRD, and a desk with nothing in it all drew the same empty table with no error anywhere.
+    # That was already a defect; the per-ticket RBAC model makes it the DEFAULT failure, because
+    # every misconfigured grant now produces exactly that shape. `denied` and `readError` follow
+    # reviews-page/platform-reviews, which draws the same distinction for the same reason.
+    | ((.ticketsError // "") | tostring) as $err
     | {
+        failed: ($err != ""),
+        denied: ($err | test("403|forbidden"; "i")),
+        absent: ($err | test("404|not found|could not find"; "i")),
+        readError: $err,
         rows: ($items | map({
           name: (.metadata.name // ""),
-          # A namespaced list omits .metadata.namespace per item; these are in the namespace listed.
+          # The chart namespace, not `.metadata.namespace` — and NOT because the field is absent.
+          # The previous comment here said a namespaced list omits it per item; that is false. The
+          # apiserver populates `metadata.namespace` on every item (checked on krateo-057: 304 of
+          # 304 ConfigMaps in a single-namespace list carry it), which is also what makes the
+          # userAccessFilter's namespaceFrom above correct. The literal is used because this leg
+          # lists exactly one namespace, so the two are equal by construction and the literal says
+          # so. WHEN THIS BECOMES MULTI-NAMESPACE for the CMP reshape, read `.metadata.namespace`
+          # here — the field is there, and the old comment would have sent someone looking for a
+          # workaround that is not needed.
           namespace: "{{ $.Values.namespace }}",
           summary: (.spec.summary // ""),
           state: (.spec.state // "Open"),
