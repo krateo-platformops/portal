@@ -197,11 +197,31 @@ spec:
          or Unknown — and `notReady` was the COMPLEMENT of True, so it absorbed Unknown as well as
          False. The row LABEL has always had the third state (readyLabel above), so the summary
          contradicted the rows it summarised.
-         core-provider 2.13.36 makes that reachable: a composition whose child-health rollup
-         evaluated ZERO children reports Ready=Unknown with reason ZeroEvidence — deliberately
-         "not measured", NOT "unhealthy". On 057 that is krateo-system/event-health and
-         krateo-system/model-configs, both healthy, which would have shown as 2 not-ready on a
-         cluster where nothing is wrong, permanently.
+         core-provider 2.13.36 makes that reachable: an Unknown Ready means the rollup could not
+         assess the composition's health — deliberately "not measured", NOT "unhealthy". On 057
+         that was krateo-system/event-health and krateo-system/model-configs, both healthy, which
+         would have shown as 2 not-ready on a cluster where nothing is wrong, permanently.
+
+         WHAT UNKNOWN MEANS HAS SINCE BEEN SPLIT THREE WAYS, and the earlier wording here was
+         wrong in a way worth recording rather than just deleting. It said ZeroEvidence is for a
+         rollup that "evaluated ZERO children", which reads as "the composition has no children".
+         It never meant that: core-provider#324/#328, and Diego's split after installer measured
+         what the ambiguity cost —
+
+           Unknown / ZeroEvidence         the recorded children are ALL unreadable by the
+                                          controller. Permanent, and NOT core-provider's defect.
+           Unknown / ChildrenForbidden    no child could be assessed and at least one read was
+                                          REFUSED BY RBAC — a defect in generated RBAC, so
+                                          actionable. Only when there is no evidence at all.
+           Unknown / InventoryNotRecorded status.managed was never written. Also their defect.
+                                          Split out of ZeroEvidence because seven compositions on
+                                          057 were holding deployed releases and passing their
+                                          readiness gate on the strength of a bug's output.
+
+         AND A COMPOSITION THAT GENUINELY MANAGES NOTHING REPORTS `Available`, not Unknown. It
+         never reported ZeroEvidence. Nothing here keys on these strings — the bucket below is
+         chosen by STATUS, so all three land in `unknown` and are counted — but a reader taking
+         the old sentence as the definition would have built the wrong predicate.
          Counting each state by its own predicate rather than by subtraction also means the next
          status added to the vocabulary cannot land in a bucket silently, which is how this one
          arrived. */}}

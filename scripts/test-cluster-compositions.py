@@ -4,8 +4,10 @@
 portal#333: `notReady` was `$total - $ready`, the complement of Ready=="True", so it absorbed
 Ready=Unknown as well as Ready=="False". The row LABEL already had three states, so the summary
 contradicted the rows it summarised — and core-provider 2.13.36 makes that reachable by reporting
-Ready=Unknown/ZeroEvidence for a composition whose child-health rollup evaluated zero children
-("not measured", not "unhealthy").
+Ready=Unknown for a composition whose child-health rollup could not assess it ("not measured", not
+"unhealthy"). Unknown now carries three reasons and NONE of them means "the composition has no
+children" — one that manages nothing reports `Available`. See the chart's own comment for the split
+(ZeroEvidence / ChildrenForbidden / InventoryNotRecorded).
 
 It renders helm/clusters-page and runs the RESTAction's final filter with jq, rather than keeping a
 copy of the program here: a test holding its own copy of the jq passes while the chart drifts away
@@ -77,7 +79,8 @@ def rows(*readys):
     with no Ready condition at all arrives as "" — which must count as unknown, not as not-ready.
     Each item is either a Ready status string, or a (status, reason) pair. The REASON is the
     contract core-provider maintains (`Available`, `AvailablePartialCoverage`, `Creating`,
-    `Unavailable`, `ZeroEvidence`, `ReconcileGracefullyPaused`) — never the message, which is prose
+    `Unavailable`, `ZeroEvidence`, `ChildrenForbidden`, `InventoryNotRecorded`,
+    `ReconcileGracefullyPaused`) — never the message, which is prose
     they change freely. Note that `ReconcileGracefullyPaused` AND `AvailablePartialCoverage` both
     carry Status=TRUE, not False.
     """
@@ -151,6 +154,21 @@ CASES = [
     # the True side cannot silently become a pause.
     ([('True', 'SomeNewTrueReason')],
                                   {'total': 1, 'ready': 1, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 0}, 'green'),
+
+    # core-provider#324 / #328: two more Unknown reasons, both core-provider's OWN defects rather
+    # than a permanent fact about the children. They must be counted as `unknown` like ZeroEvidence
+    # — not as failures, because nothing is claimed broken, and not as ready.
+    #
+    # The point of asserting them BY NAME when the bucket is chosen by STATUS: it records that the
+    # vocabulary grew and that the growth was absorbed, which is the property the `SomeNewTrueReason`
+    # case proves generically. A named case is how the next reader learns the real set.
+    ([('Unknown', 'ChildrenForbidden')],
+                                  {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
+    ([('Unknown', 'InventoryNotRecorded')],
+                                  {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 0, 'paused': 0, 'unknown': 1}, 'gray'),
+    # A real failure still outranks withheld evidence, whichever reason withheld it.
+    ([('Unknown', 'ChildrenForbidden'), ('False', 'Unavailable')],
+                                  {'total': 2, 'ready': 0, 'notReady': 1, 'converging': 0, 'paused': 0, 'unknown': 1}, 'orange'),
 
     # core-provider#297: `AvailablePartialCoverage` is Status=TRUE — Available's condition with a
     # different reason, stamped when MOST CHILDREN COULD NOT BE HEALTH-EVALUATED.
