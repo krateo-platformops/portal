@@ -29,19 +29,28 @@ THE BASELINE IS THE VERSION WITH DATA IN IT, not merely the previous commit:
     never as a pass: a gate that silently checks nothing is the failure mode this file exists to
     describe.
 
-THE FIVE CONSTRAINTS CHECKED, and the stopping point stated rather than left implicit:
+THE CONSTRAINTS CHECKED:
   required  a name required now and not before
   enum      an enum introduced, or values removed from one
   type      a type changed
   format    a format introduced or changed
+  bounds    minimum/minLength raised, maximum/maxLength lowered, or any of them introduced
+  pattern   introduced OR changed (see below)
+  properties   a declared property REMOVED (see below)
   x-kubernetes-preserve-unknown-fields   true before, not true now (the subtree stops tolerating)
 
-NOT checked, deliberately and pending a decision rather than by oversight: numeric and length
-bounds (minimum/maximum/minLength/maxLength), `pattern`, and a property REMOVED from `properties`.
-All three are the same class of harm — the last is arguably worse, since pruning drops the field
-silently instead of refusing the write — and all three are cheap to add. They are left out because
-the five above are the set that was agreed; adding more is a decision about how loud this gate
-should be, not a technical gap.
+TWO OF THOSE NEED THEIR REASONING STATED, because both are deliberately louder than the others.
+
+`pattern` reports a CHANGE, not only an introduction. Regex containment is undecidable in general,
+so there is no cheap way to tell a widened pattern from a narrowed one — and treating "changed" as
+safe is the assumption that loses data. The cost is a finding on a genuine widening, which a
+reviewer reads once and waves through.
+
+A REMOVED property is the only clause here whose harm is not a refused write. Structural pruning
+drops an undeclared field SILENTLY and admits the object, so an existing CR carrying it loses that
+data on its next write with nothing reported anywhere — strictly worse than the loud failure every
+other clause describes. It is exempted under a node that tolerates unknown content, where the field
+was never declared-and-validated to begin with.
 
 Env: PORTAL_BASELINE_VERSION=<v> pins the baseline for every chart (useful for reproducing a
 finding). Exit code = findings. A baseline that cannot be FETCHED is a finding, not a skip.
@@ -181,6 +190,45 @@ def compare(old, new, path, report):
     if old.get(PRESERVE) is True and new.get(PRESERVE) is not True:
         report(path, f'no longer sets {PRESERVE}. This subtree tolerated arbitrary content in the '
                      f'baseline and now prunes or refuses it.')
+
+    # NARROWED BOUNDS. Each pair is (key, the direction that makes the constraint stricter).
+    # `minimum` and `minLength` tighten by going UP, `maximum` and `maxLength` by going DOWN; a
+    # bound introduced where none existed is a tightening in either direction, which the `is None`
+    # arm covers. Written as a table rather than four near-identical blocks because the only thing
+    # that differs between them is the comparison, and four hand-written copies is where the
+    # inverted one hides.
+    for key, stricter_when_greater in (('minimum', True), ('minLength', True),
+                                       ('maximum', False), ('maxLength', False)):
+        o, n = old.get(key), new.get(key)
+        if n is None or not isinstance(n, (int, float)) or isinstance(n, bool):
+            continue
+        if o is None:
+            report(path, f'gained {key} {n} where the baseline had no bound. A stored value '
+                         f'outside it can no longer be written.')
+        elif isinstance(o, (int, float)) and not isinstance(o, bool) and (
+                n > o if stricter_when_greater else n < o):
+            report(path, f'narrowed {key} from {o} to {n}. Objects outside the new bound can no '
+                         f'longer be written.')
+
+    if new.get('pattern') and new.get('pattern') != old.get('pattern'):
+        # A CHANGED pattern is reported, not only an introduced one, because regex containment is
+        # undecidable in general: there is no cheap way to tell a widened pattern from a narrowed
+        # one, and treating "changed" as safe is the assumption that loses data. The cost is a
+        # finding on a genuine widening, which a reviewer can read and wave through.
+        report(path, f'changed pattern from {old.get("pattern")!r} to {new.get("pattern")!r}. '
+                     f'Whether that admits everything the baseline did cannot be decided here, so '
+                     f'it is reported rather than assumed safe.')
+
+    # A PROPERTY REMOVED, which is the worst of the three and the reason it is here. Structural
+    # pruning does not REFUSE the write — it silently drops the field and admits the object, so an
+    # existing CR carrying it loses that data on its next write with no error anywhere. The
+    # exception is a node that tolerates unknown content: there the field was never declared-and-
+    # validated to begin with, so removing the declaration changes nothing about what is stored.
+    lost = sorted(set(old.get('properties') or {}) - set(new.get('properties') or {}))
+    if lost and new.get(PRESERVE) is not True:
+        report(path, f'no longer declares {lost}. Structural pruning drops an undeclared field '
+                     f'SILENTLY and admits the object, so a stored value is lost on the next '
+                     f'write with no error reported anywhere.')
 
     for key in sorted(set(old.get('properties') or {}) & set(new.get('properties') or {})):
         compare(old['properties'][key], new['properties'][key], f'{path}.{key}', report)

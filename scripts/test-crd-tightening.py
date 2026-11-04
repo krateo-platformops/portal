@@ -51,6 +51,55 @@ CASES = [
     ('preserve-unknown dropped (true -> false)',
      {'type': 'object', PRESERVE: True}, {'type': 'object', PRESERVE: False}, 1, 'root'),
 
+    # --- BOUNDS: the direction table is where an inverted comparison hides, so every one of the
+    #     four keys is pinned in BOTH directions. A `minimum` tightens by rising, a `maximum` by
+    #     falling, and getting one of them backwards would silently pass the real tightening while
+    #     failing every harmless widening.
+    ('minimum raised is a tightening',
+     {'type': 'integer', 'minimum': 1}, {'type': 'integer', 'minimum': 5}, 1, 'root'),
+    ('minimum LOWERED is a loosening',
+     {'type': 'integer', 'minimum': 5}, {'type': 'integer', 'minimum': 1}, 0, None),
+    ('maximum lowered is a tightening',
+     {'type': 'integer', 'maximum': 100}, {'type': 'integer', 'maximum': 10}, 1, 'root'),
+    ('maximum RAISED is a loosening',
+     {'type': 'integer', 'maximum': 10}, {'type': 'integer', 'maximum': 100}, 0, None),
+    ('minLength raised is a tightening',
+     {'type': 'string', 'minLength': 0}, {'type': 'string', 'minLength': 1}, 1, 'root'),
+    ('minLength LOWERED is a loosening',
+     {'type': 'string', 'minLength': 1}, {'type': 'string', 'minLength': 0}, 0, None),
+    ('maxLength lowered is a tightening',
+     {'type': 'string', 'maxLength': 255}, {'type': 'string', 'maxLength': 64}, 1, 'root'),
+    ('maxLength RAISED is a loosening',
+     {'type': 'string', 'maxLength': 64}, {'type': 'string', 'maxLength': 255}, 0, None),
+    ('a bound introduced where none existed is a tightening',
+     {'type': 'string'}, {'type': 'string', 'maxLength': 64}, 1, 'root'),
+    ('a bound REMOVED is a loosening',
+     {'type': 'string', 'maxLength': 64}, {'type': 'string'}, 0, None),
+    ('an unchanged bound says nothing',
+     {'type': 'integer', 'minimum': 1, 'maximum': 10},
+     {'type': 'integer', 'minimum': 1, 'maximum': 10}, 0, None),
+
+    # --- PATTERN: reported on any change, because regex containment is undecidable ---
+    ('a pattern introduced is a tightening',
+     {'type': 'string'}, {'type': 'string', 'pattern': '^a+$'}, 1, 'root'),
+    ('a pattern CHANGED is reported, even when it may be a widening',
+     {'type': 'string', 'pattern': '^a$'}, {'type': 'string', 'pattern': '^a+$'}, 1, 'root'),
+    ('a pattern removed is a loosening',
+     {'type': 'string', 'pattern': '^a+$'}, {'type': 'string'}, 0, None),
+
+    # --- A REMOVED PROPERTY: the one clause whose harm is silent data loss, not a refused write ---
+    ('a property removed is a tightening',
+     {'type': 'object', 'properties': {'a': {'type': 'string'}, 'b': {'type': 'string'}}},
+     {'type': 'object', 'properties': {'a': {'type': 'string'}}}, 1, 'root'),
+    ('a property removed under preserve-unknown is NOT a finding',
+     {'type': 'object', PRESERVE: True, 'properties': {'a': {'type': 'string'}}},
+     {'type': 'object', PRESERVE: True, 'properties': {}}, 0, None),
+    ('a property removed nested two levels down is found, with its path',
+     {'properties': {'a': {'type': 'object',
+                           'properties': {'b': {'type': 'string'}, 'c': {'type': 'string'}}}}},
+     {'properties': {'a': {'type': 'object', 'properties': {'b': {'type': 'string'}}}}},
+     1, 'root.a'),
+
     # --- LOOSENINGS AND NO-OPS: each must produce NOTHING ---
     ('a required name dropped is a loosening',
      {'required': ['a'], 'properties': {'a': {'type': 'string'}}},
