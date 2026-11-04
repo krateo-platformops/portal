@@ -19,6 +19,16 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.namespace }}
+  annotations:
+    # KEEP, and only on THIS one of the two. A `keep` on the Ticket CRD alone does not protect the
+    # tickets: deleting a namespace deletes everything in it regardless of any CRD's policy, so an
+    # uninstall would take the tickets with the namespace and the surviving CRD would be empty.
+    # This namespace is the one that holds them (see the note above), so it is the one that is kept.
+    #
+    # `raiseNamespace` deliberately does NOT carry this. It holds three widgets and no data, so
+    # keeping it would leave an empty namespace behind on every uninstall and protect nothing. The
+    # asymmetry is the point: retention follows the data, not the chart.
+    helm.sh/resource-policy: keep
   labels:
     "krateo.io/page-namespace": "true"
 ---

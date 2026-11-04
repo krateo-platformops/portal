@@ -34,6 +34,23 @@ kind: CustomResourceDefinition
 metadata:
   name: tickets.servicedesk.krateo.io
   annotations:
+    # KEEP, because deleting this CRD cascade-deletes every Ticket in the cluster. That is not a
+    # hypothetical administrative act: uninstall is on the path of an ordinary component version
+    # bump, where the CompositionDefinition prunes and recreates the release. A chart that holds
+    # the only copy of people's submitted requests must not let a version bump destroy them.
+    #
+    # Same annotation and same reason as the RESTAction CRD in snowplow's chart, which carries the
+    # note "would delete this CRD, garbage-collecting every RESTAction ... cluster-wide".
+    #
+    # THE COST, stated rather than discovered later. A kept object keeps the previous release's
+    # ownership metadata, so Helm re-adopts it on a reinstall only when the release NAME and
+    # NAMESPACE match; a composition reinstalled under a different name fails with an ownership
+    # error instead of silently taking it over. That is the right failure: it is loud, it is
+    # recoverable by hand, and the alternative is quiet data loss.
+    #
+    # `keep` governs DELETION only. The CRD is still upgraded in place while it is rendered, which
+    # is the whole reason it lives in `templates/` rather than `crds/` (see the note above).
+    helm.sh/resource-policy: keep
     "krateo.io/verbose": "true"
 spec:
   group: servicedesk.krateo.io

@@ -115,6 +115,33 @@ jobs:
       - name: The Helm release record must stay writable
         run: python3 scripts/lint-release-size.py
 
+  # A chart that owns a CRD must not destroy its data when it is uninstalled — and uninstall is on
+  # the path of an ordinary component version bump, not a rare administrative act. service-desk-page
+  # shipped the Ticket CRD and the namespace holding the tickets with NO resource-policy at all; the
+  # gate written for that immediately found a second instance, the AuditRecord CRD in `portal`,
+  # whose deletion would have taken the audit trail with it.
+  crd-retention:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: A chart that owns a CRD must keep it
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-crd-retention.py
+
   # `devs` carries no ClusterRole and no ClusterRoleBinding (#261). That is a property of this
   # chart, not of a cluster: a RESTAction step with no userAccessFilter and no endpointRef is
   # dialled as the CALLER (resolveStageEndpoint — "non-UAF stages go through the per-user
