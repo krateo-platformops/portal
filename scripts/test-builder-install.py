@@ -1039,7 +1039,7 @@ def check_my_drafts_are_the_callers_own(chart):
     expect(f, 'published never claims a merge state', [r['statusLabel'] for r in rows if 'merge' in r['statusLabel'].lower()], [])
     expect(f, 'started from: a thread, or by hand',
            [by['catalog-service/blueprint']['startedFrom'], by['payments-api/blueprint']['startedFrom']],
-           ['Autopilot thread', 'Composed by hand'])
+           ['Agentiko thread', 'Composed by hand'])
     expect(f, 'Resume opens each kind\'s composer on the record',
            [by['catalog-service/blueprint']['resumePath'], by['service-catalog/page']['resumePath'], by['petstore/controller']['resumePath']],
            [f'/blueprint-builder/compose?resume=draft-blueprint-{owner}-catalog-service',
@@ -1076,7 +1076,7 @@ def check_my_drafts_are_the_callers_own(chart):
     rendered = {name: resolved_widget(chart, kind, name, out, {}, f'{name} (named, again)')['spec']['widgetData']
                 for kind, name in MY_DRAFT_WIDGETS}
     expect(f, 'blueprint list: the open drafts, their meta line', [(r['name'], r['meta'], r['statusKey']) for r in rendered['my-drafts-blueprint']['dataSource']],
-           [('catalog-service', '0.2.0 · 3 files · Autopilot thread', 'preview-needed'),
+           [('catalog-service', '0.2.0 · 3 files · Agentiko thread', 'preview-needed'),
             ('payments-api', '0.2.0 · 3 files · Composed by hand', 'previewed')])
     expect(f, 'blueprint published list: the change request, named', [r['meta'] for r in rendered['my-drafts-blueprint-published']['dataSource']],
            ['0.2.0 · krateo-blueprints/aws-vpc-network #1 · follow it in Blueprints from this builder'])
@@ -1092,7 +1092,7 @@ def check_my_drafts_are_the_callers_own(chart):
     expect(f, 'page list: the page draft only', [(r['name'], r['meta']) for r in rendered['my-drafts-page']['dataSource']],
            [('service-catalog', 'page · 2 files · Composed by hand')])
     expect(f, 'controller list: the controller draft only, a chart\'s meta line', [(r['name'], r['meta']) for r in rendered['my-drafts-controller']['dataSource']],
-           [('petstore', '0.2.0 · 3 files · Autopilot thread')])
+           [('petstore', '0.2.0 · 3 files · Agentiko thread')])
     expect(f, 'controller published list: empty, hidden', [rendered['my-drafts-controller-published']['dataSource'], chart.get('Listy', 'my-drafts-controller-published')['spec']['widgetData'].get('hideWhenEmpty')],
            [[], True])
     expect(f, 'controller Resume opens the controller composer', chart.get('Listy', 'my-drafts-controller')['spec']['widgetData']['actions']['navigate'],

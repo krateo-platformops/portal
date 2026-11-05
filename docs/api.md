@@ -106,7 +106,7 @@ latest `apply` result, with its exit, which the apply step shows; exit 0 moves t
 `incidentapplies` (incident-controller's `krateo-incident-responder`).
 
 **Re-run analysis.** An `Open` or `Verifying` incident offers **Re-run analysis** beside Ask
-Autopilot, while no earlier request waits. It opens a drawer with an optional note on what the
+Agentiko, while no earlier request waits. It opens a drawer with an optional note on what the
 analysis got wrong (at most 2000 characters) and merge-PATCHes `spec.reanalysis: {feedback}` on
 the incident, `feedback: ""` for none. alert-provider consumes the request: it clears the analysis
 and its check results, moves the incident to `Analyzing` and runs the analysis again with the

@@ -398,18 +398,32 @@ spec:
     variant: eyebrow
     text: "Controller Builder / Compose"
 ---
-# A4: an Autopilot entry point as a link, with the old label and no icon.
+# A4: an Agentiko entry point as a link, with a truncated label and no icon.
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata: {name: bad-ask-link}
 spec:
   widgetData:
-    label: Ask Autopilot
+    label: Ask Agentiko
     type: link
     clickActionId: ask
     actions:
       navigate:
         - {id: ask, type: navigate, path: "/controller-builder/compose?ask=help"}
+---
+# A4: THE PRE-RENAME LABEL, and nothing else to find it by — no `?ask=` path, no `askHref`, no
+# apiRef. The only thing that can see this button is ASK_LABEL, so it pins the one failure the
+# autopilot -> agentiko rename could have caused: narrow that regex to the new spelling and this
+# button stops being examined instead of being reported. Icon and type are correct on purpose, so
+# the single violation it must produce is the label.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-ask-old-label}
+spec:
+  widgetData:
+    label: Ask Autopilot →
+    icon: fa-wand-magic-sparkles
+    type: primary
 ---
 # A4: the shape that got through — a "Diagnose" reading an href its RESTAction builds with ?ask=.
 kind: RESTAction
