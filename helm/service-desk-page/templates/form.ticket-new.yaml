@@ -17,7 +17,7 @@
      see, prefill or retype. This is also the only route available: a payloadToOverride expression
      is evaluated against `{ json: <the form values> }` and nothing else — the caller's identity is
      not in that input — and a schema field hidden by `propertiesToHide` or by
-     `x-krateo-visible-when` is not submitted at all. An absent username submits "" and the
+     `displayingDependencies` is not submitted at all. An absent username submits "" and the
      apiserver rejects it (`spec.requester` is required, minLength 1), which is the right failure:
      a ticket with a guessed requester is worse than a ticket that was not raised.
 
@@ -58,7 +58,7 @@
      the required properties up-front in schema order and collects the rest into a collapsed
      "Advanced · N settings". That is why `objectName` is required: it keeps the branching question
      in third place, where the mockup puts it, instead of inside a closed Advanced bar — and a
-     field `x-krateo-visible-when` hides is not validated even when required, so a request that is
+     field `displayingDependencies` hides is not validated even when required, so a request that is
      not about a broken object is never asked for one. "On behalf of" is the only optional field,
      so it renders as "Advanced · 1 setting"; that label is not configurable.
 
@@ -99,8 +99,19 @@ spec:
         closed: true
         fallback: manual
     {{- end }}
+    {{/* `objectName` is required, so the only thing keeping it off a request that is not about a
+         broken object is this entry: a hidden field is not rendered, validated or submitted. It
+         lives here and not in the schema because the frontend reads visibility from this list. */}}
+    displayingDependencies:
+      - name: objectName
+        dependsOn:
+          name: kind
+          conditionType: value
+          value:
+            type: string
+            stringValue: Something is broken
     stringSchema: |-
-      {"type":"object","required":["kind","summary","objectName","detail","urgency"],"properties":{"kind":{"type":"string","title":"What kind of request is this?","description":"Something is broken \u2014 a platform object is not doing what it should \u00b7 I need a resource \u2014 a cluster, a namespace, a database, more quota \u00b7 I need access \u2014 a permission, a group, a credential","enum":["Something is broken","I need a resource","I need access"]},"summary":{"type":"string","title":"Summary","description":"One line.{{ if $.Values.deskActions }} The queue shows this, so say the thing rather than the category.{{ else }} Say the thing rather than the category.{{ end }}","minLength":1,"maxLength":200},"objectName":{"type":"string","title":"Which object is it about?","description":"The name of the composition or resource that is misbehaving.{{ if $.Values.deskActions }} The desk looks the rest up from there.{{ end }}","minLength":1,"maxLength":253,"x-krateo-visible-when":{"field":"kind","equals":"Something is broken"}},"detail":{"type":"string","title":"Detail","description":"What happened, or what is needed. One line of input \u2014 the form has no multi-line control.","minLength":1,"maxLength":8000},"urgency":{"type":"string","title":"Urgency","description":"Plainly worded on purpose: P1/P2/P3 means different things to different teams, and you are not the person who calibrated that scale.","enum":["Blocking me now","Needed this week","No particular date"],"default":"Needed this week"},"onBehalfOf":{"type":"string","title":"On behalf of","description":"A group you belong to, when the request is not for you. Leave it empty for yourself.","maxLength":253},"service":{"type":"string","title":"Which service is this about?","description":"The service the request concerns, not the team that will handle it. Leave it empty if nothing in particular.","maxLength":63,"pattern":"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}}}
+      {"type":"object","required":["kind","summary","objectName","detail","urgency"],"properties":{"kind":{"type":"string","title":"What kind of request is this?","description":"Something is broken \u2014 a platform object is not doing what it should \u00b7 I need a resource \u2014 a cluster, a namespace, a database, more quota \u00b7 I need access \u2014 a permission, a group, a credential","enum":["Something is broken","I need a resource","I need access"]},"summary":{"type":"string","title":"Summary","description":"One line.{{ if $.Values.deskActions }} The queue shows this, so say the thing rather than the category.{{ else }} Say the thing rather than the category.{{ end }}","minLength":1,"maxLength":200},"objectName":{"type":"string","title":"Which object is it about?","description":"The name of the composition or resource that is misbehaving.{{ if $.Values.deskActions }} The desk looks the rest up from there.{{ end }}","minLength":1,"maxLength":253},"detail":{"type":"string","title":"Detail","description":"What happened, or what is needed. One line of input \u2014 the form has no multi-line control.","minLength":1,"maxLength":8000},"urgency":{"type":"string","title":"Urgency","description":"Plainly worded on purpose: P1/P2/P3 means different things to different teams, and you are not the person who calibrated that scale.","enum":["Blocking me now","Needed this week","No particular date"],"default":"Needed this week"},"onBehalfOf":{"type":"string","title":"On behalf of","description":"A group you belong to, when the request is not for you. Leave it empty for yourself.","maxLength":253},"service":{"type":"string","title":"Which service is this about?","description":"The service the request concerns, not the team that will handle it. Leave it empty if nothing in particular.","maxLength":63,"pattern":"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}}}
     buttonConfig:
       primary:
         label: Raise ticket
