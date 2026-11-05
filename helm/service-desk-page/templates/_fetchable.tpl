@@ -22,7 +22,11 @@
       a resource in fetchableCore — an explicit ALLOWLIST, so a core kind added to Kubernetes is
       unread until someone adds it here, and Secrets are never in it.
   fetchableTarget applies that guard and splits the path into the single values portal.targetPath
-  needs, in one step, and yields nothing for a path it cannot rebuild exactly.
+  needs, in one step, and yields nothing for a path it cannot rebuild exactly. A path outside the
+  grammar, a subresource such as .../scale among them, makes no call. It guards the path as a whole, not
+  each value: on a caller-supplied route, `version: "v1/configmaps"` re-splits into a different path. That
+  is harmless where the step runs as the caller. Never use it on a step with an endpointRef or a
+  userAccessFilter, whose credential is stronger than the caller's: build that path from literals.
   lint-ra-secrets.py accepts a data-driven step only when its path is portal.targetPath over an item
   from fetchableTarget, or one field of the item (`${ .path }`), its iterator BEGINS with these defs exactly as rendered here (whitespace aside),
   defines neither again after them, and applies fetchablePath to that field; fetchableCore names
