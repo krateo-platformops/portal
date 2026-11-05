@@ -756,6 +756,40 @@ def check_edit_form_loads_field_options(charts):
     return problems
 
 
+def check_alert_panel_says_what_it_measures(charts):
+    """The alert detail's first hop states what the alert measures. An Alert does one of three
+    things, and a metric alert must not read "Counts all log rows": that says the alert is
+    misconfigured when it is not."""
+    ra = charts['alert-detail'].get('RESTAction', 'alert-detail')
+    base = {'interval': '5m', 'threshold': 1, 'thresholdType': 'above'}
+    shapes = {
+        'count, no filter': ({}, ['Counts **all log rows**', 'firing when the count is above 1', 'volume alone'], []),
+        'count, filtered': ({'where': "Body LIKE '%x%'"}, ["rows matching `Body LIKE '%x%'`", 'the count is'],
+                            ['every log line']),
+        'value': ({'aggregation': 'sum', 'value': 'cost', 'where': 'a = 1'},
+                  ['Takes the `sum` of `cost` across rows matching `a = 1`', 'firing when the value is'],
+                  ['Counts', 'every log line']),
+        'value, no filter': ({'aggregation': 'sum', 'value': 'cost'}, ['every log line on the cluster.'],
+                             ['Counts', 'volume alone']),
+        'metric': ({'aggregation': 'avg', 'metricRef': {'name': 'latency'}},
+                   ['Takes the `avg` of metric `latency`', 'firing when the value is'],
+                   ['log rows', 'every log line', 'Counts']),
+        'metric, labels and ratio': ({'aggregation': 'sum', 'labels': {'error': 'true'},
+                                      'metricRef': {'name': 'reqs'}, 'ratio': {'labels': {'svc': 'a'}}},
+                                     ['of metric `reqs` for `error=true` as a share of `svc=a`'], ['log rows']),
+        'metric, ratio over everything': ({'aggregation': 'sum', 'metricRef': {'name': 'reqs'}, 'ratio': {}},
+                                          ['as a share of all its points'], ['log rows']),
+    }
+    problems = []
+    for name, (spec, present, absent) in shapes.items():
+        alert = {'metadata': {'name': 'a1'}, 'spec': {**base, **spec}, 'status': {'state': 'OK'}}
+        _, _, out = resolve(ra, {'name': 'a1', 'namespace': 'team-a'}, {'alert': alert, 'incidents': EMPTY, 'reports': EMPTY})
+        hop = (out.get('pipelineMd') or '').split('2. **')[0]
+        problems += [f'{name}: first hop lacks {want!r}: {hop!r}' for want in present if want not in hop]
+        problems += [f'{name}: first hop says {bad!r}: {hop!r}' for bad in absent if bad in hop]
+    return problems
+
+
 def main():
     args = sys.argv[1:]
     crds_dir = None
@@ -768,7 +802,7 @@ def main():
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}
     failed, total = 0, 0
     for check in (check_no_input, check_with_input, check_degraded_reads, check_nav_discovery,
-                  check_edit_form_loads_field_options):
+                  check_edit_form_loads_field_options, check_alert_panel_says_what_it_measures):
         total += 1
         try:
             problems = check(charts)
