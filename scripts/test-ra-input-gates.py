@@ -744,7 +744,12 @@ def check_edit_form_loads_field_options(charts):
             {'id': 'regions', 'name': 'regions', 'namespace': NS}]
     if out.get('optionRefs') != want:
         problems.append(f'optionRefs: {out.get("optionRefs")!r}, want {want!r}')
+    if sorted(e['name'] for e in out.get('autocomplete') or []) != ['ns', 'region']:
+        problems.append(f'autocomplete: {out.get("autocomplete")!r}: without an entry the field renders plain')
     form = chart.get('Form', 'composition-edit')
+    paths = {e.get('forPath') for e in form['spec'].get('widgetDataTemplate') or []}
+    if not {'autocomplete', 'dependencies'} <= paths:
+        problems.append('form.composition-edit does not carry the field lists into widgetData')
     iterators = [e for e in form['spec'].get('resourcesRefsTemplate') or [] if 'optionRefs' in (e.get('iterator') or '')]
     if len(iterators) != 1 or iterators[0]['template'].get('verb') != 'GET' or iterators[0]['template'].get('resource') != 'restactions':
         problems.append('form.composition-edit has no GET restactions ref per optionRefs entry')
