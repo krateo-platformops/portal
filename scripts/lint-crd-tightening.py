@@ -21,8 +21,9 @@ a kind holding people's submitted requests is exactly the shape that incident ha
 this repo looked at it.
 
 THE BASELINE IS THE VERSION WITH DATA IN IT, not merely the previous commit:
-  - the installer's pin when the chart has one (`portal` -> component-pins.yaml), because that is
-    the CRD live clusters are running and therefore the CRs that exist;
+  - the RELEASED installer's pin when the chart has one (`portal` -> files/component-pins.yaml in
+    the published chart, not installer's main), because that is the closest a CI gate can get to
+    the CRD live clusters are running, and therefore the CRs that exist;
   - otherwise the latest published version of that chart, because no pin means delivery is not
     pinned, so latest-published is what an install gets. `service-desk-page` has no pin entry.
   - a chart with no published version at all has no baseline. That is reported as "no baseline",
@@ -62,15 +63,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
-import urllib.request
 
 import yaml
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OCI = 'oci://ghcr.io/krateo-platformops/charts'
-PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/main/'
-            'chart/files/component-pins.yaml')
+INSTALLER = f'{OCI}/installer'
 CHARTS = tuple(sorted(os.path.basename(os.path.dirname(p))
                       for p in glob.glob(os.path.join(REPO, 'helm', '*', 'Chart.yaml'))
                       if os.path.basename(os.path.dirname(p)) != 'builder-publish'))
@@ -78,20 +76,31 @@ PRESERVE = 'x-kubernetes-preserve-unknown-fields'
 
 
 def pins():
-    """{chart: version} from the installer pins, or None when they cannot be read."""
-    last = None
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(PINS_URL, timeout=30) as fh:
-                doc = yaml.safe_load(fh.read())
-            return {str(c['chart']): str(c['version'])
-                    for c in (doc or {}).get('components') or []
-                    if isinstance(c, dict) and c.get('chart') and c.get('version')}, None
-        except Exception as exc:                              # noqa: BLE001 - any fetch failure
-            last = f'{type(exc).__name__}: {exc}'
-            if attempt < 2:
-                time.sleep(3 * (attempt + 1))
-    return None, f'could not read the installer pins after 3 attempts: {last}'
+    """{chart: version} from the RELEASED installer chart, or (None, reason) when unreadable.
+
+    NOT installer's `main`, which this first read. A merged pin describes no cluster: on 2026-11-05
+    main pinned portal 1.8.91 while the released installer 0.3.506 pinned 1.8.88 and krateo-057 ran
+    1.8.88. A baseline that moves on a merge absorbs a tightening before any cluster has it, which
+    is the direction that hides what this gate exists to find. It must move on release.
+    """
+    work = tempfile.mkdtemp()
+    try:
+        out = subprocess.run(['helm', 'pull', INSTALLER, '--untar', '-d', work],
+                             capture_output=True, text=True)
+        if out.returncode:
+            return None, (out.stderr.strip().splitlines() or ['pull failed'])[-1]
+        with open(os.path.join(work, 'installer', 'Chart.yaml'), encoding='utf-8') as fh:
+            released = yaml.safe_load(fh).get('version')
+        path = os.path.join(work, 'installer', 'files', 'component-pins.yaml')
+        if not os.path.exists(path):
+            return None, f'the released installer {released} carries no pins file'
+        with open(path, encoding='utf-8') as fh:
+            doc = yaml.safe_load(fh)
+        return ({str(c['chart']): str(c['version'])
+                 for c in (doc or {}).get('components') or []
+                 if isinstance(c, dict) and c.get('chart') and c.get('version')}, released)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def render(chart):
@@ -268,9 +277,9 @@ def live_count_hint(path, lost):
 
 def main():
     findings = 0
-    pinned, pin_err = pins()
+    pinned, released = pins()
     if pinned is None:
-        print(f'FAIL: {pin_err}')
+        print(f'FAIL: {released}')
         print('A gate that cannot read the baseline has not checked anything.')
         return 1
 
@@ -291,7 +300,7 @@ def main():
         if forced:
             version, source = forced, 'PORTAL_BASELINE_VERSION'
         elif chart in pinned:
-            version, source = pinned[chart], 'installer pin'
+            version, source = pinned[chart], f'released installer {released} pin'
         else:
             version = latest_published(chart)
             source = 'latest published (no installer pin)'
