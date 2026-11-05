@@ -58,7 +58,7 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 
 ## Chart-adjacent corpora (code-adjacent, authoritative for their scope)
 
-  — the drop-in sidebar-entry mechanism for Autopilot-authored pages (#106).
+  — the drop-in sidebar-entry mechanism for Agentiko-authored pages (#106).
 - [`helm/portal/tests/blueprints-catalog/README.md`](../helm/portal/tests/blueprints-catalog/README.md),
   [`helm/portal/tests/blueprint-render/README.md`](../helm/portal/tests/blueprint-render/README.md),
   [`helm/portal/tests/blueprint-palette/README.md`](../helm/portal/tests/blueprint-palette/README.md)

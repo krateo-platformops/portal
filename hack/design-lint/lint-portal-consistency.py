@@ -830,7 +830,12 @@ def rule_page_header(crs):
 ASK_PATH = re.compile(r'[?&]ask=')
 
 
-ASK_LABEL = re.compile(r'^\s*ask autopilot\b', re.I)
+# BOTH SPELLINGS, and that is the whole point. This rule DETECTS a button by its label, so a
+# rename that moves the label without moving this regex does not make the rule fail — it makes the
+# rule stop looking, and a gate that has stopped looking reports clean. `autopilot` is kept here
+# for exactly as long as any chart, anywhere, might still carry the old label: matching it is what
+# turns an un-renamed button into a reported violation instead of an unexamined one.
+ASK_LABEL = re.compile(r'^\s*ask (autopilot|agentiko)\b', re.I)
 
 
 def _rest_actions(crs):
@@ -839,10 +844,10 @@ def _rest_actions(crs):
 
 
 def _is_autopilot_entry(button_doc, rest_actions=None):
-    """A Button that opens the Autopilot rail seeded with a prompt.
+    """A Button that opens the Agentiko rail seeded with a prompt.
 
     Recognised by where it GOES, because the chart spells that four ways: A4's canonical label
-    ("Ask Autopilot"), a static `?ask=` navigate path, a widgetDataTemplate computing the navigate
+    ("Ask Agentiko"), a static `?ask=` navigate path, a widgetDataTemplate computing the navigate
     actions from an `askHref` (Alerts does that, so a path-only check missed it), or one computing
     them from ANY field its `apiRef` RESTAction builds with `?ask=`.
 
@@ -871,13 +876,13 @@ def _is_autopilot_entry(button_doc, rest_actions=None):
     return False
 
 
-AUTOPILOT_LABEL = 'Ask Autopilot →'
+AUTOPILOT_LABEL = 'Ask Agentiko →'
 AUTOPILOT_ICON = 'fa-wand-magic-sparkles'
 
 
 def rule_autopilot_button(crs):
-    """A4 — every Autopilot entry point looks the same: a filled (`type: primary`) Button labelled
-    "Ask Autopilot →" with the magic-wand icon. Never a link: the product's decision, recorded once
+    """A4 — every Agentiko entry point looks the same: a filled (`type: primary`) Button labelled
+    "Ask Agentiko →" with the magic-wand icon. Never a link: the product's decision, recorded once
     here instead of re-litigated per page.
 
     Recognised by what the Button does, not what it says (a `?ask=` link or an `askHref` template),
@@ -891,11 +896,11 @@ def rule_autopilot_button(crs):
         data = widget_data(doc)
         label, icon, kind = str(data.get('label') or ''), str(data.get('icon') or ''), data.get('type')
         if label != AUTOPILOT_LABEL:
-            out.append((fname, f'Autopilot entry point labelled "{label}" — the canonical label is "{AUTOPILOT_LABEL}"'))
+            out.append((fname, f'Agentiko entry point labelled "{label}" — the canonical label is "{AUTOPILOT_LABEL}"'))
         if icon != AUTOPILOT_ICON:
-            out.append((fname, f'Autopilot entry point with icon "{icon or "none"}" — it carries {AUTOPILOT_ICON}'))
+            out.append((fname, f'Agentiko entry point with icon "{icon or "none"}" — it carries {AUTOPILOT_ICON}'))
         if kind != 'primary':
-            out.append((fname, f'Autopilot entry point is a `type: {kind or "default"}` Button — it is a filled `type: primary` button, not a link'))
+            out.append((fname, f'Agentiko entry point is a `type: {kind or "default"}` Button — it is a filled `type: primary` button, not a link'))
     return out
 
 
@@ -941,7 +946,7 @@ def rule_one_primary(crs):
             name = (doc.get('metadata') or {}).get('name')
             out.append((fname, f'{doc.get("kind")} `{name}` has {len(primaries)} primary buttons '
                                f'({", ".join(primaries)}) — one is the container\'s action, the rest '
-                               f'are `type: default` (an Autopilot entry point does not count)'))
+                               f'are `type: default` (an Agentiko entry point does not count)'))
     return out
 
 
