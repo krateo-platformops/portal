@@ -56,6 +56,20 @@ spec:
     | (.alert.status // {}) as $st
     | ($sp.displayName // .alert.metadata.name // $n) as $dn
     | ($st.state // "PENDING") as $state
+      # An Alert measures one of three things: rows counted, a log value aggregated (`value`), or a
+      # metric aggregated (`metricRef`). Each is worded for what it is, because "all log rows" on a
+      # metric alert reads like a misconfiguration nobody made.
+    | ($sp.metricRef.name // "") as $metric
+    | ($sp.value // "") as $value
+    | (if ($sp.where // "") == "" then "**all log rows**" else ("rows matching `" + $sp.where + "`") end) as $rows
+    | (($sp.labels // {}) | to_entries | map("`" + .key + "=" + (.value | tostring) + "`") | join(", ")) as $labels
+    | (($sp.ratio.labels // {}) | to_entries | map("`" + .key + "=" + (.value | tostring) + "`") | join(", ")) as $ratioLabels
+    | (if $metric != "" then
+        ("Takes the `" + ($sp.aggregation // "") + "` of metric `" + $metric + "`"
+         + (if $labels == "" then "" else (" for " + $labels) end)
+         + (if $sp.ratio == null then "" else (" as a share of " + (if $ratioLabels == "" then "all its points" else $ratioLabels end)) end))
+       elif $value != "" then ("Takes the `" + ($sp.aggregation // "") + "` of `" + $value + "` across " + $rows)
+       else ("Counts " + $rows) end) as $measures
       # krateo.io/paused: "true" — the alert-provider skips this alert's firings.
     | (((.alert.metadata.annotations // {})["krateo.io/paused"] // "") == "true") as $paused
     | ($st.hyperdxAlertId // "") as $haid
@@ -125,10 +139,10 @@ spec:
         # Each step says what it READ, and the first hop that cannot proceed says so and stops
         # claiming anything about the hops after it.
         pipelineMd: ([
-            ("1. **The alert exists.** Counts " + (if ($sp.where // "") == "" then "**all log rows**" else ("rows matching `" + ($sp.where) + "`") end)
-             + ", firing when the count is " + (($sp.thresholdType // "above") + " " + (($sp.threshold // 0) | tostring))
+            ("1. **The alert exists.** " + $measures
+             + ", firing when the " + (if $metric == "" and $value == "" then "count" else "value" end) + " is " + (($sp.thresholdType // "above") + " " + (($sp.threshold // 0) | tostring))
              + " over " + (if ($sp.interval // "") == "" then "its evaluation window" else ("`" + $sp.interval + "`") end) + "."
-             + (if ($sp.where // "") == "" then "\n    - An empty filter matches every log line on the cluster, so this fires on volume alone." else "" end)),
+             + (if $metric == "" and ($sp.where // "") == "" then ("\n    - An empty filter matches every log line on the cluster" + (if $value == "" then ", so this fires on volume alone." else "." end)) else "" end)),
             (if $haid != "" then ("2. **Synced to HyperDX.** Rule `" + $haid + "`.")
              else "2. **NOT synced to HyperDX.** `status.hyperdxAlertId` is empty, so no rule evaluates this alert and nothing below can happen. The chain stops here." end),
             (if $haid == "" then empty
