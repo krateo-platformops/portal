@@ -56,9 +56,23 @@ CHARTS = tuple(sorted(os.path.basename(os.path.dirname(p))
                       for p in glob.glob(os.path.join(REPO, 'helm', '*', 'Chart.yaml'))
                       if os.path.basename(os.path.dirname(p)) != 'builder-publish'))
 EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
-PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/main/'
+INSTALLER_GIT = 'https://github.com/krateo-platformops/installer'
+PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/{ref}/'
             'chart/files/component-pins.yaml')
 WIDGET_GROUP = 'widgets.templates.krateo.io'
+
+
+def installer_main_sha():
+    """The commit installer main is at. The pins are read AT this commit, not at `main`, so the
+    version this gate reports can be checked later: `main` moves, and could move between resolving
+    it and reading the file."""
+    out = subprocess.run(['git', 'ls-remote', INSTALLER_GIT, 'refs/heads/main'],
+                         capture_output=True, text=True, timeout=30,
+                         env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+    fields = out.stdout.split()
+    if out.returncode or not fields:
+        raise RuntimeError(f'git ls-remote {INSTALLER_GIT}: {out.stderr.strip() or "no main ref"}')
+    return fields[0]
 
 
 def pinned_version():
@@ -70,7 +84,8 @@ def pinned_version():
     last = None
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(PINS_URL, timeout=30) as fh:
+            sha = installer_main_sha()
+            with urllib.request.urlopen(PINS_URL.format(ref=sha), timeout=30) as fh:
                 pins = yaml.safe_load(fh.read())
             break
         except Exception as exc:                              # noqa: BLE001 - any fetch failure
@@ -83,7 +98,7 @@ def pinned_version():
         if isinstance(comp, dict) and comp.get('name') == 'frontend-crd':
             ver = comp.get('version')
             if ver:
-                return str(ver), 'installer main, not a release: chart/files/component-pins.yaml (name=frontend-crd)'
+                return str(ver), f'installer main @ {sha[:7]}, not a release: chart/files/component-pins.yaml'
             return None, 'the frontend-crd pin entry carries no version'
     return None, 'no .components[] entry named frontend-crd in the installer pins'
 
@@ -169,7 +184,7 @@ def main():
         print(f'  Nothing was checked, so this is a FAILURE and not a skip.')
         print(f'  Unblock either by fixing the source above, or by pinning the check explicitly:')
         print(f'      FRONTEND_CRDS_VERSION=<version> python3 scripts/lint-pinned-crds.py')
-        print(f'  (pins are read from {PINS_URL})')
+        print(f'  (pins are read from {PINS_URL.format(ref="main")}, at the commit main resolves to)')
         return 1
     crds = os.environ.get('PINNED_CRDS_DIR') or unpack(version)
     sch = schemas(crds)
