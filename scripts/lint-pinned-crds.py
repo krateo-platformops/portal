@@ -83,7 +83,7 @@ def pinned_version():
         if isinstance(comp, dict) and comp.get('name') == 'frontend-crd':
             ver = comp.get('version')
             if ver:
-                return str(ver), 'installer component-pins.yaml (.components[] name=frontend-crd)'
+                return str(ver), 'installer main, not a release: chart/files/component-pins.yaml (name=frontend-crd)'
             return None, 'the frontend-crd pin entry carries no version'
     return None, 'no .components[] entry named frontend-crd in the installer pins'
 
