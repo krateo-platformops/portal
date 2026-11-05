@@ -27,8 +27,8 @@ spec:
         name: ""
         iterator: |
           {{- include "portal.fetchableDefs" . | nindent 10 }}
-          [ { g: (.group // ""), v: (.version // "v1"), pl: (.plural // ""), nm: (.name // "") } | select(.pl != "" and .nm != "") | { base: (if (.g == "" or .g == "core") then ("/api/" + .v) else ("/apis/" + .g + "/" + .v) end) } | select(.base | fetchablePath) ]
-      path: ${ .base }
+          [ { g: (.group // ""), v: (.version // "v1"), pl: (.plural // ""), nm: (.name // "") } | select(.pl != "" and .nm != "") | { base: (if (.g == "" or .g == "core") then ("/api/" + .v) else ("/apis/" + .g + "/" + .v) end) } | (.base | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -57,8 +57,8 @@ spec:
           | (([ (.disco.resources // [])[] | select((.name // "") == $pl) ][0].namespaced) != false) as $nsd
           | [ select($pl != "" and $nm != "" and ($ns != "" or ($nsd | not)))
               | { path: (if $nsd then ($base + "/namespaces/" + $ns + "/" + $pl + "/" + $nm) else ($base + "/" + $pl + "/" + $nm) end) }
-              | select(.path | fetchablePath) ]
-      path: ${ .path }
+              | (.path | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
       verb: GET
       headers:
         - 'Accept: application/json'

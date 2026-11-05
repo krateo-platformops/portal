@@ -69,8 +69,8 @@ spec:
                else ($k + "s") end) as $plural
             | { path: ((if (.apiVersion | test("/")) then "/apis/" else "/api/" end)
                        + .apiVersion + "/namespaces/" + .namespace + "/" + $plural + "/" + .name) }
-            | select(.path | fetchablePath) ]
-      path: ${ .path }
+            | (.path | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
       verb: GET
       continueOnError: true
       errorKey: objectError

@@ -91,9 +91,9 @@ spec:
               | select(.present == true and ((.lifecycle // "") == "")) as $nd
               | $nd.names[] as $nm
               | $m[] | select(.name == $nm and .apiVersion == $nd.apiVersion and .path != "")
-              | select(.path | fetchablePath) | {path} ]
+              | (.path | fetchableTarget) ]
           | unique
-      path: ${ .path }
+      path: ${ {{ include "portal.targetPath" . }} }
       verb: GET
       headers:
         - 'Accept: application/json'

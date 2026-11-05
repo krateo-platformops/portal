@@ -137,8 +137,8 @@ def rv_claim: "review-" + ((.metadata.name // "") | ltrimstr("p-"));
         | ([ match("(?m)^apiVersion:[ \\t]*[\"']?([^\\s\"'#]+)") ][0].captures[0].string // "") ]
       | unique | map(select(. != "" and (. as $g | any($served[]; . == $g))))
       | map({ gv: ., discovery: (if (. | contains("/")) then "/apis/" + . else "/api/" + . end) })
-      | map(select(.discovery | fetchablePath))
-  path: ${ .discovery }
+      | map(.discovery | fetchableTarget)
+  path: ${ {{ include "portal.targetPath" . }} }
   verb: GET
   headers:
     - 'Accept: application/json'

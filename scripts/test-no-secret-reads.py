@@ -19,6 +19,7 @@ Usage: test-no-secret-reads.py [--crds DIR]. Exit code = failed checks.
 import copy
 import importlib.util
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -101,7 +102,36 @@ def check_fetchable_path():
     return f
 
 
-CHECKS = [check_composition_resources_skip_the_secret, check_resource_detail_does_not_read_a_secret, check_fetchable_path]
+def check_fetchable_target():
+    """fetchableTarget and portal.targetPath give back the same path, or nothing.
+
+    Every stage built on them sends exactly what it sent as a whole path. A path that does not rebuild
+    exactly, or that the guard refuses, yields no item, so the stage makes no call."""
+    f = []
+    defs = CHART.get('RESTAction', 'composition-resources')['spec']['filter'].split('(.name) as $n')[0]
+    tpl = open(os.path.join(HERE, '..', 'helm', 'portal', 'templates', '_fetchable.tpl'), encoding='utf-8').read()
+    template = re.search(r'define "portal\.targetPath" -\}\}\n(.*?)\n\{\{- end', tpl, re.S).group(1)
+    same = ['/api/v1', '/apis/apps/v1', '/api/v1/namespaces', '/api/v1/namespaces/x', '/api/v1/nodes/n',
+            '/api/v1/namespaces/x/configmaps', '/api/v1/namespaces/x/configmaps/y',
+            '/apis/apps/v1/deployments', '/apis/apps/v1/namespaces/x/deployments/d',
+            '/apis/rbac.authorization.k8s.io/v1/clusterroles/admin',
+            '/apis/github.krateo.io/v1alpha1/namespaces/team-a/repoes/r',
+            '/apis/composition.krateo.io/v0-1-0/namespaces/n/keystonedemoes/k']
+    got = tbi.jq(defs + ' [ .[] | [ fetchableTarget ] | map(' + template + ') ]', same)
+    expect(f, 'rebuilds exactly', dict(zip(same, got)), {p: [p] for p in same})
+    refused = ['', '/', 'https://example.com/api/v1/pods', '/api/v1/namespaces/x/secrets/y', '/api/v1/secrets',
+               '/api/v1/namespaces/x/secrets', '/apis/apps/v1/namespaces/x/deployments/d/scale',
+               '/apis/apps/v1/namespaces/x/deployments/a/b', '/apis/../api/v1/namespaces/x/secrets/y',
+               '/apis/apps/v1/namespaces/../deployments/d', '/apis/apps/v1/namespaces/x/deployments/..',
+               '/apis/apps/v1/./deployments', '/apis/apps/v1//deployments', '/apis/apps/v1/deployments/',
+               '/apis/apps/v1/deployments?limit=1', '/apis/apps/v1/deployments#x', '/apis/apps/v1/%2e%2e/deployments',
+               '/apis/apps/v1/a\\b', '/apis/apps', '/apis']
+    got = tbi.jq(defs + ' map([ fetchableTarget ] | length)', refused)
+    expect(f, 'yields nothing', dict(zip(refused, got)), dict.fromkeys(refused, 0))
+    return f
+
+
+CHECKS = [check_composition_resources_skip_the_secret, check_fetchable_target, check_resource_detail_does_not_read_a_secret, check_fetchable_path]
 
 
 def main():
