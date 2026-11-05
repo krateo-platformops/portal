@@ -1,17 +1,18 @@
 ---
 type: Example
-title: A blueprint whose create form loads options, cascades and hides fields
-description: A demo blueprint using every x-krateo-* schema extension — a region → zone cascade from a RESTAction, the shared namespaces source, a field shown only for NodePort, titled host rows, key/value image pull secrets — with its options RESTActions.
+title: A blueprint whose create form loads options and cascades
+description: A demo blueprint using `x-krateo-options` — a region → zone cascade from a RESTAction, the shared namespaces source, key/value image pull secrets — with its options RESTActions.
 resource: oci://ghcr.io/krateo-platformops/charts/portal
 tags: [portal, blueprints, forms, restactions]
 timestamp: 2026-10-27T00:00:00Z
 ---
 
-# A blueprint whose create form loads options, cascades and hides fields
+# A blueprint whose create form loads options and cascades
 
-The keywords are documented in the frontend's
-[form-schema-extensions](https://github.com/krateo-platformops/frontend/blob/main/ui/docs/form-schema-extensions.md);
-this is one blueprint that uses all of them, and the RESTActions it needs.
+`x-krateo-options` is documented in [form-options](../../docs/form-options.md); this is one
+blueprint that uses it, and the RESTActions it needs. It is the keyword the portal translates into
+the Form's lists. The other retired keywords do nothing in a blueprint's schema, and
+`scripts/lint-form-keywords.py` fails on them here.
 
 | File | What it is |
 | --- | --- |
@@ -26,9 +27,9 @@ What the create form does with it:
   cleared when the region changes.
 - **Target namespace** lists the namespaces the caller can list, from the portal's shared
   `krateo-system/form-options-namespaces`.
-- **Node port** appears only when **Service type** is NodePort. The same rule is written as
-  an `if`/`then` beside it, so Helm enforces it when the composition is deployed.
-- **Hosts** rows are titled by their host; at least one, at most five.
+- **Node port** is always shown. An `if`/`then` makes it required for NodePort, and Helm enforces
+  that when the composition is deployed, not the form.
+- **Hosts** takes at least one row and at most five.
 - **Image pull secrets** declare no item fields, so each is a key/value row.
 
 ## How the refs are wired
