@@ -11,18 +11,22 @@ timestamp: 2026-10-27T00:00:00Z
 
 A blueprint field can load its options from a RESTAction:
 `"x-krateo-options": { "ref": "zones", "dependsOn": { "field": "region", "param": "region" } }`.
-The frontend's [form-schema-extensions](https://github.com/krateo-platformops/frontend/blob/main/ui/docs/form-schema-extensions.md)
-documents the keywords; this page is the portal's side.
+A chart keeps writing this keyword in its own `values.schema.json`. This page is the portal's side.
+
+**The frontend no longer reads the keyword.** Since 1.8.18 the Form reads `widgetData` lists
+(`autocomplete`, `dependencies`), so the portal translates. A Form CR written by hand uses those
+lists directly; see the frontend's
+[form-schema-extensions](https://github.com/krateo-platformops/frontend/blob/main/ui/docs/form-schema-extensions.md).
 
 **Wiring.** `blueprint-formdef` (create) and `composition-editdef` (edit) read the blueprint's
-`values.schema.json` from core-provider's jsonschema ConfigMap and return `optionRefs`: every
-`x-krateo-options.ref` in it, once. `form.blueprint-create` and `form.composition-edit` turn
-each into a GET `resourcesRefs` entry with a `resourcesRefsTemplate` iterator, so snowplow
-resolves the RESTAction's path and `allowed` for the caller. A bare `ref` names a RESTAction in
-the blueprint's own namespace; `<namespace>/<name>` names any other; a `ref` that is not a
-Kubernetes name is dropped. The generated CRD has no `x-krateo-*` keys, so a create form built
-from it (no jsonschema ConfigMap) has no option refs, and its schema says so
-(`x-krateo-notice`).
+`values.schema.json` from core-provider's jsonschema ConfigMap and return two things. `optionRefs`
+holds every `x-krateo-options.ref`, once, and `form.blueprint-create` and `form.composition-edit`
+turn each into a GET `resourcesRefs` entry, so snowplow resolves the RESTAction's path and `allowed`
+for the caller. `autocomplete` and `dependencies` hold one entry per sourced field, with its dotted
+name. A bare `ref` names a RESTAction in the blueprint's own namespace; `<namespace>/<name>` names
+any other; a `ref` that is not a Kubernetes name is dropped. A source under `allOf` or `if` has no
+dotted name, so it gets no entry. The generated CRD has no `x-krateo-*` keys, so a create form built
+from it (no jsonschema ConfigMap) has no options, and its `notice` says so.
 
 The formdef also splices the identity fields (`__composition_name__`,
 `__composition_namespace__`) into the schema's TOP-LEVEL `properties`, found by a scan that

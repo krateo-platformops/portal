@@ -113,6 +113,15 @@ spec:
       expression: '${ .stringSchema }'
     - forPath: propertiesToHide
       expression: '${ .propertiesToHide }'
+    {{/* What makes a sourced field load its options: the frontend reads these lists, not the */}}
+    {{/* schema keyword (see the formdef). The GET refs below only make them resolvable. */}}
+    {{/* Defaulted because the RESTAction's early exits return neither, and the CRD refuses null. */}}
+    - forPath: autocomplete
+      expression: '${ .autocomplete // [] }'
+    - forPath: dependencies
+      expression: '${ .dependencies // [] }'
+    - forPath: notice
+      expression: '${ .notice // "" }'
     {{/* Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these */}}
     {{/* over schema defaults; __owner has no schema field so it stays unrendered. */}}
     - forPath: initialValues

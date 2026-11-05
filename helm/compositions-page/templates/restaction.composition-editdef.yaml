@@ -126,9 +126,54 @@ spec:
        | unique
        | map(split("/") as $p | { id: ., name: $p[-1], namespace: (if ($p | length) == 2 then $p[0] else $cdNs end) })
        | map(select(.namespace != ""))) as $optionRefs
+    # THE FIELD LISTS the Form actually reads. Frontend 1.8.18 (#593) moved field configuration out
+    # of the schema into `widgetData` lists and stopped reading `x-krateo-*`, so a ref alone wires
+    # nothing: without these a sourced field renders as a plain input, with no error. A chart keeps
+    # writing `x-krateo-options` in its own values.schema.json, and this translates it.
+    #
+    # The path is walked BY POSITION: after `properties` the next segment is a field name, whatever
+    # it says, so a field called `items` or `properties` cannot be mistaken for the keyword. A list
+    # is crossed without an index (`hosts.zone`). A source anywhere else (`allOf`, `if`) has no
+    # dotted name the Form can resolve, so it gets no entry.
+    #
+    # `closed` is always written because the two lists default differently (autocomplete open,
+    # dependencies closed) and the keyword's default was open. `dependsOn.field` is relative to the
+    # object holding the field; a leading `/` makes it absolute, as the keyword documented.
+    | ($schema as $doc
+       | [ $doc | paths(type == "object" and has("x-krateo-options")) as $p
+           | ($doc | getpath($p) | .["x-krateo-options"]) as $o
+           | select(($o | type) == "object" and (($o.ref | type) == "string"))
+           | ($o.ref | gsub("^\\s+|\\s+$"; "")) as $ref
+           | select($ref | test("^([a-z0-9]([-a-z0-9]*[a-z0-9])?/)?[a-z0-9]([-.a-z0-9]*[a-z0-9])?$"))
+           | (reduce $p[] as $k ({ want: "keyword", names: [], named: true };
+                if .want == "name" then (.names += [$k] | .want = "keyword")
+                elif $k == "properties" then .want = "name"
+                elif $k == "items" then .
+                else .named = false end)) as $at
+           | select($at.named and ($at.names | length) > 0)
+           | ({ name: ($at.names | join(".")), resourceRefId: $ref, closed: ($o.closed == true) }
+              + (if ($o.fallback | type) == "string" then { fallback: $o.fallback } else {} end)) as $base
+           | ($o.dependsOn // null) as $d
+           | if ($d | type) == "object" and (($d.field | type) == "string") and (($d.param | type) == "string") then
+               { list: "dependencies",
+                 entry: ($base + {
+                   dependsOn: { name: (if ($d.field | startswith("/")) then ($d.field | ltrimstr("/"))
+                                       else (($at.names[:-1] + [$d.field]) | join(".")) end) },
+                   extra: { key: $d.param } }) }
+             else
+               { list: "autocomplete",
+                 entry: ($base + (if (($o.search // null) | type) == "object" and (($o.search.param | type) == "string")
+                                  then ({ extra: { key: $o.search.param } }
+                                        + (if ($o.search.minChars | type) == "number" then { minChars: $o.search.minChars } else {} end))
+                                  else {} end)) }
+             end ]
+       | { autocomplete: (map(select(.list == "autocomplete") | .entry)),
+           dependencies: (map(select(.list == "dependencies") | .entry)) }) as $fieldLists
     | {
         schemaSpec: $schema,
         optionRefs: $optionRefs,
+        autocomplete: $fieldLists.autocomplete,
+        dependencies: $fieldLists.dependencies,
         values: (($d.spec // {}) | if type == "object" then . else {} end),
         propertiesToHide: $hidden,
         gvr: {

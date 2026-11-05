@@ -812,6 +812,11 @@ def check_create_form_loads_field_options(chart):
         '    "zone": { "type": "string", "x-krateo-options": { "ref": "krateo-system/form-options-namespaces", "closed": true } },\n'
         '    "nested": { "type": "object", "properties": { "again": { "type": "string", "x-krateo-options": { "ref": " regions " } } } },\n'
         '    "bad": { "type": "string", "x-krateo-options": { "ref": "Not A Name!" } },\n'
+        '    "owner": { "type": "string", "x-krateo-options": { "ref": "users", "search": { "param": "q", "minChars": 2 }, "fallback": "manual" } },\n'
+        '    "hosts": { "type": "array", "items": { "type": "object", "properties": {\n'
+        '      "cell": { "type": "string", "x-krateo-options": { "ref": "cells", "closed": true, "dependsOn": { "field": "/region", "param": "region" } } },\n'
+        '      "rack": { "type": "string", "x-krateo-options": { "ref": "racks", "dependsOn": { "field": "cell", "param": "cell" } } } } } },\n'
+        '    "items": { "type": "object", "properties": { "properties": { "type": "string", "x-krateo-options": { "ref": "odd" } } } },\n'
         '    "tier": { "type": "string" }\n'
         '  },\n'
         '  "required": ["region"]\n}\n')
@@ -825,18 +830,35 @@ def check_create_form_loads_field_options(chart):
     out, doc = create('options', raw)
     schema = json.loads(doc['spec']['widgetData']['stringSchema'])
     expect(f, 'identity fields at the TOP level, before the blueprint\'s own, in order',
-           list(schema['properties']), ['__composition_name__', '__composition_namespace__', 'region', 'zone', 'nested', 'bad', 'tier'])
+           list(schema['properties']), ['__composition_name__', '__composition_namespace__', 'region', 'zone', 'nested', 'bad', 'owner', 'hosts', 'items', 'tier'])
     expect(f, 'the `if` that precedes `properties` is untouched', schema['if'], {'properties': {'tier': {'const': 'gold'}}})
     expect(f, 'identity fields are required, then the blueprint\'s own', schema['required'], ['__composition_name__', '__composition_namespace__', 'region'])
-    expect(f, 'one ref per distinct source; a bare name lives in the blueprint namespace; a non-name is dropped', out['optionRefs'], [
-        {'id': 'krateo-system/form-options-namespaces', 'name': 'form-options-namespaces', 'namespace': 'krateo-system'},
-        {'id': 'regions', 'name': 'regions', 'namespace': 'team-bp'}])
-    expect(f, 'the form gets a GET ref per source', option_refs(chart, 'Form', 'blueprint-create', out), [
-        {'id': 'krateo-system/form-options-namespaces', 'apiVersion': 'templates.krateo.io/v1', 'resource': 'restactions',
-         'name': 'form-options-namespaces', 'namespace': 'krateo-system', 'verb': 'GET'},
-        {'id': 'regions', 'apiVersion': 'templates.krateo.io/v1', 'resource': 'restactions',
-         'name': 'regions', 'namespace': 'team-bp', 'verb': 'GET'}])
-    expect(f, 'a ConfigMap schema carries no CRD-fallback notice', 'x-krateo-notice' in doc['spec']['widgetData']['schema'], False)
+    local = lambda name: {'id': name, 'name': name, 'namespace': 'team-bp'}
+    expect(f, 'one ref per distinct source; a bare name lives in the blueprint namespace; a non-name is dropped',
+           out['optionRefs'], [local('cells'),
+                               {'id': 'krateo-system/form-options-namespaces', 'name': 'form-options-namespaces', 'namespace': 'krateo-system'},
+                               local('odd'), local('racks'), local('regions'), local('users')])
+    expect(f, 'the form gets a GET ref per source', [r['id'] for r in option_refs(chart, 'Form', 'blueprint-create', out)],
+           ['cells', 'krateo-system/form-options-namespaces', 'odd', 'racks', 'regions', 'users'])
+    expect(f, 'a ConfigMap schema carries no CRD-fallback notice', doc['spec']['widgetData'].get('notice'), '')
+    # THE LISTS ARE WHAT WORKS: since frontend 1.8.18 the Form ignores the schema keyword, so a ref
+    # without an entry here renders a plain input with no error.
+    wd = doc['spec']['widgetData']
+    by_name = lambda entries: {e['name']: e for e in entries}
+    auto = by_name(wd['autocomplete'])
+    expect(f, 'every plain source gets an autocomplete entry, and a bad ref gets none', sorted(auto),
+           ['items.properties', 'nested.again', 'owner', 'region', 'zone'])
+    expect(f, 'an open source stays open, written explicitly because the lists default differently',
+           auto['region'], {'name': 'region', 'resourceRefId': 'regions', 'closed': False})
+    expect(f, 'search and fallback survive the translation', auto['owner'],
+           {'name': 'owner', 'resourceRefId': 'users', 'closed': False, 'fallback': 'manual',
+            'extra': {'key': 'q'}, 'minChars': 2})
+    expect(f, 'fields named like keywords are walked by position', auto['items.properties']['resourceRefId'], 'odd')
+    deps = by_name(wd['dependencies'])
+    expect(f, 'an absolute dependsOn is read from the root', deps['hosts.cell'],
+           {'name': 'hosts.cell', 'resourceRefId': 'cells', 'closed': True,
+            'dependsOn': {'name': 'region'}, 'extra': {'key': 'region'}})
+    expect(f, 'a relative dependsOn stays inside the list row', deps['hosts.rack']['dependsOn'], {'name': 'hosts.cell'})
 
     out, doc = create('no fields yet', '{"type": "object", "properties": {}}')
     schema = json.loads(doc['spec']['widgetData']['stringSchema'])
@@ -846,7 +868,7 @@ def check_create_form_loads_field_options(chart):
 
     out, doc = create('no ConfigMap', None)
     expect(f, 'CRD fallback: the form says field order and runtime options are lost',
-           'options a field loads at runtime are not available' in doc['spec']['widgetData']['schema'].get('x-krateo-notice', ''), True)
+           'options a field loads at runtime are not available' in doc['spec']['widgetData'].get('notice', ''), True)
     expect(f, 'CRD fallback: no option refs (the CRD has no x-krateo-* keys)', out['optionRefs'], [])
     return f
 
