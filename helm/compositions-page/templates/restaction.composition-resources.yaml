@@ -113,8 +113,8 @@ spec:
         {{/* but never GET, since snowplow would serve that from a cluster-wide Secrets informer. */}}
         iterator: |
           {{- include "portal.fetchableDefs" . | nindent 10 }}
-          .name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns) | select(._getpath | fetchablePath) ]
-      path: ${ ._getpath }
+          .name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns) | (._getpath | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
       verb: GET
       headers:
         - 'Accept: application/json'
