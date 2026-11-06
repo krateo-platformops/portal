@@ -1,0 +1,68 @@
+{{/* Access: where a composition's running application is, and whether it can be opened. For any */}}
+{{/* composition publishing status.url or status.plan; nothing here is specific to one blueprint. */}}
+{{/* */}}
+{{/* composition-detail's `access` object decides everything. These widgets only show it, so the */}}
+{{/* gate is in one tested place (scripts/test-composition-access.py). An item is left out rather */}}
+{{/* than hidden, so the Button doesn't exist until the gate passes. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-access
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Access
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - flexes
+      - buttons
+      - paragraphs
+      - descriptions
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ .access as $a
+        | (if ($a.plan != "" or $a.when != "") then [ { resourceRefId: "composition-detail-access-meta" } ] else [] end)
+        + (if $a.open then [ { resourceRefId: "composition-detail-access-open" }, { resourceRefId: "composition-detail-access-url" } ] else [] end)
+        + (if $a.plainUrl != "" then [ { resourceRefId: "composition-detail-access-plain-url" } ] else [] end)
+        + (if $a.message != "" then [ { resourceRefId: "composition-detail-access-message" } ] else [] end) }
+  resourcesRefs:
+    items:
+      - id: composition-detail-access-meta
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-meta
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: composition-detail-access-open
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-open
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
+      - id: composition-detail-access-url
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-url
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: composition-detail-access-plain-url
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-plain-url
+        namespace: {{ $.Values.namespace }}
+        resource: descriptions
+        verb: GET
+      - id: composition-detail-access-message
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-message
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET

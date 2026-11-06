@@ -554,6 +554,14 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-header-pill.py
 
+      # The Access card's gate lives in composition-detail's `access` object, so this runs that
+      # filter over every state in the approved mockup, plus the gate's edges.
+      - name: Composition Access card, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-access.py
+
       # portal#333. Same shape as the step above and in the same job for the same reason: it needs
       # helm and jq, and it runs the chart's OWN jq rather than a copy, so it is only a gate if CI
       # actually runs it. A test script nobody invokes reports nothing and looks like coverage.

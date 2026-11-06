@@ -85,7 +85,45 @@ spec:
     | ($d.metadata.name // $n) as $cn
     | ($d.metadata.namespace // $ns) as $cns
     | ([ .crds[]? | select((.kind // "") != "" and .kind == ($d.kind // "__none__")) ][0] // null) as $bp
+    | ($d.status // {}) as $st
+    | ([ ($st.conditions // [])[] | select(.type == "Ready") ][0] // null) as $ready
+    | ($ready.reason // "") as $reason
+    | (($st.url // "") | tostring) as $url
+    | (($st.plan // "") | tostring) as $plan
+    | (($st.urlLabel // "") | tostring) as $urlLabel
+    | ((($st.expiresAt // "") | tostring | fromdateiso8601?) // null) as $end
+    | ($end != null and $end <= now) as $ended
+    | ($reason == "Creating") as $creating
+    | ($reason == "ReconcilePaused" or $reason == "ReconcileGracefullyPaused") as $paused
+    | ($ready.status == "True" and ($reason == "Available" or $reason == "AvailablePartialCoverage")) as $available
+    | ([ ($st.conditions // [])[] | select(.type == "ApiResolved" and .status == "False") ] | length > 0) as $stale
+    | ($available and ($stale | not) and ($ended | not) and ($url | startswith("https://"))) as $open
+    | (if $end == null then "" else
+         (($end | strftime("%d") | ltrimstr("0")) + " " + ($end | strftime("%b, %H:%M")) + " UTC") end) as $when
     | {
+        access: {
+          visible: ($url != "" or $plan != ""),
+          open: $open,
+          label: (if $urlLabel != "" then $urlLabel else "Open" end),
+          url: (if $open then $url else "" end),
+          plainUrl: (if $url == "" or $open or $ended or $creating then "" else $url end),
+          plan: (if $plan == "" then ""
+                 elif $ended then (($plan[0:1] | ascii_upcase) + $plan[1:] + " ended")
+                 else ("plan: " + $plan) end),
+          planColor: (if $ended then "gray" else "blue" end),
+          when: (if $when == "" then "" elif $ended then ("ended " + $when) else ("ends " + $when) end),
+          message: (
+            if $ended then "This has ended, so there’s nothing to open."
+            elif $creating then "Setting up. The link appears here when it’s ready."
+            elif $url == "" then ""
+            elif $paused then "Reconciliation is paused, so this address can’t be confirmed."
+            elif $stale then "The address couldn’t be refreshed, so this one may be out of date."
+            elif ($ready.status // "") == "False" then (($reason | if . == "" then "Not ready" else . end) + ". This address won’t work until it’s back.")
+            elif $open and $st.workloadHealthy == false then "Some workloads are unhealthy, so parts of it may not respond."
+            elif $open then ""
+            elif $available then "This address isn’t https, so it can’t be opened from here."
+            else "This address can’t be confirmed right now." end)
+        },
         detail: $d,
         conditions: (($d.status.conditions // []) + (if $d.status.workloadHealthy == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: ($d.status.healthMessage // "")}] else [] end)),
         workloadHealthy: $d.status.workloadHealthy,
