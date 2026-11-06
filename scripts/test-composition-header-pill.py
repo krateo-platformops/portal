@@ -77,16 +77,69 @@ def pill(program, status, reason, healthy):
     return json.loads(proc.stdout)[0]
 
 
+def rail_programs():
+    card = next(d for d in render() if d.get('kind') == 'Card' and d['metadata']['name'].endswith('composition-detail-rail'))
+    return {t['forPath']: t['expression'].strip().removeprefix('${').removesuffix('}').strip()
+            for t in card['spec']['widgetDataTemplate'] if t['forPath'] in ('extra', 'extraStatus')}
+
+
+def rail_failures():
+    programs = rail_programs()
+    cases = [
+        (('True', 'ReconcileSuccess'), None, 'Synced', 'success'),
+        (('False', 'ReconcileError'), None, 'NotSynced', 'error'),
+        (('False', 'ReconcilePaused'), None, 'Paused', 'default'),
+        (('False', 'ReconcileGracefullyPaused'), None, 'Paused', 'default'),
+        (('False', 'ReconcilePaused'), False, 'Paused · Unhealthy', 'error'),
+        (None, None, 'Unknown', 'default'),
+    ]
+    bad = 0
+    for synced, healthy, label, status in cases:
+        conditions = [] if synced is None else [{'type': 'Synced', 'status': synced[0], 'reason': synced[1]}]
+        data = {'detail': {'status': {'conditions': conditions}}, 'workloadHealthy': healthy}
+        got = tuple(json.loads(subprocess.run([JQ, '-c', programs[k]], input=json.dumps(data), capture_output=True,
+                                              text=True, check=True).stdout) for k in ('extra', 'extraStatus'))
+        if got != (label, status):
+            bad += 1
+            print(f'FAIL rail Synced={synced} workloadHealthy={healthy}: got {got}, want {(label, status)}')
+    print(f'{len(cases) - bad}/{len(cases)} rail badges ok')
+    return bad
+
+
+def exception_failures():
+    ra = next(d for d in render() if d.get('kind') == 'RESTAction' and d['metadata']['name'] == 'composition-architecture')
+    text = ra['spec']['filter']
+    start = text.index('def exception:')
+    body = text[start:text.index('end;', start) + len('end;')]
+    cases = [
+        ([('Synced', 'False', 'ReconcilePaused')], 'Paused'),
+        ([('Synced', 'False', 'ReconcileError')], 'NotSynced'),
+        ([('Ready', 'False', 'Creating')], 'Creating'),
+        ([('Ready', 'False', 'Unavailable')], 'NotReady'),
+        ([('Ready', 'True', 'Available'), ('Synced', 'True', 'ReconcileSuccess')], None),
+    ]
+    bad = 0
+    for conds, label in cases:
+        data = {'status': {'conditions': [{'type': t, 'status': st, 'reason': r} for t, st, r in conds]}}
+        out = subprocess.run([JQ, '-c', body + ' exception | if . == null then null else .label end'],
+                             input=json.dumps(data), capture_output=True, text=True, check=True).stdout
+        if json.loads(out) != label:
+            bad += 1
+            print(f'FAIL exception {conds}: got {out.strip()}, want {label}')
+    print(f'{len(cases) - bad}/{len(cases)} architecture exceptions ok')
+    return bad
+
+
 def main():
     program = tags_program()
-    failures = 0
+    failures = rail_failures() + exception_failures()
     for status, reason, healthy, label, color in CASES:
         got = pill(program, status, reason, healthy)
         if (got['label'], got['color']) != (label, color):
             failures += 1
             print(f'FAIL Ready={status}/{reason} workloadHealthy={healthy}: '
                   f'got {got["label"]}/{got["color"]}, want {label}/{color}')
-    print(f'{len(CASES) - failures}/{len(CASES)} pills ok')
+    print(f'{len(CASES)} pill cases, {failures} failure(s) in all')
     return min(failures, 125)
 
 
