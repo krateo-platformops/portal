@@ -71,6 +71,10 @@ spec:
   {{/* request `extras` (?status, ?range, ?from, ?to in the URL, read synchronously — same */}}
   {{/* mechanism as dashboard-data's ?range). Each item gains a derived `.state` */}}
   {{/* (healthy/pending/failed from the Ready condition) so filtering/counting is one pass. */}}
+  {{/* A composition still Creating is converging, so it is pending and not failed: counting it as */}}
+  {{/* failed put every new composition on the dashboard's failure count. A paused one reports */}}
+  {{/* Ready=True and Synced=False on purpose, which is why railState checks it first: it would */}}
+  {{/* otherwise read as Drift. Reasons are the values core-provider emits. */}}
   {{/* ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state */}}
   {{/* OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the */}}
   {{/* reconcile-breakdown drill-down; the other status values keep filtering on .state. */}}
@@ -85,7 +89,7 @@ spec:
     | (.scope // "workloads") as $scope
     | ((.q // "") | ascii_downcase) as $q
     | now as $now
-    | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False")) as $notready | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: (if $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end), healthPercent: (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end), coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end)}))) as $all
+    | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False" and .reason != "Creating")) as $notready | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end), healthPercent: (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end), coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end)}))) as $all
     | $all as $dated
     | ($dated | map(select(if $scope == "all" then true elif $scope == "platform" then .platform else (.platform | not) end))) as $scoped
     | {

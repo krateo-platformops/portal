@@ -131,6 +131,67 @@ check('coverage cell is empty when the RA says blank',
       [c['stringValue'] for c in blank_rows[0] if c['valueKey'] == 'coverage'], [''])
 check('a blank coverage does not change the cell count', len(blank_rows[0]), len(columns))
 
+# A condition's REASON decides the words, because the status alone misreads two states. These are
+# the values core-provider emits, and the paused pair is the shape seen live on krateo-057.
+def pills(conditions, rail='healthy'):
+    one = dict(row, conditions=conditions, railState=rail)
+    got = jq(source, {'filtered': [one], 'list': [one]})[0]
+    cell = next(c for c in got if c['valueKey'] == 'status')
+    tag = next(c for c in got if c['valueKey'] == 'reconcile')
+    return [(p['type'], p['color']) for p in json.loads(cell['stringValue'])], (tag['stringValue'], tag['color'])
+
+
+PAUSED = [{'reason': 'ReconcilePaused', 'status': 'True', 'type': 'Ready'},
+          {'reason': 'ReconcilePaused', 'status': 'False', 'type': 'Synced'}]
+check('paused reads as one Paused pill, not Ready beside NotSynced', pills(PAUSED, 'paused'),
+      ([('Paused', 'gray')], ('Paused', 'gray')))
+check('gracefully paused reads the same', pills([{'reason': 'ReconcileGracefullyPaused', 'status': 'True', 'type': 'Ready'},
+      {'reason': 'ReconcileGracefullyPaused', 'status': 'False', 'type': 'Synced'}], 'paused'),
+      ([('Paused', 'gray')], ('Paused', 'gray')))
+check('creating is amber, and Synced keeps its own pill',
+      pills([{'reason': 'Creating', 'status': 'False', 'type': 'Ready'},
+             {'reason': 'ReconcileSuccess', 'status': 'True', 'type': 'Synced'}], 'pending'),
+      ([('Creating', 'orange'), ('Synced', 'green')], ('Pending', 'orange')))
+check('unavailable is still NotReady',
+      pills([{'reason': 'Unavailable', 'status': 'False', 'type': 'Ready'}], 'failed'),
+      ([('NotReady', 'red')], ('Failed', 'red')))
+check('unknown is still gray',
+      pills([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}], 'pending'),
+      ([('ReadyUnknown', 'gray')], ('Pending', 'orange')))
+
+# The RA filter is where a composition is counted, so the dashboard's numbers come from here.
+portal = render('portal')
+ra = named(portal, 'compositions-list')
+ra_filter = ra['spec']['filter']
+
+
+def state_of(conditions, **extra):
+    item = {'uid': 'u', 'name': 'n', 'ns': 'krateo-system', 'ts': '2026-11-04T10:00:00Z', 'kind': 'K',
+            'conditions': conditions, **extra}
+    out = jq(ra_filter, {'allCompositions': [item]})
+    only = out['list'][0]
+    return only['state'], only['railState']
+
+
+check('available is healthy', state_of([{'reason': 'Available', 'status': 'True', 'type': 'Ready'},
+      {'reason': 'ReconcileSuccess', 'status': 'True', 'type': 'Synced'}]), ('healthy', 'healthy'))
+check('creating is pending, not failed', state_of([{'reason': 'Creating', 'status': 'False', 'type': 'Ready'}]),
+      ('pending', 'pending'))
+check('unavailable is failed', state_of([{'reason': 'Unavailable', 'status': 'False', 'type': 'Ready'}]),
+      ('failed', 'failed'))
+check('paused is not drift', state_of(PAUSED), ('healthy', 'paused'))
+check('a real drift is still drift', state_of([{'reason': 'Available', 'status': 'True', 'type': 'Ready'},
+      {'reason': 'ReconcileError', 'status': 'False', 'type': 'Synced'}]), ('healthy', 'drift'))
+check('unknown is pending', state_of([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}]),
+      ('pending', 'pending'))
+
+# Every railState must be in the dashboard rail's colour map: a value missing there renders near-black.
+rail_list = named(render('dashboard-page'), 'rail-list')
+rail_map = rail_list['spec']['widgetData']['itemTemplate']['bar']['color']['map'] \
+    if 'bar' in rail_list['spec']['widgetData']['itemTemplate'] else {}
+check('the dashboard rail colours every railState',
+      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused'} - set(rail_map)), [])
+
 for line in failures:
     print(f'FAIL  {line}')
 print(f'{"FAILED" if failures else "ok"}: compositions table — {len(columns)} columns, coverage rule'
