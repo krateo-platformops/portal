@@ -20,6 +20,12 @@
 {{/* `label` and once for `color`, so the pill's word and colour could drift apart under an edit. */}}
 {{/* Evaluated once now. Verified branch-by-branch against the original: Degraded/orange, */}}
 {{/* Unhealthy/red, Unknown/gray, Ready/green, NotReady/red. */}}
+{{/* */}}
+{{/* THE REASON COMES FIRST, because Ready's status alone misreads two states. A composition still */}}
+{{/* Creating is converging, not broken, and its workloads are usually unhealthy, so the */}}
+{{/* workloadHealthy branch would paint it red if it ran first. A paused one reports Ready=True, so */}}
+{{/* without this it reads as a healthy green Ready while nothing reconciles. The strings are the */}}
+{{/* values core-provider emits, not its Go identifiers: there is no reason called Paused. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -59,7 +65,7 @@ spec:
     {{/* The pill is the visible half of A17; the LABEL is the half that does the work, since */}}
     {{/* it is selectable (`-l krateo.io/created-by=autopilot`) without opening a page. */}}
     - forPath: tags
-      expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Ready")) | .[0]) as $r | [ ( if .workloadHealthy == false then (if ($r != null and $r.status == "True") then {label:"Degraded", color:"orange"} else {label:"Unhealthy", color:"red"} end) elif $r == null then {label:"Unknown", color:"gray"} elif $r.status == "True" then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] + (if ((.detail.metadata.labels // {})["krateo.io/created-by"] // "") != "" then [ {label: ("Created by " + ((.detail.metadata.labels // {})["krateo.io/created-by"])), color: "violet"} ] else [] end) }'
+      expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Ready")) | .[0]) as $r | [ ( if ($r.reason // "") == "Creating" then {label:"Creating", color:"orange"} elif ($r.reason // "") == "ReconcilePaused" or ($r.reason // "") == "ReconcileGracefullyPaused" then {label:"Paused", color:"gray"} elif .workloadHealthy == false then (if ($r != null and $r.status == "True") then {label:"Degraded", color:"orange"} else {label:"Unhealthy", color:"red"} end) elif $r == null then {label:"Unknown", color:"gray"} elif $r.status == "True" then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] + (if ((.detail.metadata.labels // {})["krateo.io/created-by"] // "") != "" then [ {label: ("Created by " + ((.detail.metadata.labels // {})["krateo.io/created-by"])), color: "violet"} ] else [] end) }'
   resourcesRefs:
     items:
     - id: composition-detail-actions
