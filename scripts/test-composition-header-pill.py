@@ -38,7 +38,8 @@ CASES = [
     ('True', 'ReconcilePaused', False, 'Paused', 'gray'),
     ('False', 'Unavailable', None, 'NotReady', 'red'),
     ('False', 'Unavailable', False, 'Unhealthy', 'red'),
-    ('Unknown', 'ZeroEvidence', None, 'NotReady', 'red'),
+    ('Unknown', 'ZeroEvidence', None, 'Unknown', 'gray'),
+    ('Unknown', 'ChildrenForbidden', None, 'Unknown', 'gray'),
     (None, None, None, 'Unknown', 'gray'),
 ]
 

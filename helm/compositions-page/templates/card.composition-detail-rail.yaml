@@ -31,9 +31,9 @@ spec:
   {{/* (The per-resource bars below still come from composition-resources via the rail List's own apiRef.) */}}
   widgetDataTemplate:
   - forPath: extra
-    expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | (if $s == null then "Unknown" elif $s.status == "True" then "Synced" else "NotSynced" end) as $base | if .workloadHealthy == false then ($base + " · Unhealthy") else $base end }'
+    expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | (($s.reason // "") == "ReconcilePaused" or ($s.reason // "") == "ReconcileGracefullyPaused") as $paused | (if $s == null then "Unknown" elif $paused then "Paused" elif $s.status == "True" then "Synced" else "NotSynced" end) as $base | if .workloadHealthy == false then ($base + " · Unhealthy") else $base end }'
   - forPath: extraStatus
-    expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | if .workloadHealthy == false then "error" elif $s == null then "default" elif $s.status == "True" then "success" else "error" end }'
+    expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | if .workloadHealthy == false then "error" elif $s == null or ($s.reason // "") == "ReconcilePaused" or ($s.reason // "") == "ReconcileGracefullyPaused" then "default" elif $s.status == "True" then "success" else "error" end }'
   apiRef: { name: composition-detail, namespace: {{ $.Values.namespace }} }
   resourcesRefs:
     items:
