@@ -423,12 +423,13 @@ def check_mirrors_the_blueprint_builder():
     expect(f, 'the page action, into the composer', (buttons['controller-builder-compose']['type'], buttons['controller-builder-compose']['label'],
                                                   buttons['controller-builder-compose']['actions']['navigate'][0]['path']),
            ('primary', 'Build a controller', '/controller-builder/compose'))
-    # A4 (frontend 1.7.0): the Autopilot entry point is a filled button, "Ask Autopilot →" with the
-    # wand, never a link — and it still lands in the same composer.
+    # A4 (since 2026-11-06): the agent entry point is "Ask Agentiko →" with `intent: autopilot`,
+    # which the widget draws filled with the Agentiko gradient and mark (so no type/icon), never a
+    # link — and it still lands in the same composer.
     ask = buttons['controller-builder-ask']
-    expect(f, 'Ask Autopilot is the filled entry point into the same composer',
-           (ask['type'], ask['label'], ask['icon'], ask['actions']['navigate'][0]['path'].split('?')[0]),
-           ('primary', 'Ask Autopilot →', 'fa-wand-magic-sparkles', '/controller-builder/compose'))
+    expect(f, 'Ask Agentiko is the filled entry point into the same composer',
+           (ask.get('intent'), ask['label'], ask.get('type'), ask.get('icon'), ask['actions']['navigate'][0]['path'].split('?')[0]),
+           ('autopilot', 'Ask Agentiko →', None, None, '/controller-builder/compose'))
     for kind in ('Form',):
         stale = [d['metadata']['name'] for d in CHART.docs if d.get('kind') == kind and d['metadata']['name'].startswith('kog-')]
         expect(f, 'the two page Forms are gone', stale, [])

@@ -105,11 +105,23 @@ def enforced_count_drift():
     # the jsx-a11y rules in ui/eslint.config.js, and the `C10 —` heading of the trigger test. Read
     # from the gates themselves, so a rule enforced without saying which one does not count.
     ui = os.path.join(HERE, os.pardir, os.pardir, 'ui')
+    # GLOB the eslint config, never name one file. It is split per concern across eslint.config.js
+    # and eslint/*.js, and a hardcoded 'eslint.config.js' stopped seeing the C8/C9 rules the moment
+    # they moved into eslint/react.js — the a11y count fell 3 -> 1 with no rule having changed, and
+    # the only symptom was this drift check failing about the README.
+    a11y_sources = [os.path.join(ui, 'eslint.config.js')]
+    eslint_dir = os.path.join(ui, 'eslint')
+    if os.path.isdir(eslint_dir):
+        a11y_sources += [os.path.join(eslint_dir, n) for n in sorted(os.listdir(eslint_dir)) if n.endswith('.js')]
+    a11y_sources.append(os.path.join(ui, 'src', 'test', 'a11yTriggers.test.ts'))
     a11y_ids = set()
-    for rel in ('eslint.config.js', os.path.join('src', 'test', 'a11yTriggers.test.ts')):
-        path = os.path.join(ui, rel)
+    read = 0
+    for path in a11y_sources:
         if os.path.isfile(path):
+            read += 1
             a11y_ids.update(re.findall(r'^\s*(?://|\*)\s*(C\d+)\s*(?::|—)', io.open(path, encoding='utf-8').read(), re.M))
+    # A rule count read from zero files is not a count. Fail loudly rather than report 0 drift.
+    assert read, 'a11y rule count read NO source files — the eslint config or trigger test moved'
     a11y = len(a11y_ids)
     # App-side layout rules: the P-IDs the in-app checks cite in their headings (`P26 — …`), less the
     # ones the composition lint already counts (P27 is checked on both sides; it is one rule).

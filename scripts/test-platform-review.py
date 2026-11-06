@@ -550,7 +550,7 @@ def check_run_detail(chart):
     ex = {'name': 'rr-20260929-1933'}
     out = resolved(chart, 'review-run', {'run': RUNS[0], 'all': {'items': PROPOSALS}, 'apis': APIS, 'kinds': KINDS}, ex)
     expect(f, 'steps', [(s['title'], s['status']) for s in out['steps']],
-           [('Gather', 'finish'), ('Ask Autopilot', 'finish'), ('Publish', 'wait')])
+           [('Gather', 'finish'), ('Ask Agentiko', 'finish'), ('Publish', 'wait')])
     expect(f, 'queries as issued', SQL in out['queriesMarkdown'], True)
     expect(f, 'proposals of this run', [r['name'] for r in out['proposalRows']], ['p-eeee000000000005', 'p-ffff000000000006'])
     facts = {x['label']: x['value'] for x in out['facts']}
