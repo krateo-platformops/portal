@@ -57,7 +57,8 @@ NS = 'krateo-system'
 JQ = os.environ.get('JQ', 'jq')
 
 # Charts rendered with extra values, so every RESTAction template is linted.
-EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
+EXTRA_VALUES = {'observability-page': ['observability.snowplowSli=true'],
+                'portal': ['observability.snowplowSli=true']}
 
 # `//` in a path that is safe: the default is a real, complete value and the call is useful without
 # the input. (RESTAction glob, step) -> reason.
@@ -178,8 +179,36 @@ def malformed(path):
     return None
 
 
+def stream_iterator(program):
+    """True when an iterator yields a stream (`.items[]`) rather than one array.
+
+    snowplow's IterateValues takes exactly one array: a stream fails the stage with a good upstream,
+    and only when there is something to iterate, so an empty fixture never shows it. A `[]` outside
+    every bracket, attached to what it iterates, is what makes a stream. Strings and comments are removed
+    first."""
+    text = re.sub(r'"(?:\\.|[^"\\])*"', '""', re.sub(r'(?m)#.*$', '', program or ''))
+    text = re.sub(r'(?s)\bdef\s.*?;\s*(?=(?:def\s|[^;]*$))', '', text) if text.lstrip().startswith('def ') else text
+    depth = 0
+    for i, ch in enumerate(text):
+        # Postfix only: `.a[]` iterates, while `then []` is an empty array.
+        if depth == 0 and text.startswith('[]', i) and i and re.match(r'[\w.)\]?]', text[i - 1]):
+            return True
+        depth += ch in '([{'
+        depth -= ch in ')]}'
+    return False
+
+
+STREAMS = ['.a[]', '.a[]?', '.a[] | select(.b)', '(if .a then [{}] else [] end)[]', '. as $x | $x.a[] | .b']
+ARRAYS = ['[ .a[]? ]', '(if .a then [{}] else [] end)', '[ .a[] | select(.b) ]', '.a | map(.b)', '. as $x | [ $x.a[] ]',
+          '# .a[] is what this was\n[ .a[] ]', '[ "x[]" ]', 'if .a then [] else [ .b[] ] end']
+
+
 def main():
     findings = 0
+    wrong = [p for p in STREAMS if not stream_iterator(p)] + [p for p in ARRAYS if stream_iterator(p)]
+    if wrong:
+        print(f'  FAIL stream_iterator self-test: {wrong}')
+        findings += 1
     charts = sorted(d for d in os.listdir(os.path.join(REPO, 'helm'))
                     if os.path.isfile(os.path.join(REPO, 'helm', d, 'Chart.yaml')))
     for chart in charts:
@@ -190,6 +219,11 @@ def main():
             name = ra['metadata']['name']
             steps = ra['spec'].get('api') or []
             for step in steps:
+                iterator = (step.get('dependsOn') or {}).get('iterator')
+                if stream_iterator(iterator):
+                    findings += 1
+                    print(f'  FAIL {name}/{step["name"]}: the iterator yields a stream; snowplow takes one array, '
+                          f'so wrap it in [ ... ]')
                 expr = query(step.get('path'))
                 if expr is not None and '//' in expr and not allowed(name, step['name']):
                     findings += 1
