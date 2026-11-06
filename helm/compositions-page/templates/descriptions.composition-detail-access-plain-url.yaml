@@ -1,0 +1,23 @@
+{{/* The address when it can't be opened. Descriptions, not Paragraph: Paragraph links any URL it */}}
+{{/* shows, and this one must stay plain text. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-access-plain-url
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    column: 1
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ [ { label: "Address", value: (.access.plainUrl // "") } ] }'
+  resourcesRefs:
+    items: []

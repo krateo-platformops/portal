@@ -22,6 +22,7 @@ spec:
       - pageheaders
       - rows
       - listies
+      - cards
     items:
       - resourceRefId: composition-detail-page-header
       {{/* #6: Incidents strip — troubleshooting reports that analyzed THIS composition. Sits */}}
@@ -44,8 +45,27 @@ spec:
       {{/* with the rail above and the Spec/Relations cards below (a bare card read wider). */}}
       - resourceRefId: composition-detail-health-row
       - resourceRefId: composition-detail-grid
+  {{/* The Access card mounts only for a composition that publishes status.url or status.plan, so */}}
+  {{/* every other composition neither shows it nor fetches it. The list otherwise matches the */}}
+  {{/* static items above, which are what renders if the RESTAction can't be read. */}}
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-incidents" } ]
+        + (if (.access.visible // false) then [ { resourceRefId: "composition-detail-access" } ] else [] end)
+        + [ { resourceRefId: "composition-detail-architecture-row" }, { resourceRefId: "composition-detail-rail-row" },
+            { resourceRefId: "composition-detail-health-row" }, { resourceRefId: "composition-detail-grid" } ] }
   resourcesRefs:
     items:
+      - id: composition-detail-access
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
       - id: composition-detail-page-header
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: composition-detail-page-header

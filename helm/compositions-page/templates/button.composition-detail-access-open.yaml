@@ -1,0 +1,32 @@
+{{/* Mounted only when composition-detail's access.open is true. navigate opens an http(s) address */}}
+{{/* in a new tab (navigateOrExternal), and the gate has already required https://. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-access-open
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Open
+    type: primary
+    size: middle
+    icon: fa-arrow-up-right-from-square
+    clickActionId: open
+    actions:
+      navigate:
+        - id: open
+          type: navigate
+          path: /
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ .access.label // "Open" }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open", type: "navigate", path: (.access.url // "/") } ] } }'
+  resourcesRefs:
+    items: []
