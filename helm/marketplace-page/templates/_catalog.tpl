@@ -136,24 +136,30 @@ true
   catalogLive step beside its catalog step. Emits defs only (each ends in `;`) and no comments, so it
   sits in a literal (|) or a folded (>) filter alike.
 
-    withLive   the input with .catalog.entries extended by every live-index chart whose NAME the
-               catalog does not carry and whose newest version names the repository that released
-               it (krateo.io/source-repo, stamped by the builder-scaffold release). A name the
-               catalog has keeps the catalog's entry whole: the curated index stays the authority
-               for every name it lists, so the live index adds cards and never re-points one. The
-               source-repo rule keeps out what the curation removed on purpose: the live index also
-               holds the platform's own charts (portal, installer, krateo-frontend, ...;
-               PLATFORM_LEAVES in krateo-blueprints/marketplace hack/build-index.py), which carry no
-               such annotation and are not blueprints. Each added version carries repoBase, the channel's
-               base URL, because the publisher stores the tarball in a GitHub release, not beside
-               index.yaml: the tarball URL with its filename stripped is no Helm repo, and
-               core-provider fetches <chart.url>/index.yaml. With no catalogLive step (disabled, or
-               source=external) or an unreadable one, it adds nothing.
+    withLive   the input with .catalog.entries merged with every live-index chart that a krateo-blueprints
+               repository published: its newest version's `sources` lists
+               https://github.com/krateo-blueprints/<repo>, which PUBLISHING.md requires of every chart,
+               or it carries krateo.io/source-repo, which builder-scaffold repos commit. THE LIVE INDEX
+               LEADS (Diego, 2026-11-07): for a name both carry, the live versions come first and the
+               catalog's versions the live index lacks stay below them, newest first by version. So a
+               publish shows on the next read, and the catalog is the fallback for offline or air-gapped
+               installs and for names the live index does not have. A live chart with neither signal
+               adds nothing, which keeps out the platform's own charts (portal, installer, ...; their
+               sources are krateo-platformops repos) and any same-named chart from elsewhere. Each
+               live version carries repoBase, the channel's base URL, because the publisher stores the
+               tarball in a GitHub release, not beside index.yaml, and core-provider fetches
+               <chart.url>/index.yaml. With no catalogLive step (disabled, or source=external) or an
+               unreadable one, the catalog is unchanged.
 */}}
 {{- define "portal.catalogLiveDefs" -}}
+def withLiveVer: (tostring | sub("^v"; "") | split("-")[0] | split(".") | map(tonumber? // 0));
+def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | startswith("https://github.com/krateo-blueprints/")));
 def withLive:
   (((.catalogLive // {}) | if type == "object" then (.entries // {}) else {} end) | if type == "object" then . else {} end) as $live
   | (((.catalog // {}) | if type == "object" then . else {} end)) as $cat
   | (($cat.entries // {}) | if type == "object" then . else {} end) as $cur
-  | .catalog = ($cat | .entries = ($cur + ($live | with_entries(select(($cur[.key] == null) and ((.value | type) == "array") and ((((.value[0] // {}) | if type == "object" then ((.annotations // {})["krateo.io/source-repo"] // "") else "" end) | tostring) != "")) | .value |= map(select(type == "object") | . + {repoBase: "{{ include "portal.blueprintsServerUrl" . }}/charts/blueprints"}))))) ;
+  | ($live | with_entries(select(((.value | type) == "array") and ((.value[0] // null) | withLiveOwned)) | .value |= map(select(type == "object") | . + {repoBase: "{{ include "portal.blueprintsServerUrl" . }}/charts/blueprints"}))) as $add
+  | .catalog = ($cat | .entries = ($cur + ($add | with_entries(.key as $k | .value as $lv
+      | .value = (($lv + ((($cur[$k] // []) | if type == "array" then . else [] end) | map(select(type == "object") | select(.version as $v | ($lv | any(.[]; .version == $v)) | not))))
+                  | sort_by(.version | withLiveVer) | reverse))))) ;
 {{- end -}}

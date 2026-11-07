@@ -18,7 +18,8 @@ keywords, so name-order and recent-order are unambiguous.
 
 ```sh
 for c in default sort-name sort-recent source-operator \
-         source-blueprint.sort-recent category-aws sort-invalid live-index.sort-recent; do
+         source-blueprint.sort-recent category-aws sort-invalid live-index.sort-recent \
+         live-index.sources live-index.offline; do
   diff <(jq -f filter.jq "input.$c.json" | jq '{total,count,countLabel,selectedSort,selectedSource,selectedCategory,cardOrder:[.cards[].name],sorts:[.sorts[]|{key,active,route}],sources:[.sources[]|{key,active,route}]}') \
        "expected.$c.json" && echo "$c OK" || echo "$c FAIL"
 done
@@ -34,7 +35,9 @@ done
 | `source-blueprint.sort-recent` | sort composes with the source facet (count 3, blueprints, recent order) |
 | `category-aws` | `count` reflects the category facet; sort routes preserve `category=aws` |
 | `sort-invalid` (`?sort=popular`) | an unsupported sort falls back to `name` (never fabricated) |
-| `live-index.sort-recent` | the live index adds a chart a blueprint repository released (`krateo.io/source-repo`) under a name the catalog lacks, installing from the channel base (`repoUrl`); a live copy of a curated name leaves the curated card alone; a platform chart with no source-repo stays out |
+| `live-index.sort-recent` | the live index LEADS for a chart a blueprint repository published: `mid-bp` is in the catalog, but its live 9.9.9 (`krateo.io/source-repo`) wins, and `new-bp` joins. `portal`, a platform chart with neither signal, stays out |
+| `live-index.sources` | the same through `sources: https://github.com/krateo-blueprints/<repo>`, which PUBLISHING.md requires: `src-bp`'s live 2.0.0 wins. A chart whose sources point elsewhere (`foreign-bp`) stays out. A live version OLDER than the catalog's (`zeta-bp` 0.5.0 under 1.0.0) does not win: newest by version first |
+| `live-index.offline` | no live index (offline, air-gapped, or disabled): the catalog exactly as before |
 
 ## Sorts offered vs omitted
 

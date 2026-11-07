@@ -113,11 +113,12 @@ spec:
     # chart.repo (appending the name to url would double it). So branch on the url scheme below: oci://
     # keeps the raw url + omits repo; a helm-repo url strips the filename + carries repo=name.
     #
-    # A chart only the LIVE blueprints index carries (withLive, _catalog.tpl) comes last: after both
-    # indexes and after a builder publish of the name (builderChart, which reads the two indexes
-    # only, wins over it below). Its tarball sits in a GitHub release, not beside index.yaml, so its
-    # repo URL is the channel's base it carries as repoBase, not the stripped tarball URL.
-    | (indexEntry($bp) // (withLive | indexEntry($bp))) as $entry
+    # Through withLive (_catalog.tpl), so the version pre-filled here is the one the grid shows: the
+    # live index leads for a chart a krateo-blueprints repository published, and the catalog is the
+    # fallback. Reading the bare catalog first would show the live version and install the catalog's.
+    # A live-index version's tarball sits in a GitHub release, not beside index.yaml, so its repo URL
+    # is the channel's base it carries as repoBase, not the stripped tarball URL.
+    | (withLive | indexEntry($bp)) as $entry
     | ($entry.version // "") as $ver
     | ($entry.urls[0]? // "") as $rawUrl
     | ($entry.repoBase // ($rawUrl | sub("/[^/]+$"; ""))) as $repoUrl
