@@ -75,6 +75,15 @@ spec:
   {{/* failed put every new composition on the dashboard's failure count. A paused one reports */}}
   {{/* Ready=True and Synced=False on purpose, which is why railState checks it first: it would */}}
   {{/* otherwise read as Drift. Reasons are the values core-provider emits. */}}
+  {{/* NOT ASSESSABLE. Ready=Unknown with reason exactly `ZeroEvidence` means none of the */}}
+  {{/* composition's managed children has readiness semantics the controller can read */}}
+  {{/* (unstructured-runtime condition.go). That is permanent and healthy, so `assessable: false` */}}
+  {{/* takes it out of the dashboard's Pending figures. The match is on the REASON: Unknown also */}}
+  {{/* comes with ChildrenForbidden and InventoryNotRecorded (cdc childhealth.go), which are */}}
+  {{/* defects, and the set of reasons is open, so any other Unknown stays assessable. `.state` and */}}
+  {{/* `.railState` are unchanged (the Compositions and Observability pages read them); `rail` is */}}
+  {{/* the dashboard rail's bar, and `assessment` + `conditionCoverage` are its card and coverage */}}
+  {{/* figures, computed over `list` (the same set the cards count). */}}
   {{/* ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state */}}
   {{/* OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the */}}
   {{/* reconcile-breakdown drill-down; the other status values keep filtering on .state. */}}
@@ -89,11 +98,22 @@ spec:
     | (.scope // "workloads") as $scope
     | ((.q // "") | ascii_downcase) as $q
     | now as $now
-    | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False" and .reason != "Creating")) as $notready | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end), healthPercent: (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end), coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end)}))) as $all
+    | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False" and .reason != "Creating")) as $notready | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence")) as $silent | (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end) as $railState | (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end) as $healthPercent | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: $railState, healthPercent: $healthPercent, coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end), assessable: ($silent | not), rail: (if $silent then {percent: 0, state: "notAssessable", label: "No signal"} else {percent: $healthPercent, state: $railState, label: (($healthPercent | tostring) + "%")} end)}))) as $all
     | $all as $dated
     | ($dated | map(select(if $scope == "all" then true elif $scope == "platform" then .platform else (.platform | not) end))) as $scoped
+    | ($all | map(select(.assessable | not)) | length) as $na
+    | (($all | length) - $na) as $assessable
     | {
         list: $all,
+        assessment: {
+          total: ($all | length),
+          assessable: $assessable,
+          notAssessable: $na,
+          pending: ($all | map(select(.assessable and .state == "pending")) | length),
+          healthyPercent: (if $assessable > 0 then (($all | map(select(.state == "healthy")) | length) * 100 / $assessable | floor) else 0 end),
+          pendingPercent: (if $assessable > 0 then (($all | map(select(.assessable and ((.conditions // []) | any(.type == "Ready" and (.status == "True" or .status == "False")) | not))) | length) * 100 / $assessable | floor) else 0 end)
+        },
+        conditionCoverage: (([ $all[].conditions[]?.type ] | unique) as $types | [ $types[] | . as $t | ($all | map(select($t != "Ready" or .assessable))) as $l | ([ $l[] | select(any(.conditions[]?; .type == $t and .status == "True")) ] | length) as $tc | ([ $l[] | select(any(.conditions[]?; .type == $t)) ] | length) as $n | { type: $t, percent: (if $n > 0 then ($tc * 100 / $n | floor) else 0 end), label: (($tc | tostring) + "/" + ($n | tostring)), route: (if $t == "Ready" then "/compositions?status=failed" else "" end), note: (if $t == "Ready" and $na > 0 then ("+ " + ($na | tostring) + " not assessable (no readiness signal)") else "" end) } ]),
         filtered: ($scoped | map(select((if $status == "drift" then (.railState == "drift") else ($status == "all" or .state == $status) end) and ($q == "" or ((.name // "") | ascii_downcase | contains($q)) or ((.kind // "") | ascii_downcase | contains($q)))))),
         counts: {all: ($scoped | length), healthy: ($scoped | map(select(.state == "healthy")) | length), drift: ($scoped | map(select(.railState == "drift")) | length), pending: ($scoped | map(select(.state == "pending")) | length), degraded: ($scoped | map(select(.state == "degraded")) | length), failed: ($scoped | map(select(.state == "failed")) | length)},
         scopeCounts: {workloads: ($dated | map(select(.platform | not)) | length), platform: ($dated | map(select(.platform)) | length), all: ($dated | length)},

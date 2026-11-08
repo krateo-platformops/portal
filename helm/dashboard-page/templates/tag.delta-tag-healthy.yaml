@@ -22,7 +22,9 @@ spec:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
   - forPath: label
-    expression: '${ (if (.list|length)>0 then ((([.list[]|select(.state == "healthy")]|length)*100/(.list|length))|floor) else 0 end | tostring) + "%" }'
+    {{/* Over the ASSESSABLE compositions (the RA leaves out Ready=Unknown/ZeroEvidence); with none */}}
+    {{/* left out that is the total, as before. */}}
+    expression: '${ (.assessment.healthyPercent | tostring) + "%" }'
   apiRef:
     name: compositions-list
     namespace: {{ .Release.Namespace }}

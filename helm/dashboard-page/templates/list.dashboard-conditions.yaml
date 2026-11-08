@@ -1,7 +1,8 @@
 {{/* Per-condition COVERAGE gauges — the honest aggregate of the REAL status.conditions across all */}}
 {{/* compositions (replaces the invented Healthy/Pending/Failed donut). For each distinct condition */}}
 {{/* TYPE (Ready, Synced, …) a bar shows how many compositions have it True ("N/M"), cyan fill; the */}}
-{{/* unfilled trail is the gap. Nothing derived — straight off `.conditions[].type`/`.status`. */}}
+{{/* unfilled trail is the gap. Straight off `.conditions[].type`/`.status`, except that the Ready */}}
+{{/* row leaves out the compositions that are not assessable and says how many it left out. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -23,6 +24,9 @@ spec:
       {{/* inert (never a broken link). */}}
       navigateTo: '{route}'
       primaryText: '{type}'
+      {{/* Ready row only, and only when some compositions are not assessable: */}}
+      {{/* "+ N not assessable (no readiness signal)". Empty otherwise, so nothing renders. */}}
+      subPrimaryText: '{note}'
       bar:
         percent: '{percent}'
         label: '{label}'
@@ -31,7 +35,10 @@ spec:
         variant: line
     dataSource: []
   widgetDataTemplate:
+    {{/* One row per condition type, computed in compositions-list (`conditionCoverage`). The Ready */}}
+    {{/* row counts assessable compositions only: one with Ready=Unknown/ZeroEvidence has no */}}
+    {{/* readiness signal, so it is neither part of the fraction nor its gap. */}}
     - forPath: dataSource
-      expression: '${ (.list // []) as $l | ([ $l[].conditions[]?.type ] | unique) as $types | [ $types[] | . as $t | ([ $l[] | select(any(.conditions[]?; .type == $t and .status == "True")) ] | length) as $tc | ([ $l[] | select(any(.conditions[]?; .type == $t)) ] | length) as $n | { type: $t, percent: (if $n > 0 then ($tc * 100 / $n | floor) else 0 end), label: (($tc | tostring) + "/" + ($n | tostring)), route: (if $t == "Ready" then "/compositions?status=failed" else "" end) } ] }'
+      expression: '${ .conditionCoverage }'
   resourcesRefs:
     items: []

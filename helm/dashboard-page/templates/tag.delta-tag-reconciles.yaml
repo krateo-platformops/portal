@@ -22,7 +22,8 @@ spec:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
   - forPath: label
-    expression: '${ (if (.list|length)>0 then ((([.list[]|select((.conditions//[])|(any(.type=="Ready" and (.status=="True" or .status=="False"))|not))]|length)*100/(.list|length))|floor) else 0 end | tostring) + "%" }'
+    {{/* Over the ASSESSABLE compositions, the same as the Healthy tag; computed in the RA. */}}
+    expression: '${ (.assessment.pendingPercent | tostring) + "%" }'
   apiRef:
     name: compositions-list
     namespace: {{ .Release.Namespace }}

@@ -31,18 +31,22 @@ spec:
       subPrimaryText: '{ns}'
       {{/* D4: each rail row is clickable → that composition's detail page (logs/manifest/relations). */}}
       navigateTo: '/compositions/{ns}/{name}'
+      {{/* `rail` is the RA's bar for this row: healthPercent / railState / "N%", except for a */}}
+      {{/* composition that is not assessable (Ready=Unknown, reason ZeroEvidence): percent 0 and */}}
+      {{/* gray, so the whole `rail` trail is the neutral hatch, labelled "No signal". */}}
       bar:
-        percent: '{healthPercent}'
+        percent: '{rail.percent}'
         color:
-          value: '{railState}'
+          value: '{rail.state}'
           map:
             healthy: green
             drift: violet
             pending: orange
             degraded: orange
             paused: gray
+            notAssessable: gray
             failed: red
-        label: '{healthPercent}%'
+        label: '{rail.label}'
         variant: rail
   widgetDataTemplate:
     - forPath: dataSource
