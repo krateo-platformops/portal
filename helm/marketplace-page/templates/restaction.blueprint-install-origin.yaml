@@ -32,9 +32,13 @@ metadata:
     krateo.io/verbose: "true"
 spec:
   api:
-    {{/* The helm indexes, only to know whether the name is an index chart (builderChart). */}}
+    {{/* The helm indexes: whether the name is an index chart (builderChart), and the header's */}}
+    {{/* maturity and version. */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
+    {{/* The live blueprints index (marketplace.liveIndex), for the header only: the version the */}}
+    {{/* formdef pre-fills from it (withLive, _catalog.tpl) is the one the header names. */}}
+    {{- include "portal.catalogLiveStep" $ | nindent 4 }}
     {{- include "portal.builderRegistrationStep" $ | nindent 4 }}
     {{/* The builder's change requests. builder-publish (>= 1.8.21) opens one per claim and labels */}}
     {{/* it krateo.io/publish: <claim name>; the provider writes html_url, state and — from the */}}
@@ -58,6 +62,7 @@ spec:
   filter: |
     {{- include "portal.builderRegistrationDefs" . | nindent 4 }}
     {{- include "portal.builderPrEnding" . | nindent 4 }}
+    {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     (.name // "") as $bp
     | builderChart($bp) as $b
     | (($b.url // "") != "") as $fromBuilder
@@ -76,8 +81,13 @@ spec:
     # A controller is registered, not installed (installNoun): the header and the note say so.
     | installNoun($bp) as $noun
     | (if $noun == "controller" then "Register" else "Install" end) as $verb
-    # The header's maturity and version: the blueprints index entry, as marketplace-detail reads it.
-    | ((((.catalog // {}).entries // {})[$bp] // [])[0] // {}) as $latest
+    # The header's maturity and version: the entry the formdef pre-fills chart.version from, read
+    # the same way (withLive | indexEntry). The live index leads for a chart a krateo-blueprints
+    # repository published and the catalog snapshot is the fallback, so the header names the
+    # version the form installs. Read from the bare catalog, it named the snapshot's version
+    # beside a form that installs the live one (krateo-057: "v0.2.0" over chart.version 0.3.37).
+    # builderChart above keeps the unmerged input, as in the formdef.
+    | (((withLive | indexEntry($bp)) // {}) | if type == "object" then . else {} end) as $latest
     | { noun: $noun,
         title: ($verb + " " + (if $bp != "" then $bp else $noun end)),
         subtitle: ([ (($latest.annotations // {})["krateo.io/maturity"] // empty),
