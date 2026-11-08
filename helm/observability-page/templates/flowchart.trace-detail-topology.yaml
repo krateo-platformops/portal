@@ -1,0 +1,32 @@
+{{/* Which services the trace passed through (installer#404). One node per ServiceName; an edge */}}
+{{/* A → B wherever a span of B has a parent span (ParentSpanId) belonging to A. Calls inside one */}}
+{{/* service draw no edge, and a parent span outside this trace (a caller that was not sampled, or */}}
+{{/* not instrumented) draws none either: a node with no incoming edge is where the trace begins */}}
+{{/* as far as the data knows. A gateway sits in the middle of most traces here, so A → B and */}}
+{{/* B → A both appear when a service calls back out through it — that is the real path. */}}
+{{/* */}}
+{{/* The architecture variant, for the themed cards the composition page uses. Every node is */}}
+{{/* `done`: the variant's states describe a chart's resources, and none of them means "this */}}
+{{/* service had an error span", so errors are said in the node's own line ("3 spans · 1 error") */}}
+{{/* rather than borrowed from a state that means something else. */}}
+kind: FlowChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-topology
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  apiRef:
+    name: obs-trace-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    variant: architecture
+    data: []
+  widgetDataTemplate:
+    - forPath: data
+      expression: '${ (.spans // []) as $s | (reduce $s[] as $x ({}; .[$x.spanId] = $x.service)) as $svcOf | [ $s | group_by(.service)[] | { service: .[0].service, first: ([ .[] | .startUs ] | min), n: length, errors: ([ .[] | select(.status == "Error") ] | length), parents: ([ .[] | .parentId as $p | ($svcOf[$p] // empty) ] | unique) } ] | sort_by(.first) | map(.service as $me | { uid: ("svc:" + $me), kind: "Service", name: (if $me == "" then "(no service name)" else $me end), names: [ $me ], state: "done", detail: ((.n | tostring) + (if .n == 1 then " span" else " spans" end) + (if .errors == 0 then "" elif .errors == 1 then " · 1 error" else " · " + (.errors | tostring) + " errors" end)), parentRefs: [ .parents[] | select(. != $me) | { uid: ("svc:" + .) } ] }) }'
+  resourcesRefs:
+    items: []

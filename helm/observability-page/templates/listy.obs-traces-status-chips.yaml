@@ -1,0 +1,24 @@
+{{/* Status chips of the Traces tab (installer#404): the exporter's three StatusCode words. "Unset" */}}
+{{/* is the common case — an instrumentation that never sets a status — and is shown as such rather */}}
+{{/* than as OK. No apiRef: snowplow merges the request extras into the data source. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-status-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): `traceStatus` drives the active flag; the rest are carried into the routes. */}}
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "obs.traces.route" . }} . as $x | ((.traceStatus // "") | tostring) as $sel | [{key: "", label: "All"}, {key: "Error", label: "Error"}, {key: "Ok", label: "OK"}, {key: "Unset", label: "Unset"}] | map(.key as $k | { label: .label, active: ($k == $sel), route: ($x | tracesRoute({traceStatus: $k})) }) }'
+  resourcesRefs:
+    items: []

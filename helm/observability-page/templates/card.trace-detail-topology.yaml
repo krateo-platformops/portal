@@ -1,0 +1,33 @@
+{{/* "Services" card of the trace page (installer#404): the diagram of the services the trace */}}
+{{/* passed through, and under it the note on what the diagram does not show. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-trace-detail-topology
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    title: Services
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+      - resourceRefId: trace-detail-topology
+      - resourceRefId: trace-detail-note
+  resourcesRefs:
+    items:
+      - id: trace-detail-topology
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-topology
+        namespace: {{ $.Values.namespace }}
+        resource: flowcharts
+        verb: GET
+      - id: trace-detail-note
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-note
+        namespace: {{ $.Values.namespace }}
+        resource: markdowns
+        verb: GET

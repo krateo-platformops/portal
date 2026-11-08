@@ -1,0 +1,25 @@
+{{/* "Spans" card of the trace page (installer#404): every span of the trace, in start order. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-trace-detail-spans
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    title: Spans
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+      - resourceRefId: trace-detail-spans
+  resourcesRefs:
+    items:
+      - id: trace-detail-spans
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-spans
+        namespace: {{ $.Values.namespace }}
+        resource: tables
+        verb: GET

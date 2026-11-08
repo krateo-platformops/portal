@@ -623,6 +623,35 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-ra-input-gates.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+  # The /observability Traces tab and the /observability/traces/{traceId} page (installer#404): three
+  # RESTActions put request text into ClickHouse SQL, and helm template evaluates none of their jq.
+  # This resolves them on otel_traces-shaped rows — newest first, start order, parent→child service
+  # edges, an Error span shown as an error, a quote in a TraceId or filter making no request — and
+  # validates every widget, as rendered and as resolved, against the frontend-crds version the
+  # installer PINS (not the latest), which is what the cluster serves.
+  observability-traces:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Traces tab and trace page, evaluated and validated against the pinned CRDs
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          python3 scripts/test-observability-traces.py --pinned
+
   # The Controller Builder's preview (controller-render-draft) answers with blueprint-render-draft's
   # `objects`/`error`, so the frontend's verdict handling reads it unchanged. Every way it can go —
   # CRDs, a severity:error finding, oasgen-render missing or down, no draft — must be a sentence

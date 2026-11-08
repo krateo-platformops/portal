@@ -1,0 +1,51 @@
+{{/* The Traces tab's filter bar (installer#404): time range, service, user and status, each an */}}
+{{/* eyebrow label beside its chips, as the page's own range and row-limit groups are. Chips, not */}}
+{{/* Selects: a Select writes only its own query param, and the Tabs widget remounts on any query */}}
+{{/* change and opens on ?tab= — so a Select would drop the reader back on the first tab. Every chip */}}
+{{/* route carries ?tab=Traces and the other filters (_traces.tpl, obs.traces.route). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-filters
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  widgetData:
+    allowedResources:
+    - flexes
+    gap: middle
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: obs-traces-range-group
+    - resourceRefId: obs-traces-service-group
+    - resourceRefId: obs-traces-user-group
+    - resourceRefId: obs-traces-status-group
+  resourcesRefs:
+    items:
+    - id: obs-traces-range-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-range-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: obs-traces-service-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-service-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: obs-traces-user-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-user-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: obs-traces-status-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-status-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
