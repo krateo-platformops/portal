@@ -126,7 +126,10 @@ true
     withLive   the input with .catalog.entries merged with every live-index chart that a krateo-blueprints
                repository published: its newest version's `sources` lists
                https://github.com/krateo-blueprints/<repo>, which PUBLISHING.md requires of every chart,
-               or it carries krateo.io/source-repo, which builder-scaffold repos commit. THE LIVE INDEX
+               or it carries krateo.io/source-repo, which builder-scaffold repos commit. The owner is
+               compared case-insensitively, as GitHub resolves it: the builders write `sources` with the
+               owner as the person typed it, so Krateo-Blueprints/<repo> is the same repository. The
+               prefix keeps its trailing slash, so krateo-blueprints-evil/<repo> is not. THE LIVE INDEX
                LEADS (Diego, 2026-11-07): for a name both carry, the live versions come first and the
                catalog's versions the live index lacks stay below them, newest first by version. So a
                publish shows on the next read, and the catalog is the fallback for offline or air-gapped
@@ -140,7 +143,7 @@ true
 */}}
 {{- define "portal.catalogLiveDefs" -}}
 def withLiveVer: (tostring | sub("^v"; "") | split("-")[0] | split(".") | map(tonumber? // 0));
-def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | startswith("https://github.com/krateo-blueprints/")));
+def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | ascii_downcase | startswith("https://github.com/krateo-blueprints/")));
 def withLive:
   (((.catalogLive // {}) | if type == "object" then (.entries // {}) else {} end) | if type == "object" then . else {} end) as $live
   | (((.catalog // {}) | if type == "object" then . else {} end)) as $cat

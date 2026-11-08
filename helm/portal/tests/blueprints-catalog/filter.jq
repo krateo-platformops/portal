@@ -1,5 +1,5 @@
 def withLiveVer: (tostring | sub("^v"; "") | split("-")[0] | split(".") | map(tonumber? // 0));
-def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | startswith("https://github.com/krateo-blueprints/")));
+def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | ascii_downcase | startswith("https://github.com/krateo-blueprints/")));
 def withLive:
   (((.catalogLive // {}) | if type == "object" then (.entries // {}) else {} end) | if type == "object" then . else {} end) as $live
   | (((.catalog // {}) | if type == "object" then . else {} end)) as $cat

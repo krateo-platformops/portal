@@ -545,6 +545,115 @@ def check_install_header_has_no_lone_v(chart):
     return f
 
 
+def live_entry(name, version, sources=None, annotations=None):
+    """A live blueprints-index version, as a krateo-blueprints repository's release publishes it."""
+    entry = {'name': name, 'version': version,
+             'urls': [f'https://github.com/krateo-blueprints/{name}/releases/download/{version}/{name}-{version}.tgz']}
+    if sources is not None:
+        entry['sources'] = sources
+    if annotations is not None:
+        entry['annotations'] = annotations
+    return entry
+
+
+def snapshot_catalog(blueprints, operators=None):
+    return {'apiVersion': 'v1', 'kind': 'ConfigMap',
+            'data': {'blueprints-index.json': json.dumps(index(blueprints)),
+                     'operators-index.json': json.dumps(index(operators or {}))}}
+
+
+def check_install_header_reads_the_live_index(chart):
+    """The Install page header names the version the form installs. On krateo-057 the openstack
+    card, its Details page and the form's chart.version all read v0.3.37 from the live blueprints
+    index, while the header read "stable · v0.2.0" from the catalog snapshot: the origin RESTAction
+    took the bare catalog and never read the live index. The header now reads through withLive, as
+    the formdef does, so the live index leads and the snapshot is the fallback."""
+    f = []
+    snap = {'openstack': [{'name': 'openstack', 'version': '0.2.0', 'annotations': {'krateo.io/maturity': 'beta'},
+                           'urls': ['https://krateo-blueprints.github.io/charts/blueprints/openstack-0.2.0.tgz']}]}
+    owned = ['https://github.com/krateo-blueprints/openstack']
+    live = index({'openstack': [live_entry('openstack', '0.3.37', owned, {'krateo.io/maturity': 'stable'}),
+                                live_entry('openstack', '0.3.36', owned, {'krateo.io/maturity': 'stable'})]})
+    other_live = index({'something-else': [live_entry('something-else', '1.0.0', ['https://github.com/krateo-blueprints/something-else'])]})
+    older_live = index({'openstack': [live_entry('openstack', '0.1.0', owned, {'krateo.io/maturity': 'alpha'})]})
+    ops = {'ec2-chart': [{'name': 'ec2-chart', 'version': '1.15.2',
+                          'urls': ['https://krateo-blueprints.github.io/charts/operators/ec2-chart-1.15.2.tgz']}]}
+    cases = [
+        ('live leads', 'openstack', snap, {}, live, 'stable  ·  v0.3.37', '0.3.37'),
+        ('no live entry for the name', 'openstack', snap, {}, other_live, 'beta  ·  v0.2.0', '0.2.0'),
+        ('live step failed', 'openstack', snap, {}, 'ERROR', 'beta  ·  v0.2.0', '0.2.0'),
+        ('live step not served', 'openstack', snap, {}, ABSENT, 'beta  ·  v0.2.0', '0.2.0'),
+        ('live older than the snapshot: newest wins', 'openstack', snap, {}, older_live, 'beta  ·  v0.2.0', '0.2.0'),
+        ('neither carries the name', 'openstack', {}, {}, other_live, '', ''),
+        # The header reads the same entry the form pre-fills from (indexEntry), operators included.
+        ('operator', 'ec2-chart', {}, ops, other_live, 'v1.15.2', '1.15.2'),
+    ]
+    base = responses(prs('closed'))
+    for label, name, blueprints, operators, live_resp, want, want_ver in cases:
+        resp = dict(base, catalog=snapshot_catalog(blueprints, operators), operators=snapshot_catalog(blueprints, operators))
+        resp.pop('catalogLive', None)
+        if live_resp is not ABSENT:
+            resp['catalogLive'] = live_resp
+        extras = {'name': name}
+        out = resolve(chart, 'blueprint-install-origin', resp, extras)
+        got = widget(chart, 'PageHeader', 'blueprint-install-page-header', 'subtitle', out, extras)
+        expect(f, f'install header subtitle ({label})', got, want)
+        form = resolve(chart, 'blueprint-install-formdef', resp, extras)
+        expect(f, f'form chart.version ({label})', form['initialValues']['chart'].get('version'), want_ver)
+    return f
+
+
+# Every copy of _catalog.tpl: a `define` lives in the chart that declares it, so each page chart
+# carries its own (#261), and nothing else keeps them alike. Discovered, so a new copy is covered.
+CATALOG_TPLS = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'helm',
+                                             '*', 'templates', '_catalog.tpl')))
+
+OWNERSHIP_CASES = [
+    ('lowercase owner', {'sources': ['https://github.com/krateo-blueprints/x']}, True),
+    ('mixed-case owner, as a builder writes what the person typed',
+     {'sources': ['https://github.com/Krateo-Blueprints/x']}, True),
+    ('upper-case URL', {'sources': ['HTTPS://GITHUB.COM/KRATEO-BLUEPRINTS/x']}, True),
+    ('owned among other sources', {'sources': ['https://example.com/x', 'https://github.com/Krateo-Blueprints/x']}, True),
+    ('another owner', {'sources': ['https://github.com/braghettos/x']}, False),
+    ('an owner that only starts with the name', {'sources': ['https://github.com/krateo-blueprints-evil/x']}, False),
+    ('the same, mixed case', {'sources': ['https://github.com/Krateo-Blueprints-Evil/x']}, False),
+    ('no sources', {}, False),
+    ('source-repo annotation, foreign sources', {'annotations': {'krateo.io/source-repo': 'acme/x'},
+                                                 'sources': ['https://github.com/braghettos/x']}, True),
+]
+
+
+def check_live_index_ownership_ignores_owner_case(chart):
+    """A live-index chart counts as a krateo-blueprints publish when a `sources` entry is under
+    https://github.com/krateo-blueprints/. GitHub owner names are case-insensitive, and the
+    frontend's builders write `sources` with the owner as the person typed it, so
+    https://github.com/Krateo-Blueprints/x is the same repository and must count. The trailing
+    slash stays in the test: krateo-blueprints-evil is a different owner. Pinned in every
+    _catalog.tpl copy, and end to end through the install header the marketplace-page copy renders."""
+    f = []
+    if not any(p.replace(os.sep, '/').endswith('helm/portal/templates/_catalog.tpl') for p in CATALOG_TPLS):
+        f.append(f'found no helm/portal/templates/_catalog.tpl among {CATALOG_TPLS}')
+    entries = [e for _, e, _ in OWNERSHIP_CASES]
+    for path in CATALOG_TPLS:
+        where = os.path.relpath(path, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+        defs = re.findall(r'^def withLiveOwned:.*$', open(path, encoding='utf-8').read(), re.M)
+        if len(defs) != 1:
+            f.append(f'{where}: expected one `def withLiveOwned:` line, found {len(defs)}')
+            continue
+        got = jq(defs[0] + '\n[ .[] | withLiveOwned ]', entries)
+        for (label, _, want), g in zip(OWNERSHIP_CASES, got):
+            expect(f, f'{where}: withLiveOwned ({label})', g, want)
+    snap = {'x': [{'name': 'x', 'version': '0.2.0'}]}
+    base = responses(prs('closed'))
+    for label, entry, owned in OWNERSHIP_CASES:
+        live = index({'x': [dict(live_entry('x', '0.3.37'), **entry)]})
+        resp = dict(base, catalog=snapshot_catalog(snap), operators=snapshot_catalog(snap), catalogLive=live)
+        out = resolve(chart, 'blueprint-install-origin', resp, {'name': 'x'})
+        got = widget(chart, 'PageHeader', 'blueprint-install-page-header', 'subtitle', out, {'name': 'x'})
+        expect(f, f'install header ({label})', got, 'v0.3.37' if owned else 'v0.2.0')
+    return f
+
+
 def check_a_controller_is_registered(chart):
     """/marketplace/<name>/install is the Register step of a Controller Builder publish (the
     controller deliverables row sends it there). For that chart the header, the button, the
@@ -1195,6 +1304,8 @@ CHECKS = [
     check_merged_is_the_providers_word,
     check_the_step_is_called_install,
     check_install_header_has_no_lone_v,
+    check_install_header_reads_the_live_index,
+    check_live_index_ownership_ignores_owner_case,
     check_a_controller_is_registered,
     check_install_applies_the_status_projection,
     check_register_sets_the_upgrade_policy,
