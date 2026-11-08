@@ -6,6 +6,11 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, scope, status]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
   widgetData:
     allowedResources:
     - tags
@@ -21,6 +26,11 @@ spec:
     items:
     - resourceRefId: delta-tag-compositions
     - resourceRefId: delta-cap-compositions
+  {{/* When some compositions are not assessable (Ready=Unknown, reason ZeroEvidence) the subline */}}
+  {{/* says how many instead of the "N new · past 24h" pair; with none it is that pair, as before. */}}
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ if .assessment.notAssessable > 0 then [ { resourceRefId: "delta-cap-not-assessable" } ] else [ { resourceRefId: "delta-tag-compositions" }, { resourceRefId: "delta-cap-compositions" } ] end }'
   resourcesRefs:
     items:
     - id: delta-tag-compositions
@@ -32,6 +42,12 @@ spec:
     - id: delta-cap-compositions
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: delta-cap-compositions
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: delta-cap-not-assessable
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: delta-cap-not-assessable
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
       verb: GET
