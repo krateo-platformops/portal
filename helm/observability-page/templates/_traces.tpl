@@ -29,3 +29,21 @@ def tracesRoute($over): ({range: ((.range // "24h") | tostring), traceService: (
 {{- define "obs.traces.format" -}}
 def traceDuration: (tonumber? // 0) as $ns | if $ns <= 0 then "0 ms" elif $ns < 1000000 then ((($ns / 1000) | floor | tostring) + " µs") elif $ns < 1000000000 then ((($ns / 1000000) | floor | tostring) + " ms") elif $ns < 9995000000 then ((($ns / 10000000) | round) as $c | (($c / 100) | floor | tostring) + "." + ("0" + (($c % 100) | tostring))[-2:] + " s") else ((($ns / 100000000) | round) as $d | (($d / 10) | floor | tostring) + "." + (($d % 10) | tostring) + " s") end; def traceUtc: (tonumber? // 0) as $ms | (($ms / 1000) | floor | todate) as $iso | $iso[0:10] + " " + $iso[11:19] + "." + ("00" + (($ms % 1000) | floor | tostring))[-3:]; def traceShort: if length > 12 then .[0:4] + "…" + .[-4:] else . end; def traceStatusTag: if . == "Error" then {label: "Error", color: "red"} elif . == "Ok" then {label: "OK", color: "green"} elif . == "Unset" then {label: "Unset", color: "gray"} else {label: (if . == "" then "—" else . end), color: "gray"} end;
 {{- end }}
+
+{{/* The service the span list leaves out while no Service filter is chosen (`tracesHiddenService`,
+     HyperDX's own instrumentation by default), as a jq string literal. It is a chart value, not
+     request input, but it still lands in an SQL literal, so a value outside the service class
+     fails the render instead of reaching ClickHouse. */}}
+{{- define "obs.traces.hidden" -}}
+{{- $h := .Values.tracesHiddenService | default "" -}}
+{{- if not (regexMatch "^[A-Za-z0-9._-]{0,128}$" $h) -}}
+{{- fail (printf "tracesHiddenService %q: only letters, digits, '.', '_' and '-' (it goes into SQL)" $h) -}}
+{{- end -}}
+{{- $h | toJson -}}
+{{- end }}
+
+{{/* What the filter bar says while that service is left out. */}}
+{{- define "obs.traces.hiddenLabel" -}}
+{{- $h := .Values.tracesHiddenService | default "" -}}
+{{- if eq $h "krateo-observability" -}}HyperDX internals hidden{{- else -}}{{ $h }} spans hidden{{- end -}}
+{{- end }}

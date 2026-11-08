@@ -2,7 +2,8 @@
 {{/* eyebrow label beside its chips, as the page's own range and row-limit groups are. Chips, not */}}
 {{/* Selects: a Select writes only its own query param, and the Tabs widget remounts on any query */}}
 {{/* change and opens on ?tab= — so a Select would drop the reader back on the first tab. Every chip */}}
-{{/* route carries ?tab=Traces and the other filters (_traces.tpl, obs.traces.route). */}}
+{{/* route carries ?tab=Traces and the other filters (_traces.tpl, obs.traces.route). Last, the */}}
+{{/* "HyperDX internals hidden" note, shown only while that service is left out. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,6 +16,7 @@ spec:
   widgetData:
     allowedResources:
     - flexes
+    - listies
     gap: middle
     align: center
     wrap: true
@@ -23,6 +25,7 @@ spec:
     - resourceRefId: obs-traces-service-group
     - resourceRefId: obs-traces-user-group
     - resourceRefId: obs-traces-status-group
+    - resourceRefId: obs-traces-hidden-note
   resourcesRefs:
     items:
     - id: obs-traces-range-group
@@ -48,4 +51,10 @@ spec:
       name: obs-traces-status-group
       namespace: {{ $.Values.namespace }}
       resource: flexes
+      verb: GET
+    - id: obs-traces-hidden-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-hidden-note
+      namespace: {{ $.Values.namespace }}
+      resource: listies
       verb: GET

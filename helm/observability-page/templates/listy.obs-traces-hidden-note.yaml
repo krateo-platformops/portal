@@ -1,0 +1,27 @@
+{{/* The Traces tab's "HyperDX internals hidden" note (installer#404). While no Service filter is */}}
+{{/* chosen, obs-traces leaves `tracesHiddenService` out, and this chip says so; clicking it */}}
+{{/* chooses that service, which shows exactly its spans. Exception-only: with a Service filter */}}
+{{/* chosen, or with nothing configured to hide, it renders nothing (hideWhenEmpty). No apiRef: */}}
+{{/* snowplow merges the request extras into the data source. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-hidden-note
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): `traceService` gates the chip; the rest are carried into its route. */}}
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  widgetData:
+    hideWhenEmpty: true
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "obs.traces.route" . }} . as $x | {{ include "obs.traces.hidden" . }} as $hid | if $hid == "" or ((.traceService // "") | tostring) != "" then [] else [ { label: {{ include "obs.traces.hiddenLabel" . | toJson }}, route: ($x | tracesRoute({traceService: $hid})) } ] end }'
+  resourcesRefs:
+    items: []

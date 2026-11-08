@@ -7,7 +7,8 @@
 {{/*          TraceId AS trace_id */}}
 {{/*   FROM otel_traces */}}
 {{/*   WHERE Timestamp > now() - INTERVAL <1 HOUR | 6 HOUR | 24 HOUR | 7 DAY> */}}
-{{/*     [AND ServiceName = '<service>'] [AND SpanAttributes['jwt.sub'] = '<user>'] */}}
+{{/*     [AND ServiceName = '<service>' | AND ServiceName != '<tracesHiddenService>'] */}}
+{{/*     [AND SpanAttributes['jwt.sub'] = '<user>'] */}}
 {{/*     [AND StatusCode = '<status>'] */}}
 {{/*   ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON */}}
 {{/* */}}
@@ -21,6 +22,12 @@
 {{/* of being quietly rewritten into a different filter. A passing value is concatenated between */}}
 {{/* quotes it cannot close; the user value is also @uri-encoded, since `+`, `/` and `=` occur in */}}
 {{/* OIDC subjects. */}}
+{{/* */}}
+{{/* HYPERDX'S OWN SPANS ARE LEFT OUT BY DEFAULT. `tracesHiddenService` (krateo-observability, */}}
+{{/* HyperDX's Node instrumentation) is ~97% of all spans and buries everything else. While no */}}
+{{/* Service filter is chosen it is excluded, and `hidden` names it for the filter bar's note; */}}
+{{/* choosing it in the Service filter shows exactly its spans. The literal is the chart value, */}}
+{{/* checked at render time (_traces.tpl, obs.traces.hidden) — no request text reaches it. */}}
 {{/* */}}
 {{/* No per-user predicate: the page's namespace is readable by `readerGroups` (admins) only, which */}}
 {{/* is the installer#403 resolution — spans carry every user's identity. */}}
@@ -36,7 +43,7 @@ spec:
     - name: spans
       dependsOn:
         name: ""
-        iterator: '{{ include "obs.traces.valid" . }} [ ((.range // "24h") | tostring) as $r | (if $r == "1h" then "1%20HOUR" elif $r == "6h" then "6%20HOUR" elif $r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.traceService // "") | tostring) as $svc | ((.traceUser // "") | tostring) as $usr | ((.traceStatus // "") | tostring) as $st | select(($svc | okService) and ($usr | okUser) and ($st | okStatus)) | { iv: $iv, cond: ((if $svc == "" then "" else "%20AND%20ServiceName%20%3D%20%27" + $svc + "%27" end) + (if $usr == "" then "" else "%20AND%20SpanAttributes%5B%27jwt.sub%27%5D%20%3D%20%27" + ($usr | @uri) + "%27" end) + (if $st == "" then "" else "%20AND%20StatusCode%20%3D%20%27" + $st + "%27" end)) } ]'
+        iterator: '{{ include "obs.traces.valid" . }} [ ((.range // "24h") | tostring) as $r | (if $r == "1h" then "1%20HOUR" elif $r == "6h" then "6%20HOUR" elif $r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.traceService // "") | tostring) as $svc | ((.traceUser // "") | tostring) as $usr | ((.traceStatus // "") | tostring) as $st | {{ include "obs.traces.hidden" . }} as $hid | select(($svc | okService) and ($usr | okUser) and ($st | okStatus)) | { iv: $iv, cond: ((if $svc != "" then "%20AND%20ServiceName%20%3D%20%27" + $svc + "%27" elif $hid != "" then "%20AND%20ServiceName%20%21%3D%20%27" + $hid + "%27" else "" end) + (if $usr == "" then "" else "%20AND%20SpanAttributes%5B%27jwt.sub%27%5D%20%3D%20%27" + ($usr | @uri) + "%27" end) + (if $st == "" then "" else "%20AND%20StatusCode%20%3D%20%27" + $st + "%27" end)) } ]'
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
@@ -57,4 +64,5 @@ spec:
       rejected: ([ (if ((.traceService // "") | tostring | okService) then empty else "service" end),
                    (if ((.traceUser // "") | tostring | okUser) then empty else "user" end),
                    (if ((.traceStatus // "") | tostring | okStatus) then empty else "status" end) ]),
+      hidden: (if ((.traceService // "") | tostring) == "" then {{ include "obs.traces.hidden" . }} else "" end),
       failed: (.spansError != null) }

@@ -18,6 +18,8 @@ what a reader would see:
   - a TraceId or filter carrying a quote or an SQL fragment makes NO request at all, and every
     request that is made keeps each SQL string literal to the characters its filter allows;
   - the HyperDX link exists only when `observabilityConsoleUrl` is set, and opens /trace/<id>;
+  - HyperDX's own spans (`tracesHiddenService`) are left out until chosen, and the bar says so;
+  - 64-bit integers read the same whether the server quotes them in FORMAT JSON or not;
   - every new object lives in the chart's namespace, which only `admins` can read.
 
 With --crds DIR every widget, as rendered and as resolved, is validated against that frontend-crds
@@ -67,7 +69,7 @@ NEW_WIDGETS = [
     ('Paragraph', 'obs-traces-service-label'), ('Paragraph', 'obs-traces-user-label'),
     ('Paragraph', 'obs-traces-status-label'),
     ('Listy', 'obs-traces-range-chips'), ('Listy', 'obs-traces-service-chips'),
-    ('Listy', 'obs-traces-user-chips'), ('Listy', 'obs-traces-status-chips'),
+    ('Listy', 'obs-traces-user-chips'), ('Listy', 'obs-traces-status-chips'), ('Listy', 'obs-traces-hidden-note'),
     ('Table', 'obs-traces'),
     ('Flex', 'page-trace-detail'), ('PageHeader', 'trace-detail-page-header'), ('Row', 'trace-detail-grid'),
     ('Flex', 'trace-detail-col-left'), ('Flex', 'trace-detail-col-right'),
@@ -79,7 +81,7 @@ CONSOLE_WIDGETS = [('Flex', 'trace-detail-hyperdx'), ('Button', 'trace-detail-hy
 NEW_RAS = ['obs-traces', 'obs-trace-facets', 'obs-trace-detail']
 
 
-def render(console=''):
+def render(console='', sets=(), values=None):
     with tempfile.TemporaryDirectory() as tmp:
         staged = os.path.join(tmp, 'chart')
         shutil.copytree(CHART, staged)
@@ -89,6 +91,12 @@ def render(console=''):
         cmd = ['helm', 'template', 'observability-page', staged, '--namespace', RELEASE_NS]
         if console:
             cmd += ['--set', f'observabilityConsoleUrl={console}']
+        for value in sets:
+            cmd += ['--set-string', value]
+        if values is not None:      # a values file, so helm's --set parsing cannot alter the value
+            vf = os.path.join(tmp, 'values.yaml')
+            open(vf, 'w', encoding='utf-8').write(yaml.safe_dump(values))
+            cmd += ['-f', vf]
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode:
             raise SystemExit(f'helm template failed:\n{proc.stderr.strip()}')
@@ -179,6 +187,7 @@ def expect(problems, label, got, want):
         problems.append(f'{label}: got {got!r}, want {want!r}')
 
 
+HIDE = " AND ServiceName != 'krateo-observability'"      # the default tracesHiddenService
 LIST_SQL = ("SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ServiceName AS svc, SpanName AS span, "
             "Duration AS dur_ns, SpanAttributes['jwt.sub'] AS sub, StatusCode AS status, TraceId AS trace_id "
             "FROM otel_traces WHERE Timestamp > now() - INTERVAL {window}{cond} "
@@ -206,10 +215,10 @@ def check_span_list_is_newest_first_and_bounded(c):
     p = []
     reqs, _, out = resolve(c, 'obs-traces', {}, {'spans': ch(LIST_ROWS)})
     expect(p, 'no filters: one request', len(reqs), 1)
-    expect(p, 'no filters: the SQL', sql_of(reqs[0][1]), LIST_SQL.format(window='24 HOUR', cond=''))
+    expect(p, 'no filters: the SQL', sql_of(reqs[0][1]), LIST_SQL.format(window='24 HOUR', cond=HIDE))
     for rng, window in [('1h', '1 HOUR'), ('6h', '6 HOUR'), ('24h', '24 HOUR'), ('7d', '7 DAY'), ('30d', '24 HOUR')]:
         r, _, _ = resolve(c, 'obs-traces', {'range': rng}, {'spans': ch([])})
-        expect(p, f'range={rng}: the window', sql_of(r[0][1]), LIST_SQL.format(window=window, cond=''))
+        expect(p, f'range={rng}: the window', sql_of(r[0][1]), LIST_SQL.format(window=window, cond=HIDE))
     rows = tbi.resolved_widget(c, 'Table', 'obs-traces', out, {}, 'obs-traces (6 spans)')['spec']['widgetData']['dataSource']
     times = [cells(r)['time']['stringValue'] for r in rows]
     expect(p, 'rows keep the newest-first order', times, sorted(times, reverse=True))
@@ -225,7 +234,7 @@ def check_span_list_is_newest_first_and_bounded(c):
     table = c.get('Table', 'obs-traces')['spec']['widgetData']
     expect(p, 'row click target', rownav.build_row_path(table['rowNavigateTo'], rows[0]), f'/observability/traces/{TRACE_A}')
     expect(p, 'columns', [col['title'] for col in table['columns']],
-           ['Time (UTC)', 'Service', 'Span', 'Duration', 'User', 'Status', 'Trace'])
+           ['Time (UTC)', 'Service', 'Span', 'Duration', 'User (AI calls)', 'Status', 'Trace'])
     expect(p, 'pages of 25 over the bounded set', table.get('pagination'), {'pageSize': 25, 'hideOnSinglePage': True})
     return p
 
@@ -254,12 +263,12 @@ def check_filters_reach_the_sql_as_one_predicate_each(c):
     p = []
     cases = [
         ({'traceService': 'composition-dynamic-controller'}, " AND ServiceName = 'composition-dynamic-controller'"),
-        ({'traceUser': 'cyberjoker'}, " AND SpanAttributes['jwt.sub'] = 'cyberjoker'"),
+        ({'traceUser': 'cyberjoker'}, HIDE + " AND SpanAttributes['jwt.sub'] = 'cyberjoker'"),
         ({'traceUser': 'system:serviceaccount:krateo-system:snowplow'},
-         " AND SpanAttributes['jwt.sub'] = 'system:serviceaccount:krateo-system:snowplow'"),
-        ({'traceUser': 'CgVhZG1pbhIF+bG9j/YWw='}, " AND SpanAttributes['jwt.sub'] = 'CgVhZG1pbhIF+bG9j/YWw='"),
-        ({'traceUser': 'diego.braga@kiratech.it'}, " AND SpanAttributes['jwt.sub'] = 'diego.braga@kiratech.it'"),
-        ({'traceStatus': 'Error'}, " AND StatusCode = 'Error'"),
+         HIDE + " AND SpanAttributes['jwt.sub'] = 'system:serviceaccount:krateo-system:snowplow'"),
+        ({'traceUser': 'CgVhZG1pbhIF+bG9j/YWw='}, HIDE + " AND SpanAttributes['jwt.sub'] = 'CgVhZG1pbhIF+bG9j/YWw='"),
+        ({'traceUser': 'diego.braga@kiratech.it'}, HIDE + " AND SpanAttributes['jwt.sub'] = 'diego.braga@kiratech.it'"),
+        ({'traceStatus': 'Error'}, HIDE + " AND StatusCode = 'Error'"),
         ({'traceService': 'snowplow', 'traceUser': 'admin', 'traceStatus': 'Ok', 'range': '1h'},
          " AND ServiceName = 'snowplow' AND SpanAttributes['jwt.sub'] = 'admin' AND StatusCode = 'Ok'"),
     ]
@@ -469,6 +478,98 @@ def check_tab_and_route_are_wired(c):
     return p
 
 
+def check_hyperdx_internals_hidden_unless_chosen(c):
+    p = []
+    _, _, out = resolve(c, 'obs-traces', {}, {'spans': ch(LIST_ROWS)})
+    expect(p, 'no Service filter: hidden names it', out['hidden'], 'krateo-observability')
+    for svc in ('krateo-observability', 'snowplow'):
+        reqs, _, out = resolve(c, 'obs-traces', {'traceService': svc}, {'spans': ch([])})
+        expect(p, f'traceService={svc}: exactly that service, no exclusion', [sql_of(r[1]) for r in reqs],
+               [LIST_SQL.format(window='24 HOUR', cond=f" AND ServiceName = '{svc}'")])
+        expect(p, f'traceService={svc}: nothing hidden', out['hidden'], '')
+    note = tbi.resolved_widget(c, 'Listy', 'obs-traces-hidden-note', {}, {'range': '1h'}, 'hidden note (default)')
+    expect(p, 'the note', note['spec']['widgetData']['dataSource'],
+           [{'label': 'HyperDX internals hidden',
+             'route': '/observability?range=1h&traceService=krateo-observability&tab=Traces'}])
+    expect(p, 'the note renders nothing when empty', note['spec']['widgetData'].get('hideWhenEmpty'), True)
+    gone = tbi.resolved_widget(c, 'Listy', 'obs-traces-hidden-note', {}, {'traceService': 'snowplow'}, 'hidden note (service chosen)')
+    expect(p, 'a chosen service: no note', gone['spec']['widgetData']['dataSource'], [])
+    expect(p, 'the note is in the filter bar', 'obs-traces-hidden-note' in
+           [i['resourceRefId'] for i in c.get('Flex', 'obs-traces-filters')['spec']['widgetData']['items']], True)
+    _, _, facets = resolve(c, 'obs-trace-facets', {}, {'services': ch([{'svc': 'krateo-observability', 'n': '4838'},
+                                                                          {'svc': 'agentgateway', 'n': '120'}]), 'users': ch([])})
+    chips = tbi.widget(c, 'Listy', 'obs-traces-service-chips', 'dataSource', facets, {})
+    expect(p, 'the service chips still offer it', [x['label'] for x in chips], ['All', 'krateo-observability', 'agentgateway'])
+    for _, path, _ in resolve(c, 'obs-trace-facets', {}, FACETS)[0]:
+        if 'krateo-observability' in sql_of(path):
+            p.append(f'the facets query excludes it: {sql_of(path)!r}')
+    # The value is the chart's: another service, or none.
+    other = render(sets=['tracesHiddenService=snowplow'])
+    reqs, _, _ = resolve(other, 'obs-traces', {}, {'spans': ch([])})
+    expect(p, 'tracesHiddenService=snowplow', [sql_of(r[1]) for r in reqs],
+           [LIST_SQL.format(window='24 HOUR', cond=" AND ServiceName != 'snowplow'")])
+    expect(p, 'tracesHiddenService=snowplow: its note', tbi.widget(other, 'Listy', 'obs-traces-hidden-note', 'dataSource', {}, {})[0]['label'],
+           'snowplow spans hidden')
+    off = render(sets=['tracesHiddenService='])
+    reqs, _, out = resolve(off, 'obs-traces', {}, {'spans': ch([])})
+    expect(p, 'tracesHiddenService empty: nothing excluded', [sql_of(r[1]) for r in reqs], [LIST_SQL.format(window='24 HOUR', cond='')])
+    expect(p, 'tracesHiddenService empty: no note', tbi.widget(off, 'Listy', 'obs-traces-hidden-note', 'dataSource', {}, {}), [])
+    # It lands in an SQL literal, so a value outside the service class must not render at all.
+    for bad in ["x' OR '1'='1", 'krateo observability', "a\\b"]:
+        try:
+            render(values={'tracesHiddenService': bad})
+            p.append(f'tracesHiddenService={bad!r} rendered')
+        except SystemExit as exc:
+            if 'tracesHiddenService' not in str(exc):
+                p.append(f'tracesHiddenService={bad!r} failed for another reason: {str(exc)[-200:]}')
+    return p
+
+
+def check_user_is_labelled_ai_calls(c):
+    p = []
+    cols = {col['valueKey']: col['title'] for col in c.get('Table', 'obs-traces')['spec']['widgetData']['columns']}
+    expect(p, 'the column', cols['user'], 'User (AI calls)')
+    expect(p, 'the filter label', c.get('Paragraph', 'obs-traces-user-label')['spec']['widgetData']['text'], 'User (AI calls)')
+    _, _, out = resolve(c, 'obs-traces', {}, {'spans': ch(LIST_ROWS)})
+    users = [cells(r)['user']['stringValue'] for r in tbi.widget(c, 'Table', 'obs-traces', 'dataSource', out, {})]
+    expect(p, 'rows without jwt.sub show a dash', users, ['admin', 'admin', '—', 'cyberjoker', 'admin', '—'])
+    return p
+
+
+def unquoted(rows, keys):
+    """The same rows as a server with output_format_json_quote_64bit_integers=0 sends them (057)."""
+    return [{k: (int(v) if k in keys else v) for k, v in r.items()} for r in rows]
+
+
+def check_64bit_integers_quoted_or_not(c):
+    """057's ClickHouse sends Int64/UInt64 unquoted; the server default quotes them. Same view either way."""
+    p = []
+    seen = []
+    for label, rows, spans_a, spans_b, facets in [
+            ('quoted', LIST_ROWS, TRACE_A_SPANS, TRACE_B_SPANS, FACETS),
+            ('unquoted', unquoted(LIST_ROWS, {'ts_ms', 'dur_ns'}), unquoted(TRACE_A_SPANS, {'start_us', 'dur_ns'}),
+             unquoted(TRACE_B_SPANS, {'start_us', 'dur_ns'}),
+             {k: ch(unquoted(v['data'], {'n'})) for k, v in FACETS.items()})]:
+        if label == 'unquoted' and not isinstance(rows[0]['ts_ms'], int):
+            p.append('the unquoted fixture is still quoted')
+        view = {}
+        _, _, out = resolve(c, 'obs-traces', {}, {'spans': ch(rows)})
+        view['list'] = tbi.resolved_widget(c, 'Table', 'obs-traces', out, {}, f'obs-traces ({label} ints)')['spec']['widgetData']['dataSource']
+        for name, tid, spans in (('a', TRACE_A, spans_a), ('b', TRACE_B, spans_b)):
+            _, _, det = resolve(c, 'obs-trace-detail', {'traceId': tid}, {'spans': ch(spans)})
+            ex = {'traceId': tid}
+            view[f'spans-{name}'] = tbi.widget(c, 'Table', 'trace-detail-spans', 'dataSource', det, ex)
+            view[f'graph-{name}'] = tbi.widget(c, 'FlowChart', 'trace-detail-topology', 'data', det, ex)
+            view[f'subtitle-{name}'] = tbi.widget(c, 'PageHeader', 'trace-detail-page-header', 'subtitle', det, ex)
+        _, _, fac = resolve(c, 'obs-trace-facets', {}, facets)
+        view['service-chips'] = tbi.widget(c, 'Listy', 'obs-traces-service-chips', 'dataSource', fac, {})
+        seen.append(view)
+    for key in seen[0]:
+        expect(p, f'{key}: unquoted == quoted', seen[1][key], seen[0][key])
+    expect(p, 'quoted: the first row still reads right', cells(seen[0]['list'][0])['duration']['stringValue'], '5.81 s')
+    return p
+
+
 def check_admins_only(c, with_console):
     p = []
     for chart in (c, with_console):
@@ -527,6 +628,9 @@ def main():
         ('filter chips keep the tab and the other filters', lambda: check_filter_chips_keep_the_tab_and_the_other_filters(c)),
         ('the HyperDX link exists only when configured', lambda: check_hyperdx_link_only_when_configured(c, with_console)),
         ('the tab and the trace route are wired', lambda: check_tab_and_route_are_wired(c)),
+        ('HyperDX internals are hidden unless chosen', lambda: check_hyperdx_internals_hidden_unless_chosen(c)),
+        ('the User column and filter say "AI calls"', lambda: check_user_is_labelled_ai_calls(c)),
+        ('64-bit integers read the same quoted or not', lambda: check_64bit_integers_quoted_or_not(c)),
         ('admins only: new objects sit in the page namespace', lambda: check_admins_only(c, with_console)),
     ]
     if crds_dir:
