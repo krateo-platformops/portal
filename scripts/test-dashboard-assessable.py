@@ -5,7 +5,8 @@ WHY. core-provider reports Ready=Unknown with reason `ZeroEvidence` when none of
 managed children has readiness semantics it can read (unstructured-runtime v1.12.0 condition.go).
 That is permanent and healthy, but the Dashboard counted it as Pending forever. compositions-list
 now marks it `assessable: false`; the stat cards, the condition coverage and the reconciliation rail
-set it aside and say how many they set aside.
+set it aside and say how many they set aside. Hovering a rail row's "No signal" names the reason
+(`rail.reason`, "Ready=Unknown · ZeroEvidence: <the controller's message>"); no other row has one.
 
 THE RULE, and the one that is easy to get wrong: the bucket is matched on the REASON. Unknown also
 comes with `ChildrenForbidden` and `InventoryNotRecorded` (cdc childhealth.go), which are defects,
@@ -141,7 +142,8 @@ def rows(listy, data_source):
         out.append({'primary': interpolate(tpl.get('primaryText'), item),
                     'sub': interpolate(tpl.get('subPrimaryText'), item),
                     'percent': percent, 'color': resolve_color(bar.get('color'), item),
-                    'label': interpolate(bar.get('label'), item)})
+                    'label': interpolate(bar.get('label'), item),
+                    'tooltip': interpolate(bar.get('tooltip'), item)})
     return out
 
 
@@ -232,6 +234,18 @@ for name in sorted(SILENT):
           row and (row['percent'], row['color'], row['label']), (0, 'gray', 'No signal'))
 check('057: no other rail row says No signal',
       sorted(n for n, r in got['rail'].items() if r['label'] == 'No signal' and n not in SILENT), [])
+# The tooltip on "No signal". The message is core-provider's own, less its opening "Composition health
+# is unknown: " (Ready=Unknown already says it). No other row carries a reason, in the RA's whole list
+# (the rail shows only 12 rows) or on the rail, so no other label gets a tooltip.
+REASONS = {n: f'Ready=Unknown · ZeroEvidence: none of its {k} managed children could be health-evaluated '
+              '(no readiness semantics this controller knows how to read)'
+           for n, k in [('event-health', 5), ('model-configs', 3)]}
+for name in sorted(SILENT):
+    check(f'057: rail {name} names its reason on hover', (got['rail'].get(name) or {}).get('tooltip'), REASONS[name])
+check('057: only the not assessable rows carry rail.reason',
+      sorted(i['name'] for i in out['list'] if i['rail'].get('reason')), sorted(SILENT))
+check('057: no other rail row has a tooltip',
+      sorted(n for n, r in got['rail'].items() if r['tooltip'] and n not in SILENT), [])
 check('057: the RA keeps .state and .railState for the pages that read them',
       sorted({(i['state'], i['railState']) for i in out['list'] if i['name'] in SILENT}), [('pending', 'pending')])
 
@@ -251,6 +265,10 @@ for d in DEFECTS:
     row = got['rail'].get(name)
     check(f'defects: rail {name} keeps its pending bar', row and (row['percent'], row['color'], row['label']),
           (50, 'orange', '50%'))
+    check(f'defects: {name} carries no rail.reason', 'reason' in item['rail'], False)
+    check(f'defects: rail {name} has no tooltip', row and row['tooltip'], '')
+check('defects: only the ZeroEvidence pair carries rail.reason',
+      sorted(i['name'] for i in out['list'] if i['rail'].get('reason')), sorted(SILENT))
 
 # --- 3. nothing to set aside: the page reads as it did before ------------------------------------
 # These are the values the widgets' previous expressions give over the same data (diffed against
@@ -271,6 +289,8 @@ check('none: every rail row is its healthPercent and railState colour',
       sorted(n for n, r in got['rail'].items()
              if (r['percent'], r['color'], r['label'])
              != (by_name[n]['healthPercent'], rail_map[by_name[n]['railState']], f'{by_name[n]["healthPercent"]}%')), [])
+check('none: no row carries rail.reason', sorted(i['name'] for i in out['list'] if 'reason' in i['rail']), [])
+check('none: no rail row has a tooltip', sorted(n for n, r in got['rail'].items() if r['tooltip']), [])
 check('none: the delta-compositions Flex resolves to its authored items',
       resolved('delta-compositions', out)['items'], named(DASH, 'delta-compositions')['spec']['widgetData']['items'])
 
@@ -288,6 +308,19 @@ check('all silent: nothing assessable, nothing pending', (got['subline'], got['h
 odd = copy.deepcopy(only_silent[0])
 odd['status']['conditions'][0]['status'] = 'False'
 check('ZeroEvidence on Ready=False is not set aside', compositions_list([odd])['list'][0]['assessable'], True)
+check('ZeroEvidence on Ready=False carries no rail.reason', 'reason' in compositions_list([odd])['list'][0]['rail'], False)
+# The reason text when the message is not the usual one: empty says the condition alone, and one
+# without the usual opening is kept whole.
+bare = copy.deepcopy(only_silent[0])
+bare['status']['conditions'][0]['message'] = ''
+check('ZeroEvidence with no message: the reason is the condition alone',
+      compositions_list([bare])['list'][0]['rail']['reason'], 'Ready=Unknown · ZeroEvidence')
+bare['status']['conditions'][0].pop('message')
+check('ZeroEvidence with the message absent: the reason is the condition alone',
+      compositions_list([bare])['list'][0]['rail']['reason'], 'Ready=Unknown · ZeroEvidence')
+bare['status']['conditions'][0]['message'] = 'no child reports readiness'
+check('ZeroEvidence with another message: kept whole',
+      compositions_list([bare])['list'][0]['rail']['reason'], 'Ready=Unknown · ZeroEvidence: no child reports readiness')
 
 # --- every rail state the RA emits is coloured (a missing one renders near-black) ----------------
 check('the dashboard rail colours every rail.state',
