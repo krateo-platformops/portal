@@ -1,0 +1,48 @@
+{{/* The values the Traces tab's Service and User chips offer (installer#404): the busiest services */}}
+{{/* and users in the selected window, from otel_traces. The chips come from the data so no service */}}
+{{/* or user is hardcoded; a value outside the top 12 is still reachable by its URL, and its chip is */}}
+{{/* shown while it is the active filter. */}}
+{{/* */}}
+{{/* The queries, decoded (<window> is ?range as in obs-traces: 1 HOUR | 6 HOUR | 24 HOUR | 7 DAY): */}}
+{{/*   SELECT ServiceName AS svc, count() AS n FROM otel_traces */}}
+{{/*   WHERE Timestamp > now() - INTERVAL <window> GROUP BY svc ORDER BY n DESC LIMIT 12 FORMAT JSON */}}
+{{/* */}}
+{{/*   SELECT SpanAttributes['jwt.sub'] AS sub, count() AS n FROM otel_traces */}}
+{{/*   WHERE SpanAttributes['jwt.sub'] != '' AND Timestamp > now() - INTERVAL <window> */}}
+{{/*   GROUP BY sub ORDER BY n DESC LIMIT 12 FORMAT JSON */}}
+{{/* */}}
+{{/* The only request input is ?range, and it reaches the SQL only through the four-way match */}}
+{{/* below: no request text is concatenated into either query. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-trace-facets
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: services
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ ((.range // "24h") | tostring) as $r | (if $r == "1h" then "1%20HOUR" elif $r == "6h" then "6%20HOUR" elif $r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20ServiceName%20AS%20svc%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20svc%20ORDER%20BY%20n%20DESC%20LIMIT%2012%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: servicesError
+    - name: users
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ ((.range // "24h") | tostring) as $r | (if $r == "1h" then "1%20HOUR" elif $r == "6h" then "6%20HOUR" elif $r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20SpanAttributes%5B%27jwt.sub%27%5D%20%21%3D%20%27%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20sub%20ORDER%20BY%20n%20DESC%20LIMIT%2012%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: usersError
+  {{/* count() is UInt64, so it arrives as a JSON string. */}}
+  filter: >
+    { services: [ ((.services.data) // [])[] | { name: (.svc // ""), count: (.n | tonumber? // 0) } ],
+      users: [ ((.users.data) // [])[] | { name: (.sub // ""), count: (.n | tonumber? // 0) } ] }

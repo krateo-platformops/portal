@@ -1,0 +1,21 @@
+{{/* The note under the trace page's service diagram (installer#404, the issue's "say so in the */}}
+{{/* UI"): there is no waterfall widget, and FlowChart has no time axis. The HyperDX sentence is */}}
+{{/* there only when the link to HyperDX is, so the note never points at a link the page lacks. */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-note
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param, which reaches every widget on the page. */}}
+  keyExtras: [traceId]
+  widgetData:
+    {{- if .Values.observabilityConsoleUrl }}
+    markdown: "This diagram shows which services the request passed through, not how long each took. For timing, read the span list or open the trace in HyperDX."
+    {{- else }}
+    markdown: "This diagram shows which services the request passed through, not how long each took. For timing, read the span list."
+    {{- end }}
+  resourcesRefs:
+    items: []

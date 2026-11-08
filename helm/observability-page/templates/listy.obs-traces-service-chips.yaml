@@ -1,0 +1,29 @@
+{{/* Service chips of the Traces tab (installer#404): "All", then the 12 busiest services in */}}
+{{/* the window with their span counts (obs-trace-facets). A filter set to a value outside that list */}}
+{{/* still gets its chip, active, so the bar always says what the table is filtered by — but only a */}}
+{{/* value obs-traces would accept: a refused one is not dressed up as a working filter. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-service-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): `range` scopes the facets, `traceService` drives the active flag, the rest */}}
+  {{/* are carried into the routes. */}}
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  apiRef:
+    name: obs-trace-facets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "obs.traces.route" . }} {{ include "obs.traces.valid" . }} . as $x | ((.traceService // "") | tostring) as $sel | [ (.services // [])[] | select(.name != "") ] as $top | [ {name: "", label: "All"} ] + [ $top[] | {name: .name, label: .name, count: .count} ] + (if $sel != "" and ($sel | okService) and (any($top[]; .name == $sel) | not) then [ {name: $sel, label: $sel} ] else [] end) | map(.name as $n | { label: .label, active: ($n == $sel), route: ($x | tracesRoute({traceService: $n})) } + (if .count == null then {} else {count: .count} end)) }'
+  resourcesRefs:
+    items: []

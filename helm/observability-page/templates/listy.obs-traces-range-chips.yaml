@@ -1,0 +1,24 @@
+{{/* Time-range chips of the Traces tab (installer#404). They write the same ?range= as the shared */}}
+{{/* chips above the tabs, so the two always agree; these also keep the reader on the Traces tab and */}}
+{{/* keep the other filters. No apiRef: snowplow merges the request extras into the data source. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-range-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): `range` drives the active flag; the rest are carried into the routes. */}}
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "obs.traces.route" . }} . as $x | ((.range // "24h") | tostring) as $sel | ["1h", "6h", "24h", "7d"] | map(. as $k | { label: $k, active: ($k == $sel), route: ($x | tracesRoute({range: $k})) }) }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,38 @@
+{{/* The trace page's way out to HyperDX (installer#404): a link, never an embed — HyperDX has its */}}
+{{/* own sign-in, so an embed would drop the reader into a second login inside the portal. Rendered */}}
+{{/* only when `observabilityConsoleUrl` is set (see flex.trace-detail-col-right). */}}
+{{- if .Values.observabilityConsoleUrl }}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-hyperdx
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    vertical: true
+    gap: small
+    allowedResources:
+      - buttons
+      - paragraphs
+    items:
+      - resourceRefId: trace-detail-hyperdx-link
+      - resourceRefId: trace-detail-hyperdx-caption
+  resourcesRefs:
+    items:
+      - id: trace-detail-hyperdx-link
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-hyperdx-link
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
+      - id: trace-detail-hyperdx-caption
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-hyperdx-caption
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+{{- end }}

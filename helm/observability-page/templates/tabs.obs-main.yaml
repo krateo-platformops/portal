@@ -33,6 +33,10 @@ spec:
         resourceRefId: obs-tab-telemetry
       - label: Components
         resourceRefId: obs-tab-components
+      {{/* installer#404: the span list. Its filter chips write ?tab=Traces, because changing the */}}
+      {{/* query string remounts this widget and it opens on ?tab= (else the first tab). */}}
+      - label: Traces
+        resourceRefId: obs-tab-traces
       {{/* Snowplow SLI tabs (portal#201). Every panel is a ClickHouse query over the OTel tables,
            filtered to ServiceName='snowplow'. Guarded so an install without the snowplow metrics
            pipeline does not render six tabs of empty charts — an empty panel reads as a broken
@@ -64,6 +68,12 @@ spec:
       - id: obs-tab-components
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: obs-tab-components
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: obs-tab-traces
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: obs-tab-traces
         namespace: {{ $.Values.namespace }}
         resource: cols
         verb: GET

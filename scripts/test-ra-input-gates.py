@@ -42,6 +42,7 @@ import json
 import os
 import re
 import sys
+from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
@@ -310,6 +311,21 @@ GATES = {
         'gated': ['perf'],
         'free': {},
         'cases': [('named', {'namespace': 'team-a', 'name': 'c1'}, {'perf': {'data': []}}, None)],
+    },
+    # /observability/traces/{traceId}: a ClickHouse query keyed on the route param. Its injection
+    # cases live in test-observability-traces.py; this pins the gate itself.
+    'obs-trace-detail': {
+        'gated': ['spans'],
+        'free': {},
+        'cases': [
+            ('named', {'traceId': '4f1c9e2a7b3d4c5e8f9a0b1c2d3ea07e'}, {'spans': {'data': []}}, [
+                ('spans', '/?query=' + quote(
+                    "SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, "
+                    "ParentSpanId AS parent_id, ServiceName AS svc, SpanName AS span, Duration AS dur_ns, "
+                    "StatusCode AS status, SpanAttributes['jwt.sub'] AS sub FROM otel_traces "
+                    "WHERE TraceId = '4f1c9e2a7b3d4c5e8f9a0b1c2d3ea07e' AND Timestamp > now() - INTERVAL 7 DAY "
+                    "ORDER BY Timestamp ASC, SpanId ASC LIMIT 1000 FORMAT JSON", safe=''))]),
+            ('not a trace id: no request', {'traceId': "4f1c9e2a7b3d4c5e8f9a0b1c2d3ea0' OR '1'='1"}, {}, [])],
     },
     'kog-oas-operations': {
         'gated': ['cm'],

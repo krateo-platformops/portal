@@ -1,0 +1,35 @@
+{{/* "Open this trace in HyperDX" (installer#404). HyperDX 2.35 (clickstack 3.2.0) serves */}}
+{{/* /trace/<traceId>, which redirects to its search page with that trace open; it asks which trace */}}
+{{/* source to use if the reader has not picked one. The base is `observabilityConsoleUrl`, the */}}
+{{/* same value the alert pages build their HyperDX links from; the frontend opens an absolute */}}
+{{/* URL in a new tab. The id is the route param, used only when it is 32 hex characters — */}}
+{{/* anything else navigates nowhere ("#"), as the alert buttons do with no id. No apiRef: */}}
+{{/* snowplow merges the request extras into the data source. */}}
+{{- if .Values.observabilityConsoleUrl }}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-hyperdx-link
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    label: Open this trace in HyperDX
+    type: default
+    variant: outlined
+    icon: fa-arrow-up-right-from-square
+    clickActionId: open-trace-in-hyperdx
+    actions:
+      navigate:
+        - id: open-trace-in-hyperdx
+          type: navigate
+          path: '#'
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ {{ include "obs.traces.valid" . }} ({{ .Values.observabilityConsoleUrl | quote }} | rtrimstr("/")) as $console | ((.traceId // "") | tostring | ascii_downcase) as $t | { navigate: [ { id: "open-trace-in-hyperdx", type: "navigate", path: (if ($t | okTraceId) then $console + "/trace/" + $t else "#" end) } ] } }'
+  resourcesRefs:
+    items: []
+{{- end }}

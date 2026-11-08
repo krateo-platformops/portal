@@ -1,0 +1,44 @@
+{{/* Convention page root for /observability/traces/{traceId} (installer#404): one trace, opened */}}
+{{/* from a row of the Traces tab. A sub-route like /observability/components/{name}: nav-path */}}
+{{/* only, so it routes without a sidebar entry, and it lives in this chart's namespace, so the */}}
+{{/* same readerGroups (admins) that can open /observability can open it and nobody else can. */}}
+{{/* */}}
+{{/* Header (trace id, status, who/when/how long), then a 15:9 grid: every span on the left in */}}
+{{/* start order, the services it passed through on the right, with the note on what the diagram */}}
+{{/* does not show and, when a console URL is configured, the link to the trace in HyperDX. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-trace-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-order": "931"
+    "krateo.io/nav-path": "/observability/traces/{traceId}"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    vertical: true
+    {{/* P9: the one section step shared by every nav-declared page root. */}}
+    gap: middle
+    allowedResources:
+      - pageheaders
+      - rows
+    items:
+      - resourceRefId: trace-detail-page-header
+      - resourceRefId: trace-detail-grid
+  resourcesRefs:
+    items:
+      - id: trace-detail-page-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-page-header
+        namespace: {{ $.Values.namespace }}
+        resource: pageheaders
+        verb: GET
+      - id: trace-detail-grid
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-grid
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET

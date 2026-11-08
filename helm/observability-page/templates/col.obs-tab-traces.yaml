@@ -1,0 +1,42 @@
+{{/* Observability → Traces tab content (installer#404). A Col wrapper like the other tabs: the */}}
+{{/* caption, the filter bar, then the span list. Clicking a row opens */}}
+{{/* /observability/traces/{traceId}. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tab-traces
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the filter chips put every one of these in the URL. */}}
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - flexes
+    - tables
+    items:
+    - resourceRefId: obs-sec-traces-desc
+    - resourceRefId: obs-traces-filters
+    - resourceRefId: obs-traces
+  resourcesRefs:
+    items:
+    - id: obs-sec-traces-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-traces-desc
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-traces-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-filters
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: obs-traces
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET

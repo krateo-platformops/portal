@@ -29,7 +29,7 @@
     },
     "observabilityConsoleUrl": {
       "default": "",
-      "description": "Optional URL of the external observability console. When set, a \"View in console\" link appears; empty hides it.",
+      "description": "Optional URL of the external observability console (the clickstack/HyperDX UI). When set, a \"View in console\" link appears on /observability and the trace page links each trace at <url>/trace/<TraceId>; empty hides both. No default: HyperDX has no public route on the platform, so there is no address to assume.",
       "title": "observabilityConsoleUrl",
       "type": "string"
     },
@@ -40,6 +40,12 @@
       },
       "title": "readerGroups",
       "type": "array"
+    },
+    "tracesHiddenService": {
+      "description": "A service whose spans the Traces tab leaves out while no Service filter is chosen, with a note in the filter bar saying so; picking it in the Service filter shows them. The default is HyperDX's own Node instrumentation, about 97% of all spans. Empty hides nothing. Only letters, digits, dot, underscore and hyphen: the chart refuses to render anything else, because the value goes into SQL. No schema default: the installer applies schema defaults over values.yaml, so the default lives in values.yaml.",
+      "pattern": "^[A-Za-z0-9._-]{0,128}$",
+      "title": "tracesHiddenService",
+      "type": "string"
     }
   },
   "type": "object"
