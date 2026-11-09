@@ -23,6 +23,15 @@
 {{/* quotes it cannot close; the user value is also @uri-encoded, since `+`, `/` and `=` occur in */}}
 {{/* OIDC subjects. */}}
 {{/* */}}
+{{/* EVERY %XX IS WRITTEN IN `path`, NEVER IN THE ITERATOR. snowplow renders `path` as a template */}}
+{{/* (snowplow#1123, internal/pathtemplate): its string literals are sent as written, and every */}}
+{{/* other value spliced into the query is escaped as one query value, `%` included. So the */}}
+{{/* iterator yields the raw, checked values, and the SQL fragments (`%20AND%20ServiceName…`) are */}}
+{{/* literals or `if` branches here: a fragment built in the iterator reaches `path` as a VALUE and */}}
+{{/* is encoded twice — portal 1.8.99 sent `INTERVAL 24%20HOUR%20AND…` to ClickHouse and the */}}
+{{/* tab showed "No rows". `.usr | @uri` is a value the program encoded itself, which snowplow */}}
+{{/* sends as written. test-observability-traces.py renders the path with snowplow's own code. */}}
+{{/* */}}
 {{/* HYPERDX'S OWN SPANS ARE LEFT OUT BY DEFAULT. `tracesHiddenService` (krateo-observability, */}}
 {{/* HyperDX's Node instrumentation) is ~97% of all spans and buries everything else. While no */}}
 {{/* Service filter is chosen it is excluded, and `hidden` names it for the filter bar's note; */}}
@@ -43,11 +52,11 @@ spec:
     - name: spans
       dependsOn:
         name: ""
-        iterator: '{{ include "obs.traces.valid" . }} [ ((.range // "24h") | tostring) as $r | (if $r == "1h" then "1%20HOUR" elif $r == "6h" then "6%20HOUR" elif $r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.traceService // "") | tostring) as $svc | ((.traceUser // "") | tostring) as $usr | ((.traceStatus // "") | tostring) as $st | {{ include "obs.traces.hidden" . }} as $hid | select(($svc | okService) and ($usr | okUser) and ($st | okStatus)) | { iv: $iv, cond: ((if $svc != "" then "%20AND%20ServiceName%20%3D%20%27" + $svc + "%27" elif $hid != "" then "%20AND%20ServiceName%20%21%3D%20%27" + $hid + "%27" else "" end) + (if $usr == "" then "" else "%20AND%20SpanAttributes%5B%27jwt.sub%27%5D%20%3D%20%27" + ($usr | @uri) + "%27" end) + (if $st == "" then "" else "%20AND%20StatusCode%20%3D%20%27" + $st + "%27" end)) } ]'
+        iterator: '{{ include "obs.traces.valid" . }} [ {r: ((.range // "24h") | tostring), svc: ((.traceService // "") | tostring), usr: ((.traceUser // "") | tostring), st: ((.traceStatus // "") | tostring)} | select((.svc | okService) and (.usr | okUser) and (.st | okStatus)) ]'
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ "/?query=SELECT%20toUnixTimestamp64Milli%28Timestamp%29%20AS%20ts_ms%2C%20ServiceName%20AS%20svc%2C%20SpanName%20AS%20span%2C%20Duration%20AS%20dur_ns%2C%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%2C%20StatusCode%20AS%20status%2C%20TraceId%20AS%20trace_id%20FROM%20otel_traces%20WHERE%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + .iv + .cond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20200%20FORMAT%20JSON" }'
+      path: '${ (if .r == "1h" then "1%20HOUR" elif .r == "6h" then "6%20HOUR" elif .r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | (if .svc != "" then "%20AND%20ServiceName%20%3D%20%27" + .svc + "%27" elif {{ include "obs.traces.hidden" . }} != "" then "%20AND%20ServiceName%20%21%3D%20%27" + {{ include "obs.traces.hidden" . }} + "%27" else "" end) as $svcCond | (if .usr == "" then "" else "%20AND%20SpanAttributes%5B%27jwt.sub%27%5D%20%3D%20%27" + (.usr | @uri) + "%27" end) as $usrCond | (if .st == "" then "" else "%20AND%20StatusCode%20%3D%20%27" + .st + "%27" end) as $stCond | "/?query=SELECT%20toUnixTimestamp64Milli%28Timestamp%29%20AS%20ts_ms%2C%20ServiceName%20AS%20svc%2C%20SpanName%20AS%20span%2C%20Duration%20AS%20dur_ns%2C%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%2C%20StatusCode%20AS%20status%2C%20TraceId%20AS%20trace_id%20FROM%20otel_traces%20WHERE%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + $svcCond + $usrCond + $stCond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20200%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'

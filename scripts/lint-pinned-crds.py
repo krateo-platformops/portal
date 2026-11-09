@@ -79,6 +79,12 @@ def pinned_version():
     """The frontend-crds version the platform pins, or None when it cannot be determined."""
     if os.environ.get('FRONTEND_CRDS_VERSION'):
         return os.environ['FRONTEND_CRDS_VERSION'], 'FRONTEND_CRDS_VERSION'
+    return pinned_component_version('frontend-crd')
+
+
+def pinned_component_version(component):
+    """(version, where it was read) of one installer component pin; version None when it cannot
+    be determined."""
     # Three attempts: a transient blip should not red an unrelated PR, but a gate that cannot
     # read the pin must NOT pass. See the exit contract in main().
     last = None
@@ -95,12 +101,12 @@ def pinned_version():
     else:
         return None, f'could not read the installer pins after 3 attempts: {last}'
     for comp in (pins or {}).get('components') or []:
-        if isinstance(comp, dict) and comp.get('name') == 'frontend-crd':
+        if isinstance(comp, dict) and comp.get('name') == component:
             ver = comp.get('version')
             if ver:
                 return str(ver), f'installer main @ {sha[:7]}, not a release: chart/files/component-pins.yaml'
-            return None, 'the frontend-crd pin entry carries no version'
-    return None, 'no .components[] entry named frontend-crd in the installer pins'
+            return None, f'the {component} pin entry carries no version'
+    return None, f'no .components[] entry named {component} in the installer pins'
 
 
 def unpack(version):

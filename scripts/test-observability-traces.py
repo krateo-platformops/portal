@@ -7,10 +7,12 @@ WHAT IT GUARDS. Three RESTActions (obs-traces, obs-trace-facets, obs-trace-detai
 text into ClickHouse SQL, and a dozen widgets turn their rows into a span list, filter chips, a
 service diagram and a header. `helm template` evaluates none of that jq. This renders the chart,
 resolves the RESTActions with test-ra-input-gates' model of snowplow's resolver (iterators,
-dependsOn, step filters, continueOnError), runs the widgets' own jq over the result, and checks
-what a reader would see:
+dependsOn, step filters, continueOnError; each stage PATH rendered by snowplow's own code, see
+snowplow-path.py), runs the widgets' own jq over the result, and checks what a reader would see:
   - the span list is newest first, bounded by a time window and LIMIT 200, and each filter reaches
     the SQL as exactly one predicate;
+  - the request snowplow dials is encoded exactly once: decoded once it is that SQL (portal 1.8.99
+    encoded its WHERE fragments twice, and ClickHouse refused every span-list query);
   - an Error span shows as a red "Error" pill, Ok as "OK", Unset as "Unset";
   - a row opens /observability/traces/<its full trace id>;
   - the trace page lists spans in start order with offsets from the first, and draws one node per
@@ -27,7 +29,8 @@ chart; --pinned pulls the version the installer pins (lint-pinned-crds.py reads 
 the cluster serves. Widget CRDs are strict, so a field the CRD lacks is refused by the apiserver
 (authored) or by snowplow (resolved).
 
-Uses the `jq` binary; JQ=gojq runs the same checks on it.
+Uses the `jq` binary; JQ=gojq runs the same checks on it. Needs `go` and `git` for snowplow's path
+renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
 Usage: test-observability-traces.py [--crds DIR | --pinned]. Exit code = failed checks.
 """
 import copy
@@ -279,6 +282,49 @@ def check_filters_reach_the_sql_as_one_predicate_each(c):
         expect(p, f'{extras}: nothing rejected', out['rejected'], [])
         if reqs and '+' in reqs[0][1]:
             p.append(f'{extras}: a literal + reached the URL, where it reads as a space')
+    return p
+
+
+def check_requests_are_encoded_exactly_once(c):
+    """What ClickHouse decodes is the SQL, once. snowplow escapes every value spliced into a path's
+    query (snowplow#1123), `%` included, so a fragment that arrives already %-encoded is sent as
+    `%2520`: portal 1.8.99 built its WHERE fragments in the iterator and ClickHouse received
+    `INTERVAL 24%20HOUR%20AND%20ServiceName…`. The path here is snowplow's own rendering
+    (snowplow-path.py), so this reads the request it actually dials: decoded once, it is exactly
+    the intended SQL; decoded again, nothing changes (no escape survived the first decode); and it
+    carries no `%25`, no space and no bare `+`, which ClickHouse would read as a space."""
+    p = []
+    user = 'CgVhZG1pbhIF+bG9j/YWw='          # an OIDC subject: base64 `+`, `/`, `=`
+    cases = [
+        ('obs-traces', {}, LIST_SQL.format(window='24 HOUR', cond=HIDE)),
+        ('obs-traces', {'range': '7d'}, LIST_SQL.format(window='7 DAY', cond=HIDE)),
+        ('obs-traces', {'traceService': 'snowplow'}, LIST_SQL.format(window='24 HOUR', cond=" AND ServiceName = 'snowplow'")),
+        ('obs-traces', {'traceUser': user},
+         LIST_SQL.format(window='24 HOUR', cond=HIDE + f" AND SpanAttributes['jwt.sub'] = '{user}'")),
+        ('obs-traces', {'traceUser': 'x+y/z=@:.-_'},
+         LIST_SQL.format(window='24 HOUR', cond=HIDE + " AND SpanAttributes['jwt.sub'] = 'x+y/z=@:.-_'")),
+        ('obs-traces', {'traceStatus': 'Error'}, LIST_SQL.format(window='24 HOUR', cond=HIDE + " AND StatusCode = 'Error'")),
+        ('obs-traces', {'traceService': 'snowplow', 'traceUser': user, 'traceStatus': 'Ok', 'range': '1h'},
+         LIST_SQL.format(window='1 HOUR', cond=" AND ServiceName = 'snowplow'"
+                                               f" AND SpanAttributes['jwt.sub'] = '{user}' AND StatusCode = 'Ok'")),
+        ('obs-trace-detail', {'traceId': TRACE_A}, DETAIL_SQL.format(tid=TRACE_A)),
+    ]
+    for ra, extras, want in cases:
+        reqs, _, _ = resolve(c, ra, extras, {'spans': ch([])})
+        if len(reqs) != 1:
+            p.append(f'{ra} {extras}: {len(reqs)} requests, want 1')
+            continue
+        raw = reqs[0][1]
+        once = sql_of(raw)
+        expect(p, f'{ra} {extras}: decoded once', once, want)
+        if unquote(once) != once:
+            p.append(f'{ra} {extras}: an escape survived one decode (encoded twice): {once!r}')
+        for bad, why in [('%25', 'an escaped %'), (' ', 'a space'), ('+', 'a bare +')]:
+            if bad in raw:
+                p.append(f'{ra} {extras}: the request carries {why}: {raw!r}')
+    for _, path, _ in resolve(c, 'obs-trace-facets', {'range': '6h'}, FACETS)[0]:
+        if unquote(sql_of(path)) != sql_of(path) or '%25' in path:
+            p.append(f'obs-trace-facets: encoded twice: {sql_of(path)!r}')
     return p
 
 
@@ -622,6 +668,7 @@ def main():
         ('span list is newest first and bounded', lambda: check_span_list_is_newest_first_and_bounded(c)),
         ('an Error span shows as an error', lambda: check_error_status_shows_as_an_error(c)),
         ('each filter reaches the SQL as one predicate', lambda: check_filters_reach_the_sql_as_one_predicate_each(c)),
+        ('each request is encoded exactly once, as snowplow dials it', lambda: check_requests_are_encoded_exactly_once(c)),
         ('a quote or SQL fragment in any input makes no request', lambda: check_injection_is_refused(c)),
         ('the trace page lists spans in start order', lambda: check_trace_page_lists_spans_in_start_order(c)),
         ('the service diagram follows ParentSpanId', lambda: check_topology_follows_parent_span_ids(c)),
@@ -653,7 +700,8 @@ def main():
         for prob in dict.fromkeys(problems):
             print(f'        {prob}')
         failed += bool(problems)
-    print(f'\n{total - failed} of {total} checks passed ({tbi.JQ}'
+    print(f'\n{total - failed} of {total} checks passed ({tbi.JQ}; paths rendered by snowplow '
+          f'{gates.spath.renderer().source}'
           f'{"" if crds_dir else "; widgets NOT validated (no --crds / --pinned)"})')
     return failed
 

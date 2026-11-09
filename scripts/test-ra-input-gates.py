@@ -20,8 +20,10 @@ them:
 
 HOW. helm/portal and helm/portal-agents are rendered (test-builder-install.py's render) and each
 RESTAction is resolved by a model of snowplow's resolver: steps in dependsOn order (sort.go); an
-iterator yields its elements, none for a non-array; path, payload and headers are evaluated against
-the element; a step filter sees {extras, <stage>: response}; the first response is stored as-is,
+iterator yields its elements, none for a non-array; payload and headers are evaluated against the
+element, and the PATH is rendered by snowplow's own renderer (snowplow-path.py: internal/pathtemplate
+built from the snowplow the installer pins), which escapes every value spliced into it — a path it
+refuses makes no request; a step filter sees {extras, <stage>: response}; the first response is stored as-is,
 later filter-produced arrays are spliced; an unserved request fails, recorded under the errorKey.
 Two things snowplow does to the requests are modelled too, because the page broke on them while
 this test passed (portal 1.8.56: the composition detail page resolved no composition):
@@ -33,7 +35,8 @@ this test passed (portal 1.8.56: the composition detail page resolved no composi
   - a userAccessFilter keeps only the items in namespaces the caller may read (refilter.go).
 Each case runs as an admin (collapse on, every namespace) unless it names a tenant's namespaces.
 
-Uses the `jq` binary; JQ=gojq runs the same checks on it.
+Uses the `jq` binary; JQ=gojq runs the same checks on it. Needs `go` and `git` for snowplow's path
+renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
 Usage: test-ra-input-gates.py [--crds DIR]. Exit code = failed checks.
 """
 import copy
@@ -48,6 +51,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
 tbi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tbi)
+_spec = importlib.util.spec_from_file_location('spath', os.path.join(HERE, 'snowplow-path.py'))
+spath = importlib.util.module_from_spec(_spec)       # snowplow's own path renderer (snowplow#1123)
+_spec.loader.exec_module(spath)
 
 NS = tbi.NS
 
@@ -144,8 +150,10 @@ def resolve(ra, extras, responses, caller=ADMIN):
             items = [d]
         calls = []
         for item in items:
-            expr = query(step.get('path'))
-            path = tbi.jq(expr, item) if expr is not None else step['path']
+            try:
+                path = spath.render(step.get('path'), item)
+            except spath.Refused:
+                continue           # snowplow skips the dial (setup.go:227-255): no request
             payload = step.get('payload')
             if payload is not None and query(payload) is not None:
                 payload = json.loads(tbi.jq(query(payload), item))
@@ -835,7 +843,8 @@ def main():
         for p in dict.fromkeys(problems):
             print(f'        {p}')
         failed += bool(problems)
-    print(f'\n{total - failed} of {total} checks passed ({tbi.JQ}, {len(GATES)} RESTActions'
+    print(f'\n{total - failed} of {total} checks passed ({tbi.JQ}, {len(GATES)} RESTActions, paths rendered by '
+          f'snowplow {spath.renderer().source}'
           f'{"" if crds_dir else "; resolved widgets NOT validated (no --crds)"})')
     return failed
 
