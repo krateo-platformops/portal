@@ -10,7 +10,8 @@ CI here should not break because another repo landed a new rule, and a lint that
 is a lint that fails on a bad morning. The cost is that this file can drift from upstream — if the
 rules change there, re-copy the script, its fixtures and its self-test together.
 
-VENDORED AT: krateo-platformops/frontend#486 @ 8e10956 (design/lint/). This stamp exists because the copy
+VENDORED AT: krateo-platformops/frontend main @ a4f3e75 (design/lint/), re-copied 2026-11-09.
+This stamp exists because the copy
 HAD drifted and nothing noticed — it was missing rule_containment (X5) entirely, so that gate never
 ran here after it landed upstream. The self-test now fails when a registered rule is undocumented,
 which catches one shape of that drift; nothing catches the rest.
@@ -546,15 +547,27 @@ def rule_missing_target(crs):
 def rule_containment(crs):
     """X5 — a child whose kind is not in its container's declared `allowedResources`.
 
-    This is the ONLY enforcement there is. `allowedResources` is validated by nothing at runtime:
-    not by OpenAPI (the CRD types it `string[]` with no enum, deliberately — the per-widget enums
-    drifted and `Menu` carried two kinds removed in the routing refactor), not by a webhook, and
-    not by the renderer, which resolves a `resourceRefId` without ever consulting it.
+    THIS IS THE INSTANCE HALF OF TWO ENFORCEMENT POINTS, and the division is not redundancy.
 
-    So the field is a DECLARATION OF INTENT that nothing checks. A container that says it holds
-    `paragraphs` and is handed a `Table` renders the Table quite happily. The declaration is still
-    worth having — it is how an author says what a slot is for, and how the next reader knows
-    whether a new child belongs — but only if something reads it back.
+    The CRD carries a KIND-LEVEL enum on this field, by role (ui/scripts/containment.ts): a general
+    layout takes every widget plural except `layouts` and `themes`, and a purpose-built kind takes
+    what it exists for. It refuses a typo (`buton`), a non-widget kind (`deployments`) and a kind
+    that one has no use for. What it does not express is what a given CR is for:
+    `allowedResources` is a PER-INSTANCE declaration, and of 97 live Flex CRs each names between one
+    and eleven plurals describing what THAT slot is for.
+
+    So the two halves answer different questions and neither covers the other:
+
+        the CRD enum  can this KIND ever hold that DECLARED value?       (kind)
+        this rule     is every ACTUAL CHILD within this CR's own list?   (instance)
+
+    This rule never inspects the declaration against the kind, and the enum never inspects
+    children, which is why a Flex declaring `paragraphs` and holding a Table passes the enum.
+    Nothing but this rule catches that.
+
+    The enums once hand-written in the schemas were deleted for cause: seeding from them would have
+    refused live CRs in four kinds. That rules out those lists, which had drifted, and not a
+    kind-level rule. The rule now lives in one table and derives its general lists.
 
     Checked against the CHART, not against a frozen list: the child's real plural comes from its
     own `resourcesRefs` entry, so this stays correct as widget kinds are added and cannot go stale
@@ -877,13 +890,18 @@ def _is_autopilot_entry(button_doc, rest_actions=None):
 
 
 AUTOPILOT_LABEL = 'Ask Agentiko →'
-AUTOPILOT_ICON = 'fa-wand-magic-sparkles'
+AGENTIKO_INTENT = 'agentiko'
 
 
 def rule_autopilot_button(crs):
-    """A4 — every Agentiko entry point looks the same: a filled (`type: primary`) Button labelled
-    "Ask Agentiko →" with the magic-wand icon. Never a link: the product's decision, recorded once
-    here instead of re-litigated per page.
+    """A4 — every agent entry point looks the same: a Button labelled "Ask Agentiko →" with
+    `intent: agentiko`, which the widget draws filled with the Agentiko gradient and mark —
+    ignoring the CR's `type`, `color`, `variant`, `danger`, `ghost` and `icon`. Never a link: the
+    product's decision, recorded once here instead of re-litigated per page. (Until 2026-11-03 the
+    look was spelled out per CR — `type: primary` plus the wand icon; the role now carries it, the
+    way `intent: dismiss` carries C26's. Since 2026-11-06 the agent is named Agentiko in the UI, so
+    the label is "Ask Agentiko →"; the old "Ask Autopilot" spelling is still recognised as an entry
+    point, and flagged for its label. The intent is `agentiko`.)
 
     Recognised by what the Button does, not what it says (a `?ask=` link or an `askHref` template),
     as well as by its label — the sweep that resolved A4 the first time missed a CTA precisely
@@ -894,13 +912,11 @@ def rule_autopilot_button(crs):
         if doc.get('kind') != 'Button' or not _is_autopilot_entry(doc, rest_actions):
             continue
         data = widget_data(doc)
-        label, icon, kind = str(data.get('label') or ''), str(data.get('icon') or ''), data.get('type')
+        label, intent = str(data.get('label') or ''), data.get('intent')
         if label != AUTOPILOT_LABEL:
             out.append((fname, f'Agentiko entry point labelled "{label}" — the canonical label is "{AUTOPILOT_LABEL}"'))
-        if icon != AUTOPILOT_ICON:
-            out.append((fname, f'Agentiko entry point with icon "{icon or "none"}" — it carries {AUTOPILOT_ICON}'))
-        if kind != 'primary':
-            out.append((fname, f'Agentiko entry point is a `type: {kind or "default"}` Button — it is a filled `type: primary` button, not a link'))
+        if intent != AGENTIKO_INTENT and 'intent' not in templated_paths(doc):
+            out.append((fname, f'Agentiko entry point without `intent: {AGENTIKO_INTENT}` — the role draws it filled with the Agentiko gradient and mark'))
     return out
 
 
@@ -1021,7 +1037,7 @@ PALETTE_KEYS = {
     'accent2', 'accentSoft', 'amber', 'background', 'blue', 'border',
     'cyan', 'dark', 'darkBlue', 'error', 'errorSoft', 'faint',
     'gold', 'gray', 'green', 'info', 'light', 'lightgray',
-    'line', 'magenta', 'menubgend', 'menubgstart', 'olive', 'onmenubg',
+    'line', 'magenta', 'menubgend', 'menubgstart', 'menuitembg', 'olive', 'onmenubg',
     'orange', 'panelbg', 'primary', 'red', 'slate', 'success',
     'successSoft', 'teal', 'text', 'violet', 'warning', 'warningSoft',
 }
@@ -1176,8 +1192,14 @@ def main():
     total = 0
     for name in selected:
         if name not in RULES:
-            print(f'unknown rule: {name}', file=sys.stderr)
-            return 2
+            # EXIT 64, NOT 2: this script's exit code IS the violation count (see the docstring), so
+            # returning a small number for a usage error is indistinguishable from finding that many
+            # violations. A peer hit exactly this: a typo'd `--rule` (the function name
+            # `rule_dead_kind` instead of the registry key `dead-kind`) exited 2, which reads as two
+            # real findings. CI fails either way, but whoever opens the red run chases two phantom
+            # violations instead of fixing a typo. 64 is EX_USAGE and cannot collide with a count.
+            print(f'unknown rule: {name}\n  known rules: ' + ', '.join(RULES), file=sys.stderr)
+            return 64
         fn, rule_id = RULES[name]
         hits = fn(crs)
         total += len(hits)

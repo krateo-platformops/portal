@@ -3,9 +3,10 @@
      ticket: what was asked, the object it is about and that object's live conditions are all on
      the page, and the page is the envelope.
 
-     THE LABEL, THE ICON AND THE FILL ARE FIXED. A4: every Autopilot entry point in the portal is
-     the same object — a filled `type: primary` button labelled exactly `Ask Agentiko →` with
-     `fa-wand-magic-sparkles`. The design lint recognises one by what it does as well as by its
+     THE LABEL AND THE ROLE ARE FIXED. A4: every agent entry point in the portal is the same
+     object — a button labelled exactly `Ask Agentiko →` with `intent: agentiko`, which the
+     frontend draws filled with the Agentiko gradient and mark (outlined with a lock when the
+     agent is not licensed); `type` and `icon` are ignored, so they are not set. The design lint recognises one by what it does as well as by its
      label (a Button that navigates to `?ask=`, or reads an `…Href` its RESTAction builds with
      one), so a differently-worded version of this button is a finding, not a variation. Being
      filled does not take the header's one primary: Resolve keeps it (P6).
@@ -14,8 +15,8 @@
      for the same reason — two "Diagnose" buttons once hid from this rule by calling it something
      else. The click is a plain literal navigate.
 
-     Graceful when Autopilot is off: frontend >= 1.3.76 shows an honest "Autopilot is not enabled
-     on this portal" notice and strips the ?ask. */}}
+     Graceful when the agent is not licensed: the ?ask opens the rail's licence panel instead, and
+     is stripped. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -31,9 +32,8 @@ spec:
     namespace: {{ $.Values.namespace }}
   widgetData:
     label: Ask Agentiko →
-    type: primary
+    intent: agentiko
     size: middle
-    icon: fa-wand-magic-sparkles
     clickActionId: ask
     actions:
       navigate:

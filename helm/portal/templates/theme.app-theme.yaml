@@ -2,11 +2,12 @@
 {{/* app-shell (layout.app-shell `effects` slot): it applies tenant brand overrides app-wide by */}}
 {{/* setting CSS custom properties on :root, and renders no UI. */}}
 {{/* */}}
-{{/* The DEFAULT ships only `token.fontFamily` — the current Krateo UI font — a visual no-op matching */}}
-{{/* the frontend defaults. It deliberately does NOT set `custom.sidebar`: the nav rail is left to */}}
-{{/* #52's default per-mode derivation from the active `colorPrimary` (light: Sovereign #05629A → deep */}}
-{{/* navy; dark: interaction cyan #2FBFE6 → teal). `custom.sidebar` remains available as the */}}
-{{/* issue-#52-sanctioned override for a tenant that wants a rail colour independent of colorPrimary. */}}
+{{/* The DEFAULT ships NO overrides, so the frontend's own default style applies (since 2026-11-06 */}}
+{{/* the Agentiko style: violet primary, black sidebar, Syne). It used to ship `token.fontFamily` set */}}
+{{/* to the then-default Inter stack — a no-op while Inter was the default, but inline on :root it */}}
+{{/* would now pin the whole portal to Inter over Syne, so it was removed. It deliberately does NOT */}}
+{{/* set `custom.sidebar`: the rail is the frontend default. `custom.sidebar` remains available as */}}
+{{/* the issue-#52-sanctioned override for a tenant that wants a rail colour of its own. */}}
 {{/* `colorPrimary` is deliberately NOT set here (it is mode-aware in the frontend; a mode-fixed CR */}}
 {{/* value would regress that). Only Tier-1 tokens are overridable; Tier-2 (status colours, agent */}}
 {{/* Signal Yellow, focus ring, chart palette) is locked by omission from the schema. */}}
@@ -18,6 +19,5 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  widgetData:
-    token:
-      fontFamily: 'Inter, Roboto, "Helvetica Neue", Arial, "Noto Sans", system-ui, sans-serif'
+  {{/* Empty on purpose: the widget is still mounted, so a tenant overrides by adding keys here. */}}
+  widgetData: {}

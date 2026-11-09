@@ -414,7 +414,7 @@ spec:
 # A4: THE PRE-RENAME LABEL, and nothing else to find it by — no `?ask=` path, no `askHref`, no
 # apiRef. The only thing that can see this button is ASK_LABEL, so it pins the one failure the
 # autopilot -> agentiko rename could have caused: narrow that regex to the new spelling and this
-# button stops being examined instead of being reported. Icon and type are correct on purpose, so
+# button stops being examined instead of being reported. Its intent is correct on purpose, so
 # the single violation it must produce is the label.
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -422,8 +422,22 @@ metadata: {name: bad-ask-old-label}
 spec:
   widgetData:
     label: Ask Autopilot →
+    intent: agentiko
+---
+# A4: the pre-2026-11-03 canonical look — filled, wand, right label — but no `intent: agentiko`,
+# so it is drawn as an ordinary primary button, not as the agent's entry point.
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: bad-ask-no-intent}
+spec:
+  widgetData:
+    label: Ask Agentiko →
     icon: fa-wand-magic-sparkles
     type: primary
+    clickActionId: ask
+    actions:
+      navigate:
+        - {id: ask, type: navigate, path: "/controller-builder/compose?ask=help"}
 ---
 # A4: the shape that got through — a "Diagnose" reading an href its RESTAction builds with ?ask=.
 kind: RESTAction
