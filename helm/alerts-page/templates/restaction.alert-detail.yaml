@@ -2,7 +2,7 @@
 {{/* ?extras .name/.namespace, same mechanism as composition-detail / incident-detail). */}}
 {{/* Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly: */}}
 {{/* alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in */}}
-{{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
+{{/* .spec (displayName / description / where / threshold+thresholdType / interval) */}}
 {{/* and its live HyperDX-mirrored state in .status (state / phase */}}
 {{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-provider. */}}
 {{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
@@ -56,20 +56,8 @@ spec:
     | (.alert.status // {}) as $st
     | ($sp.displayName // .alert.metadata.name // $n) as $dn
     | ($st.state // "PENDING") as $state
-      # An Alert measures one of three things: rows counted, a log value aggregated (`value`), or a
-      # metric aggregated (`metricRef`). Each is worded for what it is, because "all log rows" on a
-      # metric alert reads like a misconfiguration nobody made.
-    | ($sp.metricRef.name // "") as $metric
-    | ($sp.value // "") as $value
-    | (if ($sp.where // "") == "" then "**all log rows**" else ("rows matching `" + $sp.where + "`") end) as $rows
-    | (($sp.labels // {}) | to_entries | map("`" + .key + "=" + (.value | tostring) + "`") | join(", ")) as $labels
-    | (($sp.ratio.labels // {}) | to_entries | map("`" + .key + "=" + (.value | tostring) + "`") | join(", ")) as $ratioLabels
-    | (if $metric != "" then
-        ("Takes the `" + ($sp.aggregation // "") + "` of metric `" + $metric + "`"
-         + (if $labels == "" then "" else (" for " + $labels) end)
-         + (if $sp.ratio == null then "" else (" as a share of " + (if $ratioLabels == "" then "all its points" else $ratioLabels end)) end))
-       elif $value != "" then ("Takes the `" + ($sp.aggregation // "") + "` of `" + $value + "` across " + $rows)
-       else ("Counts " + $rows) end) as $measures
+      # Metric and value Alerts open no incidents; only counted rows do.
+    | (($sp.metricRef.name // "") == "" and ($sp.value // "") == "") as $opensIncidents
       # krateo.io/paused: "true" — the alert-provider skips this alert's firings.
     | (((.alert.metadata.annotations // {})["krateo.io/paused"] // "") == "true") as $paused
     | ($st.hyperdxAlertId // "") as $haid
@@ -91,18 +79,29 @@ spec:
     | ($shaped[0] // null) as $rep
     | [ $shaped[] | select(.open) ] as $open
     | [ $shaped[] | select(.open | not) ] as $ended
-    | (if ($shaped | length) > 1 then "latest analysis" else "analysis" end) as $an
       # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
       | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
       | ($rep != null and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
       | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
+      # The About card: the description, then a warning for each failure the page would otherwise
+      # hide. A healthy alert shows its description alone.
+    | ([ ($sp.description // ""),
+         (if $haid == "" then ("**Not running.** HyperDX hasn't accepted this alert, so nothing checks it."
+                               + (if ($st.error // "") != "" then " The manifest below shows the error." else "" end))
+          elif $state == "ALERT" and ($paused | not) and $opensIncidents and ($open | length) == 0
+          then "**Firing, but no incident has opened.** One normally opens within a minute; if none does, check the alert-provider's logs."
+          else "" end),
+         (if $rep == null or ($rep.state // "") == "Analyzing" or $repProduced then ""
+          elif $repFailed then "**The latest analysis failed.** Open its incident below to see the error."
+          else "**The latest analysis produced no result.** Open its incident below." end)
+       ] | map(select(. != "")) | join("\n\n")) as $about
     | {
         displayName: $dn,
         where: ($sp.where // "all logs"),
         # "above 1" — thresholdType + threshold, empty-safe (never a bare " " or leading space).
         thresholdText: ((($sp.thresholdType // "") + " " + (($sp.threshold // 0) | tostring)) | ltrimstr(" ")),
         interval: ($sp.interval // ""),
-        message: ($sp.message // ""),
+        description: ($sp.description // ""),
         state: $state,
         phase: ($st.phase // "Pending"),
         paused: $paused,
@@ -126,55 +125,14 @@ spec:
         # pre-encoded exactly once). The raw `ask` is also emitted for any raw consumer.
         ask: ("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps."),
         askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
-        # ── THE PIPELINE WALK ──────────────────────────────────────────────────────────────
-        # An alert is not one object, it is a CHAIN: the CR, the HyperDX rule it syncs to, the
-        # evaluation, the alert-provider pass that reads it as a firing, the investigation that
-        # firing opens, and the incident that investigation becomes. Every hop can stop without the one before it noticing, and this
-        # page said nothing about any of them — it showed a green "OK" for days while the
-        # alert -> RCA loop was dead on a tool schema the model kept refusing.
-        #
-        # A numbered walk, not a graph: the chain is LINEAR, so nodes and edges buy nothing.
-        # Same treatment as the agents seven-hop, for the same reason.
-        #
-        # Each step says what it READ, and the first hop that cannot proceed says so and stops
-        # claiming anything about the hops after it.
-        pipelineMd: ([
-            ("1. **The alert exists.** " + $measures
-             + ", firing when the " + (if $metric == "" and $value == "" then "count" else "value" end) + " is " + (($sp.thresholdType // "above") + " " + (($sp.threshold // 0) | tostring))
-             + " over " + (if ($sp.interval // "") == "" then "its evaluation window" else ("`" + $sp.interval + "`") end) + "."
-             + (if $metric == "" and ($sp.where // "") == "" then ("\n    - An empty filter matches every log line on the cluster" + (if $value == "" then ", so this fires on volume alone." else "." end)) else "" end)),
-            (if $haid != "" then ("2. **Synced to HyperDX.** Rule `" + $haid + "`.")
-             else "2. **NOT synced to HyperDX.** `status.hyperdxAlertId` is empty, so no rule evaluates this alert and nothing below can happen. The chain stops here." end),
-            (if $haid == "" then empty
-             elif $state == "ALERT" then "3. **Evaluated, and currently firing.** HyperDX reports state `ALERT`."
-             elif $state == "OK" then "3. **Evaluated, currently quiet.** HyperDX reports state `OK` — the threshold is not being crossed."
-             else ("3. **Evaluated, state `" + $state + "`.** Not yet a verdict.") end)
-             + (if $haid != "" and $paused then "\n    - **Paused.** The alert-provider skips its firings: no incident opens. Open incidents keep their checks." else "" end),
-            (if $haid == "" then empty
-             elif ($shaped | length) > 1 then ("4. **Incidents were opened.** " + ($shaped | length | tostring) + " for this alert; the latest is `" + ($rep.name // "") + "`.")
-             elif $rep != null then ("4. **An incident was opened.** `" + ($rep.name // "") + "`.")
-             elif $state == "ALERT" and $paused then "4. No incident — this alert is paused, so its firings open none."
-             elif $state == "ALERT" then "4. **No incident exists, and this alert is firing.** The alert-provider's next pass (every 60 s) should open one; no Incident carries this alert's label. Either no pass has run since the alert fired, or the alert-provider could not create one; its logs say which."
-             else "4. No incident — this alert has not fired, so none is expected." end),
-            (if $rep == null then empty
-             elif $repProduced then ("5. **The " + $an + " produced a root cause.** Open `" + ($rep.name // "") + "` below to read it.")
-             elif $repFailed then ("5. **The " + $an + " FAILED.** `" + ($rep.name // "") + "` carries the error instead of a root cause; its page shows it verbatim. This is the hop that fails silently — the alert above still reads as healthy.")
-             elif ($rep.state // "") == "Analyzing" then ("5. **The " + $an + " is still running.**")
-             else ("5. **The " + $an + " produced nothing.** It wrote neither a root cause nor an error, which is itself the finding.") end),
-            (if $rep == null then empty
-             elif ($open | length) == 0 then ("6. **No incident is open.** The latest, `" + ($rep.name // "") + "`, is **" + ($rep.state // "Resolved") + "**.")
-             elif ($open | length) == 1 then ("6. **Incident** `" + ($open[0].name // "") + "` is **" + ($open[0].state // "Analyzing") + "**.")
-             else ("6. **" + ($open | length | tostring) + " incidents are open at once**, each a different problem. The list below has them all.") end)
-          ] | join("\n")),
+        aboutMd: $about,
         # The Incidents card: every open incident, then the five latest ended ones, newest first within each.
         incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route })),
         incidentsTitle: ("Incidents · " + ($open | length | tostring) + " open"
           + (if ($ended | length) > 0 then (" · " + ($ended | length | tostring) + " ended" + (if ($ended | length) > 5 then ", the latest 5 shown" else "" end)) else "" end)),
         sections: {
           incident: ($rep != null),
-          # Not exception-only: its job is to say which hops SUCCEEDED as well as which stopped,
-          # and "all six fine" is the answer someone checking a silent pipeline came for.
-          pipeline: ((.alert.metadata.name // "") != ""),
+          about: ($about != ""),
           console: (($console != "") and (($haid != "") or ($hdid != "")))
         },
         # Static GVR for the plain Alert CRD — the DELETE target for button.alert-detail-delete

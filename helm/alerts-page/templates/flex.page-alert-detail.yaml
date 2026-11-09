@@ -34,14 +34,14 @@ spec:
     gap: middle
     items:
     - resourceRefId: alert-detail-page-header
-    - resourceRefId: alert-detail-pipeline-card
+    - resourceRefId: alert-detail-about-card
     - resourceRefId: card-alert-detail-manifest
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
         | [ { resourceRefId: "alert-detail-page-header" } ]
-        + (if ($s.pipeline // false) then [ { resourceRefId: "alert-detail-pipeline-card" } ] else [] end)
+        + (if ($s.about // false) then [ { resourceRefId: "alert-detail-about-card" } ] else [] end)
         + [ { resourceRefId: "card-alert-detail-manifest" } ]
         + (if ($s.console // false) then [ { resourceRefId: "card-alert-detail-console" } ] else [] end)
         + (if ($s.incident // false) then [ { resourceRefId: "card-alert-detail-incident" } ] else [] end) }
@@ -53,9 +53,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: alert-detail-pipeline-card
+    - id: alert-detail-about-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alert-detail-pipeline-card
+      name: alert-detail-about-card
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
