@@ -528,6 +528,53 @@ def check_access_predicate_is_the_callers_own(c):
     return p
 
 
+def check_all_namespaces_does_not_depend_on_compositions(c):
+    """"All namespaces" asks whether the caller may list the audit trail kind cluster-wide — a static
+    resource — so an admin sees every record on a cluster with no CompositionDefinition, while a
+    member there sees nothing and sends nothing."""
+    p = []
+    no_crds = {'crds': {'items': []}}
+    for ra, kind in (('audit-records', 'rows'), ('audit-facets', 'facets')):
+        responses, _ = served()
+        responses.update(no_crds)
+        reqs, _, out = resolve(c.get('RESTAction', ra), {}, responses, ADMIN)
+        sent = [sql_of(r[1]) for r in reqs if r[0] == kind]
+        expect(p, f'{ra}, admin, no CompositionDefinition: scope', out['scope'], 'all')
+        if ra == 'audit-records':
+            expect(p, 'admin, no CompositionDefinition: no namespace predicate', sent,
+                   [ROWS_SQL.format(window='24 HOUR', access='', cond='')])
+            got = sorted({r['namespace'] for r in out['rows']})
+            expect(p, 'admin, no CompositionDefinition: every record', (got, len(out['rows'])),
+                   (['', 'demo-system', 'krateo-system', 'old-team', 'team-a', 'team-b'], 11))
+        else:
+            expect(p, 'admin, no CompositionDefinition: facets unnarrowed', sent, [facets_sql()])
+    for caller in (TEAM_A, NOBODY):
+        responses, _ = served()
+        responses.update(no_crds)
+        reqs, _, out = resolve(c.get('RESTAction', 'audit-records'), {}, responses, caller)
+        expect(p, f'{caller.name}, no CompositionDefinition: ClickHouse requests',
+               [r for r in reqs if r[0] in ('rows', 'summary')], [])
+        expect(p, f'{caller.name}, no CompositionDefinition: rows', out['rows'], [])
+    # Listing every composition kind cluster-wide is not reading the whole audit trail: such a
+    # caller is narrowed to the namespaces it lists, exactly as before, never given "all".
+    lister = Caller('composition-lister', [('list', 'core.krateo.io', 'compositiondefinitions', ''),
+                                           ('list', 'composition.krateo.io', '*', '')])
+    reqs, out, _ = records(c, {}, lister)
+    expect(p, 'cluster-wide composition lister: scope', out['scope'], 'namespaces')
+    expect(p, 'cluster-wide composition lister: narrowed to the listed namespaces', sql_of(reqs[0][1]),
+           ROWS_SQL.format(window='24 HOUR', access=acc('demo-system', 'krateo-audit', 'krateo-observability',
+                                                        'krateo-system', 'team-a', 'team-b'), cond=''))
+    # And the grant that does mean "all": list auditrecords cluster-wide, nothing else.
+    auditor = Caller('auditor', [('list', 'audit.krateo.io', 'auditrecords', '')])
+    reqs, out, _ = records(c, {}, auditor)
+    expect(p, 'cluster-wide auditrecords reader: scope', out['scope'], 'all')
+    # A RoleBinding granting it in ONE namespace is not a cluster-scope grant.
+    ns_auditor = Caller('ns-auditor', [('list', 'audit.krateo.io', 'auditrecords', NS)])
+    reqs, out, _ = records(c, {}, ns_auditor)
+    expect(p, f'auditrecords granted only in {NS}: not "all"', (out['scope'], reqs), ('none', []))
+    return p
+
+
 def check_population_and_previews(c):
     p = []
     _, out, ch = records(c, {}, ADMIN)
@@ -865,6 +912,8 @@ def main():
          'no namespace sees nothing', lambda: check_negative_test(c)),
         ('the namespace predicate is the caller\'s own, and every access stage fails closed',
          lambda: check_access_predicate_is_the_callers_own(c)),
+        ('"all namespaces" holds with no CompositionDefinition, and only for a cluster-wide audit reader',
+         lambda: check_all_namespaces_does_not_depend_on_compositions(c)),
         ('only the two audit scopes, no previews, bounded windows', lambda: check_population_and_previews(c)),
         ('columns map to the record as approved', lambda: check_columns_map_to_the_record(c)),
         ('a trace links only when it is kept and openable', lambda: check_trace_link_only_when_kept(c)),

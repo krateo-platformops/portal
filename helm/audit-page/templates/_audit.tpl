@@ -17,9 +17,9 @@ def okNs: test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"); def okNsFilter: . == "" 
 
 {{/* WHICH ROWS THE CALLER MAY SEE, from the three apiserver stages every audit RESTAction runs
      (see restaction.audit-records.yaml for why each one asks what it asks):
-       all: the caller may list a composition kind in EVERY namespace (a cluster-scope grant), so
-            no namespace predicate is applied and records of deleted namespaces, or with none,
-            are shown;
+       all: the caller may list the audit trail (auditrecords.audit.krateo.io) in EVERY namespace,
+            a grant only a ClusterRoleBinding can make, so no namespace predicate is applied and
+            records of deleted namespaces, or with none, are shown;
        acc: otherwise, the namespaces where the caller may list a composition kind, each checked
             as a namespace name again before it goes into SQL. Empty means no call at all.
      Evaluated against the resolve dict. */}}
@@ -136,17 +136,20 @@ def auditUtc: (tonumber? // 0) as $ms | (($ms / 1000) | floor | todate) as $iso 
   filter: "[.namespaces.items[]? | .metadata.name]"
   continueOnError: true
   errorKey: namespacesError
+{{- /* The cluster-scope check names ONE static resource, the platform's own audit trail kind,
+       so it does not depend on which compositions are installed: with no CompositionDefinition
+       `crds` is empty, a resourcesFrom over it fails closed, and an admin would have seen
+       nothing. RBAC matches resource strings, so the check holds whether or not the AuditRecord
+       CRD is served. No dependsOn: it reads nothing another stage produces. */}}
 - name: allNamespaces
   path: /api/v1/namespaces/{{ .Values.namespace }}
   verb: GET
   headers:
     - 'Accept: application/json'
-  dependsOn:
-    name: namespaces
   userAccessFilter:
     verb: list
-    group: composition.krateo.io
-    resourcesFrom: "[ (.crds // [])[] ]"
+    group: audit.krateo.io
+    resource: auditrecords
     namespaceFrom: .metadata.namespace
   filter: '((.allNamespaces // {}) | (.metadata.name // "")) != ""'
   continueOnError: true

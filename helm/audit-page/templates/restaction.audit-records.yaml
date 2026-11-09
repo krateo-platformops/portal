@@ -10,14 +10,16 @@
                       question restaction.projects asks for the header's project picker ("a project
                       IS a namespace whose compositions you can see"), so the audit page and the
                       project scope agree by construction, and a namespaced Role can answer it;
-       allNamespaces  the same question at CLUSTER scope: one cluster-scoped object (this chart's
-                      namespace) whose `.metadata.namespace` is empty, so the check is evaluated
-                      with namespace "" and only a ClusterRoleBinding can grant it
-                      (rbac/evaluate.go: RoleBindings are consulted only when a namespace is set).
-                      A caller who may list a composition kind in every namespace — the `admins`
-                      group, bound to cluster-admin — gets NO namespace predicate, so records of a
-                      namespace that has since been deleted, or with no namespace at all, are still
-                      theirs to see. Every other caller is narrowed to `namespaces`.
+       allNamespaces  whether the caller may list the audit trail itself, auditrecords.audit.krateo.io,
+                      at CLUSTER scope: one cluster-scoped object (this chart's namespace) whose
+                      `.metadata.namespace` is empty, so the check is evaluated with namespace ""
+                      and only a ClusterRoleBinding can grant it (rbac/evaluate.go:458-462:
+                      RoleBindings are consulted only when a namespace is set). It names a static
+                      resource, NOT the composition plurals, so it holds on a cluster with no
+                      CompositionDefinition. A caller who passes — the `admins` group, bound to
+                      cluster-admin — gets NO namespace predicate, so records of a namespace that
+                      has since been deleted, or with no namespace at all, are still theirs to see.
+                      Every other caller is narrowed to `namespaces`.
      Each of them fails CLOSED: a stage error, an unresolved resource set or a missing identity
      leaves the list empty and `allNamespaces` false (refilter.go:951-1079), and an empty list makes
      NO ClickHouse call — the iterator yields nothing — never a call without a filter. The namespace
