@@ -1,0 +1,21 @@
+{{/* The alert's description, and a warning when it is not running, fires without an incident or */}}
+{{/* its latest analysis failed (aboutMd, built by restaction.alert-detail). */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-about
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    markdown: ''
+  widgetDataTemplate:
+  - forPath: markdown
+    expression: '${ .aboutMd // "" }'
+  resourcesRefs:
+    items: []
