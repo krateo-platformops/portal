@@ -2,7 +2,7 @@
 {{/* ?extras .name/.namespace, same mechanism as composition-detail / incident-detail). */}}
 {{/* Two reads, both continueOnError so a missing/RBAC-blocked read degrades honestly: */}}
 {{/* alert   : the per-name Alert CR (observability.krateo.io) — its rule config lives in */}}
-{{/* .spec (displayName / where / threshold+thresholdType / interval / message) */}}
+{{/* .spec (displayName / description / where / threshold+thresholdType / interval) */}}
 {{/* and its live HyperDX-mirrored state in .status (state / phase */}}
 {{/* / hyperdxAlertId / hyperdxDashboardId), reconciled by krateo-alert-provider. */}}
 {{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
@@ -102,7 +102,7 @@ spec:
         # "above 1" — thresholdType + threshold, empty-safe (never a bare " " or leading space).
         thresholdText: ((($sp.thresholdType // "") + " " + (($sp.threshold // 0) | tostring)) | ltrimstr(" ")),
         interval: ($sp.interval // ""),
-        message: ($sp.message // ""),
+        description: ($sp.description // ""),
         state: $state,
         phase: ($st.phase // "Pending"),
         paused: $paused,

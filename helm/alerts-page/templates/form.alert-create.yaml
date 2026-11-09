@@ -3,7 +3,7 @@
 {{/* fields __alert_name__ + __alert_namespace__ prepended) + the static GVR (apiVersion/kind/ */}}
 {{/* resource) for the create POST target. */}}
 {{/* - schema ← schemaSpec: SchemaFields renders Name, the create-permitted Namespace picker, and */}}
-{{/* the Alert's own spec fields (displayName, where, interval, threshold, thresholdType, message) */}}
+{{/* the Alert's own spec fields (displayName, description, where, interval, threshold, thresholdType) */}}
 {{/* straight from the CRD — required fields (interval/threshold/thresholdType) up-front. */}}
 {{/* - submit routes __alert_name__/__alert_namespace__ into metadata and the rest into spec, then */}}
 {{/* POSTs to the GVR-derived target (resourcesRefsTemplate) — no hardcoded endpoint. */}}
@@ -64,7 +64,7 @@ spec:
           {{/* POST /call derives the target namespace from body metadata.namespace, */}}
           {{/* so this single value is BOTH the CR's ns AND the POST-target ns). */}}
           {{/* spec               ← everything EXCEPT the two reserved identity keys (the Alert's own */}}
-          {{/* spec fields: displayName/where/interval/threshold/thresholdType/message). */}}
+          {{/* spec fields: displayName/description/where/interval/threshold/thresholdType). */}}
           payloadToOverride:
             - { name: metadata.name,      value: '${ .json.__alert_name__ }' }
             - { name: metadata.namespace, value: '${ .json.__alert_namespace__ }' }
