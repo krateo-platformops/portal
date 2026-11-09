@@ -145,13 +145,13 @@ spec:
     | (($rejected | length) == 0 and ($a.all or ($a.acc | length) > 0)) as $queried
     | (.tracePage == true) as $canOpen
     | [ ((.rows | objects | .data) // [])[]
-        | { tsMs: (.ts_ms | num), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
+        | { tsMs: (.ts_ms | num), scope: (.scope // ""), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
             resource: (.res // ""), kind: (.kind // ""), group: (.grp // ""), name: (.name // ""),
             namespace: (.ns // ""), outcome: (.outcome // ""), code: ((.code // "") | tostring),
             server: (.server // ""), traceId: (.trace_id // ""),
             kept: (((.kept // 0) | tostring) == "1" or .kept == true), untraced: ((.no_trace // "") == "true"),
             matched: (.matched | num) }
-        | . + { conforming: (.user != "" and .namespace != "" and (.resource != "" or .kind != "" or .server != "")
+        | . + { conforming: ((.user != "" or .scope == "rest-dynamic-controller/audit") and .namespace != "" and (.resource != "" or .kind != "" or .server != "")
                              and (.outcome == "success" or .outcome == "failure" or .outcome == "denied")),
                 link: (if .kept and $canOpen and (.traceId | okTraceId) then .traceId else "" end) } ] as $rows
     | ((.summary | objects | .data) // [])[0] as $s

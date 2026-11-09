@@ -78,9 +78,12 @@ def auditRoute($over): ({range: ((.range // "24h") | tostring), auditNamespace: 
 {{/* A record this page cannot fully read: no user.name, no namespace, no target (a resource, a
      kind or a server address) or an outcome outside the library's three words. It is still shown,
      with "—" where a field is missing; the count goes in the note. The table's own classification
-     (audit.format, auditConforming) is the same rule, and the note compares the two. */}}
+     (`conforming` in restaction.audit-records.yaml) is the same rule, and the note compares the two.
+     A missing user.name is a gap only on a snowplow record, which always has a caller. A
+     rest-dynamic-controller record has none — a controller writing to an external system acts for
+     no person — so its blank user is expected and not counted (installer#415, 2026-11-09). */}}
 {{- define "audit.sql.unread" -}}
-(LogAttributes['user.name'] = '' OR LogAttributes['k8s.namespace.name'] = '' OR (LogAttributes['k8s.resource.resource'] = '' AND LogAttributes['k8s.resource.kind'] = '' AND LogAttributes['server.address'] = '') OR LogAttributes['outcome'] NOT IN ('success', 'failure', 'denied'))
+((LogAttributes['user.name'] = '' AND ScopeName != 'rest-dynamic-controller/audit') OR LogAttributes['k8s.namespace.name'] = '' OR (LogAttributes['k8s.resource.resource'] = '' AND LogAttributes['k8s.resource.kind'] = '' AND LogAttributes['server.address'] = '') OR LogAttributes['outcome'] NOT IN ('success', 'failure', 'denied'))
 {{- end }}
 
 {{/* The predicates request input adds, after the window, as jq bound to variables: the access

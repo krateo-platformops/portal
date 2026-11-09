@@ -404,7 +404,8 @@ DRY = "(LogAttributes['krateo.audit.dry_run'] = 'true' OR endsWith(LogAttributes
 KEPT = ("(TraceId != '' AND TraceId IN (SELECT TraceId FROM otel_traces WHERE Timestamp > now() - INTERVAL 7 DAY "
         "AND TraceId IN (SELECT TraceId FROM krateo_audit WHERE " + POP +
         " AND Timestamp > now() - INTERVAL 7 DAY AND TraceId != '')))")
-UNREAD = ("(LogAttributes['user.name'] = '' OR LogAttributes['k8s.namespace.name'] = '' OR "
+UNREAD = ("((LogAttributes['user.name'] = '' AND ScopeName != 'rest-dynamic-controller/audit') OR "
+          "LogAttributes['k8s.namespace.name'] = '' OR "
           "(LogAttributes['k8s.resource.resource'] = '' AND LogAttributes['k8s.resource.kind'] = '' AND "
           "LogAttributes['server.address'] = '') OR LogAttributes['outcome'] NOT IN ('success', 'failure', 'denied'))")
 ROWS_SQL = ("SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope, LogAttributes['user.name'] AS usr, "
@@ -663,10 +664,11 @@ def check_row_count_check(c):
     p = []
     _, out, _ = records(c, {}, ADMIN)
     expect(p, 'consistent: the check passes', out['check'], True)
-    expect(p, 'incomplete records (no namespace, two with no user), classified and counted alike', (out['counts']['unread'], out['counts']['classifiedUnread']), (3, 3))
+    expect(p, 'incomplete records (no namespace; a snowplow record with no user), classified and counted alike',
+           (out['counts']['unread'], out['counts']['classifiedUnread']), (2, 2))
     if 'Row-count check' in out['note']:
         p.append(f'a passing check is in the note: {out["note"]!r}')
-    if '3 records lack a field this page reads' not in out['note']:
+    if '2 records lack a field this page reads' not in out['note']:
         p.append(f'the incomplete records are not named: {out["note"]!r}')
     # The two queries disagree: a record the table query did not match. Surface it, never hide it.
     responses, ch = served()
@@ -826,6 +828,33 @@ def check_records_with_no_user(c):
     rdc = [cells(r) for r in rows if cells(r)['resource']['stringValue'].startswith('Repo ')]
     expect(p, 'the rest-dynamic-controller row: no trace (producer)', [x['trace']['stringValue'] for x in rdc],
            ['no trace (producer)'])
+    # A controller writing to an external system acts for no person: its blank user is expected
+    # (installer#415). On krateo-057's shape — 2 complete snowplow rows, 2 rest-dynamic-controller
+    # rows with no user — the note says nothing about missing fields, and the check passes.
+    shape057 = [
+        rec(10 * 60 * 1000, 'team-a', 'admin', 'PATCH', 'alerts', 'a1', 'success', 200, group='observability.krateo.io',
+            trace=TRACE_KEPT_SYS),
+        rec(20 * 60 * 1000, 'team-a', 'admin', 'POST', 'githubrepos', 'r1', 'success', 201, group='github.krateo.io'),
+        rec(30 * 60 * 1000, 'team-a', '', 'POST', '', 'r1', 'success', 201, group='github.krateo.io', kind='Repo',
+            action='rest.write', scope=RDC, extra={'server.address': 'api.github.com'}),
+        rec(40 * 60 * 1000, 'team-a', '', 'PATCH', '', 'r1', 'success', 200, group='github.krateo.io', kind='Repo',
+            action='rest.write', scope=RDC, extra={'server.address': 'api.github.com'}),
+    ]
+    _, out057, _ = records(c, {}, ADMIN, FakeClickHouse(rows=shape057))
+    expect(p, "057's shape: nothing counted incomplete", (out057['counts']['unread'], out057['counts']['classifiedUnread'],
+                                                         out057['check']), (0, 0, True))
+    if 'lack' in out057['note'] or 'Row-count check' in out057['note']:
+        p.append(f"057's shape: the note speaks of the rest-dynamic-controller rows: {out057['note']!r}")
+    expect(p, "057's shape: their User cells", col(table(c, out057, {}, 'audit-records (057 shape)'), 'user'),
+           ['admin', 'admin', '—', '—'])
+    # A blank user on a SNOWPLOW record is a real gap: a caller always exists there.
+    gap = shape057 + [rec(50 * 60 * 1000, 'team-a', '', 'PATCH', 'alerts', 'a2', 'success', 200,
+                          group='observability.krateo.io')]
+    _, outgap, _ = records(c, {}, ADMIN, FakeClickHouse(rows=gap))
+    expect(p, 'a snowplow record with no user: counted', (outgap['counts']['unread'], outgap['counts']['classifiedUnread'],
+                                                          outgap['check']), (1, 1, True))
+    if '1 record lacks a field this page reads' not in outgap['note']:
+        p.append(f'a snowplow record with no user is not named in the note: {outgap["note"]!r}')
     act = tbi.widget(c, 'Listy', 'audit-user-chips', 'dataSource', fac, {'auditUser': '(none)'})
     expect(p, 'the "—" chip is active while it filters', [x['label'] for x in act if x['active']], ['—'])
     reqs, out, _ = records(c, {'auditUser': '(none)'}, TEAM_A)
