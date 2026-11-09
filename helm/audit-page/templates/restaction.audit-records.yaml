@@ -1,26 +1,27 @@
 {{/* The /audit table and its note (AUDIT-9, installer#415): who changed what, to which object, when,
      and with what outcome, read from the audit trail in ClickHouse (krateo_audit). Read-only.
 
-     WHO SEES WHICH ROWS — the access model, decided on installer#415. A RESTAction's dict carries
-     no caller namespace, only the extras (and username/groups when injected), so the namespaces
-     come from three apiserver stages that snowplow dials as its own ServiceAccount and narrows per
-     item through the CALLER's RBAC (userAccessFilter, resolvers/restactions/api/refilter.go):
-       crds           the CompositionDefinitions the caller may list, for the composition plurals;
-       namespaces     the namespaces where the caller may list one of those kinds. This is the
-                      question restaction.projects asks for the header's project picker ("a project
-                      IS a namespace whose compositions you can see"), so the audit page and the
-                      project scope agree by construction, and a namespaced Role can answer it;
-       allNamespaces  whether the caller may list the audit trail itself, auditrecords.audit.krateo.io,
-                      at CLUSTER scope: one cluster-scoped object (this chart's namespace) whose
-                      `.metadata.namespace` is empty, so the check is evaluated with namespace ""
-                      and only a ClusterRoleBinding can grant it (rbac/evaluate.go:458-462:
-                      RoleBindings are consulted only when a namespace is set). It names a static
-                      resource, NOT the composition plurals, so it holds on a cluster with no
-                      CompositionDefinition. A caller who passes — the `admins` group, bound to
-                      cluster-admin — gets NO namespace predicate, so records of a namespace that
-                      has since been deleted, or with no namespace at all, are still theirs to see.
-                      Every other caller is narrowed to `namespaces`.
-     Each of them fails CLOSED: a stage error, an unresolved resource set or a missing identity
+     WHO SEES WHICH ROWS — the access model, decided on installer#415 (Diego, 2026-11-09). A
+     RESTAction's dict carries no caller namespace, only the extras (and username/groups when
+     injected), so the namespaces come from two apiserver stages that snowplow dials as its own
+     ServiceAccount and narrows per item through the CALLER's RBAC (userAccessFilter,
+     resolvers/restactions/api/refilter.go). Both ask one explicit grant: `list` on
+     auditrecords.audit.krateo.io, the platform's own audit-trail kind.
+       namespaces     the namespaces where the caller may list auditrecords — granted with a Role and
+                      RoleBinding in that namespace. Reading a namespace's audit records is therefore
+                      something an administrator grants on purpose. It replaced "may list a
+                      composition kind there": on krateo-057 every CompositionDefinition lives in
+                      krateo-system, which devs and tenants cannot list, so that rule gave them
+                      nothing; and it never followed audit visibility anyway.
+       allNamespaces  the same grant at CLUSTER scope: one cluster-scoped object (this chart's
+                      namespace) whose `.metadata.namespace` is empty, so the check is evaluated
+                      with namespace "" and only a ClusterRoleBinding can grant it
+                      (rbac/evaluate.go:458-462: RoleBindings are consulted only when a namespace is
+                      set). A caller who passes — the `admins` group, bound to cluster-admin — gets
+                      NO namespace predicate, so records of a namespace that has since been deleted,
+                      or with no namespace at all, are still theirs to see. Every other caller is
+                      narrowed to `namespaces`.
+     Both fail CLOSED: a stage error or a missing identity
      leaves the list empty and `allNamespaces` false (refilter.go:951-1079), and an empty list makes
      NO ClickHouse call — the iterator yields nothing — never a call without a filter. The namespace
      names are checked again (okNs) before they go into the IN list. The stages are
@@ -166,7 +167,7 @@ spec:
     | (if ($rejected | length) > 0 then
          "The " + ($rejected | join(" and ")) + " filter holds characters this page does not accept, so nothing was read."
        elif ($queried | not) then
-         "There is no namespace where you can list compositions, so there is no audit record to show you."
+         "No namespace's audit trail has been shared with you, so there are no records to show. Ask an administrator for access to a namespace."
        elif $failed then
          "The audit trail could not be read from ClickHouse."
        else

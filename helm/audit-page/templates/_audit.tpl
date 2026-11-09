@@ -15,13 +15,13 @@
 def okNs: test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"); def okNsFilter: . == "" or okNs; def okUser: . == "" or test("^[A-Za-z0-9._@:+=/-]{1,256}$"); def okOutcome: . == "" or . == "success" or . == "failure" or . == "denied"; def okTraceId: test("^[0-9a-f]{32}$");
 {{- end }}
 
-{{/* WHICH ROWS THE CALLER MAY SEE, from the three apiserver stages every audit RESTAction runs
+{{/* WHICH ROWS THE CALLER MAY SEE, from the two apiserver stages every audit RESTAction runs
      (see restaction.audit-records.yaml for why each one asks what it asks):
        all: the caller may list the audit trail (auditrecords.audit.krateo.io) in EVERY namespace,
             a grant only a ClusterRoleBinding can make, so no namespace predicate is applied and
             records of deleted namespaces, or with none, are shown;
-       acc: otherwise, the namespaces where the caller may list a composition kind, each checked
-            as a namespace name again before it goes into SQL. Empty means no call at all.
+       acc: otherwise, the namespaces where the caller may list the audit trail, each checked as
+            a namespace name again before it goes into SQL. Empty means no call at all.
      Evaluated against the resolve dict. */}}
 {{- define "audit.access" -}}
 {all: (.allNamespaces == true), acc: ([ (.namespaces // []) | if type == "array" then .[] else empty end | strings | select(okNs) ] | unique)}
@@ -99,48 +99,32 @@ def auditRoute($over): ({range: ((.range // "24h") | tostring), auditNamespace: 
 def auditUtc: (tonumber? // 0) as $ms | (($ms / 1000) | floor | todate) as $iso | $iso[0:10] + " " + $iso[11:19]; def auditAction: if .action == "export" then "Export" elif .method == "POST" then "Create" elif .method == "PATCH" or .method == "PUT" then "Update" elif .method == "DELETE" then "Delete" elif .method == "" then "—" else .method end; def auditResource: (if .resource != "" then .resource else .kind end) as $r | (if $r == "" then "" elif .group != "" then .group elif .resource != "" then "core" else "" end) as $g | (if .action == "rest.write" and .server != "" then .server else "" end) as $s | ([ $r, $g ] | map(select(. != "")) | join(" · ")) as $rg | if $rg == "" and $s == "" then "—" elif $s == "" then $rg elif $rg == "" then "on " + $s else $rg + ", on " + $s end; def auditOutcomeTag: (if .outcome == "" then "—" else .outcome end) as $w | {label: ($w + (if .code == "" then "" else " · " + .code end)), color: (if .outcome == "success" then "green" elif .outcome == "failure" then "red" elif .outcome == "denied" then "orange" else "gray" end)}; def auditTrace: if .untraced then "no trace (producer)" elif .link != "" then "open ↗" elif .kept then "kept" else "—" end; def dash: if . == "" then "—" else . end;
 {{- end }}
 
-{{/* THE THREE STAGES THAT DECIDE WHICH ROWS THE CALLER MAY SEE, shared by every audit RESTAction
-     (restaction.audit-records.yaml says why each asks what it asks). Each runs on snowplow's
-     ServiceAccount and is narrowed per item by the CALLER's RBAC (userAccessFilter,
-     resolvers/restactions/api/refilter.go applyUserAccessFilterOnPig), and each fails CLOSED: an
-     error, an unresolved resource set or a missing identity leaves the list empty and
-     `allNamespaces` false. snowplow refuses a request whose extras name a stage or an errorKey
-     (#1116, resolvers/restactions/api/reserved_extras.go), so `?namespaces=` or
+{{/* THE TWO STAGES THAT DECIDE WHICH ROWS THE CALLER MAY SEE, shared by every audit RESTAction
+     (restaction.audit-records.yaml says why). Both ask ONE explicit grant, `list` on
+     auditrecords.audit.krateo.io — the platform's own audit-trail kind — so reading a namespace's
+     audit records is something an administrator grants on purpose, with a namespaced Role, and not
+     a side effect of any other permission. Both run on snowplow's ServiceAccount and are narrowed
+     per item by the CALLER's RBAC (userAccessFilter, resolvers/restactions/api/refilter.go
+     applyUserAccessFilterOnPig), and both fail CLOSED: an error or a missing identity leaves the
+     list empty and `allNamespaces` false. snowplow refuses a request whose extras name a stage or
+     an errorKey (#1116, resolvers/restactions/api/reserved_extras.go), so `?namespaces=` or
      `?allNamespaces=true` cannot stand in for a stage that failed. */}}
 {{- define "audit.accessStages" -}}
-- name: crds
-  path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
-  verb: GET
-  headers:
-    - 'Accept: application/json'
-  userAccessFilter:
-    verb: list
-    group: core.krateo.io
-    resource: compositiondefinitions
-    namespaceFrom: .metadata.namespace
-  filter: "[.crds.items[]? | select(.status.resource != null) | .status.resource] | unique"
-  continueOnError: true
-  errorKey: crdsError
 - name: namespaces
   path: /api/v1/namespaces
   verb: GET
   headers:
     - 'Accept: application/json'
-  dependsOn:
-    name: crds
   userAccessFilter:
     verb: list
-    group: composition.krateo.io
-    resourcesFrom: "[ (.crds // [])[] ]"
+    group: audit.krateo.io
+    resource: auditrecords
     namespaceFrom: .metadata.name
   filter: "[.namespaces.items[]? | .metadata.name]"
   continueOnError: true
   errorKey: namespacesError
-{{- /* The cluster-scope check names ONE static resource, the platform's own audit trail kind,
-       so it does not depend on which compositions are installed: with no CompositionDefinition
-       `crds` is empty, a resourcesFrom over it fails closed, and an admin would have seen
-       nothing. RBAC matches resource strings, so the check holds whether or not the AuditRecord
-       CRD is served. No dependsOn: it reads nothing another stage produces. */}}
+{{- /* The same grant asked at cluster scope. RBAC matches resource strings, so both checks hold
+       whether or not the AuditRecord CRD is served. No dependsOn: neither stage reads another. */}}
 - name: allNamespaces
   path: /api/v1/namespaces/{{ .Values.namespace }}
   verb: GET

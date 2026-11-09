@@ -22,9 +22,10 @@ So this renders the chart and resolves each RESTAction the way snowplow does:
 Then the widgets' own jq runs over the result, and with --crds/--pinned every widget, as rendered and
 as resolved, is validated against the frontend-crds chart the installer pins.
 
-THE ACCEPTANCE TEST (installer#415): a non-admin whose namespaces are [team-a], over rows from
-team-a, team-b and krateo-system, sees ZERO team-b and krateo-system rows; the admin sees all three;
-a caller with no namespace sees zero rows and makes no ClickHouse request at all.
+THE ACCEPTANCE TEST (installer#415): a non-admin granted `list` on auditrecords.audit.krateo.io in
+team-a only, over rows from team-a, team-b and krateo-system, sees ZERO team-b and krateo-system
+rows; the admin sees all three; a caller with no grant sees zero rows and makes no ClickHouse request
+at all — including one who may list every composition in team-a, which was the rule this replaced.
 
 Uses the `jq` binary (JQ=gojq runs the same checks on it). Needs `go` and `git` for snowplow's path
 renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
@@ -109,15 +110,18 @@ class Caller:
 
 
 ADMIN = Caller('admin', [('*', '*', '*', '')])                       # cluster-admin, via CRB
-TEAM_A = Caller('j.doe', [('list', 'core.krateo.io', 'compositiondefinitions', 'team-a'),
-                          ('list', 'composition.krateo.io', 'githubrepos', 'team-a')])
+# The grant this page reads: `list` on auditrecords.audit.krateo.io, from a RoleBinding in team-a.
+TEAM_A = Caller('j.doe', [('list', 'audit.krateo.io', 'auditrecords', 'team-a')])
 NOBODY = Caller('nobody', [])
-# May open the page and list compositions everywhere it is bound, but holds no grant on the
-# observability page set, so no trace link resolves for it.
-TEAM_AB = Caller('m.ross', [('list', 'core.krateo.io', 'compositiondefinitions', 'team-a'),
-                            ('list', 'core.krateo.io', 'compositiondefinitions', 'team-b'),
-                            ('list', 'composition.krateo.io', '*', 'team-a'),
-                            ('list', 'composition.krateo.io', '*', 'team-b')])
+# The same grant in two namespaces, and none on the observability page set, so no trace link
+# resolves for it.
+TEAM_AB = Caller('m.ross', [('list', 'audit.krateo.io', 'auditrecords', 'team-a'),
+                            ('list', 'audit.krateo.io', 'auditrecords', 'team-b')])
+# Everything the old rule asked for in team-a — the CompositionDefinitions and every composition
+# kind — and broad reads besides, but no audit grant. Sees nothing.
+COMPOSITIONS_ONLY = Caller('c.lister', [('list', 'core.krateo.io', 'compositiondefinitions', 'team-a'),
+                                         ('list', 'composition.krateo.io', '*', 'team-a'),
+                                         ('*', 'apps', '*', 'team-a'), ('*', '', '*', 'team-a')])
 
 
 def _jq_value(expr, item):
@@ -275,6 +279,8 @@ AUDIT = [
 TRACES = [TRACE_KEPT_A, TRACE_KEPT_SYS, TRACE_OLD]
 TRACES_AGE = {TRACE_OLD: 9 * 24 * H}
 
+NO_GRANT_NOTE = ("No namespace's audit trail has been shared with you, so there are no records to show. "
+                 "Ask an administrator for access to a namespace.")
 INT64 = {'ts_ms', 'matched', 'n', 'total', 'previews', 'unread', 'linked', 'untraced'}
 
 
@@ -342,13 +348,7 @@ class FakeClickHouse:
 # apiserver fixtures, as snowplow's ServiceAccount reads them (unnarrowed)
 # ---------------------------------------------------------------------------------------------
 
-def compdef(name, ns, plural):
-    return {'metadata': {'name': name, 'namespace': ns}, 'status': {'resource': plural}}
-
-
 APISERVER = {
-    'crds': {'items': [compdef('github-repo', 'team-a', 'githubrepos'), compdef('labels', 'team-b', 'labelsets'),
-                       compdef('portal', 'krateo-system', 'portals')]},
     'namespaces': {'items': [{'metadata': {'name': n}} for n in
                              ['team-a', 'team-b', 'krateo-system', 'demo-system', NS, TRACE_NS]]},
     'allNamespaces': {'metadata': {'name': NS}},
@@ -443,7 +443,7 @@ def acc(*names):
 
 def check_negative_test(c):
     """THE ACCEPTANCE TEST. Rows from team-a, team-b and krateo-system (and more) are in the trail;
-    each caller's table holds exactly the namespaces its own RBAC lists compositions in."""
+    each caller's table holds exactly the namespaces whose audit trail its own RBAC grants it."""
     p = []
     _, out, _ = records(c, {}, TEAM_A)
     member = col(table(c, out, {}, 'audit-records (team-a member)'), 'namespace')
@@ -465,7 +465,7 @@ def check_negative_test(c):
     expect(p, 'no namespace: ClickHouse requests', reqs, [])
     expect(p, 'no namespace: rows', table(c, out, {}, 'audit-records (no namespace)'), [])
     expect(p, 'no namespace: the note says why', out['note'],
-           'There is no namespace where you can list compositions, so there is no audit record to show you.')
+           NO_GRANT_NOTE)
     # Choosing another namespace in the URL narrows further; it never widens.
     _, out, _ = records(c, {'auditNamespace': 'team-b'}, TEAM_A)
     expect(p, 'team-a member asking for team-b: rows', out['rows'], [])
@@ -495,9 +495,9 @@ def check_access_predicate_is_the_callers_own(c):
     expect(p, 'admin: no namespace predicate', sql_of(reqs[0][1]), ROWS_SQL.format(window='24 HOUR', access='', cond=''))
     reqs, _ = facets(c, {}, TEAM_A)
     expect(p, 'team-a member: facets SQL', [sql_of(r[1]) for r in reqs], [facets_sql(access=acc('team-a'))])
-    # Every access stage fails closed: a failing namespaces stage, or one that cannot resolve its
-    # resource set, leaves a member with nothing to read and no request made.
-    for broken in ('crds', 'namespaces'):
+    # Every access stage fails closed: a failing namespaces stage leaves a member with nothing to
+    # read and no request made.
+    for broken in ('namespaces',):
         responses, _ = served()
         responses[broken] = lambda path: None
         r, _, out = resolve(c.get('RESTAction', 'audit-records'), {}, responses, TEAM_A)
@@ -506,12 +506,12 @@ def check_access_predicate_is_the_callers_own(c):
     responses, _ = served()
     responses['allNamespaces'] = lambda path: None
     r, _, out = resolve(c.get('RESTAction', 'audit-records'), {}, responses, ADMIN)
-    expect(p, 'allNamespaces failing for an admin: narrowed to the listed namespaces, not widened',
+    expect(p, 'allNamespaces failing for an admin: narrowed to the namespaces it holds the grant in, not widened',
            sql_of([x for x in r if x[0] == 'rows'][0][1]),
            ROWS_SQL.format(window='24 HOUR', access=acc('demo-system', 'krateo-audit', 'krateo-observability',
                                                         'krateo-system', 'team-a', 'team-b'), cond=''))
     # A request cannot stand in for a stage: snowplow refuses extras that name one (#1116).
-    for key in ('namespaces', 'allNamespaces', 'crds', 'tracePage', 'rows', 'summary'):
+    for key in ('namespaces', 'allNamespaces', 'tracePage', 'rows', 'summary'):
         try:
             records(c, {key: True}, TEAM_A)
             p.append(f'extras {key}: resolved')
@@ -528,50 +528,41 @@ def check_access_predicate_is_the_callers_own(c):
     return p
 
 
-def check_all_namespaces_does_not_depend_on_compositions(c):
-    """"All namespaces" asks whether the caller may list the audit trail kind cluster-wide — a static
-    resource — so an admin sees every record on a cluster with no CompositionDefinition, while a
-    member there sees nothing and sends nothing."""
+def check_scope_is_the_explicit_audit_grant(c):
+    """Diego's rule (installer#415, 2026-11-09): a namespace is in the caller's list iff the caller
+    may `list` auditrecords.audit.krateo.io there, and "all" iff it may do so cluster-wide. Nothing
+    else counts — not compositions, not broad reads."""
     p = []
-    no_crds = {'crds': {'items': []}}
-    for ra, kind in (('audit-records', 'rows'), ('audit-facets', 'facets')):
-        responses, _ = served()
-        responses.update(no_crds)
-        reqs, _, out = resolve(c.get('RESTAction', ra), {}, responses, ADMIN)
-        sent = [sql_of(r[1]) for r in reqs if r[0] == kind]
-        expect(p, f'{ra}, admin, no CompositionDefinition: scope', out['scope'], 'all')
-        if ra == 'audit-records':
-            expect(p, 'admin, no CompositionDefinition: no namespace predicate', sent,
-                   [ROWS_SQL.format(window='24 HOUR', access='', cond='')])
-            got = sorted({r['namespace'] for r in out['rows']})
-            expect(p, 'admin, no CompositionDefinition: every record', (got, len(out['rows'])),
-                   (['', 'demo-system', 'krateo-system', 'old-team', 'team-a', 'team-b'], 11))
-        else:
-            expect(p, 'admin, no CompositionDefinition: facets unnarrowed', sent, [facets_sql()])
-    for caller in (TEAM_A, NOBODY):
-        responses, _ = served()
-        responses.update(no_crds)
-        reqs, _, out = resolve(c.get('RESTAction', 'audit-records'), {}, responses, caller)
-        expect(p, f'{caller.name}, no CompositionDefinition: ClickHouse requests',
-               [r for r in reqs if r[0] in ('rows', 'summary')], [])
-        expect(p, f'{caller.name}, no CompositionDefinition: rows', out['rows'], [])
-    # Listing every composition kind cluster-wide is not reading the whole audit trail: such a
-    # caller is narrowed to the namespaces it lists, exactly as before, never given "all".
+    reqs, out, _ = records(c, {}, COMPOSITIONS_ONLY)
+    expect(p, 'compositions but no audit grant in team-a: ClickHouse requests', reqs, [])
+    expect(p, 'compositions but no audit grant in team-a: rows', out['rows'], [])
+    expect(p, 'compositions but no audit grant in team-a: the note', out['note'], NO_GRANT_NOTE)
+    freqs, fac = facets(c, {}, COMPOSITIONS_ONLY)
+    expect(p, 'compositions but no audit grant: facets', (freqs, fac['scope']), ([], 'none'))
+    hdr = tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', fac, {}, 'header (compositions, no grant)')['spec']['widgetData']
+    expect(p, 'what someone with no grant reads', hdr['subtitle'],
+           'You see records for namespaces where you have been granted access to the audit trail, and you have '
+           'none yet. Ask an administrator for access to a namespace.')
     lister = Caller('composition-lister', [('list', 'core.krateo.io', 'compositiondefinitions', ''),
                                            ('list', 'composition.krateo.io', '*', '')])
     reqs, out, _ = records(c, {}, lister)
-    expect(p, 'cluster-wide composition lister: scope', out['scope'], 'namespaces')
-    expect(p, 'cluster-wide composition lister: narrowed to the listed namespaces', sql_of(reqs[0][1]),
-           ROWS_SQL.format(window='24 HOUR', access=acc('demo-system', 'krateo-audit', 'krateo-observability',
-                                                        'krateo-system', 'team-a', 'team-b'), cond=''))
-    # And the grant that does mean "all": list auditrecords cluster-wide, nothing else.
+    expect(p, 'every composition kind cluster-wide, no audit grant', (out['scope'], reqs), ('none', []))
     auditor = Caller('auditor', [('list', 'audit.krateo.io', 'auditrecords', '')])
     reqs, out, _ = records(c, {}, auditor)
-    expect(p, 'cluster-wide auditrecords reader: scope', out['scope'], 'all')
-    # A RoleBinding granting it in ONE namespace is not a cluster-scope grant.
-    ns_auditor = Caller('ns-auditor', [('list', 'audit.krateo.io', 'auditrecords', NS)])
+    expect(p, 'auditrecords cluster-wide: "all", no namespace predicate', (out['scope'], sql_of(reqs[0][1]) if reqs else None),
+           ('all', ROWS_SQL.format(window='24 HOUR', access='', cond='')))
+    ns_auditor = Caller('ns-auditor', [('list', 'audit.krateo.io', 'auditrecords', 'team-b')])
     reqs, out, _ = records(c, {}, ns_auditor)
-    expect(p, f'auditrecords granted only in {NS}: not "all"', (out['scope'], reqs), ('none', []))
+    expect(p, 'auditrecords in team-b only: team-b, not "all"', (out['scope'], sql_of(reqs[0][1]) if reqs else None),
+           ('namespaces', ROWS_SQL.format(window='24 HOUR', access=acc('team-b'), cond='')))
+    other_verb = Caller('getter', [('get', 'audit.krateo.io', 'auditrecords', 'team-a'),
+                                   ('list', 'audit.krateo.io', 'otherrecords', 'team-a')])
+    reqs, out, _ = records(c, {}, other_verb)
+    expect(p, 'get (not list) on auditrecords, or list on another kind: nothing', (out['scope'], reqs), ('none', []))
+    # The admin needs no composition and no namespaced grant: cluster-admin covers the cluster-scope check.
+    responses, _ = served()
+    reqs, _, out = resolve(c.get('RESTAction', 'audit-records'), {}, responses, ADMIN)
+    expect(p, 'admin: every record', len(out['rows']), 11)
     return p
 
 
@@ -795,7 +786,8 @@ def check_filter_chips(c):
                                                'to which object, and the outcome. You see all namespaces.')
     _, fac_ab = facets(c, {}, TEAM_AB)
     hdr = tbi.widget(c, 'PageHeader', 'audit-page-header', 'subtitle', fac_ab, {})
-    expect(p, 'member header names their namespaces', hdr, 'Changes in the namespaces you can access: team-a, team-b.')
+    expect(p, 'member header names their namespaces', hdr,
+           'Records for the namespaces where you have been granted access to the audit trail: team-a, team-b.')
     _, fac_none = facets(c, {}, NOBODY)
     tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', fac_none, {}, 'header (no namespace)')
     for name in ('audit-namespace-chips', 'audit-user-chips', 'audit-outcome-chips'):
@@ -912,8 +904,8 @@ def main():
          'no namespace sees nothing', lambda: check_negative_test(c)),
         ('the namespace predicate is the caller\'s own, and every access stage fails closed',
          lambda: check_access_predicate_is_the_callers_own(c)),
-        ('"all namespaces" holds with no CompositionDefinition, and only for a cluster-wide audit reader',
-         lambda: check_all_namespaces_does_not_depend_on_compositions(c)),
+        ('the scope is the explicit audit grant: compositions or other reads count for nothing',
+         lambda: check_scope_is_the_explicit_audit_grant(c)),
         ('only the two audit scopes, no previews, bounded windows', lambda: check_population_and_previews(c)),
         ('columns map to the record as approved', lambda: check_columns_map_to_the_record(c)),
         ('a trace links only when it is kept and openable', lambda: check_trace_link_only_when_kept(c)),
