@@ -1,0 +1,70 @@
+{{/* The /audit filter chips and the header's scope line (AUDIT-9, installer#415): who the caller may
+     read records for, and in the chosen window how many records each namespace, user and outcome
+     holds. Read-only, from krateo_audit in ClickHouse.
+
+     SAME ACCESS AS THE TABLE. The three stages are audit.accessStages (_audit.tpl), and the query
+     carries the same access predicate as audit-records, so a chip never names a namespace or a
+     user the table would not show: a team-a member's chips are counted from team-a's records only,
+     and they cannot tell what else exists. An empty namespace list makes no call.
+
+     THE COUNTS IGNORE THE CHIPS. They are counted over the window, the audit population and the
+     caller's access, without the namespace, user and outcome filters, so every chip stays on the
+     bar while another is chosen — the Traces tab's facets do the same. Previews (dry runs) are not
+     counted, as the table does not show them.
+
+     THE QUERY, decoded (<window> and <access> as in audit-records; each branch keeps its 12 largest
+     values):
+       SELECT * FROM (SELECT 'ns' AS dim, LogAttributes['k8s.namespace.name'] AS val, count() AS n
+                      FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL <window>
+                        AND NOT <dryRun><access> GROUP BY val ORDER BY n DESC, val LIMIT 12)
+       UNION ALL SELECT * FROM (… 'user', LogAttributes['user.name'] …)
+       UNION ALL SELECT * FROM (… 'outcome', LogAttributes['outcome'] …) FORMAT JSON
+     Each branch is wrapped in a subquery so its ORDER BY and LIMIT bind to it alone. */}}
+{{- $window := include "audit.window" . -}}
+{{- $filters := include "audit.sql.filters" . -}}
+{{- $pop := include "audit.sql.population" . -}}
+{{- $dry := include "audit.sql.dryRun" . -}}
+{{- $iterator := include "audit.iterator" . -}}
+{{- $parts := list -}}
+{{- range $i, $d := list (list "ns" "k8s.namespace.name") (list "user" "user.name") (list "outcome" "outcome") -}}
+{{- $head := printf "%sSELECT * FROM (SELECT '%s' AS dim, LogAttributes['%s'] AS val, count() AS n FROM krateo_audit WHERE " (ternary "" " UNION ALL " (eq $i 0)) (index $d 0) (index $d 1) -}}
+{{- $parts = append $parts (printf "\"%s%s\" + $iv + \"%s\" + $acc + \"%s\"" (include "audit.enc" $head) $pop (include "audit.enc" (printf " AND NOT %s" $dry)) (include "audit.enc" " GROUP BY val ORDER BY n DESC, val LIMIT 12)")) -}}
+{{- end -}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: audit-facets
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{- include "audit.accessStages" . | nindent 4 }}
+    - name: facets
+      dependsOn:
+        name: allNamespaces
+        iterator: '{{ $iterator }}'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ $window }} | {{ $filters }} | "/?query=" + {{ join " + " $parts }} + "{{ include "audit.enc" " FORMAT JSON" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: facetsError
+  {{/* `namespaces` here is the caller's own list (shown in the header for a narrowed reader), not
+       a count; the counts are under `facets`. Counts may arrive as JSON strings or numbers. */}}
+  filter: >
+    {{ include "audit.valid" . }}
+    ({{ include "audit.access" . }}) as $a
+    | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring)} as $f
+    | (($f.ns | okNsFilter) and ($f.usr | okUser) and ($f.oc | okOutcome)) as $accepted
+    | ($accepted and ($a.all or ($a.acc | length) > 0)) as $queried
+    | [ ((.facets | objects | .data) // [])[] | {dim: (.dim // ""), name: ((.val // "") | tostring), count: (.n | tonumber? // 0)} | select(.name != "") ] as $all
+    | { scope: (if ($a.all or ($a.acc | length) > 0) | not then "none" elif $a.all then "all" else "namespaces" end),
+        namespaces: (if $a.all then [] else $a.acc end),
+        facets: { namespaces: [ $all[] | select(.dim == "ns") | {name, count} ],
+                  users: [ $all[] | select(.dim == "user") | {name, count} ],
+                  outcomes: [ $all[] | select(.dim == "outcome") | {name, count} ] },
+        failed: ($queried and (.facetsError != null or (.facets | type) != "object")) }

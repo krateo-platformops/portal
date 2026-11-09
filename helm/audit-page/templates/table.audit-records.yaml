@@ -1,0 +1,59 @@
+{{/* The audit table: one row per record, newest first as audit-records orders them, at most 200,
+     25 a page. Columns as approved on installer#415: Time (UTC) · User · Action · Resource · Name ·
+     Namespace · Outcome · Trace. The CSV export is the Table's own control (frontend 1.8.34,
+     TableExportControl over snowplow /export): it re-dispatches this widget's read as the viewer, so
+     an export holds exactly the rows the viewer may see.
+     THE TRACE COLUMN. "open ↗" where the record's TraceId is in otel_traces and the viewer may open
+     the trace page; a row click then opens /observability/traces/<id>. The id rides in a
+     `traceLink` cell no column renders, and it is empty on every other row, so those rows do not
+     navigate (Table.tsx buildRowPath returns nothing when a placeholder is empty). A kept trace the
+     viewer cannot open reads "kept"; a record its producer wrote with no trace context reads
+     "no trace (producer)"; anything else "—". A Table cell is text, a pill or a widget ref, not a
+     link, so the row is the link. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-records
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: middle
+    {{/* Client-side pages over the 200 rows the query returns. No `total`, so the frontend keeps
+         its own pager rather than the server one (tablePagination.usesServerPagination). */}}
+    pagination:
+      pageSize: 25
+      hideOnSinglePage: true
+    rowNavigateTo: /observability/traces/{traceLink}
+    columns:
+    - valueKey: time
+      title: Time (UTC)
+    - valueKey: user
+      title: User
+    - valueKey: action
+      title: Action
+    - valueKey: resource
+      title: Resource
+    - valueKey: name
+      title: Name
+    - valueKey: namespace
+      title: Namespace
+    - valueKey: outcome
+      title: Outcome
+    - valueKey: trace
+      title: Trace
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ {{ include "audit.format" . }} [ (.rows // [])[] | auditOutcomeTag as $oc | [ {valueKey:"time",kind:"jsonSchemaType",type:"string",stringValue:(.tsMs | auditUtc)}, {valueKey:"user",kind:"jsonSchemaType",type:"string",stringValue:(.user | dash)}, {valueKey:"action",kind:"jsonSchemaType",type:"string",stringValue:auditAction}, {valueKey:"resource",kind:"jsonSchemaType",type:"string",stringValue:auditResource}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name | dash)}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace | dash)}, {valueKey:"outcome",kind:"tag",stringValue:$oc.label,color:$oc.color}, {valueKey:"trace",kind:"jsonSchemaType",type:"string",stringValue:auditTrace}, {valueKey:"traceLink",kind:"jsonSchemaType",type:"string",stringValue:.link} ] ] }'
+  resourcesRefs:
+    items: []

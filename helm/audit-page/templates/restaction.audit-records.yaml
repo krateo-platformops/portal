@@ -1,0 +1,196 @@
+{{/* The /audit table and its note (AUDIT-9, installer#415): who changed what, to which object, when,
+     and with what outcome, read from the audit trail in ClickHouse (krateo_audit). Read-only.
+
+     WHO SEES WHICH ROWS — the access model, decided on installer#415. A RESTAction's dict carries
+     no caller namespace, only the extras (and username/groups when injected), so the namespaces
+     come from three apiserver stages that snowplow dials as its own ServiceAccount and narrows per
+     item through the CALLER's RBAC (userAccessFilter, resolvers/restactions/api/refilter.go):
+       crds           the CompositionDefinitions the caller may list, for the composition plurals;
+       namespaces     the namespaces where the caller may list one of those kinds. This is the
+                      question restaction.projects asks for the header's project picker ("a project
+                      IS a namespace whose compositions you can see"), so the audit page and the
+                      project scope agree by construction, and a namespaced Role can answer it;
+       allNamespaces  the same question at CLUSTER scope: one cluster-scoped object (this chart's
+                      namespace) whose `.metadata.namespace` is empty, so the check is evaluated
+                      with namespace "" and only a ClusterRoleBinding can grant it
+                      (rbac/evaluate.go: RoleBindings are consulted only when a namespace is set).
+                      A caller who may list a composition kind in every namespace — the `admins`
+                      group, bound to cluster-admin — gets NO namespace predicate, so records of a
+                      namespace that has since been deleted, or with no namespace at all, are still
+                      theirs to see. Every other caller is narrowed to `namespaces`.
+     Each of them fails CLOSED: a stage error, an unresolved resource set or a missing identity
+     leaves the list empty and `allNamespaces` false (refilter.go:951-1079), and an empty list makes
+     NO ClickHouse call — the iterator yields nothing — never a call without a filter. The namespace
+     names are checked again (okNs) before they go into the IN list. The stages are
+     audit.accessStages (_audit.tpl), shared with audit-facets, so the chips and the table cannot
+     disagree about whose records they count.
+
+     CACHING NEVER CROSSES USERS (snowplow 1.12.67). Two rules, either one sufficient:
+       - every resolve dials ClickHouse through a named endpointRef, an external touch
+         (resolvers/restactions/api/resolve.go:1548-1551), so every L1 Put of this RESTAction and of
+         each widget reading it is declined permanently (cache/put_verdict.go:166-167, called at
+         handlers/dispatchers/restactions.go:628 and widgets.go:542). The one opt-out is a widget's
+         `krateo.io/external-cache-ttl-seconds` (widgets.go:508-509), which no widget on this page sets —
+         test-audit-page.py fails if one does;
+       - the refilter marks the resolve as narrowed before it evaluates an item (refilter.go:990),
+         and a narrowed body goes only into an identity-bound cell whose key folds the caller's
+         whole binding set (cache/resolved.go:1370-1371, #423); the identity-free class declines it
+         (handlers/dispatchers/uaf_shortttl.go:386-432, #561). Two callers share a cell only when
+         every RBAC verdict their resolve reaches is equal, which here means the same namespaces.
+     `keyExtras` declares every filter, so the F6 guard partitions by them too.
+
+     THE TRACE LINK. `kept` is resolved in ClickHouse: the record's TraceId is in otel_traces
+     (audit.sql.kept), within its 7 days. The link opens /observability/traces/<id>, a page only the
+     observability chart's readerGroups (admins) can read, so `tracePage` asks whether the caller
+     may `get` that page's root, and a caller who cannot sees "kept" instead of a link that would
+     answer 403.
+
+     THE QUERIES, decoded (<window> is ?range: 1 HOUR | 24 HOUR | 7 DAY | 30 DAY, default 24 HOUR;
+     <access> is ` AND LogAttributes['k8s.namespace.name'] IN ('a', 'b')`, or nothing for a
+     cluster-wide caller; each chip adds one ` AND LogAttributes[…] = '<value>'`):
+       rows:    SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope,
+                  LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act,
+                  LogAttributes['http.request.method'] AS method,
+                  LogAttributes['k8s.resource.resource'] AS res, LogAttributes['k8s.resource.kind'] AS kind,
+                  LogAttributes['k8s.resource.group'] AS grp, LogAttributes['k8s.resource.name'] AS name,
+                  LogAttributes['k8s.namespace.name'] AS ns, LogAttributes['outcome'] AS outcome,
+                  LogAttributes['http.response.status_code'] AS code, LogAttributes['server.address'] AS server,
+                  LogAttributes['krateo.audit.no_trace_context'] AS no_trace, TraceId AS trace_id,
+                  <kept> AS kept, count() OVER () AS matched
+                FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL <window>
+                  AND NOT <dryRun><access><filters> ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON
+       summary: SELECT count() AS total, countIf(<dryRun>) AS previews,
+                  countIf(NOT <dryRun> AND <unread>) AS unread, countIf(NOT <dryRun> AND <kept>) AS linked,
+                  countIf(NOT <dryRun> AND LogAttributes['krateo.audit.no_trace_context'] = 'true') AS untraced
+                FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL <window><access><filters>
+                FORMAT JSON
+     <population>, <dryRun>, <kept> and <unread> are the defines in _audit.tpl.
+
+     THE ROW-COUNT CHECK. `summary` counts the window with the same predicates but no LIMIT and no
+     preview exclusion; the filter below compares that with what `rows` matched and with the rows
+     it classified itself. Records written under a convention this page does not read are counted
+     (`unread`) and named in the note, and a disagreement between the two queries is a sentence in
+     the note too, never a silently shorter table. */}}
+{{- $window := include "audit.window" . -}}
+{{- $filters := include "audit.sql.filters" . -}}
+{{- $pop := include "audit.sql.population" . -}}
+{{- $dry := include "audit.sql.dryRun" . -}}
+{{- $kept := include "audit.sql.kept" . -}}
+{{- $unread := include "audit.sql.unread" . -}}
+{{- $rowsSelect := printf "SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope, LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act, LogAttributes['http.request.method'] AS method, LogAttributes['k8s.resource.resource'] AS res, LogAttributes['k8s.resource.kind'] AS kind, LogAttributes['k8s.resource.group'] AS grp, LogAttributes['k8s.resource.name'] AS name, LogAttributes['k8s.namespace.name'] AS ns, LogAttributes['outcome'] AS outcome, LogAttributes['http.response.status_code'] AS code, LogAttributes['server.address'] AS server, LogAttributes['krateo.audit.no_trace_context'] AS no_trace, TraceId AS trace_id, %s AS kept, count() OVER () AS matched FROM krateo_audit WHERE " $kept -}}
+{{- $summarySelect := printf "SELECT count() AS total, countIf(%s) AS previews, countIf(NOT %s AND %s) AS unread, countIf(NOT %s AND %s) AS linked, countIf(NOT %s AND LogAttributes['krateo.audit.no_trace_context'] = 'true') AS untraced FROM krateo_audit WHERE " $dry $dry $unread $dry $kept $dry -}}
+{{- $iterator := include "audit.iterator" . -}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: audit-records
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{- include "audit.accessStages" . | nindent 4 }}
+    - name: tracePage
+      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ include "audit.traceNamespace" . }}/flexes/page-trace-detail
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      dependsOn:
+        name: allNamespaces
+      userAccessFilter:
+        verb: get
+        group: widgets.templates.krateo.io
+        resource: flexes
+        namespaceFrom: .metadata.namespace
+      filter: '((.tracePage // {}) | (.metadata.name // "")) == "page-trace-detail"'
+      continueOnError: true
+      errorKey: tracePageError
+    - name: rows
+      dependsOn:
+        name: tracePage
+        iterator: '{{ $iterator }}'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $rowsSelect }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: rowsError
+    - name: summary
+      dependsOn:
+        name: rows
+        iterator: '{{ $iterator }}'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $summarySelect }}{{ $pop }}" + $iv + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " FORMAT JSON" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: summaryError
+  {{/* ClickHouse FORMAT JSON => {meta, data: [...], rows}. 64-bit integers (ts_ms, counts) arrive
+       as JSON strings on a default server and as numbers on 057, so both are read. */}}
+  filter: >
+    {{ include "audit.valid" . }} {{ include "audit.rangeLabel" . }}
+    ((.range // "24h") | tostring) as $range
+    | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring)} as $f
+    | ({{ include "audit.access" . }}) as $a
+    | [ (if ($f.ns | okNsFilter) then empty else "namespace" end), (if ($f.usr | okUser) then empty else "user" end), (if ($f.oc | okOutcome) then empty else "outcome" end) ] as $rejected
+    | (($rejected | length) == 0 and ($a.all or ($a.acc | length) > 0)) as $queried
+    | (.tracePage == true) as $canOpen
+    | [ ((.rows | objects | .data) // [])[]
+        | { tsMs: (.ts_ms | tonumber? // 0), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
+            resource: (.res // ""), kind: (.kind // ""), group: (.grp // ""), name: (.name // ""),
+            namespace: (.ns // ""), outcome: (.outcome // ""), code: ((.code // "") | tostring),
+            server: (.server // ""), traceId: (.trace_id // ""),
+            kept: (((.kept // 0) | tostring) == "1" or .kept == true), untraced: ((.no_trace // "") == "true"),
+            matched: (.matched | tonumber? // 0) }
+        | . + { conforming: (.user != "" and .namespace != "" and (.resource != "" or .kind != "" or .server != "")
+                             and (.outcome == "success" or .outcome == "failure" or .outcome == "denied")),
+                link: (if .kept and $canOpen and (.traceId | okTraceId) then .traceId else "" end) } ] as $rows
+    | ((.summary | objects | .data) // [])[0] as $s
+    | ($queried and (.rowsError != null or .summaryError != null or $s == null)) as $failed
+    | (if $s == null then {} else $s end) as $s
+    | { total: ($s.total | tonumber? // 0), previews: ($s.previews | tonumber? // 0), unread: ($s.unread | tonumber? // 0),
+        linked: ($s.linked | tonumber? // 0), untraced: ($s.untraced | tonumber? // 0) } as $c
+    | ($c.total - $c.previews) as $shown
+    | (($rows[0].matched) // 0) as $matched
+    | ([ $rows[] | select(.conforming | not) ] | length) as $classifiedUnread
+    | ($matched == $shown and (if $matched <= 200 then (($rows | length) == $matched and $classifiedUnread == $c.unread) else ($rows | length) == 200 end)) as $checkOk
+    | ($f.ns != "" or $f.usr != "" or $f.oc != "") as $filtered
+    | (if ($rejected | length) > 0 then
+         "The " + ($rejected | join(" and ")) + " filter holds characters this page does not accept, so nothing was read."
+       elif ($queried | not) then
+         "There is no namespace where you can list compositions, so there is no audit record to show you."
+       elif $failed then
+         "The audit trail could not be read from ClickHouse."
+       else
+         ([ ((($shown | tostring) + (if $shown == 1 then " record" else " records" end)
+             + (if $filtered then " match these filters in " else " in " end) + ($range | rangeLabel)
+             + (if $matched > 200 then "; the latest 200 are shown." else "." end))),
+            (if $c.previews > 0 then (($c.previews | tostring) + (if $c.previews == 1 then " preview (a dry run) is" else " previews (dry runs) are" end) + " not shown.") else empty end),
+            (if $canOpen then
+               "\"open ↗\" appears only when the request's trace was kept. In this range, " + ($c.linked | tostring) + " of " + ($shown | tostring) + (if $shown == 1 then " record links" else " records link" end) + " to a trace."
+             else
+               "In this range, " + ($c.linked | tostring) + " of " + ($shown | tostring) + (if $shown == 1 then " record has" else " records have" end) + " a kept trace (\"kept\"). It opens on the trace page, which your groups cannot read."
+             end),
+            "Traces are kept for 7 days, so older records have no link. External-system writes (rest-dynamic-controller) usually have no trace yet.",
+            (if $c.untraced > 0 then (($c.untraced | tostring) + (if $c.untraced == 1 then " record was" else " records were" end) + " written with no trace context.") else empty end),
+            (if $c.unread > 0 then (($c.unread | tostring) + (if $c.unread == 1 then " record lacks" else " records lack" end) + " a field this page reads (user, namespace, target or outcome); the missing cells show —.") else empty end),
+            (if $checkOk then empty else
+               "Row-count check: the window holds " + ($shown | tostring) + " records, the table query matched " + ($matched | tostring)
+               + " and classified " + ($classifiedUnread | tostring) + " of its rows as incomplete against " + ($c.unread | tostring)
+               + " counted. A record may follow a convention this page does not read." end)
+          ] | join(" "))
+       end) as $note
+    | { rows: $rows,
+        scope: (if ($queried | not) then "none" elif $a.all then "all" else "namespaces" end),
+        canOpenTraces: $canOpen,
+        counts: ($c + {shown: $shown, matched: $matched, classifiedUnread: $classifiedUnread}),
+        check: (if $queried and ($failed | not) then $checkOk else null end),
+        rejected: $rejected,
+        failed: $failed,
+        note: $note }

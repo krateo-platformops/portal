@@ -1,0 +1,45 @@
+{{/* WHO CAN OPEN /audit. The whole mechanism of a page chart (#261): the sidebar discovers the
+     namespaces where the CALLER may `list` page roots and lists the roots in each as that caller,
+     so a group with no RoleBinding here never sees the entry. A deep link still routes (routes are
+     not RBAC-filtered) and the content /call returns 403.
+
+     OPENING THE PAGE IS NOT SEEING THE ROWS. Every row is narrowed per caller in the RESTActions
+     (restaction.audit-records.yaml), to the namespaces where the caller may list compositions — so
+     the page can be granted widely without disclosing anything, and `devs` gets it by default
+     alongside `admins`. Never a ClusterRole (#261; scripts/lint-caller-cluster-reads.py). */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-audit-pages
+  namespace: {{ $.Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-audit-pages
+  namespace: {{ $.Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-audit-pages
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

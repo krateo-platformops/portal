@@ -1,0 +1,50 @@
+{{/* The /audit filter bar: time range, namespace, outcome and user, each an eyebrow label beside its
+     chips, as on the Traces tab. Every chip is a link to /audit with one filter changed and the
+     others kept (_audit.tpl, audit.route), so the whole view is in the URL and can be shared. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-filters
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  widgetData:
+    allowedResources:
+    - flexes
+    gap: middle
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: audit-range-group
+    - resourceRefId: audit-namespace-group
+    - resourceRefId: audit-outcome-group
+    - resourceRefId: audit-user-group
+  resourcesRefs:
+    items:
+    - id: audit-range-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-range-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: audit-namespace-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-namespace-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: audit-outcome-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-outcome-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: audit-user-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-user-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

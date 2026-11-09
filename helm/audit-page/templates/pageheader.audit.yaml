@@ -1,0 +1,24 @@
+{{/* The /audit page header. The subtitle says whose records these are: all namespaces for a
+     cluster-wide reader, otherwise the namespaces the caller may list compositions in (audit-facets'
+     `namespaces`, the same list the table is narrowed to). Up to eight are named. */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-page-header
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  apiRef:
+    name: audit-facets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Audit
+    subtitle: Every change made through the portal and the platform API, who made it, to which object, and the outcome.
+  widgetDataTemplate:
+    - forPath: subtitle
+      expression: '${ (.namespaces // []) as $ns | if .scope == "all" then "Every change made through the portal and the platform API: who made it, to which object, and the outcome. You see all namespaces." elif .scope == "namespaces" then "Changes in the namespaces you can access: " + ($ns[0:8] | join(", ")) + (if ($ns | length) > 8 then " and " + ((($ns | length) - 8) | tostring) + " more" else "" end) + "." else "There is no namespace where you can list compositions, so there are no audit records to show you." end }'
+  resourcesRefs:
+    items: []
