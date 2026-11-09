@@ -1,0 +1,48 @@
+{{/* WHO SEES /observability. This is the entire mechanism of the split (#261).
+
+     The sidebar discovers the namespaces where the CALLER may `list` page roots and lists the roots
+     in each as that caller, so a group with no RoleBinding here never sees the entry — and
+     isNavEntryAllowed drops it again because the ref cannot resolve. A deep link still routes
+     (routes are deliberately not RBAC-filtered) and the content /call returns 403.
+
+     `list` is granted and cannot be narrowed: `resourceNames` does not apply to `list`, which is
+     exactly why the namespace is the boundary rather than a names list in one shared namespace.
+
+     `devs` is deliberately absent. Add a group here to give it the pages; do not add a ClusterRole
+     (#261 — scripts/lint-caller-cluster-reads.py enforces it). */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-observability-pages
+  namespace: {{ $.Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-observability-pages
+  namespace: {{ $.Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-observability-pages
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

@@ -1,0 +1,41 @@
+{{/* This alert's incidents, from alert-detail (.incidents): every open one, then the five latest */}}
+{{/* ended ones, newest first within each. Each row shows the root cause (or the incident name), */}}
+{{/* its state and when it started, and opens the incident's page. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-incidents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    dataSource: []
+    itemLayout: horizontal
+    split: false
+    itemTemplate:
+      navigateTo: '{route}'
+      iconVariant: dot
+      color:
+        value: '{state}'
+        map:
+          Open: red
+          Verifying: orange
+          Resolved: green
+        default: gray
+      primaryText: '{title}'
+      secondaryText: '{state}'
+      secondaryTextAsTag: true
+      subSecondaryText: '{when}'
+      formats:
+        subSecondaryText: relative
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ .incidents // [] }'
+  resourcesRefs:
+    items: []

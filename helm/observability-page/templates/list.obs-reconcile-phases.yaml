@@ -1,0 +1,41 @@
+{{/* GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps */}}
+{{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
+{{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* "Where reconcile time goes" — the mean latency of each reconcile SUB-PHASE (queue wait / */}}
+{{/* get object / RBAC generate / RBAC apply), from otel_metrics_histogram Sum/Count deltas via */}}
+{{/* obs-reconcile-perf. One bar each, length = share of the SLOWEST phase (normalised to the */}}
+{{/* max, NOT summed — the phases overlap, so a stacked "= total" bar would be dishonest). The */}}
+{{/* ms label is the real windowed mean. Surfaces that RBAC generation dominates reconcile cost. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-reconcile-phases
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [range]
+  apiRef:
+    name: obs-reconcile-perf
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemLayout: horizontal
+    split: false
+    itemTemplate:
+      primaryText: '{label}'
+      bar:
+        percent: '{percent}'
+        label: '{msLabel}'
+        color:
+          value: cyan
+        variant: line
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ ((.phases // []) | map({ ms: (.mean_ms|tonumber), label: ( .metric | if endswith("queue.wait.duration_seconds") then "Queue wait" elif endswith("get.duration_seconds") then "Get object" elif endswith("rbac_generation_duration_seconds") then "RBAC generate" elif endswith("rbac_apply_duration_seconds") then "RBAC apply" else . end) })) as $ph | ($ph | map(.ms) | max) as $mx | ( $ph | sort_by(-.ms) | map({ label: .label, msLabel: ((.ms|tostring) + " ms"), percent: (if ($mx // 0) > 0 then (.ms * 100 / $mx | floor) else 0 end) }) ) }'
+  resourcesRefs:
+    items: []
+{{- end }}

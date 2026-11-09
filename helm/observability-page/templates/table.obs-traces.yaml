@@ -1,0 +1,52 @@
+{{/* The Traces tab's span list (installer#404), shaped here from obs-traces' rows: newest first, */}}
+{{/* as the RESTAction orders them. Time is the span's start in UTC with milliseconds; Duration is */}}
+{{/* from nanoseconds; Status is the exporter's word as a pill (Error red, OK green, Unset gray); */}}
+{{/* User is the gateway's jwt.sub, "—" where a span carries none: only agentgateway spans carry */}}
+{{/* it (installer#398), so the column is titled "User (AI calls)". The Trace column shows the id */}}
+{{/* shortened; the full id rides in a `traceId` cell no column renders, which is what the row */}}
+{{/* click reads to open /observability/traces/{traceId}. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the filters obs-traces reads, plus what the chips carry. */}}
+  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: middle
+    {{/* Client-side pages over the 200 rows the query returns. No `total`, so the frontend keeps */}}
+    {{/* its own pager rather than the server one (tablePagination.usesServerPagination). */}}
+    pagination:
+      pageSize: 25
+      hideOnSinglePage: true
+    rowNavigateTo: /observability/traces/{traceId}
+    columns:
+    - valueKey: time
+      title: Time (UTC)
+    - valueKey: service
+      title: Service
+    - valueKey: span
+      title: Span
+    - valueKey: duration
+      title: Duration
+    - valueKey: user
+      title: User (AI calls)
+    - valueKey: status
+      title: Status
+    - valueKey: trace
+      title: Trace
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ {{ include "obs.traces.format" . }} [ (.rows // [])[] | (.status | traceStatusTag) as $st | [ {valueKey:"time",kind:"jsonSchemaType",type:"string",stringValue:(.tsMs | traceUtc)}, {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)}, {valueKey:"user",kind:"jsonSchemaType",type:"string",stringValue:(if .user == "" then "—" else .user end)}, {valueKey:"status",kind:"tag",stringValue:$st.label,color:$st.color}, {valueKey:"trace",kind:"jsonSchemaType",type:"string",stringValue:(.traceId | traceShort)}, {valueKey:"traceId",kind:"jsonSchemaType",type:"string",stringValue:.traceId} ] ] }'
+  resourcesRefs:
+    items: []

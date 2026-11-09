@@ -88,7 +88,7 @@ v0.13.0` and a `main` that calls `cli.Run()` builds it. Upstream gojq is a diffe
 | `configmap-failed` | The ConfigMap's read fails with a 500: `access: error`, the neutral sentence. |
 | `no-configmap` | No ConfigMap (404) while `status.managed` lists it: `architecture: false, access: null`. No claim about access: the neutral sentence. |
 | `label-mismatch` | A ConfigMap of that name that another composition rendered is not this one's architecture, and not a denial. |
-| `configmap-no-graph` | A ConfigMap with no graph (the frontend <= 1.6.59 composer wrote `<release>-architecture` without one): no architecture, not a denial. |
+| `configmap-no-graph` | A ConfigMap with no graph (the frontend <= 1.6.59 builder wrote `<release>-architecture` without one): no architecture, not a denial. |
 | `graph-v2` | A graph shape this portal does not know (`v: 2`): no architecture, and no one, admins included, is told their access is the problem. |
 | `no-extras` | No extras (snowplow's Phase-1 walk): `architecture: false`, not a denial, and no stage runs — the `arch` step is gated on the extras, so nothing is requested. |
 | `empty-descriptor` | A chart that declares no resources: `nodes: []`, all ready, level null. The body says so in one sentence rather than leaving an empty titled card. |
@@ -131,5 +131,5 @@ iterator items concurrently, so the order in which objects and errors accumulate
   ConfigMap, or a graph shape this RESTAction does not know says only that the topology could not be
   read.
 - **Names, not kinds.** Paths come from `status.managed`, never from a pluralised kind (`Repo` is
-  `repoes`). Objects join by name, because informer-served objects have no TypeMeta. The composer's
+  `repoes`). Objects join by name, because informer-served objects have no TypeMeta. The builder's
   lint L5 keeps names unique across nodes.

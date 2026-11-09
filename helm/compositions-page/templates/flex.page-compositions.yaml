@@ -1,0 +1,76 @@
+{{/* Convention page root for /compositions — header (H1 + subtitle) above the */}}
+{{/* compositions table. The nav (`menu.sidebar-nav`) points its `compositions` ref here */}}
+{{/* (was the bare table) so the page gains a header like the mockup. */}}
+{{/* #68: this page-root is tenant-readable — a namespace-scoped tenant must see the Compositions */}}
+{{/* menu item and its OWN Krateos, so it may never move to an admin-only namespace (#261). */}}
+{{/* Safe: its children (compositions-header/toolbar/table) already live here, and compositions-table */}}
+{{/* is server-side tenant-scoped (compositions-list RA), so a tenant sees only its own compositions. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-compositions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-alias": "/compositions/{namespace}"
+    "krateo.io/nav-group": "Operations"
+    "krateo.io/nav-icon": "fa-cubes"
+    "krateo.io/nav-label": "Compositions"
+    "krateo.io/nav-order": "2"
+    "krateo.io/nav-path": "/compositions"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [namespace]
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - flexes
+    - tables
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: compositions-page-header
+    - resourceRefId: compositions-toolbar
+    - resourceRefId: compositions-table
+  resourcesRefs:
+    items:
+    {{/* #4: compositions-header is now a Flex (space-between), not a Row — resolve it as `flexes` */}}
+    {{/* so the CTA pins flush-right reliably (the Row/Col grid rendered it ~2/3 across live). */}}
+    - id: compositions-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-page-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: compositions-toolbar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-toolbar
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    {{/* DECLARED WINDOW, and it is a cache-key fix rather than a display one. Snowplow derives a */}}
+    {{/* prewarm seed's cache key from the /call Path it emits itself, under a contract that the */}}
+    {{/* tuple must equal what the dispatcher computes at serve time for that Path's query params. */}}
+    {{/* The SPA broke that precondition by minting ?page=1&perPage=50 for every `tables` ref, so */}}
+    {{/* the seed wrote under (-1,-1) and the browser asked under (50,1): a total cold miss on */}}
+    {{/* every table, including straight after a successful prewarm. Declaring the slice HERE makes */}}
+    {{/* snowplow emit the same params into the child's own /call URL, so seed and serve read one */}}
+    {{/* source instead of agreeing by coincidence. */}}
+    {{/* */}}
+    {{/* It also fixes the CONTENT of that cell, which the miss was masking: the walk resolves a */}}
+    {{/* child with no declared slice under PREWARM_PAGE_LIMIT (5), so the seeded cell holds five */}}
+    {{/* rows. A child that declares a slice overrides that limit with its own values, so the cell */}}
+    {{/* holds 50 and keys under (50,1). */}}
+    {{/* */}}
+    {{/* This ref and no other: a chart-wide grep for `.slice` finds exactly one template that */}}
+    {{/* reads it (table.compositions-table.yaml), so for the other 22 tables the parameter bounds */}}
+    {{/* nothing and would only move their key. See portal#235. */}}
+    - id: compositions-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+      slice:
+        page: 1
+        perPage: 50

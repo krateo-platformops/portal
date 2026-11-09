@@ -77,6 +77,29 @@ def render(chart_dir):
         return [d for d in yaml.safe_load_all(proc.stdout) if isinstance(d, dict)]
 
 
+# The portal's pages no longer all live in helm/portal: /incidents, /alerts and /marketplace are
+# their own charts in their own namespaces (#261). A test that renders only helm/portal therefore
+# cannot find their RESTActions, so render the page charts beside it and work on the union — which
+# is what a running cluster has. Rendered with their real default namespaces, not flattened back
+# onto krateo-system, so a test that silently assumed one namespace fails here rather than in
+# production.
+# DISCOVERED: every page chart beside the portal, so a new one is covered the day it lands.
+PAGE_CHARTS = tuple(sorted(
+    os.path.basename(os.path.dirname(p))
+    for p in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'helm',
+                                    '*', 'Chart.yaml'))
+    if os.path.basename(os.path.dirname(p)) not in ('portal', 'builder-publish')))
+
+
+def render_portal_and_pages(repo_helm=None):
+    """Every doc the portal's pages render to, across the chart split."""
+    helm = repo_helm or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'helm')
+    docs = list(render(os.path.join(helm, 'portal')))
+    for name in PAGE_CHARTS:
+        docs += render(os.path.join(helm, name))
+    return docs
+
+
 class Chart:
     def __init__(self, docs):
         self.docs = docs
@@ -522,6 +545,115 @@ def check_install_header_has_no_lone_v(chart):
     return f
 
 
+def live_entry(name, version, sources=None, annotations=None):
+    """A live blueprints-index version, as a krateo-blueprints repository's release publishes it."""
+    entry = {'name': name, 'version': version,
+             'urls': [f'https://github.com/krateo-blueprints/{name}/releases/download/{version}/{name}-{version}.tgz']}
+    if sources is not None:
+        entry['sources'] = sources
+    if annotations is not None:
+        entry['annotations'] = annotations
+    return entry
+
+
+def snapshot_catalog(blueprints, operators=None):
+    return {'apiVersion': 'v1', 'kind': 'ConfigMap',
+            'data': {'blueprints-index.json': json.dumps(index(blueprints)),
+                     'operators-index.json': json.dumps(index(operators or {}))}}
+
+
+def check_install_header_reads_the_live_index(chart):
+    """The Install page header names the version the form installs. On krateo-057 the openstack
+    card, its Details page and the form's chart.version all read v0.3.37 from the live blueprints
+    index, while the header read "stable · v0.2.0" from the catalog snapshot: the origin RESTAction
+    took the bare catalog and never read the live index. The header now reads through withLive, as
+    the formdef does, so the live index leads and the snapshot is the fallback."""
+    f = []
+    snap = {'openstack': [{'name': 'openstack', 'version': '0.2.0', 'annotations': {'krateo.io/maturity': 'beta'},
+                           'urls': ['https://krateo-blueprints.github.io/charts/blueprints/openstack-0.2.0.tgz']}]}
+    owned = ['https://github.com/krateo-blueprints/openstack']
+    live = index({'openstack': [live_entry('openstack', '0.3.37', owned, {'krateo.io/maturity': 'stable'}),
+                                live_entry('openstack', '0.3.36', owned, {'krateo.io/maturity': 'stable'})]})
+    other_live = index({'something-else': [live_entry('something-else', '1.0.0', ['https://github.com/krateo-blueprints/something-else'])]})
+    older_live = index({'openstack': [live_entry('openstack', '0.1.0', owned, {'krateo.io/maturity': 'alpha'})]})
+    ops = {'ec2-chart': [{'name': 'ec2-chart', 'version': '1.15.2',
+                          'urls': ['https://krateo-blueprints.github.io/charts/operators/ec2-chart-1.15.2.tgz']}]}
+    cases = [
+        ('live leads', 'openstack', snap, {}, live, 'stable  ·  v0.3.37', '0.3.37'),
+        ('no live entry for the name', 'openstack', snap, {}, other_live, 'beta  ·  v0.2.0', '0.2.0'),
+        ('live step failed', 'openstack', snap, {}, 'ERROR', 'beta  ·  v0.2.0', '0.2.0'),
+        ('live step not served', 'openstack', snap, {}, ABSENT, 'beta  ·  v0.2.0', '0.2.0'),
+        ('live older than the snapshot: newest wins', 'openstack', snap, {}, older_live, 'beta  ·  v0.2.0', '0.2.0'),
+        ('neither carries the name', 'openstack', {}, {}, other_live, '', ''),
+        # The header reads the same entry the form pre-fills from (indexEntry), operators included.
+        ('operator', 'ec2-chart', {}, ops, other_live, 'v1.15.2', '1.15.2'),
+    ]
+    base = responses(prs('closed'))
+    for label, name, blueprints, operators, live_resp, want, want_ver in cases:
+        resp = dict(base, catalog=snapshot_catalog(blueprints, operators), operators=snapshot_catalog(blueprints, operators))
+        resp.pop('catalogLive', None)
+        if live_resp is not ABSENT:
+            resp['catalogLive'] = live_resp
+        extras = {'name': name}
+        out = resolve(chart, 'blueprint-install-origin', resp, extras)
+        got = widget(chart, 'PageHeader', 'blueprint-install-page-header', 'subtitle', out, extras)
+        expect(f, f'install header subtitle ({label})', got, want)
+        form = resolve(chart, 'blueprint-install-formdef', resp, extras)
+        expect(f, f'form chart.version ({label})', form['initialValues']['chart'].get('version'), want_ver)
+    return f
+
+
+# Every copy of _catalog.tpl: a `define` lives in the chart that declares it, so each page chart
+# carries its own (#261), and nothing else keeps them alike. Discovered, so a new copy is covered.
+CATALOG_TPLS = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'helm',
+                                             '*', 'templates', '_catalog.tpl')))
+
+OWNERSHIP_CASES = [
+    ('lowercase owner', {'sources': ['https://github.com/krateo-blueprints/x']}, True),
+    ('mixed-case owner, as a builder writes what the person typed',
+     {'sources': ['https://github.com/Krateo-Blueprints/x']}, True),
+    ('upper-case URL', {'sources': ['HTTPS://GITHUB.COM/KRATEO-BLUEPRINTS/x']}, True),
+    ('owned among other sources', {'sources': ['https://example.com/x', 'https://github.com/Krateo-Blueprints/x']}, True),
+    ('another owner', {'sources': ['https://github.com/braghettos/x']}, False),
+    ('an owner that only starts with the name', {'sources': ['https://github.com/krateo-blueprints-evil/x']}, False),
+    ('the same, mixed case', {'sources': ['https://github.com/Krateo-Blueprints-Evil/x']}, False),
+    ('no sources', {}, False),
+    ('source-repo annotation, foreign sources', {'annotations': {'krateo.io/source-repo': 'acme/x'},
+                                                 'sources': ['https://github.com/braghettos/x']}, True),
+]
+
+
+def check_live_index_ownership_ignores_owner_case(chart):
+    """A live-index chart counts as a krateo-blueprints publish when a `sources` entry is under
+    https://github.com/krateo-blueprints/. GitHub owner names are case-insensitive, and the
+    frontend's builders write `sources` with the owner as the person typed it, so
+    https://github.com/Krateo-Blueprints/x is the same repository and must count. The trailing
+    slash stays in the test: krateo-blueprints-evil is a different owner. Pinned in every
+    _catalog.tpl copy, and end to end through the install header the marketplace-page copy renders."""
+    f = []
+    if not any(p.replace(os.sep, '/').endswith('helm/portal/templates/_catalog.tpl') for p in CATALOG_TPLS):
+        f.append(f'found no helm/portal/templates/_catalog.tpl among {CATALOG_TPLS}')
+    entries = [e for _, e, _ in OWNERSHIP_CASES]
+    for path in CATALOG_TPLS:
+        where = os.path.relpath(path, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+        defs = re.findall(r'^def withLiveOwned:.*$', open(path, encoding='utf-8').read(), re.M)
+        if len(defs) != 1:
+            f.append(f'{where}: expected one `def withLiveOwned:` line, found {len(defs)}')
+            continue
+        got = jq(defs[0] + '\n[ .[] | withLiveOwned ]', entries)
+        for (label, _, want), g in zip(OWNERSHIP_CASES, got):
+            expect(f, f'{where}: withLiveOwned ({label})', g, want)
+    snap = {'x': [{'name': 'x', 'version': '0.2.0'}]}
+    base = responses(prs('closed'))
+    for label, entry, owned in OWNERSHIP_CASES:
+        live = index({'x': [dict(live_entry('x', '0.3.37'), **entry)]})
+        resp = dict(base, catalog=snapshot_catalog(snap), operators=snapshot_catalog(snap), catalogLive=live)
+        out = resolve(chart, 'blueprint-install-origin', resp, {'name': 'x'})
+        got = widget(chart, 'PageHeader', 'blueprint-install-page-header', 'subtitle', out, {'name': 'x'})
+        expect(f, f'install header ({label})', got, 'v0.3.37' if owned else 'v0.2.0')
+    return f
+
+
 def check_a_controller_is_registered(chart):
     """/marketplace/<name>/install is the Register step of a Controller Builder publish (the
     controller deliverables row sends it there). For that chart the header, the button, the
@@ -749,6 +881,104 @@ def check_create_form_says_when_the_blueprint_is_not_registered_yet(chart):
     schema = doc['spec']['widgetData']['schema']
     expect(f, 'registered: the chart\'s fields', sorted(schema['properties']), ['__composition_name__', '__composition_namespace__', 'replicas'])
     expect(f, 'registered: the kind it creates', [out['apiVersion'], out['resource']], ['composition.krateo.io/v0-1-0', 'mybps'])
+    return f
+
+
+def option_refs(chart, kind, name, ra_output):
+    """The GET refs a form's options iterator (resourcesRefsTemplate) makes from its RA's output."""
+    refs = []
+    for entry in chart.get(kind, name)['spec'].get('resourcesRefsTemplate') or []:
+        iterator = (entry.get('iterator') or '').strip()
+        if not iterator:
+            continue
+        for item in jq(iterator[2:-1], ra_output) or []:
+            refs.append({k: (jq(v.strip()[2:-1], item) if isinstance(v, str) and v.strip().startswith('${') else v)
+                         for k, v in entry['template'].items()})
+    return refs
+
+
+def check_create_form_loads_field_options(chart):
+    """A blueprint field with `x-krateo-options` (frontend widgets/Form/fieldOptions.ts) names its
+    options RESTAction by `ref`; the create form must carry one GET ref per source so snowplow
+    resolves the path and `allowed`. The raw schema is spliced, never re-emitted, and a schema whose
+    `if` (or any nested `properties`) comes BEFORE its top-level `properties` must still get the
+    identity fields at the top level. With no jsonschema ConfigMap the form says what it lost."""
+    f = []
+    extras = {'name': 'my-bp', 'namespace': 'team-bp', 'username': 'admin'}
+    registered = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+                  'metadata': {'name': 'my-bp', 'namespace': 'team-bp'},
+                  'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'MyBp', 'resource': 'mybps'}}
+    crd = {'spec': {'versions': [{'name': 'v0-1-0', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'properties': {'region': {'type': 'string'}}}}}}}]}}
+    namespaces = {'items': [{'metadata': {'name': 'team-bp'}}]}
+    raw = (
+        '{\n  "$schema": "http://json-schema.org/draft-07/schema#",\n'
+        '  "description": "a \\"properties\\": { trap in a string",\n'
+        '  "if": { "properties": { "tier": { "const": "gold" } } },\n'
+        '  "then": { "required": ["zone"] },\n'
+        '  "properties"  :  {\n'
+        '    "region": { "type": "string", "x-krateo-options": { "ref": "regions" } },\n'
+        '    "zone": { "type": "string", "x-krateo-options": { "ref": "krateo-system/form-options-namespaces", "closed": true } },\n'
+        '    "nested": { "type": "object", "properties": { "again": { "type": "string", "x-krateo-options": { "ref": " regions " } } } },\n'
+        '    "bad": { "type": "string", "x-krateo-options": { "ref": "Not A Name!" } },\n'
+        '    "owner": { "type": "string", "x-krateo-options": { "ref": "users", "search": { "param": "q", "minChars": 2 }, "fallback": "manual" } },\n'
+        '    "hosts": { "type": "array", "items": { "type": "object", "properties": {\n'
+        '      "cell": { "type": "string", "x-krateo-options": { "ref": "cells", "closed": true, "dependsOn": { "field": "/region", "param": "region" } } },\n'
+        '      "rack": { "type": "string", "x-krateo-options": { "ref": "racks", "dependsOn": { "field": "cell", "param": "cell" } } } } } },\n'
+        '    "items": { "type": "object", "properties": { "properties": { "type": "string", "x-krateo-options": { "ref": "odd" } } } },\n'
+        '    "tier": { "type": "string" }\n'
+        '  },\n'
+        '  "required": ["region"]\n}\n')
+
+    def create(label, schema_text):
+        responses = {'compdef': registered, 'crd': crd, 'namespaces': namespaces,
+                     'jsonschema': 'ERROR' if schema_text is None else {'data': {'values.schema.json': schema_text}}}
+        out = resolve(chart, 'blueprint-formdef', responses, extras)
+        return out, resolved_widget(chart, 'Form', 'blueprint-create', out, extras, f'blueprint-create ({label})')
+
+    out, doc = create('options', raw)
+    schema = json.loads(doc['spec']['widgetData']['stringSchema'])
+    expect(f, 'identity fields at the TOP level, before the blueprint\'s own, in order',
+           list(schema['properties']), ['__composition_name__', '__composition_namespace__', 'region', 'zone', 'nested', 'bad', 'owner', 'hosts', 'items', 'tier'])
+    expect(f, 'the `if` that precedes `properties` is untouched', schema['if'], {'properties': {'tier': {'const': 'gold'}}})
+    expect(f, 'identity fields are required, then the blueprint\'s own', schema['required'], ['__composition_name__', '__composition_namespace__', 'region'])
+    local = lambda name: {'id': name, 'name': name, 'namespace': 'team-bp'}
+    expect(f, 'one ref per distinct source; a bare name lives in the blueprint namespace; a non-name is dropped',
+           out['optionRefs'], [local('cells'),
+                               {'id': 'krateo-system/form-options-namespaces', 'name': 'form-options-namespaces', 'namespace': 'krateo-system'},
+                               local('odd'), local('racks'), local('regions'), local('users')])
+    expect(f, 'the form gets a GET ref per source', [r['id'] for r in option_refs(chart, 'Form', 'blueprint-create', out)],
+           ['cells', 'krateo-system/form-options-namespaces', 'odd', 'racks', 'regions', 'users'])
+    expect(f, 'a ConfigMap schema carries no CRD-fallback notice', doc['spec']['widgetData'].get('notice'), '')
+    # THE LISTS ARE WHAT WORKS: since frontend 1.8.18 the Form ignores the schema keyword, so a ref
+    # without an entry here renders a plain input with no error.
+    wd = doc['spec']['widgetData']
+    by_name = lambda entries: {e['name']: e for e in entries}
+    auto = by_name(wd['autocomplete'])
+    expect(f, 'every plain source gets an autocomplete entry, and a bad ref gets none', sorted(auto),
+           ['items.properties', 'nested.again', 'owner', 'region', 'zone'])
+    expect(f, 'an open source stays open, written explicitly because the lists default differently',
+           auto['region'], {'name': 'region', 'resourceRefId': 'regions', 'closed': False})
+    expect(f, 'search and fallback survive the translation', auto['owner'],
+           {'name': 'owner', 'resourceRefId': 'users', 'closed': False, 'fallback': 'manual',
+            'extra': {'key': 'q'}, 'minChars': 2})
+    expect(f, 'fields named like keywords are walked by position', auto['items.properties']['resourceRefId'], 'odd')
+    deps = by_name(wd['dependencies'])
+    expect(f, 'an absolute dependsOn is read from the root', deps['hosts.cell'],
+           {'name': 'hosts.cell', 'resourceRefId': 'cells', 'closed': True,
+            'dependsOn': {'name': 'region'}, 'extra': {'key': 'region'}})
+    expect(f, 'a relative dependsOn stays inside the list row', deps['hosts.rack']['dependsOn'], {'name': 'hosts.cell'})
+
+    out, doc = create('no fields yet', '{"type": "object", "properties": {}}')
+    schema = json.loads(doc['spec']['widgetData']['stringSchema'])
+    expect(f, 'a schema with `properties: {}` still parses, with the identity fields', list(schema['properties']),
+           ['__composition_name__', '__composition_namespace__'])
+    expect(f, 'no sources, no refs', option_refs(chart, 'Form', 'blueprint-create', out), [])
+
+    out, doc = create('no ConfigMap', None)
+    expect(f, 'CRD fallback: the form says field order and runtime options are lost',
+           'options a field loads at runtime are not available' in doc['spec']['widgetData'].get('notice', ''), True)
+    expect(f, 'CRD fallback: no option refs (the CRD has no x-krateo-* keys)', out['optionRefs'], [])
     return f
 
 
@@ -1074,11 +1304,14 @@ CHECKS = [
     check_merged_is_the_providers_word,
     check_the_step_is_called_install,
     check_install_header_has_no_lone_v,
+    check_install_header_reads_the_live_index,
+    check_live_index_ownership_ignores_owner_case,
     check_a_controller_is_registered,
     check_install_applies_the_status_projection,
     check_register_sets_the_upgrade_policy,
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
+    check_create_form_loads_field_options,
     check_marketplace_detail_resolves_without_a_name,
     check_render_draft_reads_the_chart_from_its_configmap,
     check_my_drafts_are_the_callers_own,
@@ -1138,7 +1371,7 @@ def main():
         crds_dir = args[i + 1]
         del args[i:i + 2]
     chart_dir = args[0] if args else 'helm/portal'
-    chart = Chart(render(chart_dir))
+    chart = Chart(render_portal_and_pages() if chart_dir.rstrip('/').endswith('portal') else render(chart_dir))
     failed = 0
     for check in CHECKS:
         try:

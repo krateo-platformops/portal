@@ -49,7 +49,7 @@ kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-servers-list
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
@@ -84,6 +84,6 @@ spec:
     expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.name // "—")}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(.endpoint // "—"),color:"var(--gray-color)"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"var(--gray-color)"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"var(--gray-color)"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:(.discovered // "—")}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:(.inUse // "—")}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(.agents // "—")}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end) ] ] }'
   apiRef:
     name: agents-servers
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items: []

@@ -1,0 +1,41 @@
+{{/* Right column of the trace page (installer#404): the services the trace passed through, then */}}
+{{/* the HyperDX link. The link is rendered only when `observabilityConsoleUrl` is set — HyperDX */}}
+{{/* has no public route on the platform, so there is no address to invent — and the item and its */}}
+{{/* ref are gated together, so neither half dangles. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-col-right
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    vertical: true
+    gap: small
+    allowedResources:
+      - cards
+      - flexes
+    items:
+      - resourceRefId: card-trace-detail-topology
+      {{- if .Values.observabilityConsoleUrl }}
+      - resourceRefId: trace-detail-hyperdx
+      {{- end }}
+  resourcesRefs:
+    items:
+      - id: card-trace-detail-topology
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-trace-detail-topology
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
+      {{- if .Values.observabilityConsoleUrl }}
+      - id: trace-detail-hyperdx
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-hyperdx
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      {{- end }}

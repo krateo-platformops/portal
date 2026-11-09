@@ -10,8 +10,8 @@ CI here should not break because another repo landed a new rule, and a lint that
 is a lint that fails on a bad morning. The cost is that this file can drift from upstream — if the
 rules change there, re-copy the script, its fixtures and its self-test together.
 
-VENDORED AT: krateo-platformops/frontend main @ 5314579 + the Agentiko A4 change (design/lint/),
-re-copied 2026-11-06 for the Agentiko rebrand. This stamp exists because the copy
+VENDORED AT: krateo-platformops/frontend main @ a4f3e75 (design/lint/), re-copied 2026-11-09.
+This stamp exists because the copy
 HAD drifted and nothing noticed — it was missing rule_containment (X5) entirely, so that gate never
 ran here after it landed upstream. The self-test now fails when a registered rule is undocumented,
 which catches one shape of that drift; nothing catches the rest.
@@ -547,15 +547,27 @@ def rule_missing_target(crs):
 def rule_containment(crs):
     """X5 — a child whose kind is not in its container's declared `allowedResources`.
 
-    This is the ONLY enforcement there is. `allowedResources` is validated by nothing at runtime:
-    not by OpenAPI (the CRD types it `string[]` with no enum, deliberately — the per-widget enums
-    drifted and `Menu` carried two kinds removed in the routing refactor), not by a webhook, and
-    not by the renderer, which resolves a `resourceRefId` without ever consulting it.
+    THIS IS THE INSTANCE HALF OF TWO ENFORCEMENT POINTS, and the division is not redundancy.
 
-    So the field is a DECLARATION OF INTENT that nothing checks. A container that says it holds
-    `paragraphs` and is handed a `Table` renders the Table quite happily. The declaration is still
-    worth having — it is how an author says what a slot is for, and how the next reader knows
-    whether a new child belongs — but only if something reads it back.
+    The CRD carries a KIND-LEVEL enum on this field, by role (ui/scripts/containment.ts): a general
+    layout takes every widget plural except `layouts` and `themes`, and a purpose-built kind takes
+    what it exists for. It refuses a typo (`buton`), a non-widget kind (`deployments`) and a kind
+    that one has no use for. What it does not express is what a given CR is for:
+    `allowedResources` is a PER-INSTANCE declaration, and of 97 live Flex CRs each names between one
+    and eleven plurals describing what THAT slot is for.
+
+    So the two halves answer different questions and neither covers the other:
+
+        the CRD enum  can this KIND ever hold that DECLARED value?       (kind)
+        this rule     is every ACTUAL CHILD within this CR's own list?   (instance)
+
+    This rule never inspects the declaration against the kind, and the enum never inspects
+    children, which is why a Flex declaring `paragraphs` and holding a Table passes the enum.
+    Nothing but this rule catches that.
+
+    The enums once hand-written in the schemas were deleted for cause: seeding from them would have
+    refused live CRs in four kinds. That rules out those lists, which had drifted, and not a
+    kind-level rule. The rule now lives in one table and derives its general lists.
 
     Checked against the CHART, not against a frozen list: the child's real plural comes from its
     own `resourcesRefs` entry, so this stays correct as widget kinds are added and cannot go stale
@@ -831,6 +843,11 @@ def rule_page_header(crs):
 ASK_PATH = re.compile(r'[?&]ask=')
 
 
+# BOTH SPELLINGS, and that is the whole point. This rule DETECTS a button by its label, so a
+# rename that moves the label without moving this regex does not make the rule fail — it makes the
+# rule stop looking, and a gate that has stopped looking reports clean. `autopilot` is kept here
+# for exactly as long as any chart, anywhere, might still carry the old label: matching it is what
+# turns an un-renamed button into a reported violation instead of an unexamined one.
 ASK_LABEL = re.compile(r'^\s*ask (autopilot|agentiko)\b', re.I)
 
 
@@ -840,10 +857,10 @@ def _rest_actions(crs):
 
 
 def _is_autopilot_entry(button_doc, rest_actions=None):
-    """A Button that opens the Autopilot rail seeded with a prompt.
+    """A Button that opens the Agentiko rail seeded with a prompt.
 
     Recognised by where it GOES, because the chart spells that four ways: A4's canonical label
-    ("Ask Autopilot"), a static `?ask=` navigate path, a widgetDataTemplate computing the navigate
+    ("Ask Agentiko"), a static `?ask=` navigate path, a widgetDataTemplate computing the navigate
     actions from an `askHref` (Alerts does that, so a path-only check missed it), or one computing
     them from ANY field its `apiRef` RESTAction builds with `?ask=`.
 
@@ -873,18 +890,18 @@ def _is_autopilot_entry(button_doc, rest_actions=None):
 
 
 AUTOPILOT_LABEL = 'Ask Agentiko →'
-AUTOPILOT_INTENT = 'autopilot'
+AGENTIKO_INTENT = 'agentiko'
 
 
 def rule_autopilot_button(crs):
     """A4 — every agent entry point looks the same: a Button labelled "Ask Agentiko →" with
-    `intent: autopilot`, which the widget draws filled with the Agentiko gradient and mark —
+    `intent: agentiko`, which the widget draws filled with the Agentiko gradient and mark —
     ignoring the CR's `type`, `color`, `variant`, `danger`, `ghost` and `icon`. Never a link: the
     product's decision, recorded once here instead of re-litigated per page. (Until 2026-11-03 the
     look was spelled out per CR — `type: primary` plus the wand icon; the role now carries it, the
     way `intent: dismiss` carries C26's. Since 2026-11-06 the agent is named Agentiko in the UI, so
     the label is "Ask Agentiko →"; the old "Ask Autopilot" spelling is still recognised as an entry
-    point, and flagged for its label. The intent keeps its technical name, `autopilot`.)
+    point, and flagged for its label. The intent is `agentiko`.)
 
     Recognised by what the Button does, not what it says (a `?ask=` link or an `askHref` template),
     as well as by its label — the sweep that resolved A4 the first time missed a CTA precisely
@@ -898,8 +915,8 @@ def rule_autopilot_button(crs):
         label, intent = str(data.get('label') or ''), data.get('intent')
         if label != AUTOPILOT_LABEL:
             out.append((fname, f'Agentiko entry point labelled "{label}" — the canonical label is "{AUTOPILOT_LABEL}"'))
-        if intent != AUTOPILOT_INTENT and 'intent' not in templated_paths(doc):
-            out.append((fname, f'Agentiko entry point without `intent: {AUTOPILOT_INTENT}` — the role draws it filled with the Agentiko gradient and mark'))
+        if intent != AGENTIKO_INTENT and 'intent' not in templated_paths(doc):
+            out.append((fname, f'Agentiko entry point without `intent: {AGENTIKO_INTENT}` — the role draws it filled with the Agentiko gradient and mark'))
     return out
 
 
@@ -945,7 +962,7 @@ def rule_one_primary(crs):
             name = (doc.get('metadata') or {}).get('name')
             out.append((fname, f'{doc.get("kind")} `{name}` has {len(primaries)} primary buttons '
                                f'({", ".join(primaries)}) — one is the container\'s action, the rest '
-                               f'are `type: default` (an Autopilot entry point does not count)'))
+                               f'are `type: default` (an Agentiko entry point does not count)'))
     return out
 
 
@@ -1147,14 +1164,27 @@ RULES = {
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('target', help='a chart directory (rendered with helm), a directory of rendered YAML, or a single YAML file')
+    ap.add_argument('target', nargs='+', help='one or more chart directories (rendered with helm), '
+                                              'directories of rendered YAML, or single YAML files')
     ap.add_argument('--rule', help='comma-separated subset of: ' + ', '.join(RULES))
     ap.add_argument('--quiet', action='store_true', help='only print violations')
     args = ap.parse_args()
 
-    crs, unreadable = load_crs(args.target)
+    # Several targets, not one. The portal was a single chart holding every page until #261 split
+    # each page into its own chart; `page-discovery-alive` then reported ZERO page roots against
+    # helm/portal and failed the run, which is exactly what it is for. The cross-chart rules
+    # (dangling-ref, missing-target, containment) are only meaningful over the UNION of the shell
+    # and every page chart, so the union is what this lint now loads. Each CR's filename is
+    # prefixed with its chart so a violation is still locatable.
+    crs, unreadable = [], []
+    for target in args.target:
+        chart = os.path.basename(os.path.normpath(target))
+        t_crs, t_unreadable = load_crs(target)
+        crs.extend((f'{chart}/{fname}', doc) for fname, doc in t_crs)
+        unreadable.extend((f'{chart}/{fname}', err) for fname, err in t_unreadable)
     if not args.quiet:
-        print(f'lint-portal-consistency: {len(crs)} CRs from {args.target}')
+        print(f'lint-portal-consistency: {len(crs)} CRs from {len(args.target)} target(s): '
+              f'{", ".join(args.target)}')
     for fname, err in unreadable:
         print(f'  UNREADABLE {fname}: {err}', file=sys.stderr)
 
@@ -1162,8 +1192,14 @@ def main():
     total = 0
     for name in selected:
         if name not in RULES:
-            print(f'unknown rule: {name}', file=sys.stderr)
-            return 2
+            # EXIT 64, NOT 2: this script's exit code IS the violation count (see the docstring), so
+            # returning a small number for a usage error is indistinguishable from finding that many
+            # violations. A peer hit exactly this: a typo'd `--rule` (the function name
+            # `rule_dead_kind` instead of the registry key `dead-kind`) exited 2, which reads as two
+            # real findings. CI fails either way, but whoever opens the red run chases two phantom
+            # violations instead of fixing a typo. 64 is EX_USAGE and cannot collide with a count.
+            print(f'unknown rule: {name}\n  known rules: ' + ', '.join(RULES), file=sys.stderr)
+            return 64
         fn, rule_id = RULES[name]
         hits = fn(crs)
         total += len(hits)

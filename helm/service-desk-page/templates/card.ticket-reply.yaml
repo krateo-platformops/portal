@@ -1,0 +1,31 @@
+{{/* "Add a reply" — the composer, last on the page, under the conversation it adds to. Shown for
+     any ticket that exists (`sections.reply`); whether the caller may actually write it is the
+     apiserver's answer, not this page's guess — the desk's Role grants `patch`, a requester's does
+     not, and a reply they are not allowed to make fails with the apiserver's own 403 rather than
+     with a button this page decided to hide. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-reply-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Add a reply
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - forms
+    items:
+    - resourceRefId: ticket-reply-form
+  resourcesRefs:
+    items:
+    - id: ticket-reply-form
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-reply-form
+      namespace: {{ $.Values.namespace }}
+      resource: forms
+      verb: GET

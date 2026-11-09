@@ -1,0 +1,44 @@
+{{/* HyperDX console links row — the "Open alert" / "Open dashboard" external deep-links, */}}
+{{/* each included server-side ONLY when its id was recorded (alertLink / dashboardLink non-empty). */}}
+{{/* The whole row renders only when the console section exists (page Flex gate on sections.console), */}}
+{{/* so a portal with no observabilityConsoleUrl — or an alert the reconciler hasn't linked yet — */}}
+{{/* shows no dead buttons (exception-only, honest absence). Nested in card-alert-detail-console. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-console
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - buttons
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: alert-detail-hyperdx-alert
+    - resourceRefId: alert-detail-hyperdx-dashboard
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ (if (.alertLink // "") != "" then [ { resourceRefId: "alert-detail-hyperdx-alert" } ] else [] end) + (if (.dashboardLink // "") != "" then [ { resourceRefId: "alert-detail-hyperdx-dashboard" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: alert-detail-hyperdx-alert
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-hyperdx-alert
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+    - id: alert-detail-hyperdx-dashboard
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-hyperdx-dashboard
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

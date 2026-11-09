@@ -51,5 +51,9 @@ jobs:
       - name: Self-test the lint
         run: python3 hack/design-lint/test_lint.py
 
+      # The shell AND every page chart. #261 moved each page into its own chart, so helm/portal
+      # alone holds no page root at all -- `page-discovery-alive` catches that, and the
+      # cross-chart rules only mean something over the union. Discovered by glob, because the
+      # hardcoded chart lists in this repo went stale three times during that split.
       - name: Composition rules
-        run: python3 hack/design-lint/lint-portal-consistency.py helm/portal
+        run: python3 hack/design-lint/lint-portal-consistency.py helm/portal helm/portal-agents helm/*-page

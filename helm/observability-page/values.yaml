@@ -1,0 +1,39 @@
+# @schema
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created; only the page objects live here.
+# type: string
+# default: "krateo-observability"
+# @schema
+namespace: krateo-observability
+
+# @schema
+# description: Groups granted read of these pages in `namespace`. A group listed here sees /observability in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. `devs` is deliberately NOT a default — keeping it out is the point of the split (#261).
+# type: array
+# @schema
+readerGroups:
+  - admins
+
+# @schema
+# description: Optional URL of the external observability console (the clickstack/HyperDX UI). When set, a "View in console" link appears on /observability and the trace page links each trace at <url>/trace/<TraceId>; empty hides both. No default: HyperDX has no public route on the platform, so there is no address to assume.
+# type: string
+# default: ""
+# @schema
+observabilityConsoleUrl: ""
+
+# @schema
+# description: A service whose spans the Traces tab leaves out while no Service filter is chosen, with a note in the filter bar saying so; picking it in the Service filter shows them. The default is HyperDX's own Node instrumentation, about 97% of all spans. Empty hides nothing. Only letters, digits, dot, underscore and hyphen: the chart refuses to render anything else, because the value goes into SQL. No schema default: the installer applies schema defaults over values.yaml, so the default lives in values.yaml.
+# type: string
+# @schema
+tracesHiddenService: krateo-observability
+
+# @schema
+# description: The snowplow SLI sub-page. 74 of this chart's templates are gated on it and render nothing when it is off, which is the default.
+# type: object
+# @schema
+observability:
+  snowplowSli: false
+  # @schema
+  # description: Show the reconcile PERFORMANCE section of /observability — p50/p95/p99 latency, throughput, phase breakdown and the per-composition reconcile table. Off by default: it reads reconcile tracing metrics, and an install without them renders empty panels, which reads as broken rather than as absent. These 15 widgets and their 3 RESTActions lived in the portal chart until the page split finished (#261), gated here but defined there, so the page referenced them across a namespace boundary and the section could never have rendered correctly.
+  # type: boolean
+  # default: false
+  # @schema
+  reconcileTracing: false

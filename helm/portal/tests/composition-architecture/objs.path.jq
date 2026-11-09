@@ -1,1 +1,1 @@
-.path
+(if .g == "" then "/api/" + .v else "/apis/" + .g + "/" + .v end) + (if .ns == "" then "" else "/namespaces/" + .ns end) + (if .pl == "" then "" else "/" + .pl end) + (if .nm == "" then "" else "/" + .nm end)

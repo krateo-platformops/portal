@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: portal — overview
-description: What the portal blueprint chart deploys and how it works — the widget/RESTAction content plane, the composition model, routes, RBAC tiers and demo-system provisioning.
+description: What the portal blueprint chart deploys and how it works — the widget/RESTAction content plane, the composition model, routes, discovered page visibility and demo-system provisioning.
 resource: oci://ghcr.io/krateo-platformops/charts/portal
 tags: [portal, blueprint, composition, widgets, restaction]
 timestamp: 2026-08-07T00:00:00Z
@@ -73,22 +73,56 @@ ships it is what puts the entry there. A page set in a SEPARATE chart therefore 
 without this chart knowing it exists — which a build-time glob over this chart's own files could
 never do.
 
-## RBAC tiers: page visibility by namespace placement
+## Page visibility is discovered, not configured
 
-The `portal.tierNamespace` helper (`templates/_tiers.tpl`) resolves
-`.Values.tiers.<tier>` (empty → `.Release.Namespace`). Ten page-root Flexes and the
-Menu's `resourcesRefs` use it, so snowplow resolves each page's root **as the user**
-and the frontend hides pages the user's Role cannot GET:
+Page visibility follows the namespace RBAC the cluster already has, and this chart
+ships no knob for it (#261 removed the `tiers` trio and its `portal.tierNamespace`
+helper, which no RBAC object ever referenced).
 
-- **common** (always the release namespace): Dashboard, Compositions and all
-  detail/hidden pages — `flex.page-compositions` deliberately lives in the common
-  tier (#68) so a namespace-scoped tenant sees its own compositions.
-- **tenant**: Blueprints.
-- **admin**: Marketplace, Observability, Incidents, Alerts, the three Builders,
-  Settings, Clusters.
+`restaction.sidebar-nav` resolves in two steps:
 
-All tiers default to `""` — the single-namespace layout; tiering is opt-in
-([configuration](./configuration.md)).
+1. **Which namespaces** — snowplow lists namespaces under its own ServiceAccount and a
+   `userAccessFilter` narrows the answer to those where **the caller** may `list`
+   `flexes.widgets.templates.krateo.io`. The caller needs no cluster-wide grant: asking
+   them to `list namespaces` themselves would mean publishing the cluster's namespace
+   inventory, tenant names included. `blueprint-formdef`'s namespace picker is the same
+   shape.
+2. **Which pages** — one namespaced LIST per discovered namespace, dialled **as the
+   caller** (no `userAccessFilter`, no `endpointRef`), so the apiserver stays the
+   authority on which roots this user may see. `continueOnError` makes an unreadable
+   namespace cost its own pages and nothing else, and the namespaces step falls back to
+   the release namespace so a snowplow-side failure degrades to "the pages here" rather
+   than a blank sidebar.
+
+Install a page chart into another namespace and its entries appear for whoever can read
+them there. One hard limit constrains that: a root reached by the `page: <slug>`
+convention is resolved in the namespace the **frontend** is configured with
+(`config.params.FRONTEND_NAMESPACE`), so only a root addressed by `resourceRefId` can
+move — a `page:`-addressed root installed elsewhere is a silent 404.
+
+### Three pages are their own charts
+
+`/marketplace`, `/incidents` and `/alerts` live in `helm/marketplace-page`,
+`helm/incidents-page` and `helm/alerts-page`, each creating and installing into its own
+namespace (`krateo-marketplace`, `krateo-incidents`, `krateo-alerts`). That is the #261
+split, and the reason it needs separate namespaces rather than a narrower Role is that
+`resourceNames` does not apply to `list`: the sidebar must *list* page roots to find
+them, so "list these pages but not those" cannot be said inside one namespace at all.
+
+Each chart takes `readerGroups` (default `[admins]`) and renders a Role + RoleBinding per
+group in its namespace. A group listed there sees the page; a group absent never does,
+because discovery asks where the *caller* may list page roots and that namespace is not in
+its answer. A deep link still routes and the page's own content `/call` returns 403.
+
+Each also takes `dataNamespace` (default `krateo-system`), which is **not** the same thing:
+the Alert and Incident CRs and the marketplace catalog ConfigMap stay where the components
+that write them put them, so the RESTActions read that namespace explicitly. Page
+visibility and data access are separate axes — conflating them is what made the old `tiers`
+model look like RBAC when it was not.
+
+A Helm release cannot create the namespace it is installed *into*, so the release stays
+where the composition is created and the chart creates `.Values.namespace` itself — the
+same arrangement this chart uses for `demo-system`.
 
 ## Demo-system provisioning
 

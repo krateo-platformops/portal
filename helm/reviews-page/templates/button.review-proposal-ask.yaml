@@ -1,0 +1,33 @@
+{{/* Ask Autopilot about this proposal. ?ask= is consumed on any route, so it stays on this page. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-proposal-ask
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-proposal
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    {{/* A4: every agent entry point is the same object — a button (never a link) labelled */}}
+    {{/* "Ask Agentiko →" with `intent: agentiko`. The intent draws it filled with the Agentiko */}}
+    {{/* gradient and mark (outlined with a lock when the agent is not licensed) and ignores */}}
+    {{/* type/icon/color, so those are not set here. (Until 2026-11-09: type: primary and the wand, */}}
+    {{/* spelled out per CR.) The arrow says the button takes you into the agent rail. Enforced by */}}
+    {{/* the design lint (autopilot-button). */}}
+    label: Ask Agentiko →
+    intent: agentiko
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /reviews
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/reviews" end) } ] } }'
+  resourcesRefs:
+    items: []

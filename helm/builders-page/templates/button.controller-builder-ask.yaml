@@ -1,0 +1,34 @@
+{{/* The Autopilot route onto /controller-builder/compose — a link beside the page's one */}}
+{{/* primary, as button.blueprint-builder-ask is on /blueprint-builder. It replaces */}}
+{{/* button.kog-builder-ask, which opened the rail over this page (/api-builder?ask=): the rail now */}}
+{{/* opens on /controller-builder/compose, so the controller Autopilot drafts is previewed onto the */}}
+{{/* canvas the person would have built it on. urlquery does the encoding the RAs do with @uri. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-ask
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* A4: every agent entry point is the same object — a button (never a link) labelled */}}
+    {{/* "Ask Agentiko →" with `intent: agentiko`. The intent draws it filled with the Agentiko */}}
+    {{/* gradient and mark (outlined with a lock when the agent is not licensed) and ignores */}}
+    {{/* type/icon/color, so those are not set here. (Until 2026-11-09: type: primary and the wand, */}}
+    {{/* spelled out per CR.) The arrow says the button takes you into the agent rail. Enforced by */}}
+    {{/* the design lint (autopilot-button). */}}
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: controller-builder-ask
+    actions:
+      navigate:
+        - id: controller-builder-ask
+          type: navigate
+          {{/* The person's own first message (P17): what they want, in their words, and what */}}
+          {{/* happens — drafted in the conversation, previewed in the builder, published as a */}}
+          {{/* change request once they confirm. No agent verb names. */}}
+          path: /controller-builder/compose?ask={{ "I want to build a new controller in the Controller Builder from an OpenAPI document I will paste or link. Help me map its operations to Kubernetes kinds, preview the generated kinds live in the builder, and publish it as a gated change request once I confirm." | urlquery }}
+  resourcesRefs:
+    items: []

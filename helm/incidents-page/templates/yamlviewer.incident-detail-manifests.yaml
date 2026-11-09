@@ -1,0 +1,24 @@
+{{/* The custom resources the incident is made of — the Incident and the Alert that opened it — */}}
+{{/* as one v1 List, the shape `kubectl get -o json` prints, so it pastes back into kubectl. */}}
+{{/* Everything else on the page interprets these objects; this shows them. */}}
+kind: YamlViewer
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-detail-manifests
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    json: "{}"
+  widgetDataTemplate:
+    {{/* "" (not "{}") renders the viewer's own "No data to display" rather than an empty List. */}}
+    - forPath: json
+      expression: '${ .involvedManifestsJson // "" }'
+  resourcesRefs:
+    items: []

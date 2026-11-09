@@ -1,0 +1,26 @@
+{{/* Left column of the trace page (installer#404): the span list. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-col-left
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    vertical: true
+    gap: small
+    allowedResources:
+      - cards
+    items:
+      - resourceRefId: card-trace-detail-spans
+  resourcesRefs:
+    items:
+      - id: card-trace-detail-spans
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-trace-detail-spans
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET

@@ -1,0 +1,20 @@
+# @schema
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created; only the page objects live here.
+# type: string
+# default: "krateo-clusters"
+# @schema
+namespace: krateo-clusters
+
+# @schema
+# description: Groups granted read of these pages in `namespace`. A group listed here sees /clusters in the sidebar and can open it; a group absent cannot list the page roots, so the entry never renders. `devs` is deliberately NOT a default — keeping it out is the point of the split (#261).
+# type: array
+# @schema
+readerGroups:
+  - admins
+
+# @schema
+# description: Namespace of the derived spoke endpoint Secret, which must be readable by snowplow's ServiceAccount. Mirrors the portal chart's value of the same name; these pages were split out of it and read the same Secret.
+# type: string
+# default: "krateo-system"
+# @schema
+spokeReadbackEndpointNamespace: krateo-system

@@ -1,0 +1,25 @@
+{{/* Last reconcile of THIS composition as a relative age ("5m ago") — computed */}}
+{{/* server-side from the max span Timestamp (same relative-age jq as the detail */}}
+{{/* subtitle; the output is a string so numbers never reach the jq encoder). */}}
+{{/* Honest-empty: no reconciles in the window → an em dash, never an epoch time. */}}
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-reconcile-last
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-reconcile-perf
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Last reconcile
+    value: '—'
+  widgetDataTemplate:
+    - forPath: value
+      expression: '${ (.last // "") as $ts | if ($ts | length) == 0 then "—" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end }'
+  resourcesRefs:
+    items: []

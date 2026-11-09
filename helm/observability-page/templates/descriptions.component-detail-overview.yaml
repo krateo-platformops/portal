@@ -1,0 +1,27 @@
+{{/* Component overview — the Deployment's real replica counts, strategy, creation */}}
+{{/* timestamp and full image refs as label/value rows (mirrors the composition */}}
+{{/* metadata Descriptions). Images are grouped under an "images" section. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: descriptions-component-detail-overview
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  apiRef:
+    name: component-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    column: 1
+    variant: form
+    bordered: false
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ [ { label: "Ready", value: (((.dep.ready // 0) | tostring) + "/" + ((.dep.replicas // 0) | tostring)) }, { label: "Updated", value: ((.dep.updated // 0) | tostring) }, { label: "Available", value: ((.dep.available // 0) | tostring) }, { label: "Strategy", value: (.dep.strategy // "") }, { label: "Created", value: (.dep.created // "") } ] + ((.dep.images // []) | map({ section: "images", label: "Image", value: . })) }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": true,
+  "properties": {
+    "deskActions": {
+      "description": "Whether the ticket page offers the DESK's own write actions, \"Assign to me\" and \"Resolve\". NO SCHEMA DEFAULT, and this is the key that most needs one withheld: its entire purpose is to be FALSE per install. In the CMP, assignment and state come from Zendesk, so a tenant clicking \"Assign to me\" writes a field the Zendesk side owns and then watches it be overwritten \u2014 with nothing erroring. A schema default of `true` is materialized by the apiserver into every CR and beats componentValues, which is exactly the install that could not turn it off. The chart default lives in values.yaml. Independent of the per-TICKET hiding (canAssign/canResolve), and it does not affect \"Ask Agentiko\", which reads but never writes.",
+      "title": "deskActions",
+      "type": "boolean"
+    },
+    "namespace": {
+      "default": "krateo-service-desk",
+      "description": "The namespace this chart CREATES and installs the QUEUE into \u2014 the page roots, their widgets, and the Tickets themselves. It is the RBAC boundary the chart exists for: a group with no RoleBinding here cannot `list` the page roots, so the sidebar never shows them and a deep link 403s. Changing it after install orphans the previous namespace's objects, which Helm will not prune because it no longer renders them \u2014 and here that orphans the TICKETS, which is worse than orphaning a page.",
+      "minLength": 1,
+      "title": "namespace",
+      "type": "string"
+    },
+    "raiseNamespace": {
+      "default": "krateo-service-desk-raise",
+      "description": "The namespace this chart CREATES and installs the RAISE-A-TICKET screen into. A SECOND namespace because the namespace IS the RBAC boundary and a desk's two audiences are different people: `resourceNames` does not apply to `list`, so a group granted `list` on one namespace's page roots sees EVERY root in it. Splitting the screen off is the only way to give requesters the create page without the queue. NO TICKETS LIVE HERE \u2014 the form posts into `namespace`, because `create` does not require read, which is the point of the split and the first thing a tidy-up would break.",
+      "minLength": 1,
+      "title": "raiseNamespace",
+      "type": "string"
+    },
+    "readerGroups": {
+      "description": "Groups granted read of these pages and of EVERY ticket in `namespace` \u2014 this is the DESK, not the requesters. No schema default: the installer applies schema defaults, crdgen copies them into the composition CRD, and the apiserver then materializes them into every CR \u2014 so a default here silently beats a group set through componentValues. The chart default lives in values.yaml instead.",
+      "items": {
+        "type": "string"
+      },
+      "title": "readerGroups",
+      "type": "array"
+    },
+    "requesterGroups": {
+      "description": "Groups granted CREATE on tickets in `namespace` WITHOUT read of the queue \u2014 the whole reason this chart differs from every other page here. No schema default, for the same reason as `readerGroups`: it is authorization, and a materialized default would re-assert itself over a per-tenant grant. Deliberately not defaulted to a broad group in values.yaml either \u2014 who may raise a ticket is a policy decision for whoever installs this.",
+      "items": {
+        "type": "string"
+      },
+      "title": "requesterGroups",
+      "type": "array"
+    },
+    "servicePickerName": {
+      "description": "Name of the RESTAction supplying the raise form's \"service\" choices. No schema default, for the same reason as `servicePickerNamespace`. Empty (with the namespace empty) means free text, which is the right default: the valid set of services is deployment-specific and the API does not enforce it either.",
+      "title": "servicePickerName",
+      "type": "string"
+    },
+    "servicePickerNamespace": {
+      "description": "Namespace of a RESTAction supplying the raise form's \"service\" choices, or empty for free text. No schema default: an empty default is still a default, and materialized it would stop an install ENABLING the picker through componentValues. Set together with `servicePickerName` \u2014 the picker renders only when both are set, so a half-configured install gets free text rather than a broken closed picker. The read happens AS THE CALLER, so a requester needs `get` on that RESTAction.",
+      "title": "servicePickerNamespace",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,100 @@
+{{/* Page root for /incidents/{namespace}/{name}, top to bottom: header (state, actions) → alert */}}
+{{/* chip + meta → analysis error → Summary → What happened → Why → How to fix (the scripts) */}}
+{{/* → tabs (Involved resources · Apply runs · Similar incidents) → prose fallback. */}}
+{{/* `items` is templated off incident-detail's `sections`, so a section renders only when its */}}
+{{/* data exists; resourcesRefs hold the full pool and unreferenced children are never fetched. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-incident-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-order": "940"
+    "krateo.io/nav-path": "/incidents/{namespace}/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - flexes
+    - markdowns
+    - cards
+    - alerts
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: incident-detail-page-header
+    - resourceRefId: incident-detail-header-block
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.sections // {}) as $s
+        | [ { resourceRefId: "incident-detail-page-header" }, { resourceRefId: "incident-detail-header-block" } ]
+        + (if ($s.error // false) then [ { resourceRefId: "incident-error" } ] else [] end)
+        + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
+        + (if ($s.evidence // false) then [ { resourceRefId: "incident-sec-evidence-card" } ] else [] end)
+        + (if (($s.rootcause // false) or ($s.gaps // false) or ($s.trace // false)) then [ { resourceRefId: "incident-why-card" } ] else [] end)
+        + (if ($s.fix // false) then [ { resourceRefId: "incident-sec-remediation-card" } ] else [] end)
+        + (if ($s.manifests // false) then [ { resourceRefId: "incident-detail-tabs-card" } ] else [] end)
+        + (if ($s.prose // false) then [ { resourceRefId: "incident-prose" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: incident-detail-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-page-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: incident-detail-header-block
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-header-block
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: incident-error
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-error
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+    - id: incident-summary-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-summary-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-sec-evidence-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-sec-evidence-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-why-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-why-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-sec-remediation-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-sec-remediation-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-detail-tabs-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-detail-tabs-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-prose
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-prose
+      namespace: {{ $.Values.namespace }}
+      resource: markdowns
+      verb: GET

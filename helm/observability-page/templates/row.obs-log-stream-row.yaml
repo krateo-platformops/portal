@@ -1,0 +1,24 @@
+{{/* Full-width strip hosting the live log-tail card. Sits in the Logs section, below the */}}
+{{/* "What's going wrong" error digest. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-log-stream-row
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - cards
+    items:
+    - resourceRefId: obs-log-stream-card
+      size: 24
+  resourcesRefs:
+    items:
+    - id: obs-log-stream-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-log-stream-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

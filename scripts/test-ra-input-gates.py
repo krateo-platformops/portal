@@ -42,6 +42,7 @@ import json
 import os
 import re
 import sys
+from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
@@ -311,6 +312,21 @@ GATES = {
         'free': {},
         'cases': [('named', {'namespace': 'team-a', 'name': 'c1'}, {'perf': {'data': []}}, None)],
     },
+    # /observability/traces/{traceId}: a ClickHouse query keyed on the route param. Its injection
+    # cases live in test-observability-traces.py; this pins the gate itself.
+    'obs-trace-detail': {
+        'gated': ['spans'],
+        'free': {},
+        'cases': [
+            ('named', {'traceId': '4f1c9e2a7b3d4c5e8f9a0b1c2d3ea07e'}, {'spans': {'data': []}}, [
+                ('spans', '/?query=' + quote(
+                    "SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, "
+                    "ParentSpanId AS parent_id, ServiceName AS svc, SpanName AS span, Duration AS dur_ns, "
+                    "StatusCode AS status, SpanAttributes['jwt.sub'] AS sub FROM otel_traces "
+                    "WHERE TraceId = '4f1c9e2a7b3d4c5e8f9a0b1c2d3ea07e' AND Timestamp > now() - INTERVAL 7 DAY "
+                    "ORDER BY Timestamp ASC, SpanId ASC LIMIT 1000 FORMAT JSON", safe=''))]),
+            ('not a trace id: no request', {'traceId': "4f1c9e2a7b3d4c5e8f9a0b1c2d3ea0' OR '1'='1"}, {}, [])],
+    },
     'kog-oas-operations': {
         'gated': ['cm'],
         'free': {'bp': {}},
@@ -400,7 +416,20 @@ for _ra, _gated, _more in (('composition-detail', ['found'], {}),
     if _ra == 'composition-resources':
         _then.append(('resources', MANAGED))
     _then_b = [(s, p.replace(UID, TWIN['metadata']['uid']).replace('team-a', 'team-b')) for s, p in _then]
-    _then_none = [(s, '/events?limit=200') for s, _ in _then if s == 'getEvents']
+    # NOT-READ CASE: getEvents must dial NOTHING, which is a change from what this line asserted.
+    #
+    # It used to expect ('getEvents', '/events?limit=200') — the UNFILTERED window — because the
+    # old iterator fell back to it when no uid could be resolved. For this case that is exactly
+    # the wrong thing: the subject is a composition in another namespace that the tenant CANNOT
+    # read, so there is no uid, and the fallback dialled a cluster-wide events query. getEvents
+    # carries `endpointRef: sse-proxy-internal-endpoint`, so that dial does NOT use the caller's
+    # credential — it uses the proxy's. A caller who may not read the composition should not be
+    # the reason a privileged, unscoped events query is issued.
+    #
+    # snowplow#1123 forced the path to stop carrying its own query, and the iterator now yields
+    # nothing without a UUID-shaped uid. The stage does not run, continueOnError leaves the card
+    # on its honest empty state, and no unscoped dial happens. Hence [].
+    _then_none = []
     _responses = {'found': FOUND, 'getEvents': {'events': []},
                   'resources': {MANAGED: {}, MANAGED.replace('team-a', 'team-b'): {}}}
     GATES[_ra] = {'gated': _gated, 'free': dict({'crds': {'items': [CD_OTHER, CD]}}, **_more),
@@ -497,6 +526,286 @@ def check_degraded_reads(charts):
     return f
 
 
+
+def nav_namespaces(*names):
+    """A /api/v1/namespaces LIST response. The UAF prunes it by .metadata.namespace, so each
+    namespace object carries its own name there as well as in .name (refilter.go reads the
+    namespace of the ITEM; for a Namespace object the two are the same thing)."""
+    return {'items': [{'metadata': {'name': n, 'namespace': n}} for n in names]}
+
+
+def nav_flexes(chart, extra=()):
+    """The page roots a LIST of flexes returns, per namespace: every nav-declaring Flex the chart
+    renders (so adding a page to the chart extends this test's input), plus any `extra` roots
+    planted in another namespace as a page chart installed there would be."""
+    out = {}
+    for d in chart.docs:
+        if d.get('kind') != 'Flex' or not d.get('apiVersion', '').startswith('widgets.templates.krateo.io/'):
+            continue
+        md = d['metadata']
+        if not ((md.get('annotations') or {}).get('krateo.io/nav-path') or ''):
+            continue
+        out.setdefault(md['namespace'], []).append({'metadata': {
+            'name': md['name'], 'namespace': md['namespace'],
+            'annotations': md.get('annotations') or {}}})
+    for ns, name, annotations in extra:
+        out.setdefault(ns, []).append({'metadata': {
+            'name': name, 'namespace': ns, 'annotations': annotations}})
+    return out
+
+
+NAV_GROUP = 'widgets.templates.krateo.io'
+# The builders' scratch namespace (previewSandbox.namespace). Never a page source — see the
+# `the preview sandbox is never listed` case.
+NS_SANDBOX = 'krateo-preview'
+NAV_PATH = '/apis/widgets.templates.krateo.io/v1beta1/namespaces/%s/flexes'
+NAV_CLUSTER_PATH = '/apis/widgets.templates.krateo.io/v1beta1/flexes'
+
+
+def check_nav_discovery(charts):
+    """THE SIDEBAR IS THE ONE PAGE THERE IS NO FALLING BACK FROM.
+
+    sidebar-nav no longer takes its namespaces from values (#261 removed the `tiers` trio): it
+    discovers them, through snowplow's userAccessFilter, as the namespaces where THE CALLER may
+    list page roots. That makes the whole sidebar depend on one UAF stage — a path with live
+    defects (snowplow#777, #659) — so every way that stage can go is checked here:
+
+      - a caller who may read only the release namespace gets exactly what the pre-#261 nav gave
+        them (the regression gate: the single-namespace install must be unchanged);
+      - a page root installed into a SECOND namespace reaches the sidebar, with its own namespace
+        in `refs` (the thing the tiers model could never do: a fourth namespace was invisible);
+      - the namespaces stage FAILING leaves the release namespace's pages, not a blank sidebar
+        (the `if length > 0 then . else [release] end` fallback in the iterator);
+      - a caller who may read page roots NOWHERE gets an empty sidebar and not a failed resolve
+        (an unserved LIST is an errorKey, and the final filter must still yield its one value);
+      - an admin, for whom snowplow replaces the fan-out with ONE cluster-scope list
+        (cluster_list.go:156 — gate 5 permits it only for a caller who may list cluster-wide),
+        sees the union, which for that caller is what the per-namespace walk would have returned.
+    """
+    f = []
+    chart = charts['blueprint-formdef']            # the portal chart
+    ra = chart.get('RESTAction', 'sidebar-nav')
+    other = ('team-a', 'page-team-a-thing', {'krateo.io/nav-path': '/team-a-thing',
+                                             'krateo.io/nav-label': 'Team A thing',
+                                             'krateo.io/nav-order': '500'})
+    roots = nav_flexes(chart, extra=[other])
+    # HOME is the namespace holding most nav roots. It used to be the release namespace, because
+    # every page lived with the shell; after #261 the shell renders NO nav root at all and each
+    # page has its own namespace, so the check derives its subject rather than assuming one. The
+    # assertion is unchanged in substance: a caller who may read exactly one page namespace sees
+    # exactly that namespace's pages.
+    HOME = max((ns for ns in roots if ns != other[0]), key=lambda n: len(roots[n]))
+    serve = {ns: {'items': items} for ns, items in roots.items()}
+    everywhere = {'items': [i for items in roots.values() for i in items]}
+    cluster_ns = nav_namespaces(*sorted(set(roots) | {NS, 'team-a', 'kube-system'}))
+
+    def run(label, caller, ns_resp, pages):
+        try:
+            reqs, _, out = resolve(ra, {}, {'namespaces': ns_resp, 'pages': pages}
+                                   if ns_resp is not None else {'pages': pages}, caller)
+        except RuntimeError as exc:
+            f.append(f'sidebar-nav, {label}: {exc}')
+            return None, None, None
+        if out is None:
+            # snowplow truncated the resolve (a step with no continueOnError whose call was not
+            # served): the nav resolves to NOTHING, which is the blank sidebar this all exists to
+            # prevent. Never a skipped assertion.
+            f.append(f'sidebar-nav, {label}: the resolve was truncated — the sidebar is blank')
+        return reqs, None, out
+
+    nowhere = tenant({NAV_GROUP: []})
+
+    _, _, base = run('one page namespace only', tenant({NAV_GROUP: [HOME]}), cluster_ns,
+                      {NAV_PATH % HOME: serve[HOME]})
+    if base is not None:
+        if not base.get('items') or not base.get('refs'):
+            f.append(f'sidebar-nav, one page namespace only: {len(base.get("items") or [])} items, '
+                     f'{len(base.get("refs") or [])} refs — the sidebar is empty')
+        if any(r['namespace'] != HOME for r in base.get('refs') or []):
+            f.append(f'sidebar-nav, one page namespace only: a ref outside {HOME}')
+        if any(i.get('path') == other[2]['krateo.io/nav-path'] for i in base.get('items') or []):
+            f.append('sidebar-nav, one page namespace only: served a page from a namespace the '
+                     'caller cannot read')
+
+    reqs, _, out = run('two namespaces', tenant({NAV_GROUP: [HOME, 'team-a']}), cluster_ns,
+                       {NAV_PATH % ns: serve[ns] for ns in (HOME, 'team-a')})
+    if out is not None:
+        paths = sorted(p for n, p, _ in reqs if n == 'pages')
+        if paths != sorted(NAV_PATH % ns for ns in (HOME, 'team-a')):
+            f.append(f'sidebar-nav, two namespaces: listed {paths}')
+        if not any(i.get('path') == '/team-a-thing' for i in out['items']):
+            f.append('sidebar-nav, two namespaces: the page installed in team-a is not in the nav')
+        if {'id': other[1], 'name': other[1], 'namespace': 'team-a'} not in out['refs']:
+            f.append("sidebar-nav, two namespaces: team-a's root has no ref carrying its namespace")
+        if base is not None and len(out['items']) != len(base['items']) + 1:
+            f.append(f'sidebar-nav, two namespaces: {len(out["items"])} items, expected '
+                     f'{len(base["items"]) + 1}')
+
+    # THE RELEASE-NAMESPACE FALLBACK IS NOW VESTIGIAL, AND THAT IS THE POINT OF THIS CASE.
+    #
+    # sidebar-nav's iterator falls back to the RELEASE namespace when the userAccessFilter stage
+    # yields nothing (1.8.75): `if length > 0 then . else [release] end`. That was a real safety
+    # net while the pages lived with the shell — a snowplow-side failure cost the pages in other
+    # namespaces and left the release namespace's.
+    #
+    # After #261 the shell renders NO nav root at all. So the fallback now lists a namespace with
+    # no pages in it, and a userAccessFilter failure means an EMPTY SIDEBAR rather than a reduced
+    # one. There is no longer a single namespace worth falling back to, because the pages are
+    # distributed by design.
+    #
+    # This asserts the real behaviour rather than the old intent: the fallback still dials exactly
+    # the release namespace (so the stage is still gated and still makes one well-formed request,
+    # which is what lint-ra-paths cares about) and the result is empty. If someone later gives the
+    # nav a better degraded mode, this case should fail and be rewritten — it is the record of a
+    # known, accepted gap, not of desired behaviour.
+    reqs, _, out = run('the namespaces stage failed', tenant({NAV_GROUP: [HOME]}), None,
+                       {NAV_PATH % HOME: serve[HOME]})
+    if out is not None:
+        if [p for n, p, _ in reqs if n == 'pages'] != [NAV_PATH % NS]:
+            f.append(f'sidebar-nav, the namespaces stage failed: the fallback dialled '
+                     f'{[p for n, p, _ in reqs if n == "pages"]}, not the release namespace')
+        if out.get('items') or out.get('refs'):
+            f.append(f'sidebar-nav, the namespaces stage failed: expected an EMPTY sidebar (the '
+                     f'release namespace holds no page since #261) but got '
+                     f'{len(out["items"])} items')
+
+    # DENIED, not empty: the fallback still dials the release namespace and the apiserver refuses
+    # it (`pages` carries no userAccessFilter — it is the caller's own LIST). A path-keyed
+    # `responses` with no entry for that path is how this model spells a request nobody served.
+    _, _, out = run('no namespace is readable', nowhere, cluster_ns, {'/served-to-nobody': {}})
+    if out is not None and (out.get('items') or out.get('refs')):
+        f.append(f'sidebar-nav, no namespace is readable: {out}')
+
+    # THE PREVIEW SANDBOX IS NOT A PAGE SOURCE. 1.8.75 listed it and admins got ten scratch pages in
+    # the sidebar on krateo-057 — Demo Day, Pod sizing, Probe and SEVEN entries labelled `Event
+    # sites`, every one a `page-…-<hash>` preview CR in krateo-preview. Only admins saw them,
+    # because only admins may list flexes there: discovery worked as designed and the design was
+    # wrong. The fixture is shaped like what was actually there, duplicate label included, because
+    # the duplicate is what made it obvious in the UI and a single entry would not have.
+    sandbox = NS_SANDBOX
+    sb_roots = [(sandbox, f'page-dry-event-sites-{i}-b2da9489',
+                 {'krateo.io/nav-path': f'/dry-event-sites-{i}', 'krateo.io/nav-label': 'Event sites',
+                  'krateo.io/nav-order': '100'}) for i in range(1, 6)]
+    sb_roots.append((sandbox, 'page-probe-ds-b2da9489',
+                     {'krateo.io/nav-path': '/probe-ds', 'krateo.io/nav-label': 'Probe',
+                      'krateo.io/nav-order': '100'}))
+    sb = nav_flexes(chart, extra=[other] + sb_roots)
+    _, _, out = run('the preview sandbox is never listed', tenant({NAV_GROUP: [HOME, sandbox]}),
+                    nav_namespaces(HOME, sandbox),
+                    {NAV_PATH % ns: {'items': sb[ns]} for ns in sb})
+    if out is not None:
+        leaked = [i for i in out['items'] if (i.get('path') or '').startswith(('/dry-event-sites', '/probe-ds'))]
+        if leaked:
+            f.append(f'sidebar-nav, the preview sandbox is never listed: {len(leaked)} scratch '
+                     f'page(s) reached the nav: {[i.get("path") for i in leaked]}')
+        if any(r['namespace'] == sandbox for r in out['refs']):
+            f.append('sidebar-nav, the preview sandbox is never listed: a ref in the sandbox')
+        if base is not None and len(out['items']) != len(base['items']):
+            f.append(f'sidebar-nav, the preview sandbox is never listed: {len(out["items"])} items, '
+                     f'expected {HOME}\'s {len(base["items"])}')
+
+    reqs, _, out = run('admin (cluster-list collapse)', ADMIN, cluster_ns,
+                       {NAV_CLUSTER_PATH: everywhere})
+    if out is not None:
+        paths = [p for n, p, _ in reqs if n == 'pages']
+        if paths != [NAV_CLUSTER_PATH]:
+            f.append(f'sidebar-nav, admin: expected one cluster-scope list, got {paths}')
+        if not any(i.get('path') == '/team-a-thing' for i in out['items']):
+            f.append('sidebar-nav, admin: the collapse lost the page installed in team-a')
+        # NOT base+1 any more: /incidents, /alerts and /marketplace are their own charts in their
+        # own namespaces (#261), so the union an admin can read legitimately carries their roots
+        # too. Assert the RELATIONSHIP rather than a count — everything the release namespace
+        # offers, plus every root in another namespace, and nothing invented.
+        if base is not None:
+            base_paths = {i.get('path') for i in base['items']}
+            got_paths = {i.get('path') for i in out['items']}
+            missing = base_paths - got_paths
+            if missing:
+                f.append(f'sidebar-nav, admin: lost {sorted(missing)[:4]} that the release '
+                         f'namespace alone offers')
+            want_other = {(a or {}).get('krateo.io/nav-path')
+                          for ns, _n, a in [other] if ns != NS}
+            if not want_other <= got_paths:
+                f.append(f'sidebar-nav, admin: missing the out-of-namespace page(s) '
+                         f'{sorted(want_other - got_paths)}')
+            # A root contributes its nav-path AND every comma-separated krateo.io/nav-alias, so
+            # the legitimate set is both. (A divider has no path and drops out with the None.)
+            declared = set()
+            for items in roots.values():
+                for r in items:
+                    a = r['metadata']['annotations'] or {}
+                    declared.add(a.get('krateo.io/nav-path'))
+                    declared |= {x for x in (a.get('krateo.io/nav-alias') or '').split(',') if x}
+            invented = got_paths - declared - {None}
+            if invented:
+                f.append(f'sidebar-nav, admin: invented path(s) {sorted(invented)[:4]}')
+    return f
+
+
+def check_edit_form_loads_field_options(charts):
+    """The composition Edit form reads the same values.schema.json as the create form, so a field
+    with `x-krateo-options` needs the same GET ref there: composition-editdef emits one per source
+    (a bare name in the CompositionDefinition's namespace), and form.composition-edit iterates it."""
+    chart = charts['composition-editdef']
+    ra = chart.get('RESTAction', 'composition-editdef')
+    schema = {'type': 'object', 'properties': {
+        'region': {'type': 'string', 'x-krateo-options': {'ref': 'regions'}},
+        'ns': {'type': 'string', 'x-krateo-options': {'ref': f'{NS}/form-options-namespaces'}},
+        'bad': {'type': 'string', 'x-krateo-options': {'ref': 'Not A Name!'}}}}
+    responses = {'crds': {'items': [CD_OTHER, CD]}, 'found': FOUND,
+                 'jsonschema': {'data': {'values.schema.json': json.dumps(schema)}}}
+    _, _, out = resolve(ra, {'namespace': 'team-a', 'name': 'c1'}, responses)
+    problems = []
+    want = [{'id': f'{NS}/form-options-namespaces', 'name': 'form-options-namespaces', 'namespace': NS},
+            {'id': 'regions', 'name': 'regions', 'namespace': NS}]
+    if out.get('optionRefs') != want:
+        problems.append(f'optionRefs: {out.get("optionRefs")!r}, want {want!r}')
+    if sorted(e['name'] for e in out.get('autocomplete') or []) != ['ns', 'region']:
+        problems.append(f'autocomplete: {out.get("autocomplete")!r}: without an entry the field renders plain')
+    form = chart.get('Form', 'composition-edit')
+    paths = {e.get('forPath') for e in form['spec'].get('widgetDataTemplate') or []}
+    if not {'autocomplete', 'dependencies'} <= paths:
+        problems.append('form.composition-edit does not carry the field lists into widgetData')
+    iterators = [e for e in form['spec'].get('resourcesRefsTemplate') or [] if 'optionRefs' in (e.get('iterator') or '')]
+    if len(iterators) != 1 or iterators[0]['template'].get('verb') != 'GET' or iterators[0]['template'].get('resource') != 'restactions':
+        problems.append('form.composition-edit has no GET restactions ref per optionRefs entry')
+    return problems
+
+
+def check_alert_panel_says_what_it_measures(charts):
+    """The alert detail's first hop states what the alert measures. An Alert does one of three
+    things, and a metric alert must not read "Counts all log rows": that says the alert is
+    misconfigured when it is not."""
+    ra = charts['alert-detail'].get('RESTAction', 'alert-detail')
+    base = {'interval': '5m', 'threshold': 1, 'thresholdType': 'above'}
+    shapes = {
+        'count, no filter': ({}, ['Counts **all log rows**', 'firing when the count is above 1', 'volume alone'], []),
+        'count, filtered': ({'where': "Body LIKE '%x%'"}, ["rows matching `Body LIKE '%x%'`", 'the count is'],
+                            ['every log line']),
+        'value': ({'aggregation': 'sum', 'value': 'cost', 'where': 'a = 1'},
+                  ['Takes the `sum` of `cost` across rows matching `a = 1`', 'firing when the value is'],
+                  ['Counts', 'every log line']),
+        'value, no filter': ({'aggregation': 'sum', 'value': 'cost'}, ['every log line on the cluster.'],
+                             ['Counts', 'volume alone']),
+        'metric': ({'aggregation': 'avg', 'metricRef': {'name': 'latency'}},
+                   ['Takes the `avg` of metric `latency`', 'firing when the value is'],
+                   ['log rows', 'every log line', 'Counts']),
+        'metric, labels and ratio': ({'aggregation': 'sum', 'labels': {'error': 'true'},
+                                      'metricRef': {'name': 'reqs'}, 'ratio': {'labels': {'svc': 'a'}}},
+                                     ['of metric `reqs` for `error=true` as a share of `svc=a`'], ['log rows']),
+        'metric, ratio over everything': ({'aggregation': 'sum', 'metricRef': {'name': 'reqs'}, 'ratio': {}},
+                                          ['as a share of all its points'], ['log rows']),
+    }
+    problems = []
+    for name, (spec, present, absent) in shapes.items():
+        alert = {'metadata': {'name': 'a1'}, 'spec': {**base, **spec}, 'status': {'state': 'OK'}}
+        _, _, out = resolve(ra, {'name': 'a1', 'namespace': 'team-a'}, {'alert': alert, 'incidents': EMPTY, 'reports': EMPTY})
+        hop = (out.get('pipelineMd') or '').split('2. **')[0]
+        problems += [f'{name}: first hop lacks {want!r}: {hop!r}' for want in present if want not in hop]
+        problems += [f'{name}: first hop says {bad!r}: {hop!r}' for bad in absent if bad in hop]
+    return problems
+
+
 def main():
     args = sys.argv[1:]
     crds_dir = None
@@ -504,11 +813,12 @@ def main():
         i = args.index('--crds')
         crds_dir = args[i + 1]
         del args[i:i + 2]
-    portal = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal')))
+    portal = tbi.Chart(tbi.render_portal_and_pages())
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}
     failed, total = 0, 0
-    for check in (check_no_input, check_with_input, check_degraded_reads):
+    for check in (check_no_input, check_with_input, check_degraded_reads, check_nav_discovery,
+                  check_edit_form_loads_field_options, check_alert_panel_says_what_it_measures):
         total += 1
         try:
             problems = check(charts)

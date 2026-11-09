@@ -2,7 +2,7 @@
 # output under its name, and each stage's errors, accumulated as a list, under its errorKey.
 def truthy: . != null and . != false and . != "" and . != 0 and . != [] and . != {};  # Helm `if`
 # readyWhen has TWO forms and both have to evaluate here, because Helm's `readinessGuard` compiles both
-# (see the composer's readyWhen.ts). Reading only the field form leaves a condition-form node waiting
+# (see the builder's readyWhen.ts). Reading only the field form leaves a condition-form node waiting
 # forever on a resource that is ready, with nothing to search for. `[capture(...)] | first` rather than
 # a bare capture: on no match capture emits NOTHING, which drops the whole node from the array around it.
 def condType($rw): [ $rw | capture("^\\.status\\.conditions\\[\\] \\| select\\(\\.type == \"(?<t>\\w+)\"\\) \\| \\.status == \"True\"$") ] | first | .t;
@@ -36,8 +36,8 @@ def exception:                                         # K8s-native tokens, exce
   (.status.conditions // []) as $c
   | ([ $c[] | select(.type == "Synced" and .status == "False") ][0]) as $s
   | ([ $c[] | select((.type == "Ready" or .type == "Available") and .status == "False") ][0]) as $r
-  | if $s != null then {label: "NotSynced", reason: ($s.reason // ""), message: ($s.message // "")}
-    elif $r != null then {label: "NotReady", reason: ($r.reason // ""), message: ($r.message // "")}
+  | if $s != null then {label: (if ($s.reason // "") == "ReconcilePaused" or ($s.reason // "") == "ReconcileGracefullyPaused" then "Paused" else "NotSynced" end), reason: ($s.reason // ""), message: ($s.message // "")}
+    elif $r != null then {label: (if ($r.reason // "") == "Creating" then "Creating" else "NotReady" end), reason: ($r.reason // ""), message: ($r.message // "")}
     else null end;
 
 (.arch.graph // null) as $g

@@ -10,11 +10,11 @@
 enableAdminUser: true
 
 # @schema
-# description: Enable cyberjoker user (basic authentication) with namespace-scoped permissions
+# description: Enable the `cyberjoker` DEMO user (basic authentication, namespace-scoped). OFF by default — this is a sample user for demos and walkthroughs, not a platform account, so a production install should not ship it. See the template for what it grants.
 # type: boolean
-# default: true
+# default: false
 # @schema
-enableCyberjokerUser: true
+enableCyberjokerUser: false
 
 # @schema
 # description: enabling the demo creates the demo-system namespace, deploys two Route resources within it, and grants permissions to the cyberjoker user if that user is enabled
@@ -22,6 +22,12 @@ enableCyberjokerUser: true
 # default: true
 # @schema
 enableDemoSystemNamespace: true
+
+# @schema
+# description: whether incident-controller is installed in this cluster. Gates the sre-incident-responder ClusterRoleBinding, whose roleRef (ClusterRole krateo-incident-responder) ships with that controller and not with this chart. Deliberately NOT inferred from enableDemoSystemNamespace, and deliberately not a helm lookup (empty under helm template). No schema default: the installer applies schema defaults, so an install turns this on where the controller is deployed.
+# type: boolean
+# @schema
+enableIncidentResponse: false
 
 # @schema
 # description: Display name of the platform tenant — shown in the sider tenant chip and the page eyebrows (dashboard greeting, compositions, observability). A deployer-set label, not derived data; defaults to krateo-enterprise.
@@ -57,18 +63,6 @@ spokeReadbackEndpointSecret: krateo-spoke-demo-endpoint
 # default: "krateo-system"
 # @schema
 spokeReadbackEndpointNamespace: krateo-system
-
-# @schema
-# description: RBAC namespace tiers for portal page widgets. Each page-root Flex is placed in one tier; the sidebar Menu references it there, so snowplow resolves visibility AS THE USER and the frontend hides pages the user's Role cannot GET. Empty string = .Release.Namespace (the default single-namespace layout, no RBAC tiering). Set `admin` (and optionally `tenant`) to distinct namespaces to split page visibility by audience.
-# type: object
-# @schema
-tiers:
-  # Shared chrome + pages every authenticated user sees (Dashboard). Empty = release namespace.
-  common: ""
-  # Pages a tenant persona sees (Blueprints). Empty = release namespace (collapsed onto common).
-  tenant: ""
-  # Admin-only pages (Compositions, Clusters, Observability, Incidents, Alerts, Marketplace, Settings, the three Builders). Empty = release namespace.
-  admin: ""
 
 # @schema
 # description: Where the portal reads the blueprint/operator marketplace catalog. `configmap` (default) reads the two indexes from the in-cluster ConfigMap that the krateo-marketplace-catalog composition renders — no external fetch, mirror-friendly, air-gap-safe. `external` keeps the legacy endpointRef GET of the blueprints-endpoint Helm repo (one-release rollback fallback). All catalog RESTActions switch together via templates/_catalog.tpl; the blueprints-endpoint Secret is only rendered when source=external.
@@ -108,16 +102,6 @@ marketplace:
 agents:
   enabled: false
 
-# S6 ACCEPTANCE PROBE — off everywhere except a bench cluster running the snowplow live-refresh
-# acceptance harness. Adds ONE route-only (label-less) nav entry, /s6-probe, whose content resolves
-# by the page:<slug> convention to flexes/page-s6-probe — a page CR the harness creates and deletes
-# per run. Nothing renders in the sidebar and no page ships with this; without the harness the route
-# simply resolves to a page that does not exist.
-#
-# It is separate from observability.snowplowSli (which shows the SLI dashboard) because they answer
-# different questions: that one is a dashboard an operator may want, this one is test scaffolding.
-acceptance:
-  s6Probe: false
 
 # --- Preview sandbox ---------------------------------------------------------
 # Where the builders keep drafts: each person's draft records (ConfigMaps) and the page previews'
@@ -126,3 +110,10 @@ acceptance:
 # previews) on both builder pages, and their Discard deletes one AS THE PERSON, through /call.
 previewSandbox:
   namespace: krateo-preview
+
+# Groups granted read of the SHELL in the release namespace: the layout, theme, header, sidebar
+# Menu and the shared RESTActions every page reads. This is the floor beneath every page grant --
+# a group needs this AND each page chart's readerGroups. Empty grants nobody anything; the `devs`
+# grants are still hardcoded in rbac.cyberjoker-rbac.yaml. Set per cluster through the installer's
+# componentValues for groups that do not exist everywhere (CMP tenants).
+readerGroups: []

@@ -1,0 +1,96 @@
+{{/* Page root for /service-desk/{namespace}/{name}, top to bottom: the header (summary, the ticket
+     id, the actions) → the state pill → What was asked → The object it is about → Activity →
+     the reply.
+
+     IT STACKS, AND THAT IS NOT A LAYOUT PREFERENCE. The narrative of a ticket — what was asked,
+     what it is about, what has happened since — is never put behind Tabs: tabbed content sits
+     outside Autopilot's context envelope, so a question asked about this ticket would be answered
+     without whatever tab was closed. Tabs are for reference material only, and this page has none.
+
+     `items` is templated off ticket-detail's `sections`, so a section renders only when its data
+     exists; resourcesRefs hold the full pool and an unreferenced child is never fetched.
+
+     THE NAV ANNOTATION IS LOAD-BEARING even though this is not a sidebar entry.
+     restaction.sidebar-nav keeps only page roots whose `krateo.io/nav-path` is set and non-empty,
+     and the route table IS that list — without it this page has no route at all and
+     tickets-table's `rowNavigateTo: /service-desk/{namespace}/{name}` leads nowhere. What keeps it
+     OUT of the sidebar is the absence of `nav-label` and `nav-group`: an entry needs both to be
+     drawn, so a path-only root is a route and nothing more.
+
+     allowedResources lists the child PLURALS. It is checked against the real widget registry
+     (design rule X5), and a child kind missing from it is refused rather than ignored — adding a
+     widget below means adding its plural here. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-ticket-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-path": "/service-desk/{namespace}/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the route's two params. A widget
+       served extras it does not declare is never cached (snowplow's post-F6 Put-guard), so this
+       has to name both or the page cold-resolves on every visit. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - tags
+    - cards
+    vertical: true
+    {{/* The one shared section step (design rule P9). */}}
+    gap: middle
+    items:
+    - resourceRefId: ticket-detail-header
+    - resourceRefId: ticket-state
+    - resourceRefId: ticket-asked-card
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (.sections // {}) as $s
+        | [ { resourceRefId: "ticket-detail-header" }, { resourceRefId: "ticket-state" }, { resourceRefId: "ticket-asked-card" } ]
+        + (if ($s.object // false) then [ { resourceRefId: "ticket-object-card" } ] else [] end)
+        + (if ($s.activity // false) then [ { resourceRefId: "ticket-activity-card" } ] else [] end)
+        + (if ($s.reply // false) then [ { resourceRefId: "ticket-reply-card" } ] else [] end) }
+  resourcesRefs:
+    items:
+    - id: ticket-detail-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-detail-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: ticket-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-state
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
+    - id: ticket-asked-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-asked-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: ticket-object-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-object-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: ticket-activity-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-activity-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: ticket-reply-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-reply-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

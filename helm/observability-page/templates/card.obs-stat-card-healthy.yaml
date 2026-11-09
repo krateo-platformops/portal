@@ -1,0 +1,30 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-stat-card-healthy
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    variant: outlined
+    clickActionId: view-healthy
+    widgetActions:
+      navigate:
+        - id: view-healthy
+          type: navigate
+          path: /compositions?status=healthy
+    items:
+    {{/* The page's OWN Statistic. It borrowed the dashboard's until #261 moved that object */}}
+    {{/* into krateo-dashboard, leaving this ref pointing at a namespace that defines it */}}
+    {{/* nowhere -- and a group with /observability but not /dashboard could not read it */}}
+    {{/* there anyway. Same shape as obs-stat-pending and obs-stat-total. */}}
+    - resourceRefId: obs-stat-healthy
+  resourcesRefs:
+    items:
+    - id: obs-stat-healthy
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-stat-healthy
+      namespace: {{ $.Values.namespace }}
+      resource: statistics
+      verb: GET

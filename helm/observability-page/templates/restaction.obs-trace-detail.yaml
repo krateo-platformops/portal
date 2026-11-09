@@ -1,0 +1,54 @@
+{{/* Every span of ONE trace, for /observability/traces/{traceId} (installer#404). The route param */}}
+{{/* arrives as ?extras .traceId. */}}
+{{/* */}}
+{{/* The query, decoded: */}}
+{{/*   SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, */}}
+{{/*          ParentSpanId AS parent_id, ServiceName AS svc, SpanName AS span, Duration AS dur_ns, */}}
+{{/*          StatusCode AS status, SpanAttributes['jwt.sub'] AS sub */}}
+{{/*   FROM otel_traces */}}
+{{/*   WHERE TraceId = '<traceId>' AND Timestamp > now() - INTERVAL 7 DAY */}}
+{{/*   ORDER BY Timestamp ASC, SpanId ASC LIMIT 1000 FORMAT JSON */}}
+{{/* */}}
+{{/* GATED ON A WELL-FORMED TRACE ID. The iterator yields the request only for 32 hex characters */}}
+{{/* (lowercased first: the exporter writes lowercase hex), so a missing id — snowplow's Phase-1 */}}
+{{/* walk resolves with no extras — or one carrying a quote or an SQL fragment makes no call, and */}}
+{{/* the page says "Not a trace id". The id that reaches the SQL can only be [0-9a-f]. */}}
+{{/* */}}
+{{/* BOUNDED: the 7-day window is the longest range the span list offers, so a trace opened from the */}}
+{{/* list is always inside it, and TraceId has a bloom-filter index; LIMIT 1000 caps a runaway trace */}}
+{{/* (the page says when it was reached). Start is kept in MICROseconds so offsets stay exact: an */}}
+{{/* epoch in nanoseconds is past the 2^53 a jq number holds exactly. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-trace-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: spans
+      dependsOn:
+        name: ""
+        iterator: '{{ include "obs.traces.valid" . }} [ ((.traceId // "") | tostring | ascii_downcase) as $t | select($t | okTraceId) | { tid: $t } ]'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ "/?query=SELECT%20toUnixTimestamp64Micro%28Timestamp%29%20AS%20start_us%2C%20SpanId%20AS%20span_id%2C%20ParentSpanId%20AS%20parent_id%2C%20ServiceName%20AS%20svc%2C%20SpanName%20AS%20span%2C%20Duration%20AS%20dur_ns%2C%20StatusCode%20AS%20status%2C%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%20FROM%20otel_traces%20WHERE%20TraceId%20%3D%20%27" + .tid + "%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%207%20DAY%20ORDER%20BY%20Timestamp%20ASC%2C%20SpanId%20ASC%20LIMIT%201000%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: spansError
+  {{/* 64-bit integers (start_us, dur_ns) arrive as JSON strings. Spans stay in start order; the */}}
+  {{/* widgets derive offsets, the summary and the service graph from them. */}}
+  filter: >
+    {{ include "obs.traces.valid" . }}
+    ((.traceId // "") | tostring | ascii_downcase) as $t
+    | ($t | okTraceId) as $valid
+    | [ ((.spans.data) // [])[]
+        | { startUs: (.start_us | tonumber? // 0), spanId: (.span_id // ""), parentId: (.parent_id // ""),
+            service: (.svc // ""), span: (.span // ""), durationNs: (.dur_ns | tonumber? // 0),
+            status: (.status // ""), user: (.sub // "") } ] as $spans
+    | { traceId: (if $valid then $t else "" end), valid: $valid, spans: $spans,
+        truncated: (($spans | length) >= 1000), failed: (.spansError != null) }

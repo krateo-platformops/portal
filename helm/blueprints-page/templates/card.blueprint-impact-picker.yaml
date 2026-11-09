@@ -1,0 +1,34 @@
+{{/* "Preview update impact" card — hosts the ?to= target Select + its helper line, in the */}}
+{{/* right column directly under the Update version card (the two act as a pair: preview the */}}
+{{/* impact here, apply it there). Mounted by blueprint-detail-col-right ONLY when the helm */}}
+{{/* index lists at least one version other than the installed one — a blueprint with nothing */}}
+{{/* to update to renders no preview chrome at all (exception-only, inert-on-empty). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-blueprint-impact-picker
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Preview update impact
+    items:
+      - resourceRefId: blueprint-impact-target
+      - resourceRefId: blueprint-impact-hint
+  resourcesRefs:
+    items:
+      - id: blueprint-impact-target
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-impact-target
+        namespace: {{ $.Values.namespace }}
+        resource: selects
+        verb: GET
+      - id: blueprint-impact-hint
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-impact-hint
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET

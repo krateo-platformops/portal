@@ -423,13 +423,13 @@ def check_mirrors_the_blueprint_builder():
     expect(f, 'the page action, into the composer', (buttons['controller-builder-compose']['type'], buttons['controller-builder-compose']['label'],
                                                   buttons['controller-builder-compose']['actions']['navigate'][0]['path']),
            ('primary', 'Build a controller', '/controller-builder/compose'))
-    # A4 (since 2026-11-06): the agent entry point is "Ask Agentiko →" with `intent: autopilot`,
+    # A4 (since 2026-11-09): the agent entry point is "Ask Agentiko →" with `intent: agentiko`,
     # which the widget draws filled with the Agentiko gradient and mark (so no type/icon), never a
     # link — and it still lands in the same composer.
     ask = buttons['controller-builder-ask']
     expect(f, 'Ask Agentiko is the filled entry point into the same composer',
            (ask.get('intent'), ask['label'], ask.get('type'), ask.get('icon'), ask['actions']['navigate'][0]['path'].split('?')[0]),
-           ('autopilot', 'Ask Agentiko →', None, None, '/controller-builder/compose'))
+           ('agentiko', 'Ask Agentiko →', None, None, '/controller-builder/compose'))
     for kind in ('Form',):
         stale = [d['metadata']['name'] for d in CHART.docs if d.get('kind') == kind and d['metadata']['name'].startswith('kog-')]
         expect(f, 'the two page Forms are gone', stale, [])
@@ -643,7 +643,7 @@ def main():
         i = args.index('--crds')
         crds_dir = args[i + 1]
         del args[i:i + 2]
-    CHART = tbi.Chart(tbi.render(args[0] if args else os.path.join(HERE, '..', 'helm', 'portal')))
+    CHART = tbi.Chart(tbi.render(args[0]) if args else tbi.render_portal_and_pages())
     failed = 0
     for check in CHECKS:
         try:

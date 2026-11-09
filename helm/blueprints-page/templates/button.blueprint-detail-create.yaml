@@ -1,0 +1,32 @@
+{{/* "Create" — instantiate a composition FROM this installed blueprint (→ the generated create */}}
+{{/* form at /blueprints/{namespace}/{name}/new). The concrete path is baked server-side from the */}}
+{{/* blueprint-detail RA (.namespace/.name) so the click is a plain literal navigate (no client jq). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-detail-create
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Create
+    icon: fa-plus
+    type: primary
+    size: middle
+    clickActionId: create
+    actions:
+      navigate:
+        - id: create
+          type: navigate
+          path: /blueprints
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "create", type: "navigate", path: ("/blueprints/" + (.namespace) + "/" + (.name) + "/new") } ] } }'
+  resourcesRefs:
+    items: []

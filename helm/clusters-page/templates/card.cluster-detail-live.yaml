@@ -1,0 +1,38 @@
+{{/* 'Live on this cluster' card (W3-3 spoke read-back) — what is ACTUALLY running on this */}}
+{{/* spoke right now, read directly from the spoke apiserver (cluster-compositions RA via */}}
+{{/* endpointRef; every visit re-dials the spoke — external reads are never L1-cached). */}}
+{{/* Contents: the server-computed status line (counts / honest empty state / unreachable */}}
+{{/* verdict) + the live resources table. Contrast with the sibling "Targeting blueprints" */}}
+{{/* card, which shows the HUB's intent (CompositionDefinitions targeting this cluster) — */}}
+{{/* this card shows the spoke's observed reality. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-cluster-detail-live
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  widgetData:
+    title: Live on this cluster
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+      - resourceRefId: cluster-detail-live-status
+      - resourceRefId: cluster-detail-live-table
+  resourcesRefs:
+    items:
+      - id: cluster-detail-live-status
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: cluster-detail-live-status
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: cluster-detail-live-table
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: cluster-detail-live
+        namespace: {{ $.Values.namespace }}
+        resource: tables
+        verb: GET

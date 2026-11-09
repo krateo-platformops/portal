@@ -1,0 +1,32 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: status-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, scope, status]
+  widgetData:
+    title: Condition coverage
+    titleVariant: eyebrow
+    variant: outlined
+    {{/* mockup `.badge mono` "N total" readout, top-right of the panel head (Card.extra). */}}
+    extra: ''
+    {{/* Per-condition coverage gauges off the REAL status.conditions (Ready N/M, Synced N/M), */}}
+    {{/* replacing the invented Healthy/Pending/Failed donut. */}}
+    items:
+    - resourceRefId: dashboard-conditions
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ ((.list // []) | length | tostring) + " total" }'
+  apiRef: { name: compositions-list, namespace: {{ .Release.Namespace }} }
+  resourcesRefs:
+    items:
+    - id: dashboard-conditions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-conditions
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

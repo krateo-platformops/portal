@@ -1,0 +1,63 @@
+{{/* "Events" feed — this composition's recent events as an antd List (NOT the */}}
+{{/* bespoke non-antd EventList, which is retired under the antd-only widget registry */}}
+{{/* rule). Fed by the composition-events RA (.list = events the sse-proxy >= 1.1.0 */}}
+{{/* tagged with THIS composition's krateo.io/composition-id, schema-shaped + capped). */}}
+{{/* Each row = a status dot (by event type) + message + involvedObject ref + */}}
+{{/* reason · relative-time — the mockup `.event` row. Live in-card append was an */}}
+{{/* EventList/SSE concern; live events still surface globally via the SSE bell. */}}
+{{/* Honest empty-state: when the pipeline yields NOTHING the panel must say so (one */}}
+{{/* inert gray explanatory row pointing at kubectl events), never sit silently blank */}}
+{{/* under the card's "Live" badge. The no-composition-id case (events can't be */}}
+{{/* correlated at all) gets its own honest message. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: list-composition-detail-events
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-events
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    dataSource: []
+    itemLayout: horizontal
+    split: false
+    itemTemplate:
+      {{/* IA F7: whole-row click → the involved object's generic resource-view. `route` is */}}
+      {{/* resolved SERVER-SIDE in the composition-events RA (involvedObject apiVersion+kind → */}}
+      {{/* real plural from the CRD registry / built-in k8s scoping → /resources/{ns}/{group}/ */}}
+      {{/* {version}/{plural}/{name}); events whose involvedObject kind can't be resolved to a */}}
+      {{/* plural carry route:"" and stay inert (interpolate() treats "" as falsy). */}}
+      navigateTo: '{route}'
+      iconVariant: dot
+      color:
+        value: '{type}'
+        map:
+          {{/* status-pill spec: green is reserved for HEALTH; a Normal event is neutral info. */}}
+          Normal: gray
+          Warning: red
+        {{/* The synthetic Empty row falls through to a muted dot. */}}
+        default: gray
+      {{/* One line each, the whole text on hover (P19): the reason (×N when it repeated) as the */}}
+      {{/* title, the object and its latest message under it. */}}
+      ellipsis: true
+      primaryText: '{title}'
+      subPrimaryText: '{detail}'
+      subSecondaryText: '{ts}'
+      formats:
+        subSecondaryText: relative
+  widgetDataTemplate:
+    {{/* One row per (reason, object), counted and newest first, at most five. A failing composition */}}
+    {{/* repeats the same event on every retry: twenty identical rows, each the whole backend error */}}
+    {{/* in bold, made this card ~6,400px tall and pushed the Manifest off the page. */}}
+    {{/* Empty feed → ONE inert explanatory row (type Empty → gray dot, route "" → not clickable, */}}
+    {{/* ts "" → formatRelativeTime passes it through blank). .namespace / .compositionId are */}}
+    {{/* RA-echoed, so the message is built server-side, nothing guessed. */}}
+    - forPath: dataSource
+      expression: '${ (.list // []) as $evts | if ($evts | length) == 0 then [ { title: (if (.compositionId // "") == "" then "Events cannot be correlated — this composition has no krateo.io/composition-id label" else ("No streamed events for this composition — check kubectl events -n " + (.namespace // "") + " for raw cluster events") end), detail: "", type: "Empty", ts: "", route: "" } ] else ($evts | map({ message: (.message // ""), reason: (.reason // ""), type: (if (.type // "") == "Warning" then "Warning" else "Normal" end), ref: ((.involvedObject.kind // "") + "/" + (.involvedObject.name // "")), ts: (.lastTimestamp // .firstTimestamp // .eventTime // ""), route: (.route // "") }) | group_by([.reason, .ref]) | map((sort_by(.ts) | last) as $l | { title: ($l.reason + (if length > 1 then " ×" + (length | tostring) else "" end)), detail: ($l.ref + " · " + $l.message), type: $l.type, ts: $l.ts, route: $l.route }) | sort_by(.ts) | reverse | .[:5]) end }'
+  resourcesRefs:
+    items: []

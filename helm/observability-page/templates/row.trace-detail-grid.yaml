@@ -1,0 +1,35 @@
+{{/* The trace page's 2-column grid (installer#404), the same 15:9 split as the component and */}}
+{{/* composition detail pages. Left = the spans; right = the services and the HyperDX link. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-grid
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  widgetData:
+    allowedResources:
+      - flexes
+    alignment: top
+    items:
+      - resourceRefId: trace-detail-col-left
+        size: 15
+      - resourceRefId: trace-detail-col-right
+        size: 9
+  resourcesRefs:
+    items:
+      - id: trace-detail-col-left
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-col-left
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: trace-detail-col-right
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: trace-detail-col-right
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET

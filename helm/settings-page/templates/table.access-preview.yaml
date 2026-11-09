@@ -1,0 +1,55 @@
+{{/* Access persona capability-preview table (W3-2) — renders access-preview's SAR */}}
+{{/* verdicts: capability / scope / allowed. `allowed` is a colored Tag computed */}}
+{{/* server-side (green Allowed / red No access) — apiserver-authorizer truth, run */}}
+{{/* as the calling admin (the honesty header above the table says so). When the */}}
+{{/* caller cannot create SubjectAccessReviews (non-admin → per-stage 403) the RA */}}
+{{/* flags available:false and ONE honest "preview unavailable" row renders instead */}}
+{{/* of fabricated ✗ rows. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: access-preview
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [username, ns]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of the default horizontal scrollbar. */}}
+    {{/* A wide cell ellipsis-truncates and carries its full value on hover (P19), which reads far */}}
+    {{/* better than a sideways scroll inside a card. Unset is NOT neutral — it sets */}}
+    {{/* scroll.x: max-content, so leaving it out chooses the scrollbar by omission. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: capability
+      title: Capability
+    - valueKey: scope
+      title: Scope
+    - valueKey: allowed
+      title: Access
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: >
+      ${ if (.available // false) then
+          [ (.rows // [])[] | [
+            {valueKey:"capability",kind:"jsonSchemaType",type:"string",stringValue:(.capability // "")},
+            {valueKey:"scope",kind:"jsonSchemaType",type:"string",stringValue:(.scope // "")},
+            {valueKey:"allowed",kind:"tag",stringValue:(if (.allowed // false) then "Allowed" else "No access" end),color:(if (.allowed // false) then "green" else "red" end)}
+          ] ]
+        else
+          [ [
+            {valueKey:"capability",kind:"jsonSchemaType",type:"string",stringValue:"Preview unavailable — creating SubjectAccessReviews needs cluster-wide permission your account lacks"},
+            {valueKey:"scope",kind:"jsonSchemaType",type:"string",stringValue:"—"},
+            {valueKey:"allowed",kind:"tag",stringValue:"Unavailable",color:"default"}
+          ] ]
+        end }
+  apiRef:
+    name: access-preview
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

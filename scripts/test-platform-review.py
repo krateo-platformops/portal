@@ -746,7 +746,7 @@ def main():
         i = args.index('--crds')
         crds_dir = args[i + 1]
         del args[i:i + 2]
-    chart = tbi.Chart(tbi.render(args[0] if args else os.path.join(HERE, '..', 'helm', 'portal')))
+    chart = tbi.Chart(tbi.render(args[0]) if args else tbi.render_portal_and_pages())
     failed = 0
     for check in CHECKS:
         try:

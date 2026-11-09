@@ -1,0 +1,278 @@
+{{/* /service-desk/{namespace}/{name} data source — ONE ticket, shaped server-side, plus the live
+     state of the object it is about.
+
+     Two reads, and the second one is the point of the page. A ticket that names an object
+     (spec.objectRef) carries that object's CURRENT conditions, so whoever picks the ticket up sees
+     whether the thing is still broken without going to look. That read is the caller's own: it goes
+     through snowplow as them, so a ticket referring to an object they may not read shows the ticket
+     and no conditions, rather than borrowing the desk's permissions to answer.
+
+     THE PLURAL IS DERIVED FROM THE KIND, AND THAT IS A GUESS. The apiserver addresses an object by
+     its RESOURCE (the plural), and objectRef carries `kind`. There is no plural in the ref and no
+     discovery read here to resolve one, so the plural is built with the usual three rules
+     (`…s|x|ch|sh` → `+es`, consonant + `y` → `ies`, otherwise `+s`). That is right for every kind
+     the service desk has been asked about so far and WRONG for an irregular one — `Endpoints`
+     pluralises to `endpointses`. The failure is a 404 behind continueOnError: the card says the
+     conditions could not be read, never the wrong object's. THE FIX IS A FIELD, not a cleverer jq:
+     `spec.objectRef.resource` (the plural, which the raise form already knows, since it picked the
+     object from a list). Worth doing before this page meets a kind with an irregular plural.
+
+     A CLUSTER-SCOPED objectRef IS NOT READ, deliberately. The path for one has no
+     /namespaces/<ns>/ segment, which RBAC can only satisfy from a ClusterRole — and this chart
+     ships none (scripts/lint-caller-cluster-reads.py, and rbac.page-readers.yaml says why). So the
+     iterator requires a namespace: a ticket about a cluster-scoped object shows its identity and
+     no conditions, which is honest, instead of dialling a path no reader of this page can satisfy.
+
+     EVERY STEP IS GATED ON ITS INPUT (scripts/lint-ra-paths.py). snowplow resolves widgets with no
+     request extras on its prewarm walk, so a path built from `.name // ""` would dial
+     `…/tickets/` on every warm-up. The `//` defaults live in the iterators; the paths concatenate
+     only what the iterator guarantees, and an empty iterator means the step does not run. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: ticket-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: ticket
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ $.Values.namespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/servicedesk.krateo.io/v1alpha1/namespaces/" + .namespace + "/tickets/" + .name }
+      verb: GET
+      continueOnError: true
+      errorKey: ticketError
+    {{/* The object the ticket is about, as the caller. Gated on a complete, namespaced objectRef —
+         see the header for the plural rule and for why a cluster-scoped ref is left unread.
+
+         THE PATH IS BUILT IN THE ITERATOR AND GUARDED, because it is built from DATA A REQUESTER
+         WROTE. spec.objectRef is whatever the person raising the ticket put there, so this step
+         can be pointed at any resource in the cluster — and a step naming Secrets makes snowplow
+         register a CLUSTER-WIDE Secret informer that holds every Secret's data
+         (scripts/lint-ra-secrets.py says why that is catastrophic rather than merely untidy).
+         `fetchablePath` (_fetchable.tpl, copied byte for byte) keeps the step to /apis/<group>,
+         where no Secret lives, and to an explicit allowlist of core resources that will never
+         contain one. A ticket about a Secret therefore reads nothing, and the card says so. */}}
+    - name: object
+      dependsOn:
+        name: ticket
+        iterator: |
+          {{- include "portal.fetchableDefs" . | nindent 10 }}
+          [ ((.ticket.spec.objectRef)? // {})
+            | { apiVersion: (.apiVersion // ""), kind: (.kind // ""), name: (.name // ""), namespace: (.namespace // "") }
+            | select(.apiVersion != "" and .kind != "" and .name != "" and .namespace != "")
+            | (.kind | ascii_downcase) as $k
+            | (if ($k | test("(s|x|ch|sh)$")) then ($k + "es")
+               elif ($k | test("[^aeiou]y$")) then ($k | sub("y$"; "ies"))
+               else ($k + "s") end) as $plural
+            | { path: ((if (.apiVersion | test("/")) then "/apis/" else "/api/" end)
+                       + .apiVersion + "/namespaces/" + .namespace + "/" + $plural + "/" + .name) }
+            | (.path | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
+      verb: GET
+      continueOnError: true
+      errorKey: objectError
+  {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into one
+       line and so comment out the rest of the program. */}}
+  filter: |
+    {{- include "portal.fetchableDefs" . | nindent 4 }}
+    # The same plural rule and the same path the `object` step's iterator builds — repeated here
+    # because the note under the card has to say WHY there are no conditions, and "the guard
+    # refused this path" is one of the answers. Two copies of one rule is a real cost; the
+    # alternative is a note that cannot tell "unreadable" from "deliberately not read".
+    def refplural: (. // "") | ascii_downcase
+      | if test("(s|x|ch|sh)$") then . + "es" elif test("[^aeiou]y$") then sub("y$"; "ies") else . + "s" end;
+    def refpath($ref): ($ref.kind // "" | refplural) as $pl
+      | (if (($ref.apiVersion // "") | test("/")) then "/apis/" else "/api/" end)
+        + ($ref.apiVersion // "") + "/namespaces/" + ($ref.namespace // "") + "/" + $pl + "/" + ($ref.name // "");
+    # The label mirror rule, from the Ticket CRD: lowercased, spaces to `-`. The CRD mirrors
+    # spec.state and spec.assignee this way because a label VALUE cannot hold a space, and
+    # `Waiting on requester` is one of the five states.
+    def slug: (. // "") | ascii_downcase | gsub(" "; "-");
+    # The same rule for an IDENTITY, which a state does not need: a username is not drawn from a
+    # five-value enum, and `claude-user1@krateo.io` is not a legal label value. Everything outside
+    # [a-z0-9._-] becomes `-`, the ends are trimmed to alphanumerics and the result is cut to 63
+    # characters — the apiserver's own bound. spec.assignee keeps the identity VERBATIM; only the
+    # mirror is cleaned up, so a drift between the two is visible in `kubectl get tickets`, which
+    # reads the spec.
+    def labelslug: slug | gsub("[^a-z0-9._-]"; "-") | sub("^[^a-z0-9]+"; "") | sub("[^a-z0-9]+$"; "") | .[0:63];
+    # Where the ticket's five states sit in the palette (status-pill spec, and table.tickets-table
+    # carries the same map for the queue — the two must not drift):
+    #   Open                  slate   a non-health state, the neutral-blue family
+    #   In progress           gold    transitional
+    #   Waiting on requester  gold    also transitional — it is waiting, not resting
+    #   Resolved / Closed     faint   RECEDE
+    # Resolved is NOT green. Green is health only, the portal's indicators are exception-only, and
+    # a ticket never asserts health. These are palette NAMES, resolved per theme by getColorCode.
+    def statecolor: { "Open": "slate", "In progress": "gold", "Waiting on requester": "gold", "Resolved": "faint", "Closed": "faint" }[.] // "slate";
+    # A condition's colour, by the same exception-only rule. A True condition RECEDES (`faint`): it
+    # is the absence of a problem, and marking it would make the healthy case the loud one. False
+    # is `red`, anything else (Unknown, or a condition with no status) is `gold` — not knowing is
+    # its own state and is not the same as being fine.
+    #
+    # POLARITY IS NOT DECLARED ANYWHERE IN KUBERNETES. A condition type carries no sign, so `True`
+    # cannot be read as good in general: `Degraded=True` is an exception. The types below are the
+    # negative-polarity ones this platform actually writes; the list cannot be complete, and a
+    # negative type missing from it recedes at True. Stated here rather than discovered on a page.
+    # `. as $t` first, and not a bare `index(.)`: inside `index` the input is the ARRAY, so
+    # `index(.)` asks the list whether it contains ITSELF — which it does, at 0 — making every
+    # type negative and inverting every colour on this page. It read correctly and was wrong.
+    def negative: . as $t | ["Degraded", "Unhealthy", "Failed", "Error", "Stalled"] | index($t) != null;
+    def condcolor($type; $status):
+      if $status == "True" then (if ($type | negative) then "red" else "faint" end)
+      elif $status == "False" then (if ($type | negative) then "faint" else "red" end)
+      else "gold" end;
+    (.name // "") as $n
+    | (.namespace // "{{ $.Values.namespace }}") as $ns
+    # The authenticated principal, injected by snowplow for a widget declaring
+    # identityContext: [username] (the two write buttons and the reply form do). NEVER a client
+    # parameter: a username a browser could choose would be a claim, not a fact. Absent on the
+    # prewarm walk, where every `can…` below must come out false rather than erroring.
+    | ((.username // "") | if type == "string" then . else "" end) as $me
+    | ((.ticket // {}) | if type == "object" and ((.metadata.name // "") != "") then . else {} end) as $t
+    | (($t | length) > 0) as $exists
+    | ($t.spec // {}) as $sp
+    | ($sp.state // "Open") as $state
+    | ($sp.summary // "") as $summary
+{{- if $.Values.deskActions }}
+    | ($sp.assignee // "") as $assignee
+{{- else }}
+    {{/* Not read when this install does not work tickets: a value authoritative elsewhere must not
+         reach the page, and canAssign below is its only consumer. */}}
+    | "" as $assignee
+{{- end }}
+    | ($sp.objectRef // {}) as $ref
+    # The live read, or nothing. A step that failed leaves its error under `objectError` and its
+    # own key absent, but a non-object here would make every `.status…` below a jq error on a page
+    # that is otherwise fine, so the type is checked rather than assumed.
+    | ((.object // {}) | if type == "object" and ((.metadata.name // "") != "") then . else null end) as $obj
+    | ($obj != null) as $objRead
+    | (if $objRead then ($obj.status.conditions // []) else [] end) as $conds
+    # TWO BINDINGS, AND THEY MUST NOT BE COLLAPSED INTO ONE. Read this before using either.
+    #
+    #   $acts     spec.activity ONLY — what the reply form patches back (see activityExisting).
+    #   $allActs  what the page DISPLAYS. Identical to $acts today; see below.
+    #
+    # The split exists because the reply form patches `spec.activity` WHOLESALE — a merge-patch
+    # replaces an array, so every existing entry is resent with the new one. Anything that did not
+    # come from spec must therefore be kept OUT of the form's payload, or on the next reply it gets
+    # copied into spec and becomes user-written.
+    #
+    # THIS IS WHERE AN EXTERNAL CONVERSATION LEG GOES, and the reason both bindings survive even
+    # though they currently hold the same thing. A deployment reading replies live from a ticketing
+    # system (the CMP's Zendesk design) adds its shaped entries as a second term:
+    #
+    #     | (($acts + $externalActs) | sort_by(.at // "")) as $allActs
+    #
+    # with $acts FIRST. jq's sort_by is stable, so an exact timestamp tie puts the human reply before
+    # the external one — verified against a fixture of five entries interleaved across both sources
+    # with a deliberate tie at one timestamp. Reorder that concatenation and you silently change which
+    # of two simultaneous replies reads first, with nothing failing.
+    #
+    # An earlier version sourced the second term from `status.activity`, written by a bridge
+    # controller through the /status endpoint. That design was dropped and the status subresource went
+    # with it (see crd.tickets.yaml), so reading it here would mean reading a field the CRD no longer
+    # declares: harmless under the `// []` guard, and a lie in the comment above it.
+    #
+    # Sorting: the CRD says the array is stored oldest-first, and sorting here means the page does not
+    # depend on every writer having kept that promise.
+    | (($sp.activity // []) | sort_by(.at // "")) as $acts
+    | ($acts | sort_by(.at // "")) as $allActs
+    | {
+        exists: $exists,
+        # The summary is the page title; the id is its one line of context. An absent ticket says
+        # so in the title rather than rendering a page about nothing.
+        title: (if $exists then (if $summary != "" then $summary else $n end) else "Ticket not found" end),
+        subtitle: (if $exists then ("Ticket " + $n + (if ($sp.kind // "") != "" then (" · " + $sp.kind) else "" end))
+                   elif $n != "" then ("No ticket " + $n + " in " + $ns + ", or you cannot read it")
+                   else "This ticket does not exist, or you cannot read it" end),
+        state: $state,
+        stateColor: ($state | statecolor),
+        # What was asked, VERBATIM. Rendered by a Paragraph and not a Markdown: nobody writes a
+        # ticket in Markdown, and interpreting a pasted `#` or `*` as markup would rewrite what the
+        # requester said. The cost is that blank lines collapse — see paragraph.ticket-detail.yaml.
+        detailText: (if ($sp.detail // "") != "" then $sp.detail else "No detail was given — the summary above is the whole request." end),
+        # Ask Autopilot: this page's own route with an ?ask seed the rail consumes on mount. Built
+        # here, @uri-encoded, so the Button is a plain literal navigate.
+        askHref: (if $exists then ("/service-desk/" + $ns + "/" + $n + "?ask="
+          + (("This service-desk ticket (\"" + $n + "\" in namespace \"" + $ns + "\"): " + $summary
+             + ". Explain what is being asked, what the object it refers to is doing now,"
+             + " and what the desk should do next — grounded in the evidence on this page.") | @uri)) else "" end),
+        # The write target of every action on this page, named from the route params and written
+        # with the caller's own token. `patch` and not `update`: the page edits one field at a time,
+        # and a merge-patch cannot clobber a concurrent edit to a different field.
+        ticketGvr: { apiVersion: "servicedesk.krateo.io/v1alpha1", resource: "tickets", name: $n, namespace: $ns },
+        # Assign to me: only when there is a me to assign, and not when it would be a no-op. A
+        # Resolved or Closed ticket is not picked up.
+        canAssign: ($exists and $me != "" and $assignee != $me and ($state | IN("Resolved", "Closed") | not)),
+        canResolve: ($exists and ($state | IN("Resolved", "Closed") | not)),
+        # Both patches carry the spec field AND its label mirror, because the queue's reads are
+        # label selectors (restaction.tickets-list) — a spec written without its mirror is a ticket
+        # that disappears from the chip it belongs to.
+        assignPatch: { metadata: { labels: { "krateo.io/ticket-assignee": ($me | labelslug) } }, spec: { assignee: $me } },
+        resolvePatch: { metadata: { labels: { "krateo.io/ticket-state": ("Resolved" | slug) } }, spec: { state: "Resolved" } },
+        # The object the ticket is about: its identity from the ref (always available when the ref
+        # is set) and its conditions from the live read (only when that read came back).
+        objectRef: $ref,
+        objectItems: ([ (if ($ref.name // "") != "" then { label: "Name", value: $ref.name } else empty end),
+                        (if ($ref.kind // "") != "" then { label: "Kind", value: $ref.kind } else empty end),
+                        (if ($ref.apiVersion // "") != "" then { label: "API version", value: $ref.apiVersion } else empty end),
+                        (if ($ref.namespace // "") != "" then { label: "Namespace", value: $ref.namespace } else { label: "Namespace", value: "cluster-scoped" } end) ]),
+        # K8s vocabulary VERBATIM — `Synced=False`, `Ready=True` — not a re-worded "Out of sync".
+        # The reader is looking at a Kubernetes object and these are the words it uses about itself.
+        conditionRows: ($conds | map({
+          label: ((.type // "") + "=" + (.status // "Unknown")),
+          color: condcolor((.type // ""); (.status // "")),
+          reason: (.reason // ""),
+          since: (.lastTransitionTime // "") })),
+        # Why there are no conditions, when there are none: a ref that cannot be addressed, a read
+        # that did not come back, or an object that simply declares none.
+        conditionsNote: (if ($ref | length) == 0 then ""
+          elif ($ref.namespace // "") == "" then "Cluster-scoped — this page reads namespaced objects only, so its conditions are not shown."
+          elif (($ref.kind // "") | refplural) == "secrets" then "This portal does not read Secrets, so this object's conditions are not shown."
+          elif ((refpath($ref) | fetchablePath) | not) then "This page does not read this kind, so its conditions are not shown."
+          elif ($objRead | not) then "Its conditions could not be read: the object may be gone, or you may not have access to it."
+          elif ($conds | length) == 0 then "The object reports no conditions."
+          else "" end),
+        activityRows: ($allActs | map({
+          text: (.text // ""),
+          who: (.who // "unknown"),
+          at: (.at // ""),
+          # An autopilot entry is MARKED as one: the wand that every Autopilot surface uses, and
+          # the word, because a glyph alone carries meaning by colour and shape only.
+          kindKey: ((.kind // "comment") | ascii_downcase),
+          tag: (((.kind // "") | ascii_downcase) as $k | if $k == "agentiko" or $k == "autopilot" then "Agentiko" else "" end),
+          icon: ({ "agentiko": "fa-wand-magic-sparkles", "autopilot": "fa-wand-magic-sparkles", "assigned": "fa-user-check", "state-change": "fa-arrow-right-arrow-left" }[(.kind // "comment") | ascii_downcase] // "fa-comment") })),
+        # What the reply form PATCHES. A merge-patch replaces an array wholesale, so the existing
+        # entries have to be sent back with the new one — the array declares no
+        # x-kubernetes-list-type, so it is atomic and there is no per-item patch for it (a
+        # JSON-Patch `add /spec/activity/-` would be the right request and the Form widget cannot
+        # build one: its body is always an object).
+        #
+        # THE CONSEQUENCE, so nobody finds it the hard way: a reply written against a page served
+        # before someone else replied OVERWRITES their entry. Two people replying at the same
+        # moment lose one of the two. Nothing here can fix that — it needs a controller that
+        # appends, or a resourceVersion precondition the Form cannot send. At desk pace it is
+        # unlikely; at desk pace it is also not acceptable to pretend it cannot happen.
+        activityExisting: $acts,
+        activityCount: ($allActs | length),
+        # A fallback `at` for the new entry, so the stub is valid even if the submit-time override
+        # does not land. It is the time the page was SERVED, which is why it is only a fallback:
+        # the form overrides it with the time the reply was sent.
+        servedAt: (now | todate),
+        me: $me,
+        sections: {
+          object: (($ref | length) > 0),
+          # The conditions TABLE, separately from the card that holds it: an object with no
+          # readable conditions still has an identity worth showing, and an empty table saying
+          # "No data" says nothing about why. The card's own note says why instead.
+          conditions: (($conds | length) > 0),
+          activity: (($allActs | length) > 0),
+          # Gated on the ticket only, NOT on `me`. The page root does not declare
+          # identityContext — identity would multiply its cache cell per person for nothing — so
+          # `me` is empty in the root's own resolution. The form declares it and resolves its own.
+          reply: $exists
+        }
+      }

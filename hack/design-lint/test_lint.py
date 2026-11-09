@@ -277,11 +277,36 @@ def check_page_discovery_guard():
     return out
 
 
+def check_ask_label_sees_both_spellings():
+    """A4 must still EXAMINE a button carrying the pre-rename label, not skip it.
+
+    `_is_autopilot_entry` identifies a button by its label among other shapes, so the agent's
+    rename from Autopilot to Agentiko had one dangerous outcome available to it: narrow ASK_LABEL
+    to the new spelling, and every button still saying "Ask Autopilot →" stops being an entry
+    point as far as this rule can tell. The rule does not fail then — it goes quiet, and CI stays
+    green over exactly the buttons it exists to govern.
+
+    The whole-fixture pass above cannot catch that: it only asks whether the rule fired SOMEWHERE,
+    and `bad-ask-link` would keep it firing. So this asks for the old label's own violation line.
+    A violation names the FILE, not the CR, so the label it quotes is what identifies the finding
+    — `bad-ask-old-label` in fixtures/violations.yaml is the only CR that can produce it.
+    """
+    code, out, err = run('violations.yaml', 'autopilot-button')
+    if 'Traceback' in err:
+        return ['autopilot-button: CRASHED while checking the old label']
+    if code < 1 or 'labelled "Ask Autopilot →"' not in out:
+        return ['autopilot-button: a button labelled "Ask Autopilot →" was NOT reported — '
+                'ASK_LABEL no longer matches the pre-rename spelling, so those buttons are '
+                'silently unexamined rather than wrong']
+    return []
+
+
 def main():
     global RULES
     RULES = _rules()
     failures = []
     failures += check_page_discovery_guard()
+    failures += check_ask_label_sees_both_spellings()
     for rule in RULES:
         if rule in CORPUS_RULES:
             continue

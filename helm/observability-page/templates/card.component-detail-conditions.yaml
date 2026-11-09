@@ -1,0 +1,26 @@
+{{/* "Conditions" card → the Deployment's REAL status.conditions — the "why not" */}}
+{{/* when the component is unhealthy (e.g. Progressing=False ProgressDeadlineExceeded). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-component-detail-conditions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  widgetData:
+    title: Conditions
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+      - resourceRefId: list-component-detail-conditions
+  resourcesRefs:
+    items:
+      - id: list-component-detail-conditions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: list-component-detail-conditions
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET

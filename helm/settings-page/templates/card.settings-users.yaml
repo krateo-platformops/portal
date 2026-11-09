@@ -1,0 +1,39 @@
+{{/* Settings → Users, as a panel: the note on who the table can list, then the table. */}}
+{{/* */}}
+{{/* The page used to stack an "Add user" button, the note and the table bare under the header, then */}}
+{{/* a strong Paragraph "Audit log" as a heading for the next table — drawn as large as the page */}}
+{{/* title. Two sections are two panels, in the Card language the access pages already use */}}
+{{/* (titleVariant: eyebrow + variant: outlined), and "Add user" is the page's action, in its header. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: settings-users-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Users
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - paragraphs
+    - tables
+    items:
+    {{/* Who the table can list: an SSO identity has no User CR, so it appears once granted. */}}
+    - resourceRefId: settings-users-note
+    - resourceRefId: settings-users
+  resourcesRefs:
+    items:
+    - id: settings-users-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: settings-users-note
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: settings-users
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: settings-users
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET

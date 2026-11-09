@@ -1,0 +1,124 @@
+{{/* Observability → Telemetry tab content (R2 #9). A Col wrapper — the Tabs allowedResources */}}
+{{/* enum has `cols`/`rows`/`paragraphs`/`listies` but not `flexes` — stacking the live-telemetry */}}
+{{/* section: the OTel → ClickHouse error digest, the chronological log stream and the cluster */}}
+{{/* resource-usage trend + snapshot. */}}
+{{/* */}}
+{{/* The Performance sub-group (reconcile-trace throughput/latency/percentiles/phases) is a */}}
+{{/* HONESTY-GUARDED opt-in: otel_traces + otel_metrics_histogram are emitted ONLY by the */}}
+{{/* composition-dynamic-controller, so on a cluster without the CDC tracing pipeline those tables */}}
+{{/* are permanently empty and the group would render fabricated zeros. Default HIDDEN — opt in */}}
+{{/* with `observability.reconcileTracing: true`. (Same guard as the pre-tabs page flow.) */}}
+{{/* */}}
+{{/* R2 #11: obs-svc-filter-note (a dismissible chip Listy) sits ABOVE the log stream, appearing */}}
+{{/* ONLY when a ?serviceName= scope is active — it names the filtered service and clears back to the */}}
+{{/* unscoped page. hideWhenEmpty keeps the healthy/default unfiltered state clean (exception-only). */}}
+{{/* P3: the tab's own name is not repeated as a heading under it — the tab already says it, */}}
+{{/* and the strong label that did rendered as large as the page title. The caption stays. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tab-telemetry
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - rows
+    - listies
+    - flexes
+    items:
+    - resourceRefId: obs-sec-logs-desc
+    {{- if (.Values.observability | default dict).reconcileTracing }}
+    {{/* — Performance — (reconcile-trace telemetry; opt-in, see header honesty guard). */}}
+    - resourceRefId: obs-sec-performance-label
+    - resourceRefId: obs-sec-performance-desc
+    - resourceRefId: obs-telemetry-row
+    - resourceRefId: obs-perf-phases-row
+    - resourceRefId: obs-latency-row
+    - resourceRefId: obs-perf-stat-row
+    {{- end }}
+    - resourceRefId: obs-errors-row
+    - resourceRefId: obs-svc-filter-note
+    {{/* Row-limit selector ("extend the base set") — sits directly above the log-stream card so */}}
+    {{/* it reads as scoping THAT panel; drives the log-stream RA's ClickHouse LIMIT via ?limit=. */}}
+    - resourceRefId: obs-limit-group
+    - resourceRefId: obs-log-stream-row
+    - resourceRefId: obs-resource-row
+  resourcesRefs:
+    items:
+    - id: obs-sec-logs-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-logs-desc
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    {{- if (.Values.observability | default dict).reconcileTracing }}
+    - id: obs-sec-performance-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-performance-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-sec-performance-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-performance-desc
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-telemetry-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-telemetry-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: obs-perf-phases-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-perf-phases-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: obs-latency-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-latency-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: obs-perf-stat-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-perf-stat-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    {{- end }}
+    - id: obs-errors-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-errors-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: obs-svc-filter-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-svc-filter-note
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-limit-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-limit-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: obs-log-stream-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-log-stream-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: obs-resource-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-resource-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET

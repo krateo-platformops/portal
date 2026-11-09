@@ -1,0 +1,35 @@
+{{/* The component-detail 2-column grid (same 15:9 split as composition-detail). */}}
+{{/* Left = Pods / Events; right = Conditions / Overview. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: component-detail-grid
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  widgetData:
+    allowedResources:
+      - flexes
+    alignment: top
+    items:
+      - resourceRefId: component-detail-col-left
+        size: 15
+      - resourceRefId: component-detail-col-right
+        size: 9
+  resourcesRefs:
+    items:
+      - id: component-detail-col-left
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-col-left
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: component-detail-col-right
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-col-right
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET

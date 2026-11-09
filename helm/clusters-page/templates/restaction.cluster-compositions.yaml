@@ -1,0 +1,274 @@
+{{/* W3-3 spoke read-back data source — the LIVE compositions + reconcile health of ONE */}}
+{{/* registered spoke cluster, read DIRECTLY from the SPOKE apiserver (zero snowplow/engine */}}
+{{/* changes) via api-step `endpointRef`. Renders on /clusters/{name} (?extras .name). */}}
+{{/* */}}
+{{/* HOW THE SPOKE DIAL WORKS (verified in snowplow source, 2026-07-14): */}}
+{{/* * endpointRef → resolveOne (internal/resolvers/restactions/api/endpoints.go:23) → */}}
+{{/* plumbing endpoints.FromSecret (v0.9.3 endpoints/endpoints.go:14): the referenced */}}
+{{/* Secret is the ENDPOINT shape — data keys `server-url` (REQUIRED), `token` | */}}
+{{/* `username`+`password` | `client-certificate-data`+`client-key-data`, */}}
+{{/* `certificate-authority-data`, `insecure`, `proxy-url`, `debug`. A kubeconfig-shaped */}}
+{{/* Secret is NOT consumable — the registration flow derives a second Secret */}}
+{{/* (default: krateo-system/krateo-spoke-demo-endpoint) from the spoke kubeconfig. */}}
+{{/* * The dial itself is the resolver's EXTERNAL branch (httpFetchAllowingNonJSON → */}}
+{{/* plumbing HTTPClientForEndpoint): bearer roundtripper from `token`; TLS from the */}}
+{{/* endpoint. GOTCHA (plumbing v0.9.3 transport.go:37): RootCAs are installed ONLY for */}}
+{{/* client-cert auth — a token-auth endpoint's CA is IGNORED, so the derived Secret */}}
+{{/* sets `insecure: "true"` for a private-CA apiserver. */}}
+{{/* */}}
+{{/* WHY server-url ENDS WITH /apis AND STEP PATHS ARE GROUP-RELATIVE (THE HIJACK SEAM): */}}
+{{/* snowplow's informer/apistage dispatch (CACHE_ENABLED=true in production) is */}}
+{{/* ENDPOINT-BLIND — it routes purely on path shape (ParseAPIServerPathToDep, */}}
+{{/* internal/cache/inventory.go:251; dispatchViaInformer never reads call.Endpoint, */}}
+{{/* informer_dispatch.go:261). A step path like /apis/core.krateo.io/v1alpha1/ */}}
+{{/* compositiondefinitions would be served from the HUB informer cache (hub data */}}
+{{/* presented as spoke data) whenever the GVR is synced on the hub — silent */}}
+{{/* wrong-cluster reads. With `server-url: https://<spoke>/apis` and group-relative */}}
+{{/* paths (/core.krateo.io/v1alpha1/...), the path parse fails, every cache branch */}}
+{{/* declines, and the call takes the external branch to the spoke — correct by */}}
+{{/* construction. Side effects: (a) only /apis group reads are possible through this */}}
+{{/* endpoint (no /api/v1 core reads — fine here), (b) the external-touched guard also */}}
+{{/* keeps these results OUT of snowplow's L1 → every page visit re-dials the spoke: */}}
+{{/* genuinely live read-back. */}}
+{{/* */}}
+{{/* NO userAccessFilter ON SPOKE STEPS (load-bearing): a UAF stage dispatches via the hub */}}
+{{/* ServiceAccount endpoint INSTEAD of the endpointRef (UAF takes precedence — api/ */}}
+{{/* inspect.go:20). Spoke reads are therefore endpoint-credentialed (the registered */}}
+{{/* kubeconfig identity), not per-user; per-user narrowing on spokes is a registration-flow */}}
+{{/* follow-up. The RESTAction CR itself stays RBAC-gated on the hub as usual. */}}
+{{/* */}}
+{{/* STAGES (all continueOnError so the page degrades honestly, never a broken widget): */}}
+{{/* spokeCrds  : LIST the spoke's CRDs (exists on every cluster — also the reachability */}}
+{{/* probe). jq-bounded OUTPUT (cardinality guard): only composition.krateo.io */}}
+{{/* CRDs (plural+served version, data-driven — blueprint kinds have */}}
+{{/* per-blueprint plurals) + whether compositiondefinitions.core.krateo.io */}}
+{{/* exists there. */}}
+{{/* spokeCompositions        : iterator over the discovered composition CRDs — one LIST */}}
+{{/* per plural ON THE SPOKE. Zero discovered CRDs → stage skipped → []. */}}
+{{/* spokeCompositionDefinitions : LIST the spoke's compositiondefinitions, gated by the */}}
+{{/* conditional-iterator pattern on spokeCrds' CRD-existence flag (the */}}
+{{/* ticket's "if the CRD exists there") — no guaranteed-404 call. */}}
+{{/* Kind per row is derived from each LIST envelope's .kind (sub("List$";"")) — items in a */}}
+{{/* k8s LIST carry no kind; nothing hardcoded. ready/synced = status.conditions Ready/Synced. */}}
+{{/* */}}
+{{/* FINAL FILTER: rows + counts + a server-computed statusText/statusColor (value→ */}}
+{{/* presentation server-side). #107 (snowplow ≥1.7.13, krateo-platformops/snowplow#113): */}}
+{{/* endpointRef.name is now jq-templated from the request extras, so this ONE RA serves EVERY */}}
+{{/* registered spoke — `<name>-endpoint` derived from the /clusters/{name} route param (no */}}
+{{/* per-spoke RA generation, no single-spoke bind). A cluster with no `<name>-endpoint` Secret */}}
+{{/* (or an unreachable spoke) degrades to reachable=false + an honest status; the namespace */}}
+{{/* stays literal (snowplow V1 keeps endpointRef.namespace non-templatable). See */}}
+{{/* [[snowplow-templated-endpointref]]. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: cluster-compositions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* Reachability probe + CRD discovery, one round-trip. Group-relative path (see header). */}}
+    - name: spokeCrds
+      path: /apiextensions.k8s.io/v1/customresourcedefinitions
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      endpointRef:
+        {{/* #107 — snowplow ≥1.7.13 evaluates endpointRef.name against the request extras (r.dict, */}}
+        {{/* a deep-copy of extras — verified in source: resolve.go evalEndpointRef → evalJQ(name, r.dict), */}}
+        {{/* resolved ONCE per stage before the iterator fan-out), so ONE RA dials the spoke named by the */}}
+        {{/* /clusters/{name} route — `<name>-endpoint` — on EVERY step including the iterator steps. */}}
+        {{/* SECURITY: a crafted `.name` cannot select a reserved `<user>-clientconfig` Secret — snowplow's */}}
+        {{/* `-clientconfig` refusal runs on the POST-DNS1123-truncation name at two layers (eval site + */}}
+        {{/* resolveOne). (The `-endpoint` suffix itself is NOT truncation-proof, but the -clientconfig guard */}}
+        {{/* is what holds.) namespace stays literal (V1). PENDING HARDENING before multi-spoke: constrain */}}
+        {{/* `.name` to a registered-KubernetesTarget allow-list (closes cross-spoke read-across + benign */}}
+        {{/* non-spoke-endpoint SSRF; not exploitable on a single-spoke cluster). See [[snowplow-templated-endpointref]]. */}}
+        name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
+        namespace: {{ .Values.spokeReadbackEndpointNamespace }}
+      continueOnError: true
+      errorKey: spokeCrdsError
+      {{/* Bound OUTPUT: hundreds of CRDs in, only the composition-group entries out. */}}
+      {{/* version = first served version (single-yield safe). */}}
+      filter: >
+        { compositionCrds: [ .spokeCrds.items[]?
+            | select(.spec.group == "composition.krateo.io")
+            | { group: .spec.group,
+                plural: .spec.names.plural,
+                version: ([ .spec.versions[]? | select(.served == true) | .name ] | first // "") }
+            | select(.version != "") ],
+          hasCompositionDefinitions: ([ .spokeCrds.items[]?
+            | select((.spec.group == "core.krateo.io") and (.spec.names.plural == "compositiondefinitions")) ] | length > 0) }
+    {{/* One LIST per discovered composition plural, ON THE SPOKE. The per-item filter emits */}}
+    {{/* an ARRAY, so multi-plural results splice into one flat row list; the iterator path is */}}
+    {{/* evaluated against the iterator ELEMENT (group/version/plural from spokeCrds). */}}
+    - name: spokeCompositions
+      dependsOn:
+        name: spokeCrds
+        iterator: '[ .spokeCrds.compositionCrds[]? ]'
+      path: '${ "/" + .group + "/" + .version + "/" + .plural }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      endpointRef:
+        {{/* #107 — templated per-spoke (see spokeCrds). Evaluated against request extras → `<name>-endpoint`. */}}
+        name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
+        namespace: {{ .Values.spokeReadbackEndpointNamespace }}
+      continueOnError: true
+      errorKey: spokeCompositionsError
+      filter: >
+        [ .spokeCompositions as $env
+          | ($env.kind // "" | sub("List$"; "")) as $kind
+          | $env.items[]?
+          | { kind: (if $kind != "" then $kind else "Composition" end),
+              name: (.metadata.name // ""),
+              namespace: (.metadata.namespace // ""),
+              created: (.metadata.creationTimestamp // ""),
+              ready: ([ .status.conditions[]? | select(.type == "Ready") | (.status // "") ] | first // ""),
+              reason: ([ .status.conditions[]? | select(.type == "Ready") | (.reason // "") ] | first // ""),
+              synced: ([ .status.conditions[]? | select(.type == "Synced") | (.status // "") ] | first // "") } ]
+    {{/* The spoke's CompositionDefinitions — only when spokeCrds saw the CRD there */}}
+    {{/* (conditional-iterator: one empty element when true, zero → stage skipped). */}}
+    - name: spokeCompositionDefinitions
+      dependsOn:
+        name: spokeCrds
+        iterator: '(if (.spokeCrds.hasCompositionDefinitions // false) then [{}] else [] end)'
+      path: /core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      endpointRef:
+        {{/* #107 — templated per-spoke (see spokeCrds). Evaluated against request extras → `<name>-endpoint`. */}}
+        name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
+        namespace: {{ .Values.spokeReadbackEndpointNamespace }}
+      continueOnError: true
+      errorKey: spokeCompositionDefinitionsError
+      filter: >
+        [ .spokeCompositionDefinitions as $env
+          | ($env.kind // "" | sub("List$"; "")) as $kind
+          | $env.items[]?
+          | { kind: (if $kind != "" then $kind else "CompositionDefinition" end),
+              name: (.metadata.name // ""),
+              namespace: (.metadata.namespace // ""),
+              created: (.metadata.creationTimestamp // ""),
+              ready: ([ .status.conditions[]? | select(.type == "Ready") | (.status // "") ] | first // ""),
+              reason: ([ .status.conditions[]? | select(.type == "Ready") | (.reason // "") ] | first // ""),
+              synced: ([ .status.conditions[]? | select(.type == "Synced") | (.status // "") ] | first // "") } ]
+  {{/* Rows + counts + the status line, all server-side. `age` stays the raw */}}
+  {{/* creationTimestamp — the Table cell renders it `relative` (house pattern). */}}
+  {{/* The status line counts "N Ready" with the VERBATIM K8s token (capital R) — it tallies the */}}
+  {{/* table's Ready pills right below it, so generic prose "ready" would read ambiguous (UX-20). */}}
+  filter: >
+    ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
+    | ($n != "") as $named
+    | (.spokeCrds != null) as $reachable
+    | (if ($named and $reachable)
+       then [ (.spokeCompositions // [])[], (.spokeCompositionDefinitions // [])[]
+              | . + { readyLabel: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "Paused"
+                                   elif .ready == "True" then "Ready"
+                                   elif (.ready == "False" and .reason == "Creating") then "Creating"
+                                   elif .ready == "False" then "NotReady" else "Unknown" end),
+                      readyColor: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "slate"
+                                   elif .ready == "True" then "green"
+                                   elif (.ready == "False" and .reason == "Creating") then "blue"
+                                   elif .ready == "False" then "red" else "gray" end),
+                      syncedLabel: (if .synced == "True" then "Synced" elif .synced == "False" then "Drift" else "Unknown" end),
+                      syncedColor: (if .synced == "True" then "green" elif .synced == "False" then "violet" else "gray" end) } ]
+       else [] end) as $rows
+    | ($rows | length) as $total
+    {{/* FIVE states, counted as five (portal#333, then core-provider#234, then #238). A Ready
+         CONDITION is True, False or Unknown, and it carries a REASON that splits those: a FALSE
+         distinguishes broken from converging, so `Creating` is counted apart from `Unavailable`
+         — and a TRUE distinguishes maintained from paused, so `ReconcileGracefullyPaused` is
+         counted apart from `Available`. The reason is the contract; the message is prose
+         core-provider changes freely, so nothing keys on it.
+
+         PAUSE IS A TRUE, WHICH IS THE PART THAT SURPRISES. `ReconcileGracefullyPaused` stamps
+         Status=TRUE, so a paused composition is NOT a failure and never shows red. But True there
+         is a claim about the LAST OBSERVED state, not about being maintained: nothing is
+         converging a paused composition, nothing corrects its drift, and its children can rot
+         without the condition changing. "Ready" is not false, it is less true than it looks —
+         hence a neutral `Paused` pill rather than green. It is COUNTED as well as labelled,
+         because a label and a count over the same field under DIFFERENT rules is the shape where
+         one of them is always lying, which is the whole reason this block exists. Reachable from
+         core-provider#238; 0 of 83 on 057 are paused today, so nothing moves until one is.
+         Ready is a Kubernetes CONDITION: True, False
+         or Unknown — and `notReady` was the COMPLEMENT of True, so it absorbed Unknown as well as
+         False. The row LABEL has always had the third state (readyLabel above), so the summary
+         contradicted the rows it summarised.
+         core-provider 2.13.36 makes that reachable: an Unknown Ready means the rollup could not
+         assess the composition's health — deliberately "not measured", NOT "unhealthy". On 057
+         that was krateo-system/event-health and krateo-system/model-configs, both healthy, which
+         would have shown as 2 not-ready on a cluster where nothing is wrong, permanently.
+
+         WHAT UNKNOWN MEANS HAS SINCE BEEN SPLIT THREE WAYS, and the earlier wording here was
+         wrong in a way worth recording rather than just deleting. It said ZeroEvidence is for a
+         rollup that "evaluated ZERO children", which reads as "the composition has no children".
+         It never meant that: core-provider#324/#328, and Diego's split after installer measured
+         what the ambiguity cost —
+
+           Unknown / ZeroEvidence         the recorded children are ALL unreadable by the
+                                          controller. Permanent, and NOT core-provider's defect.
+           Unknown / ChildrenForbidden    no child could be assessed and at least one read was
+                                          REFUSED BY RBAC — a defect in generated RBAC, so
+                                          actionable. Only when there is no evidence at all.
+           Unknown / InventoryNotRecorded status.managed was never written. Also their defect.
+                                          Split out of ZeroEvidence because seven compositions on
+                                          057 were holding deployed releases and passing their
+                                          readiness gate on the strength of a bug's output.
+
+         AND A COMPOSITION THAT GENUINELY MANAGES NOTHING REPORTS `Available`, not Unknown. It
+         never reported ZeroEvidence. Nothing here keys on these strings — the bucket below is
+         chosen by STATUS, so all three land in `unknown` and are counted — but a reader taking
+         the old sentence as the definition would have built the wrong predicate.
+         Counting each state by its own predicate rather than by subtraction also means the next
+         status added to the vocabulary cannot land in a bucket silently, which is how this one
+         arrived. */}}
+    | ([ $rows[] | select(.ready == "True" and .reason != "ReconcileGracefullyPaused") ] | length) as $ready
+    | ([ $rows[] | select(.ready == "True" and .reason == "ReconcileGracefullyPaused") ] | length) as $paused
+    | ([ $rows[] | select(.ready == "False" and .reason == "Creating") ] | length) as $converging
+    | ([ $rows[] | select(.ready == "False" and .reason != "Creating") ] | length) as $notReady
+    | ([ $rows[] | select(.ready != "True" and .ready != "False") ] | length) as $unknown
+    | {
+        cluster: $n,
+        reachable: ($named and $reachable),
+        rows: $rows,
+        counts: { total: $total, ready: $ready, notReady: $notReady, converging: $converging, paused: $paused, unknown: $unknown },
+        statusText: (
+          if ($named | not) then "No cluster selected."
+          elif ($reachable | not) then ("Live read-back unavailable for \($n) — no endpoint secret (\($n)-endpoint) is provisioned for this cluster, or the spoke apiserver is unreachable.")
+          elif ($total == 0) then "No compositions deployed to this spoke yet."
+          else (($total | tostring) + " resource(s) live on this cluster, read directly from the spoke apiserver — " + ($ready | tostring) + " Ready"
+                + (if $notReady > 0 then (", " + ($notReady | tostring) + " not ready") else "" end)
+                + (if $converging > 0 then (", " + ($converging | tostring) + " still coming up") else "" end)
+                + (if $paused > 0 then (", " + ($paused | tostring) + " paused") else "" end)
+                + (if $unknown > 0 then (", " + ($unknown | tostring) + " not reported") else "" end) + ".")
+          end),
+        {{/* Same vocabulary as the rows: a FALSE/Unavailable is the problem (orange), a
+             FALSE/Creating is in progress (blue), an Unknown is withheld evidence (gray), and
+             green is claimed only when every row actually reported True. Marking the cluster
+             green while some rows never reported would overclaim health — and a converging row
+             has not reported True, so it must not fall through to green either (which it did
+             when `converging` was first counted and this chain was not updated with it).
+             Order: a real failure outranks progress, and progress outranks absent evidence —
+             "still coming up" is a statement about the cluster, "not reported" is the lack of
+             one, so the informative state wins when both are present.
+
+             PAUSED IS DELIBERATELY ABSENT FROM THIS CHAIN. A paused row DID report True, and the
+             rule above is about rows that never reported, so it does not turn the dot. The dot
+             answers "did anything fail to report healthy?" — no — while the row pill answers "is
+             this one being maintained?" — Paused. Two questions, two honest answers. The
+             consequence, stated so it is a decision and not an oversight: a cluster whose every
+             composition is paused shows GREEN. If that should read neutral instead, the condition
+             is `$paused == $total`, not `$paused > 0` — one paused row among fifty says nothing
+             about the cluster. */}}
+        statusColor: (
+          if ($named | not) then "gray"
+          elif ($reachable | not) then "red"
+          elif ($total == 0) then "gray"
+          elif ($notReady > 0) then "orange"
+          elif ($converging > 0) then "blue"
+          elif ($unknown > 0) then "gray"
+          else "green" end)
+      }

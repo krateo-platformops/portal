@@ -17,12 +17,30 @@
   continueOnError stays true (a missing ConfigMap / unreachable endpoint degrades to an empty catalog, not a
   broken widget). errorKey is derived from the step name to match the existing <name>Error convention.
 
-  args: dict { ctx: $ (root, for .Values/.Release), name: "<step-name>", index: "blueprints"|"operators" }
+  POST-FILTER (#302). A caller that needs to PROJECT the index must pass `postFilter` instead of
+  appending its own `filter:` key after this include. Two keys in one YAML map decode last-wins, so
+  the caller's filter silently REPLACED the configmap branch's fromjson, the projection then read
+  `.entries` on the raw ConfigMap (which has none), and `// {}` turned that into an empty catalog —
+  no error, zero rows. Measured on 057: global-search and blueprint-builder-deliverables had lost
+  fromjson entirely while the five callers that append nothing kept it.
+
+  The composition RE-WRAPS rather than chaining, so a caller's jq is byte-identical in both modes.
+  A per-step filter receives an ENVELOPE keyed by the step name (which is why the configmap branch
+  reads `.<name>.data[...]`), but after `fromjson` the parsed index is the bare value — so a plain
+  `<fromjson> | <postFilter>` would leave the caller's `.<name>.entries` looking at nothing. Wrapping
+  the result back under the step name restores the envelope the caller is written against:
+    configmap : filter: '{<name>: (.<name>.data["<index>-index.json"] | fromjson)} | <postFilter>'
+    external  : filter: '<postFilter>'        (the step output is already the parsed index)
+  Omit postFilter and the behaviour is exactly as before.
+
+  args: dict { ctx: $ (root, for .Values/.Release), name: "<step-name>", index: "blueprints"|"operators",
+               postFilter: "<single-line jq>" (optional) }
 */}}
 {{- define "portal.catalogStep" -}}
 {{- $ctx := .ctx -}}
 {{- $name := .name -}}
 {{- $index := .index -}}
+{{- $post := .postFilter | default "" -}}
 {{- $mp := $ctx.Values.marketplace | default dict -}}
 {{- $src := $mp.source | default "configmap" -}}
 - name: {{ $name }}
@@ -34,12 +52,19 @@
   verb: GET
   headers:
     - 'Accept: application/x-yaml, text/yaml, application/json'
+{{- if $post }}
+  filter: '{{ $post }}'
+{{- end }}
 {{- else }}
   path: /api/v1/namespaces/{{ $ctx.Release.Namespace }}/configmaps/{{ $mp.configMapName | default "blueprints-catalog-index" }}
   verb: GET
   headers:
     - 'Accept: application/json'
+{{- if $post }}
+  filter: '{{ "{" }}{{ $name }}: (.{{ $name }}.data["{{ $index }}-index.json"] | fromjson){{ "}" }} | {{ $post }}'
+{{- else }}
   filter: '.{{ $name }}.data["{{ $index }}-index.json"] | fromjson'
+{{- end }}
 {{- end }}
   continueOnError: true
   errorKey: {{ $name }}Error
@@ -98,24 +123,33 @@ true
   catalogLive step beside its catalog step. Emits defs only (each ends in `;`) and no comments, so it
   sits in a literal (|) or a folded (>) filter alike.
 
-    withLive   the input with .catalog.entries extended by every live-index chart whose NAME the
-               catalog does not carry and whose newest version names the repository that released
-               it (krateo.io/source-repo, stamped by the builder-scaffold release). A name the
-               catalog has keeps the catalog's entry whole: the curated index stays the authority
-               for every name it lists, so the live index adds cards and never re-points one. The
-               source-repo rule keeps out what the curation removed on purpose: the live index also
-               holds the platform's own charts (portal, installer, krateo-frontend, ...;
-               PLATFORM_LEAVES in krateo-blueprints/marketplace hack/build-index.py), which carry no
-               such annotation and are not blueprints. Each added version carries repoBase, the channel's
-               base URL, because the publisher stores the tarball in a GitHub release, not beside
-               index.yaml: the tarball URL with its filename stripped is no Helm repo, and
-               core-provider fetches <chart.url>/index.yaml. With no catalogLive step (disabled, or
-               source=external) or an unreadable one, it adds nothing.
+    withLive   the input with .catalog.entries merged with every live-index chart that a krateo-blueprints
+               repository published: its newest version's `sources` lists
+               https://github.com/krateo-blueprints/<repo>, which PUBLISHING.md requires of every chart,
+               or it carries krateo.io/source-repo, which builder-scaffold repos commit. The owner is
+               compared case-insensitively, as GitHub resolves it: the builders write `sources` with the
+               owner as the person typed it, so Krateo-Blueprints/<repo> is the same repository. The
+               prefix keeps its trailing slash, so krateo-blueprints-evil/<repo> is not. THE LIVE INDEX
+               LEADS (Diego, 2026-11-07): for a name both carry, the live versions come first and the
+               catalog's versions the live index lacks stay below them, newest first by version. So a
+               publish shows on the next read, and the catalog is the fallback for offline or air-gapped
+               installs and for names the live index does not have. A live chart with neither signal
+               adds nothing, which keeps out the platform's own charts (portal, installer, ...; their
+               sources are krateo-platformops repos) and any same-named chart from elsewhere. Each
+               live version carries repoBase, the channel's base URL, because the publisher stores the
+               tarball in a GitHub release, not beside index.yaml, and core-provider fetches
+               <chart.url>/index.yaml. With no catalogLive step (disabled, or source=external) or an
+               unreadable one, the catalog is unchanged.
 */}}
 {{- define "portal.catalogLiveDefs" -}}
+def withLiveVer: (tostring | sub("^v"; "") | split("-")[0] | split(".") | map(tonumber? // 0));
+def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | ascii_downcase | startswith("https://github.com/krateo-blueprints/")));
 def withLive:
   (((.catalogLive // {}) | if type == "object" then (.entries // {}) else {} end) | if type == "object" then . else {} end) as $live
   | (((.catalog // {}) | if type == "object" then . else {} end)) as $cat
   | (($cat.entries // {}) | if type == "object" then . else {} end) as $cur
-  | .catalog = ($cat | .entries = ($cur + ($live | with_entries(select(($cur[.key] == null) and ((.value | type) == "array") and ((((.value[0] // {}) | if type == "object" then ((.annotations // {})["krateo.io/source-repo"] // "") else "" end) | tostring) != "")) | .value |= map(select(type == "object") | . + {repoBase: "{{ include "portal.blueprintsServerUrl" . }}/charts/blueprints"}))))) ;
+  | ($live | with_entries(select(((.value | type) == "array") and ((.value[0] // null) | withLiveOwned)) | .value |= map(select(type == "object") | . + {repoBase: "{{ include "portal.blueprintsServerUrl" . }}/charts/blueprints"}))) as $add
+  | .catalog = ($cat | .entries = ($cur + ($add | with_entries(.key as $k | .value as $lv
+      | .value = (($lv + ((($cur[$k] // []) | if type == "array" then . else [] end) | map(select(type == "object") | select(.version as $v | ($lv | any(.[]; .version == $v)) | not))))
+                  | sort_by(.version | withLiveVer) | reverse))))) ;
 {{- end -}}

@@ -1,0 +1,21 @@
+{{/* The root-cause statement — the verdict, verbatim from status.rootCause.statement. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-rootcause-statement
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ' '
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ .rootCauseStatement // " " }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,34 @@
+{{/* Wayfinding indicator for the blueprint create flow (Blueprint ✓ / Configure / Review). */}}
+{{/* The blueprint is already chosen (reached via /marketplace/{ns}/{name}/new), so */}}
+{{/* `current: 1` marks Blueprint done (antd auto-styles prior steps as finished) and */}}
+{{/* Configure active. Review is REAL: the Form (reviewBeforeSubmit) reveals an in-place */}}
+{{/* read-only summary of the entered values before the final create — so the indicator's */}}
+{{/* three steps match the actual journey. */}}
+{{/* */}}
+{{/* `reviewCurrent: 2` is what makes that true on screen: `current` is static, so while the Form */}}
+{{/* showed its review the header still read "Step 2 · Configure". The frontend's Steps reads the */}}
+{{/* page's Form review state and shows step 3 while it lasts (frontend Steps `reviewCurrent`). */}}
+kind: Steps
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: create-wizard
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    current: 1
+    reviewCurrent: 2
+    size: small
+    items:
+      - title: Blueprint
+        eyebrow: Step 1
+        description: Selected
+      - title: Configure
+        eyebrow: Step 2
+        description: Set parameters
+      - title: Review
+        eyebrow: Step 3
+        description: Review & create

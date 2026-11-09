@@ -21,6 +21,27 @@ RESTAction a values flag leaves unrendered is checked as source instead: its tem
 removed, must not mention it at all. endpointRef is not flagged: snowplow resolves endpoint
 Secrets through its own AUTHN-namespace-scoped informer, not this path.
 
+WHAT IT CANNOT SEE, AND IS CITED IN REVIEW AS THOUGH IT COULD. This gate analyses the resources a
+RESTAction step NAMES — its path, its iterator, its userAccessFilter. It therefore cannot see a
+Secret value that arrives inside an object the step was entitled to read. The concrete route, from
+provider-runtime: every provider error lands verbatim in the Synced condition's message, because
+ReconcileError uses err.Error() unchanged. Their docs forbid credentials there (provider-runtime#28)
+but the runtime cannot enforce it, and the realistic leaks are a request URL carrying a token in its
+query string, a Go HTTP client error that prints that whole URL, or a vendor body that echoes
+request headers. oasgen-provider#433 is fixing that class at the source.
+
+So a token can reach a widget through `.status.conditions[].message` of a CompositionDefinition or a
+composition this lint correctly passed, and nothing here will say so. Two portal surfaces render
+such a message today — blueprints-page/restaction.blueprint-formdef.yaml (a Ready=False message, as
+form description text) and compositions-page/restaction.composition-architecture.yaml (the
+`exception` object). Both dial under the CALLER's credential, so the exposure is not wider than
+`kubectl get` on the same object — but it is wider than this gate's green tick implies.
+
+The deliberate non-decision: the portal does NOT redact those messages. A partial redactor invites
+the assumption that whatever got through is safe, and that message is frequently the only place an
+operator learns why a resource failed. The fix belongs where the error is composed. This paragraph
+exists so that nobody reads a passing lint-ra-secrets as covering the condition-message path.
+
 NO PATH CLIMBS. A path literal that contains "..", or "%2e" in any case, or whose literals joined
 contain ".." ("." + "."), fails: a literal "/apis/" or ".../configmaps/" fixes the resource only
 while nothing after it can walk back out of it ("/apis/../api/v1/" + …).
@@ -33,13 +54,15 @@ a literal resource segment ("/api/v1/namespaces/" + .ns + "/configmaps/" + .name
 So is any ${ } path that builds characters (implode, ascii, @base64d, @base32d, fromjson, a \u
 escape, a string repeated with *): what it spells is not in its text. A data-driven step passes
 only when
-  - its path is one field of the iterator's item, `${ .<field> }`;
+  - its path is one field of the iterator's item, `${ .<field> }`, or exactly portal.targetPath;
   - its dependsOn.iterator BEGINS with exactly the defs portal.fetchableDefs renders
     (_fetchable.tpl, compared whitespace-normalized), so no def of its own can shadow tostring,
     split or index under them;
   - nothing after them defines fetchablePath or fetchableCore again (a later def shadows) or
     builds characters;
-  - and it applies the guard to that field: `(.<field> | fetchablePath)`.
+  - and it applies the guard to that field: `(.<field> | fetchablePath)`. With portal.targetPath the
+    guard is `(.<field> | fetchableTarget)`, which must be the LAST step of the iterator, so the item
+    the path reads is the guarded one and nothing can rewrite its values afterwards.
 The canonical fetchableCore must itself name no secret. A step with an endpointRef calls another
 service, not the apiserver, and is not this lint's concern.
 
@@ -118,6 +141,21 @@ def canonical_defs():
 
 
 CANONICAL = canonical_defs()
+
+
+def canonical_target():
+    """portal.targetPath as _fetchable.tpl defines it, the only multi-value data-driven path."""
+    tpl = open(os.path.join(HERE, '..', 'helm', 'portal', 'templates', '_fetchable.tpl'), encoding='utf-8').read()
+    m = re.search(r'\{\{-?\s*define\s+"portal\.targetPath"\s*-?\}\}(.*?)\{\{-?\s*end\s*-?\}\}', tpl, re.S)
+    if not m:
+        raise SystemExit('_fetchable.tpl: portal.targetPath is missing')
+    return normalized(m.group(1))
+
+
+TARGET = canonical_target()
+TARGET_PATH = normalized('${ ' + TARGET + ' }')
+# After the guard, nothing that could change the item: the closing brackets, and de-duplication.
+TARGET_LAST = re.compile(r'\(\s*\.[A-Za-z_][A-Za-z0-9_]*\s*\|\s*fetchableTarget\s*\)\s*[\])]*\s*(\|\s*unique\s*)?$')
 _CORE = re.search(r'def fetchableCore: (\[[^\]]*\])', CANONICAL)
 if not _CORE or any(names_secrets(c) for c in json.loads(_CORE.group(1))):
     raise SystemExit('_fetchable.tpl: fetchableCore is not an array literal, or it names secrets')
@@ -158,10 +196,12 @@ def data_driven(step):
 
 
 def guarded(step):
-    """The path is one field of the item, and the iterator applies portal.fetchableDefs, verbatim, to it."""
-    field = FIELD_PATH.match(str(step.get('path') or '').strip())
-    if not field:
-        return False, 'not a single field of the iterator item, so fetchablePath cannot guard it'
+    """The path is one field of the item, or portal.targetPath, and portal.fetchableDefs guards it."""
+    path = str(step.get('path') or '').strip()
+    field = FIELD_PATH.match(path)
+    target = normalized(path) == TARGET_PATH
+    if not field and not target:
+        return False, 'not portal.targetPath or a single field of the iterator item, so nothing can guard it'
     it = normalized(str((step.get('dependsOn') or {}).get('iterator') or ''))
     if not it.startswith(CANONICAL):
         return False, 'its iterator does not begin with portal.fetchableDefs exactly as _fetchable.tpl renders it'
@@ -170,6 +210,10 @@ def guarded(step):
         return False, 'its iterator redefines the fetchable guard after portal.fetchableDefs'
     if CONSTRUCTED.search(rest):
         return False, 'its iterator builds characters after portal.fetchableDefs'
+    if target:
+        if not TARGET_LAST.search(rest):
+            return False, 'portal.targetPath needs `(.<field> | fetchableTarget)` as the last step of its iterator'
+        return True, ''
     if not re.search(r'\(\s*\.' + re.escape(field.group(1)) + r'\s*\|\s*fetchablePath\s*\)', rest):
         return False, f'its iterator never applies fetchablePath to .{field.group(1)}'
     return True, ''
@@ -197,8 +241,21 @@ def step_fields(step):
 SECRETS_CODES = '([115,101,99,114,101,116,115]|implode)'
 DOTS_CODES = '([46,46]|implode)'
 GUARD = CANONICAL + ' [ .[] | select(.path | fetchablePath) ]'
+TARGET_STEP = '${ ' + TARGET + ' }'
 # (what it is, step) — every one must be caught.
 PLANTED = [
+    ('portal.targetPath with no guard',
+     {'path': TARGET_STEP, 'dependsOn': {'name': 'x', 'iterator': CANONICAL + ' [ .[] | { g: "", v: "v1", pl: "pods", nm: .n } ]'}}),
+    ('portal.targetPath over an item that never met the guard',
+     {'path': TARGET_STEP, 'dependsOn': {'name': 'x', 'iterator': 'def f: .; [ .[] | (.path | fetchableTarget) ]'}}),
+    ('portal.targetPath, the guard then overwritten',
+     {'path': TARGET_STEP, 'dependsOn': {'name': 'x', 'iterator': CANONICAL + ' [ .[] | (.path | fetchableTarget) | .pl = .x ]'}}),
+    ('portal.targetPath, the guard run and discarded',
+     {'path': TARGET_STEP, 'dependsOn': {'name': 'x', 'iterator': CANONICAL + ' [ .[] | (.path | fetchableTarget) as $t | { g: "", v: "v1", pl: .x } ]'}}),
+    ('portal.targetPath, the guard redefined',
+     {'path': TARGET_STEP, 'dependsOn': {'name': 'x', 'iterator': CANONICAL + ' def fetchableTarget: .; [ .[] | (.path | fetchableTarget) ]'}}),
+    ('a template one character from portal.targetPath',
+     {'path': TARGET_STEP.replace('"/api/"', '"/api"'), 'dependsOn': {'name': 'x', 'iterator': CANONICAL + ' [ .[] | (.path | fetchableTarget) ]'}}),
     ('a guard the step defines itself',
      {'path': '${ "/api/v1/namespaces/krateo-system/" + ' + SECRETS_CODES + ' }',
       'dependsOn': {'name': 'x', 'iterator': 'def fetchableCore: ["pods"]; def fetchablePath: .; fetchablePath | [.]'}}),
@@ -235,6 +292,8 @@ PLANTED = [
 # (what it is, step) — the shapes the charts use; every one must pass.
 CLEAN = [
     ('a guarded data-driven path', {'path': '${ .path }', 'dependsOn': {'name': 'x', 'iterator': GUARD}}),
+    ('portal.targetPath over a guarded item',
+     {'path': TARGET_STEP, 'dependsOn': {'name': 'x', 'iterator': CANONICAL + ' [ .[] | (.path | fetchableTarget) ] | unique'}}),
     ('the guard on one line, as _review.tpl nindents it',
      {'path': '${ .discovery }', 'dependsOn': {'name': 'x', 'iterator': CANONICAL.replace('; def', ';\n  def') + ' map(select(.discovery | fetchablePath))'}}),
     ('a literal core resource', {'path': '${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .name }'}),

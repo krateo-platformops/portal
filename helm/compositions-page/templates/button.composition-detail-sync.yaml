@@ -1,0 +1,45 @@
+{{/* "Sync" = refresh the page's data (NOT a cluster mutation). A lightweight rest GET */}}
+{{/* of this composition; on completion the action engine invalidates the ['widgets'] */}}
+{{/* query cache, so every detail widget refetches live cluster state. The GET target */}}
+{{/* (GVR + name/namespace) is resolved server-side from composition-detail (.gvr). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-sync
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Sync
+    icon: fa-arrows-rotate
+    {{/* Sync is the primary action in the detail header cluster (mockup orange-primary); */}}
+    {{/* Pause/Edit stay default (bordered secondary), Delete stays danger. */}}
+    type: primary
+    size: middle
+    clickActionId: sync
+    actions:
+      rest:
+        - id: sync
+          type: rest
+          resourceRefId: refresh-composition
+          headers:
+            - 'Accept: application/json'
+          successMessage: Composition refreshed
+          loading:
+            display: true
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: refresh-composition
+        apiVersion: ${ .gvr.apiVersion }
+        resource: ${ .gvr.resource }
+        name: ${ .gvr.name }
+        namespace: ${ .gvr.namespace }
+        verb: GET

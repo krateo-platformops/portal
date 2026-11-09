@@ -115,6 +115,170 @@ jobs:
       - name: The Helm release record must stay writable
         run: python3 scripts/lint-release-size.py
 
+  # A chart that owns a CRD must not destroy its data when it is uninstalled — and uninstall is on
+  # the path of an ordinary component version bump, not a rare administrative act. service-desk-page
+  # shipped the Ticket CRD and the namespace holding the tickets with NO resource-policy at all; the
+  # gate written for that immediately found a second instance, the AuditRecord CRD in `portal`,
+  # whose deletion would have taken the audit trail with it.
+  crd-retention:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: A chart that owns a CRD must keep it
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-crd-retention.py
+
+  # A CRD this repo owns must not become STRICTER than the one in the field. Stored objects are not
+  # revalidated when a CRD changes, so a tightening is silent at the roll and the failure arrives at
+  # the next WRITE to an existing object, attributed to whoever made that write. frontend-crds
+  # 1.8.20 shipped exactly that — a new `required` on a node — and cost a rollback with three gates
+  # green, because none of them was asking whether the new schema still admits what the old accepted.
+  #
+  # The unit test runs FIRST and is not redundant with the gate: five of the gate's six clauses can
+  # be controlled by perturbing a chart, but dropping x-kubernetes-preserve-unknown-fields cannot,
+  # since no CRD here sets it. That clause is covered only by the test.
+  crd-tightening:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The comparison itself
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-crd-tightening.py
+
+      - name: No CRD may become stricter than the one in the field
+        run: python3 scripts/lint-crd-tightening.py
+
+  # `devs` carries no ClusterRole and no ClusterRoleBinding (#261). That is a property of this
+  # chart, not of a cluster: a RESTAction step with no userAccessFilter and no endpointRef is
+  # dialled as the CALLER (resolveStageEndpoint — "non-UAF stages go through the per-user
+  # clientconfig"), so a cluster-scoped path in one means every persona loading that page needs a
+  # cluster-wide grant. The two ClusterRoles this chart used to ship existed for exactly that and
+  # nothing else. `resourceNames` cannot narrow a `list`, so there is no smaller version to fall
+  # back on — which is why the fix was to change the question, not to shrink the grant.
+  caller-cluster-reads:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Nothing a dev reaches may need a ClusterRole
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-caller-cluster-reads.py
+
+  # Every other widget check in this repo validates against `frontend-crds` pulled with NO
+  # --version, i.e. whatever is latest at CI time. The CLUSTER runs whatever the installer pins.
+  # When those differ, CI is green on a chart the live apiserver will refuse — widget CRDs are
+  # strict, so an undeclared field is not tolerated. That is not hypothetical: #313 added
+  # `ellipsis` to three Listy row templates, 1.8.9 was published so CI passed, and krateo-057 was
+  # pinned at 1.8.8 which does not declare it. The next portal tag would have shipped widgets the
+  # live CRD refuses, and only a person reading a cross-session message caught it.
+  #
+  # This reads the pinned version from krateo-platformops/installer (public, so the default token
+  # suffices) and checks the widgets this repo AUTHORS against it. It is the `CRD before consumer`
+  # ordering enforced instead of remembered.
+  pinned-crds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Widgets must be admitted by the PINNED frontend-crds, not merely the latest
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-pinned-crds.py
+
+  # In a page chart (#261) a resourcesRefs item pointing at a WIDGET says where that object LIVES;
+  # one pointing at anything else says where the DATA is. The two take different values —
+  # .Values.namespace vs .Values.dataNamespace — and conflating them sends a read or a write to a
+  # namespace that holds no such object. marketplace-page 1.8.78 shipped and rolled with the
+  # Marketplace Install POST creating a CompositionDefinition in krateo-marketplace instead of
+  # krateo-system; eleven such refs existed across the page charts and only ONE was caught by a
+  # test, because the suites assert that a flow works and not where it writes.
+  ref-namespace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: A widget ref is a location; any other ref is data
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-ref-namespace.py
+
+      # The namespace rule above cannot tell whether the object is actually THERE: a ref can
+      # satisfy it and still dangle. Four did, live on 057 for the whole 1.8.78-1.8.81 window,
+      # because nothing rendered the charts TOGETHER (the boundary is new since #261) and nothing
+      # rendered with a feature flag ON -- 15 observability widgets sat in the shell behind
+      # observability.reconcileTracing while the page that refs them was gated on the same flag,
+      # so with the flag off neither side rendered and everything looked consistent.
+      - name: Every widget ref resolves, in every feature-flag state
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-dangling-refs.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A
@@ -180,10 +344,13 @@ jobs:
           python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # The Builder CRs (files/builders/*.builder.yaml, rendered by templates/builders.yaml) are byte-identical copies of the frontend's fixtures
-  # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with frontend main,
-  # checks they agree with the chart (draft kinds, drafts cards, preview RESTActions), and that every
-  # signed-in user (system:authenticated) may read them, demo users on or off. Red after a frontend
-  # fixture change means: copy it here.
+  # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with the frontend
+  # revision FRONTEND_REF pins — NOT main, so a fixture change over there cannot redden a branch
+  # here before anyone has adopted it — checks they agree with the chart (draft kinds, drafts cards,
+  # preview RESTActions), and that every signed-in user (system:authenticated) may read them, demo
+  # users on or off. Red means a copy here drifted from the pin: restore it, or adopt a new fixture
+  # by moving the bytes and the pin in one commit. A [NOTE] line (never a failure) says when the
+  # frontend has moved ahead of the pin.
   builder-crs:
     runs-on: ubuntu-latest
     steps:
@@ -295,6 +462,31 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-apply.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+  # The incident page's Re-run analysis: shown for Open and Verifying incidents only, its drawer form
+  # merge-PATCHes spec.reanalysis {feedback} on the incident, and an unknown check result shows what
+  # the run printed. Evaluated over krateo-057-shaped Incidents, every widget validated against the
+  # newest released frontend CRDs.
+  incident-reanalyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Incident Re-run analysis, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-incident-reanalyze.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   # A composition's topology on its detail page is one builder-publish template, one RESTAction of
   # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's
@@ -330,6 +522,72 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-composition-architecture.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # The Coverage cell, and that the table's cells still match its columns — a cell list that
+      # disagrees shifts every row silently. Same job for the same reason as its neighbours.
+      - name: Compositions table coverage, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-compositions-table.py
+
+      # A composition with no readiness signal (Ready=Unknown, reason ZeroEvidence) is set aside on
+      # the Dashboard, and an Unknown with any other reason is not. Runs the RA's and the widgets' own
+      # jq over krateo-057's compositions; same job because it needs helm, jq and the CRDs pulled above.
+      - name: Dashboard not-assessable bucket, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          python3 scripts/test-dashboard-assessable.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+      # A refused read must not render as a quiet desk. Same job for the same reason as the steps
+      # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
+      - name: Service desk queue, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-service-desk.py
+
+      # Ready=Unknown must not render as progress. Same job for the same reason as its neighbours:
+      # it needs helm and jq, and runs the chart's own jq rather than a copy.
+      - name: Composition resources readiness, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-resources.py
+
+      # A composition still Creating must not read as broken, and a paused one must not read as
+      # healthy. Runs the chart's own jq against the reasons core-provider really emits.
+      - name: Composition header pill, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-header-pill.py
+
+      # The Access card's gate lives in composition-detail's `access` object, so this runs that
+      # filter over every state in the approved mockup, plus the gate's edges.
+      - name: Composition Access card, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-access.py
+
+      # portal#333. Same shape as the step above and in the same job for the same reason: it needs
+      # helm and jq, and it runs the chart's OWN jq rather than a copy, so it is only a gate if CI
+      # actually runs it. A test script nobody invokes reports nothing and looks like coverage.
+      - name: Clusters readiness summary, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-cluster-compositions.py
+
+      # A test script nobody invokes reports nothing and looks like coverage. Same job as above
+      # because it needs the same helm and jq, and runs the chart's own jq the same way.
+      - name: Resource detail subtitle, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-resource-detail.py
+
   # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
   # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
   # logged 601 GETs of `…/builderpublishes/review-`, 358 of `/apis/none.krateo.io/v1/none` and 67 of
@@ -359,9 +617,40 @@ jobs:
           python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
           jq --version
           python3 scripts/lint-ra-paths.py
+          python3 scripts/lint-form-options.py
+          python3 scripts/lint-form-keywords.py
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-ra-input-gates.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+  # The /observability Traces tab and the /observability/traces/{traceId} page (installer#404): three
+  # RESTActions put request text into ClickHouse SQL, and helm template evaluates none of their jq.
+  # This resolves them on otel_traces-shaped rows — newest first, start order, parent→child service
+  # edges, an Error span shown as an error, a quote in a TraceId or filter making no request — and
+  # validates every widget, as rendered and as resolved, against the frontend-crds version the
+  # installer PINS (not the latest), which is what the cluster serves.
+  observability-traces:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Traces tab and trace page, evaluated and validated against the pinned CRDs
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          python3 scripts/test-observability-traces.py --pinned
 
   # The Controller Builder's preview (controller-render-draft) answers with blueprint-render-draft's
   # `objects`/`error`, so the frontend's verdict handling reads it unchanged. Every way it can go —

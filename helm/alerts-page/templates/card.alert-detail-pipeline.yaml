@@ -1,0 +1,24 @@
+{{/* Frame for the alert's hop-by-hop walk (alert-detail-pipeline), titled so a reader scanning */}}
+{{/* for "did this alert actually do anything" finds it without reading it first. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-pipeline-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    variant: outlined
+    title: What this alert actually does, hop by hop
+    items:
+    - resourceRefId: alert-detail-pipeline
+  resourcesRefs:
+    items:
+    - id: alert-detail-pipeline
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-pipeline
+      namespace: {{ $.Values.namespace }}
+      resource: markdowns
+      verb: GET

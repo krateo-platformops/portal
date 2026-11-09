@@ -1,0 +1,40 @@
+{{/* Every span of the trace (installer#404), in start order as obs-trace-detail returns them. */}}
+{{/* Start is the offset from the trace's first span; both it and Duration come from the */}}
+{{/* exporter's own clock (start in microseconds, duration in nanoseconds), so no column is */}}
+{{/* derived from wall time on the portal's side. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: trace-detail-spans
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the route param. */}}
+  keyExtras: [traceId]
+  apiRef:
+    name: obs-trace-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: middle
+    pagination:
+      pageSize: 50
+      hideOnSinglePage: true
+    columns:
+    - valueKey: service
+      title: Service
+    - valueKey: span
+      title: Span
+    - valueKey: start
+      title: Start
+    - valueKey: duration
+      title: Duration
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | [ $s[] | [ {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"start",kind:"jsonSchemaType",type:"string",stringValue:(((.startUs - $t0) * 1000) | traceDuration)}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)} ] ] }'
+  resourcesRefs:
+    items: []

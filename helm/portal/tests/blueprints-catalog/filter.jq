@@ -1,8 +1,13 @@
+def withLiveVer: (tostring | sub("^v"; "") | split("-")[0] | split(".") | map(tonumber? // 0));
+def withLiveOwned: (type == "object") and ((((.annotations // {})["krateo.io/source-repo"] // "") | tostring) != "" or any(((.sources // []) | if type == "array" then .[] else empty end); tostring | ascii_downcase | startswith("https://github.com/krateo-blueprints/")));
 def withLive:
   (((.catalogLive // {}) | if type == "object" then (.entries // {}) else {} end) | if type == "object" then . else {} end) as $live
   | (((.catalog // {}) | if type == "object" then . else {} end)) as $cat
   | (($cat.entries // {}) | if type == "object" then . else {} end) as $cur
-  | .catalog = ($cat | .entries = ($cur + ($live | with_entries(select(($cur[.key] == null) and ((.value | type) == "array") and ((((.value[0] // {}) | if type == "object" then ((.annotations // {})["krateo.io/source-repo"] // "") else "" end) | tostring) != "")) | .value |= map(select(type == "object") | . + {repoBase: "https://krateo-blueprints.github.io/charts/blueprints"}))))) ;
+  | ($live | with_entries(select(((.value | type) == "array") and ((.value[0] // null) | withLiveOwned)) | .value |= map(select(type == "object") | . + {repoBase: "https://krateo-blueprints.github.io/charts/blueprints"}))) as $add
+  | .catalog = ($cat | .entries = ($cur + ($add | with_entries(.key as $k | .value as $lv
+      | .value = (($lv + ((($cur[$k] // []) | if type == "array" then . else [] end) | map(select(type == "object") | select(.version as $v | ($lv | any(.[]; .version == $v)) | not))))
+                  | sort_by(.version | withLiveVer) | reverse))))) ;
 def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
   | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
 # Presentational icon variety (honest — driven by the card's REAL helm data, not invented).

@@ -1,0 +1,45 @@
+{{/* EVIDENCE TABS — "What happened" section rendered as two tabs: "Resources" (analyzed cluster */}}
+{{/* objects) and "Sources" (verbatim source excerpts). Both content widgets are Tables. The labels */}}
+{{/* show the count server-side via widgetDataTemplate so an empty section reads honestly. */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-evidence-tabs
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - tables
+    items:
+    - label: Resources
+      resourceRefId: incident-analyzed
+    - label: Sources
+      resourceRefId: incident-sources-table
+  widgetDataTemplate:
+    {{/* Compute tab labels server-side so they reflect the live counts (e.g. "5 resources"). */}}
+    - forPath: items
+      expression: >-
+        ${ [
+          { label: ((.analyzedRows // [] | length | tostring) + " resources"), resourceRefId: "incident-analyzed" },
+          { label: ((.sourcesRows  // [] | length | tostring) + " sources"),   resourceRefId: "incident-sources-table" }
+        ] }
+  resourcesRefs:
+    items:
+    - id: incident-analyzed
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-analyzed
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: incident-sources-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-sources-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET

@@ -1,0 +1,68 @@
+{{/* The Traces tab's span list (installer#404): the newest spans in clickstack's otel_traces, one row */}}
+{{/* per span. Same external-fetch endpointRef and FORMAT JSON as the other obs-* RESTActions. */}}
+{{/* */}}
+{{/* The query, decoded: */}}
+{{/*   SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ServiceName AS svc, SpanName AS span, */}}
+{{/*          Duration AS dur_ns, SpanAttributes['jwt.sub'] AS sub, StatusCode AS status, */}}
+{{/*          TraceId AS trace_id */}}
+{{/*   FROM otel_traces */}}
+{{/*   WHERE Timestamp > now() - INTERVAL <1 HOUR | 6 HOUR | 24 HOUR | 7 DAY> */}}
+{{/*     [AND ServiceName = '<service>' | AND ServiceName != '<tracesHiddenService>'] */}}
+{{/*     [AND SpanAttributes['jwt.sub'] = '<user>'] */}}
+{{/*     [AND StatusCode = '<status>'] */}}
+{{/*   ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON */}}
+{{/* */}}
+{{/* BOUNDED TWICE: the window comes from ?range (the page's own 1h/6h/24h/7d, default 24h; anything */}}
+{{/* else is 24h) and the row count is a fixed LIMIT 200, which the table pages 25 at a time. */}}
+{{/* Timestamp is the span START (the exporter writes StartTimestamp) and Duration is nanoseconds. */}}
+{{/* */}}
+{{/* INPUTS ARE ALLOW-LISTED, NOT STRIPPED (_traces.tpl, obs.traces.valid). The iterator yields the */}}
+{{/* one request only when every filter passes, so a value with a quote or any other character */}}
+{{/* outside its class makes NO call — the table is empty and `rejected` names the filter — instead */}}
+{{/* of being quietly rewritten into a different filter. A passing value is concatenated between */}}
+{{/* quotes it cannot close; the user value is also @uri-encoded, since `+`, `/` and `=` occur in */}}
+{{/* OIDC subjects. */}}
+{{/* */}}
+{{/* HYPERDX'S OWN SPANS ARE LEFT OUT BY DEFAULT. `tracesHiddenService` (krateo-observability, */}}
+{{/* HyperDX's Node instrumentation) is ~97% of all spans and buries everything else. While no */}}
+{{/* Service filter is chosen it is excluded, and `hidden` names it for the filter bar's note; */}}
+{{/* choosing it in the Service filter shows exactly its spans. The literal is the chart value, */}}
+{{/* checked at render time (_traces.tpl, obs.traces.hidden) — no request text reaches it. */}}
+{{/* */}}
+{{/* No per-user predicate: the page's namespace is readable by `readerGroups` (admins) only, which */}}
+{{/* is the installer#403 resolution — spans carry every user's identity. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-traces
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: spans
+      dependsOn:
+        name: ""
+        iterator: '{{ include "obs.traces.valid" . }} [ ((.range // "24h") | tostring) as $r | (if $r == "1h" then "1%20HOUR" elif $r == "6h" then "6%20HOUR" elif $r == "7d" then "7%20DAY" else "24%20HOUR" end) as $iv | ((.traceService // "") | tostring) as $svc | ((.traceUser // "") | tostring) as $usr | ((.traceStatus // "") | tostring) as $st | {{ include "obs.traces.hidden" . }} as $hid | select(($svc | okService) and ($usr | okUser) and ($st | okStatus)) | { iv: $iv, cond: ((if $svc != "" then "%20AND%20ServiceName%20%3D%20%27" + $svc + "%27" elif $hid != "" then "%20AND%20ServiceName%20%21%3D%20%27" + $hid + "%27" else "" end) + (if $usr == "" then "" else "%20AND%20SpanAttributes%5B%27jwt.sub%27%5D%20%3D%20%27" + ($usr | @uri) + "%27" end) + (if $st == "" then "" else "%20AND%20StatusCode%20%3D%20%27" + $st + "%27" end)) } ]'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ "/?query=SELECT%20toUnixTimestamp64Milli%28Timestamp%29%20AS%20ts_ms%2C%20ServiceName%20AS%20svc%2C%20SpanName%20AS%20span%2C%20Duration%20AS%20dur_ns%2C%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%2C%20StatusCode%20AS%20status%2C%20TraceId%20AS%20trace_id%20FROM%20otel_traces%20WHERE%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + .iv + .cond + "%20ORDER%20BY%20Timestamp%20DESC%20LIMIT%20200%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: spansError
+  {{/* ClickHouse FORMAT JSON => {meta, data: [...], rows}. 64-bit integers (ts_ms, dur_ns) arrive as */}}
+  {{/* JSON STRINGS, so they are converted here; display formatting is the table's. */}}
+  filter: >
+    {{ include "obs.traces.valid" . }}
+    { rows: [ ((.spans.data) // [])[]
+        | { tsMs: (.ts_ms | tonumber? // 0), service: (.svc // ""), span: (.span // ""),
+            durationNs: (.dur_ns | tonumber? // 0), user: (.sub // ""), status: (.status // ""),
+            traceId: (.trace_id // "") } ],
+      rejected: ([ (if ((.traceService // "") | tostring | okService) then empty else "service" end),
+                   (if ((.traceUser // "") | tostring | okUser) then empty else "user" end),
+                   (if ((.traceStatus // "") | tostring | okStatus) then empty else "status" end) ]),
+      hidden: (if ((.traceService // "") | tostring) == "" then {{ include "obs.traces.hidden" . }} else "" end),
+      failed: (.spansError != null) }

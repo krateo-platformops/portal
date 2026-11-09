@@ -24,20 +24,63 @@
   with no matching ref hides the entry, so shipping it without the refs array blanks the sidebar for
   everyone.
 
-  ONE STEP PER TIER, NOT A CLUSTER-WIDE LIST. A cluster-scoped list would 403 for any user without
-  cluster-wide read on flexes — the namespace-scoped tenant persona this portal ships is exactly
-  that — and a 403 here means a portal with NO NAVIGATION AT ALL, not a shorter sidebar. Namespaced
-  steps degrade the way the RBAC model intends: a user sees the tiers they can read. `continueOnError`
-  is what makes that degradation partial rather than total.
+  WHICH NAMESPACES IT LOOKS IN IS DISCOVERED, NOT CONFIGURED (#261).
 
-  The steps carry no endpointRef, so snowplow resolves each against the CALLER's own
-  `<user>-clientconfig` — the list is exactly what this user may read, and the nav adds no
+  It used to be one step per `.Values.tiers.<tier>` — three deployer-set namespace strings this
+  chart invented and resolved through a `portal.tierNamespace` helper. That helper was not an RBAC
+  mechanism and no RBAC object ever referenced it: it was a name for a namespace, and the pages it
+  named were reachable or not purely by the Role bindings in those namespaces. Worse, it could only
+  ever see the namespaces THIS chart was told about, so a page chart installed into a fourth
+  namespace was invisible to the sidebar no matter what the caller could read.
+
+  A CLUSTER-SCOPED LIST IS STILL NOT THE ANSWER, for the reason the tiered version documented: it
+  403s for any caller without cluster-wide read on flexes — the namespace-scoped tenant persona
+  this portal ships is exactly that — and a 403 here means a portal with NO NAVIGATION AT ALL.
+
+  So the namespaces are DERIVED FROM THE CALLER'S OWN RBAC. snowplow lists namespaces under its own
+  ServiceAccount (the caller cannot list namespaces, and granting that to everyone would publish
+  the cluster's namespace inventory, tenant names included) and a `userAccessFilter` narrows the
+  answer to the namespaces where THE CALLER may list flexes — which is exactly the question the
+  sidebar is asking. `blueprint-formdef`'s own `namespaces` step is this same shape, and has been in
+  production for as long as the install form has offered a namespace picker.
+
+  Install a page chart anywhere the caller can read and its entries appear. Nothing to configure.
+
+  WITH ONE NAMESPACE EXCLUDED: THE PREVIEW SANDBOX. `previewSandbox.namespace` is scratch space —
+  the builders' per-person drafts and the orphaned page CRs a preview leaves behind — and it is not
+  a place anyone installed a page set. 1.8.75 shipped without this exclusion and admins got ten
+  scratch pages in their sidebar on krateo-057 the moment it rolled: `Demo Day`, `Pod sizing`,
+  `Probe` and SEVEN entries all labelled `Event sites`, every one a `page-…-b2da9489` preview CR in
+  krateo-preview. Only admins saw them, because only admins may list flexes there — which is the
+  tell: discovery was working exactly as designed, and the design was wrong to treat the sandbox as
+  a page source.
+
+  The exclusion is in the `namespaces` filter rather than the iterator, so the sandbox is dropped
+  BEFORE the fan-out and never costs a request. Empty `previewSandbox.namespace` excludes nothing.
+
+  THE `pages` STEP CARRIES NO userAccessFilter, DELIBERATELY. It has no endpointRef either, and
+  that pair is what makes it the caller's own read: `resolveStageEndpoint` sends a UAF stage to
+  snowplow's SA endpoint and a non-UAF stage "through the per-user clientconfig" (its own words,
+  resolvers/restactions/api/resolve.go:386), so a nil ref resolves to the CALLER's
+  `<user>-clientconfig` — which holds that user's own k8s credential, a client cert or their own
+  token. The apiserver evaluates THAT USER. So the apiserver stays the authority on which page
+  roots this caller may see, exactly as the tiered version had it, and the nav adds no
   authorisation surface of its own.
+
+  IT IS THE ENDPOINT THAT CARRIES THIS, NOT A FORWARDED TOKEN, and the distinction is worth the
+  line because the obvious place to look is wrong. snowplow does append the caller's Krateo authn
+  JWT to some stages — but `bearerAppendForStage` (api/self_host.go:171) DROPPED the nil-ref case
+  in #292: that JWT is not a k8s credential, and putting it on an apiserver dial only leaks it
+  (cert auth presents it on the wire) or suppresses the real token (client-go will not overwrite an
+  existing Authorization header). It survives only for `exportJWT: true` and the self-loopback back
+  at snowplow's own /call. Anyone tracing "what authorizes this read?" through the bearer append
+  will find #292 removed it and conclude nothing does. The clientconfig does. Only the namespace DISCOVERY depends on snowplow's own
+  userAccessFilter re-gate, which is a path with live defects (snowplow#777, #659) — so that one
+  step is `continueOnError` AND falls back to the release namespace in the iterator below. A
+  snowplow-side failure then costs the pages in other namespaces, never the whole sidebar.
 */}}
 {{- $ns := .Release.Namespace -}}
-{{- $tiers := list (include "portal.tierNamespace" (dict "ctx" . "tier" "common"))
-                   (include "portal.tierNamespace" (dict "ctx" . "tier" "tenant"))
-                   (include "portal.tierNamespace" (dict "ctx" . "tier" "admin")) | uniq -}}
+{{- $sandbox := (.Values.previewSandbox | default dict).namespace | default "" -}}
 kind: RESTAction
 apiVersion: templates.krateo.io/v1
 metadata:
@@ -47,19 +90,88 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-{{- range $i, $tierNs := $tiers }}
-    - name: tier{{ $i }}
-      path: /apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ $tierNs }}/flexes
+    {{/* The namespaces where THIS CALLER may list page roots. A userAccessFilter stage dials */}}
+    {{/* snowplow's OWN SA endpoint by design (resolveStageEndpoint, api/resolve.go:386) and is */}}
+    {{/* narrowed downstream instead — here, by SubjectAccessReview per namespace. So the caller */}}
+    {{/* needs no cluster-wide grant of any kind; see the header on what authorizes `pages`. */}}
+    - name: namespaces
+      path: /api/v1/namespaces
       verb: GET
       headers:
         - 'Accept: application/json'
-      {{/* A tier this user cannot read must cost them the pages in it, not the whole sidebar. */}}
+      userAccessFilter:
+        verb: list
+        group: widgets.templates.krateo.io
+        resource: flexes
+        namespaceFrom: .metadata.name
+      {{/* A snowplow-side failure here must cost the pages in OTHER namespaces, not the sidebar. */}}
       continueOnError: true
-      errorKey: tier{{ $i }}Error
-{{- end }}
+      errorKey: namespacesError
+      {{/* The sandbox is dropped HERE, before the iterator fans out — see the header. */}}
+      filter: '[ .namespaces.items[]? | .metadata.name | select(. != {{ $sandbox | quote }}) ]'
+    {{/* One namespaced LIST per discovered namespace, dialled AS THE CALLER (no userAccessFilter, */}}
+    {{/* no endpointRef). The iterator is also the input gate (scripts/lint-ra-paths.py): it can */}}
+    {{/* never yield an element without a namespace, so the path is never half-built. */}}
+    {{/* */}}
+    {{/* THE FALLBACK IS LOAD-BEARING, and it is what makes the step above safe to depend on. An */}}
+    {{/* empty `.namespaces` — snowplow's UAF failed, or really no namespace is listable — would */}}
+    {{/* otherwise yield an empty iterator, which snowplow turns into ZERO requests and so a blank */}}
+    {{/* sidebar. With it the nav degrades to "the pages in the release namespace", which is what */}}
+    {{/* every single-namespace install has today, and the caller's own RBAC still decides whether */}}
+    {{/* that LIST is served. It is also what the Phase-1 prewarm walk (no extras, no upstream */}}
+    {{/* output) dials, so the common namespace is warmed rather than skipped. */}}
+    - name: pages
+      dependsOn:
+        name: namespaces
+        iterator: >-
+          [ ((.namespaces // []) | if length > 0 then . else ["{{ $ns }}"] end)[]
+            | { ns: . } | select(.ns != "") ]
+      path: ${ "/apis/widgets.templates.krateo.io/v1beta1/namespaces/" + .ns + "/flexes" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      {{/* A namespace this caller cannot read must cost them the pages in it, not the whole */}}
+      {{/* sidebar. The per-iteration results are concatenated into one flat `.pages` array. */}}
+      continueOnError: true
+      errorKey: pagesError
+      filter: >
+        [ .pages.items[]?
+          | { metadata: { name: .metadata.name,
+                          namespace: .metadata.namespace,
+                          annotations: (.metadata.annotations // {}) } } ]
+  {{/* LINK-ONLY ENTRIES (`krateo.io/nav-link-only: "true"`) — an entry that is a LINK, not a page.
+
+       Every other root here is both at once: its `nav-path` becomes the route AND the sidebar
+       entry's link. That is right while the root that owns the page is also the one linking to it.
+       It breaks when ONE shared page must be reached at a path only the CALLER's context can
+       spell — because the item below stamps `resourceRefId: $root` on every root, and the frontend
+       resolves content from that ref FIRST, in that root's own namespace. No annotation redirects
+       content elsewhere, so a nav object generated into a tenant namespace can only ever open
+       ITSELF.
+
+       The CMP service desk is the case: one shared desk, tickets per tenant namespace, so the
+       route is `/service-desk/{namespace}` and each tenant needs a link with their own filled in.
+       A labelled shared root would navigate to the literal string `/service-desk/{namespace}` —
+       an entry's key IS its path and the Menu navigates it verbatim, nothing substitutes params
+       into a nav link.
+
+       So the jobs split. The shared root carries the templated `nav-path` and NO label: it routes
+       and owns the content. One generated object per tenant carries the label, the concrete path
+       and this annotation: it links and owns nothing. ONLY the exact string "true" enables it, so
+       a half-recognised truthy value fails visibly instead of silently claiming the route back.
+
+       Two consequences, both deliberate:
+         - NO `resourceRefId`, so the frontend's `isNavEntryAllowed` fail-opens for it. That IS the
+           gate: the object lives in the tenant's own namespace, so whether they may `list` it
+           decides whether they see the entry.
+         - EXCLUDED from `refs` below. It has no content to resolve, so a ref would cost a
+           per-tenant RBAC resolve for nothing — and would put its id in the frontend's
+           denied-ref bookkeeping, which is load-bearing for OTHER entries' fail-open logic.
+
+       `nav-alias` is suppressed for a link-only root: an alias adds route-only paths to the same
+       CONTENT, and a link-only root has none. */}}
   filter: >
-    [ ({{ range $i, $t := $tiers }}{{ if $i }}, {{ end }}(.tier{{ $i }}.items // []){{ end }} )
-      | .[]
+    [ (.pages // [])[]
       | select(((.metadata.annotations // {})["krateo.io/nav-path"] // "") != "")
     ] as $roots
     | ( [ $roots[]
@@ -67,16 +179,24 @@ spec:
       | (.metadata.name) as $root
       | (.metadata.name | sub("^page-"; "")) as $slug
       | (($a["krateo.io/nav-order"] // "100") | tonumber) as $ord
-      | ( { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, resourceRefId: $root }
+      | ((($a["krateo.io/nav-link-only"] // "") == "true") as $linkOnly
+      | ( (if $linkOnly
+             then { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, linkOnly: true }
+             else { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, resourceRefId: $root }
+           end)
           + (if $a["krateo.io/nav-label"] then { label: $a["krateo.io/nav-label"] } else {} end)
           + (if $a["krateo.io/nav-icon"]  then { icon:  $a["krateo.io/nav-icon"]  } else {} end)
           + (if $a["krateo.io/nav-group"] then { group: $a["krateo.io/nav-group"] } else {} end) ),
-        ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
-          | { path: ., page: $slug, order: $ord, resourceRefId: $root } )
+        ( if $linkOnly then empty
+          else ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
+                 | { path: ., page: $slug, order: $ord, resourceRefId: $root } )
+          end ))
     ] ) as $entries
     | ( [ $entries[] | select(.label != null and .group != null) ]
         | group_by(.group) | map({ group: .[0].group, min: (map(.order) | min) })
         | sort_by(.min) | .[1:]
         | map({ type: "divider", order: (.min - 1) }) ) as $dividers
     | { items: ( ($entries | map(del(.group)) | unique) + $dividers | sort_by(.order) ),
-        refs:  ( [ $roots[] | { id: .metadata.name, name: .metadata.name, namespace: .metadata.namespace } ] | unique ) }
+        refs:  ( [ $roots[]
+                    | select((((.metadata.annotations // {})["krateo.io/nav-link-only"]) // "") != "true")
+                    | { id: .metadata.name, name: .metadata.name, namespace: .metadata.namespace } ] | unique ) }

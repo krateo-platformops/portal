@@ -1,0 +1,144 @@
+{{/* Global search aggregator — feeds the header Search field's results view. */}}
+{{/* Returns a unified list of compositions + blueprints + clusters + incidents whose */}}
+{{/* title matches the search term `q` (the placeholder promises "resources", so the */}}
+{{/* scope spans every top-level entity, not just compositions/blueprints), which the */}}
+{{/* frontend forwards as ?extras={"q":"..."} on the */}}
+{{/* widget /call. The term is read in the top-level `spec.filter` — snowplow */}}
+{{/* >= 1.1.0 (extras-to-widgets / PR #27, Fix-1) forwards request `extras` into a */}}
+{{/* widget's apiRef RESTAction jq dict. Filtering is server-side (jq) because the */}}
+{{/* k8s API has no free-text search; UAF prunes to what the caller may list. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: global-search
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* compositions — discover the composition kinds, then list each cluster-wide */}}
+    {{/* (mirrors compositions-list, which it now does literally rather than in spirit). */}}
+    {{/* COMPOSITION KINDS FROM CompositionDefinitions, NOT FROM CRDs. Same {plural, version}
+         out; `compositions-list` has read them this way all along. A cluster-scoped CRD LIST is
+         dialled AS THE CALLER and so needs a ClusterRole on every persona that loads this page;
+         a CompositionDefinition LIST with a userAccessFilter is dialled by snowplow's SA and
+         narrowed per item, so it needs none. That is what lets `devs` carry no ClusterRole at
+         all (#261) — cyberjoker cannot `list compositiondefinitions` in any namespace but
+         demo-system, and the Compositions page has always worked for him regardless. */}}
+    - name: crds
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, version: (.status.apiVersion | split(\"/\")[1])}] | unique"
+      continueOnError: true
+      errorKey: crdsError
+    - name: comps
+      dependsOn:
+        name: crds
+        iterator: ".crds"
+      path: ${ "/apis/composition.krateo.io/" + (.version) + "/" + (.plural) }
+      verb: GET
+      continueOnError: true
+      errorKey: compsError
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
+      filter: >
+        [.comps.items[]? | {name: .metadata.name, ns: .metadata.namespace}]
+    {{/* blueprints — the INSTALLABLE catalog from the helm index (mirrors */}}
+    {{/* blueprints-catalog), so search finds installable blueprints, not just installed ones. */}}
+    {{/* Requires snowplow >= 1.4.0 (external YAML fetch). Each entry's version list is newest */}}
+    {{/* -first → .value[0]. continueOnError so a missing index degrades to compositions-only. */}}
+    {{/* #302: the projection goes through postFilter, NOT a second `filter:` key appended here — */}}
+    {{/* two keys in one map decode last-wins and silently dropped the configmap branch's fromjson. */}}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints" "postFilter" "[ ((.catalog.entries) // {}) | to_entries[] | .value[0] | {name: .name, category: (((.annotations // {})[\"krateo.io/category\"]) // (.keywords[0]) // \"uncategorized\")} ]") | nindent 4 }}
+    {{/* installed CompositionDefinitions — used to decide a blueprint hit's destination: already */}}
+    {{/* on the cluster → open its DETAIL page; only installable → the Marketplace (spotlighted). */}}
+    - name: compdefs
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      continueOnError: true
+      errorKey: compdefsError
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      filter: '[.compdefs.items[]? | {name: .metadata.name, ns: .metadata.namespace}]'
+    {{/* clusters — registered KubernetesTargets (the fleet), so search finds a spoke by name. */}}
+    {{/* UAF prunes to what the caller may list; continueOnError so no-RBAC / no-spokes degrades. */}}
+    - name: clusters
+      path: /apis/core.krateo.io/v1alpha1/kubernetestargets
+      verb: GET
+      continueOnError: true
+      errorKey: clustersError
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: kubernetestargets
+        namespaceFrom: .metadata.namespace
+      filter: '[.clusters.items[]? | {name: .metadata.name, ns: .metadata.namespace}]'
+    {{/* incidents — Incidents (observability), in the release namespace (mirrors incidents-list). */}}
+    {{/* Searchable title = the root cause, else the alert name, else the incident name. */}}
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ .Release.Namespace }}/incidents
+      verb: GET
+      continueOnError: true
+      errorKey: incidentsError
+      filter: >
+        [.incidents.items[]? | {
+          name: .metadata.name,
+          ns: "{{ .Release.Namespace }}",
+          title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
+                  elif ((.metadata.labels // {})["observability.krateo.io/alert"] // "") != "" then ("Incident — " + .metadata.labels["observability.krateo.io/alert"])
+                  else (.metadata.name // "") end)
+        }]
+  {{/* Merge both sources into one result list, then filter by the `q` extra */}}
+  {{/* (case-insensitive substring on the title). Empty/absent q → return all. */}}
+  filter: >
+    (.q // "" | ascii_downcase) as $q
+    | [ (.compdefs // [])[] | .name ] as $instNames
+    | {
+        q: (.q // ""),
+        items: (
+          [ (.comps // [])[] | {
+              title: (.name // ""),
+              subtitle: ("Composition · " + (.ns // "")),
+              type: "composition",
+              link: ("/compositions/" + (.ns // "") + "/" + (.name // ""))
+            } ]
+          + [ (.compdefs // [])[] | {
+              title: (.name // ""),
+              subtitle: "Blueprint · installed",
+              type: "blueprint",
+              installed: true,
+              link: ("/blueprints/" + (.ns // "") + "/" + (.name // ""))
+            } ]
+          + [ (.catalog // [])[] | .name as $cn | select(any($instNames[]; . == $cn) | not) | {
+              title: ($cn // ""),
+              subtitle: ("Blueprint · " + (.category // "")),
+              type: "blueprint",
+              installed: false,
+              link: ("/marketplace?q=" + ($cn // "") + "&spotlight=" + ($cn // ""))
+            } ]
+          + [ (.clusters // [])[] | {
+              title: (.name // ""),
+              subtitle: ("Cluster · " + (.ns // "")),
+              type: "cluster",
+              link: ("/clusters/" + (.name // ""))
+            } ]
+          + [ (.incidents // [])[] | {
+              title: (.title // .name // ""),
+              subtitle: ("Incident · " + (.ns // "")),
+              type: "incident",
+              link: ("/incidents/" + (.ns // "") + "/" + (.name // ""))
+            } ]
+        )
+        | map(select($q == "" or ((.title | ascii_downcase) | contains($q))))
+      }

@@ -1,0 +1,27 @@
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: delta-cap-healthy
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, scope, status]
+  widgetData:
+    text: of total
+    type: secondary
+    {{/* live-refresh: watch the composition kinds so this caption changes with the count beside it. */}}
+    watch: []
+  widgetDataTemplate:
+  - forPath: watch
+    expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
+  {{/* The percentage beside this caption is taken over the assessable compositions. When some */}}
+  {{/* are not assessable (no readiness signal) the caption says so; otherwise it is the total. */}}
+  - forPath: text
+    expression: '${ if .assessment.notAssessable > 0 then "of " + (.assessment.assessable | tostring) + " assessable" else "of total" end }'
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

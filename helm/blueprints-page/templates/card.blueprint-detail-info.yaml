@@ -1,0 +1,36 @@
+{{/* "Blueprint" info card → hosts the info Descriptions. The top-right `extra` reflects whether a */}}
+{{/* newer chart version exists in the helm index (server-derived updateAvailable); the version */}}
+{{/* picker / Update lives in the blueprint-update Form below it on the page. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-blueprint-detail-info
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Details
+    extra: ""
+    extraVariant: tag
+    extraStatus: green
+    items:
+      - resourceRefId: descriptions-blueprint-detail-info
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ if .updateAvailable then ("Update available → " + .latestVersion) else "Up to date" end }'
+    - forPath: extraStatus
+      expression: '${ if .updateAvailable then "orange" else "green" end }'
+  resourcesRefs:
+    items:
+      - id: descriptions-blueprint-detail-info
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: descriptions-blueprint-detail-info
+        namespace: {{ $.Values.namespace }}
+        resource: descriptions
+        verb: GET

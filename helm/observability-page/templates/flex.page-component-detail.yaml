@@ -1,0 +1,59 @@
+{{/* Convention page root for /observability/components/{name} — the Components-tab */}}
+{{/* drill-down ("is my control plane healthy, and why not?"). Moved here from */}}
+{{/* Settings (this is platform health, not configuration) — Settings now hosts only */}}
+{{/* user administration. Mirrors the composition-detail page structure: a pagehead */}}
+{{/* (title + ready Tag + subtitle) over a 2-column grid: left = Pods / Conditions / */}}
+{{/* Events, right = Overview. Every figure is shaped server-side by the */}}
+{{/* component-detail RA. The "View logs" action button that used to sit beside the */}}
+{{/* pagehead is gone — it only ever redirected to the Observability section (no */}}
+{{/* detail page of its own), so the pagehead is now just the title-stack, no */}}
+{{/* header-block action-cluster wrapper needed. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-component-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-order": "930"
+    "krateo.io/nav-path": "/observability/components/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name]
+  widgetData:
+    vertical: true
+    {{/* P9: one section step across every nav-declared page root — see G10, the gap between
+         sections is frame and stays thin. */}}
+    gap: middle
+    allowedResources:
+      - pageheaders
+      - rows
+      {{/* B6: the day-2 action cluster (scale, restart). */}}
+      - flexes
+    items:
+      - resourceRefId: component-detail-page-header
+      {{/* Directly under the header, above the detail grid — a reader decides whether to ACT
+           before they finish reading the diagnostics, and the composition detail page puts its
+           action cluster in the same place. */}}
+      - resourceRefId: component-detail-actions
+      - resourceRefId: component-detail-grid
+  resourcesRefs:
+    items:
+      - id: component-detail-actions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-actions
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: component-detail-page-header
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-page-header
+        namespace: {{ $.Values.namespace }}
+        resource: pageheaders
+        verb: GET
+      - id: component-detail-grid
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: component-detail-grid
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET

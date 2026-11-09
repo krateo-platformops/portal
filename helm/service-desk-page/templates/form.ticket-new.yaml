@@ -1,0 +1,213 @@
+{{/* Raise a ticket — POSTs one Ticket into {{ $.Values.namespace }} as the caller.
+
+     THE SCREEN LIVES IN ONE NAMESPACE AND WRITES INTO ANOTHER, AND THAT IS THE POINT. This Form
+     is in `raiseNamespace`, where requesters are bound; the Ticket it creates goes to
+     `namespace`, where the queue and every other ticket live. It works because `create` does not
+     require `get` or `list`: a requester may add a ticket to the queue's namespace and still be
+     unable to read a single one out of it — which is exactly the service-desk property the two
+     namespaces exist to express. Tickets belong with the queue, not with the form that made them,
+     so DO NOT "tidy" the submit target below to match this object's own namespace: that would put
+     people's tickets in the requesters' namespace, where the desk is not bound and the queue
+     cannot see them. See values.yaml, namespace.yaml and rbac.page-readers.yaml.
+
+     THE REQUESTER IS NEVER A FORM FIELD. `spec.requester` is written server-side: this Form
+     declares `identityContext: [username]`, so snowplow folds the JWT principal into the resolve
+     input (injection WINS over any extras a client sends) and the widgetDataTemplate below writes
+     it straight into the action's payload. It therefore never exists as a field the person can
+     see, prefill or retype. This is also the only route available: a payloadToOverride expression
+     is evaluated against `{ json: <the form values> }` and nothing else — the caller's identity is
+     not in that input — and a schema field hidden by `propertiesToHide` or by
+     `displayingDependencies` is not submitted at all. An absent username submits "" and the
+     apiserver rejects it (`spec.requester` is required, minLength 1), which is the right failure:
+     a ticket with a guessed requester is worse than a ticket that was not raised.
+
+     THE STATE LABEL IS STATIC. `spec.state` is mirrored to `krateo.io/ticket-state` SLUGGED, and a
+     new ticket is always Open, so both are literals here: `state: Open` and the label `open`. The
+     slug is not cosmetic — a label VALUE cannot contain a space, so `Waiting on requester` would
+     be rejected at apply time; nothing on this screen can produce that state, but the one rule is
+     written the same way everywhere (see the CRD and tickets-list).
+
+     NO ASSIGNEE LABEL AT ALL, rather than an empty one. `labelSelector=...-assignee=` matches the
+     empty string, so an empty mirror would return every new ticket to a query asking for a named
+     assignee. Unassigned is selected with `!krateo.io/ticket-assignee`. A new ticket has no
+     assignee, so the key is simply absent.
+
+     THE NAME IS FIXED WHEN THE WIDGET RESOLVES: `ticket-<user-slug>-<unix seconds>`. snowplow's
+     /call needs a name on a namespaced POST and writes it into the body's metadata.name, so
+     `generateName` would be overridden — the same constraint reviews-run-now and
+     incident-rem-run-apply document. The user slug is in the name for a reason those two do not
+     need: a Button resolves and is clicked seconds later, whereas this form is resolved on page
+     load and submitted minutes later, so a bare timestamp would collide between two people who
+     opened the page in the same second. With the slug, a collision needs ONE person with two tabs
+     opened in the same second; they get AlreadyExists and nothing is created.
+
+     TWO THINGS THE SCHEMA-DRIVEN FORM CANNOT DO, so they are not mistaken for choices:
+       - An `enum` option cannot carry a label or a hint. getOptionsFromEnum maps each value to
+         `label: String(value)`, so the dropdown shows the enum's values verbatim and has no second
+         line. The three request kinds are therefore worded as the sentences the mockup shows and
+         translated to the CRD's vocabulary on submit (below); the per-choice hints are folded into
+         the field's one `description` line. Per-option label+hint exists only behind
+         `x-krateo-options`, which fetches a RESTAction from the browser — a network call to list
+         three constants.
+       - There is no multi-line control. A string field renders as an antd `Input`; the only
+         TextArea in the widget is the JSON editor for object/array nodes, and the composable
+         `Input` widget's `type` enum is text|password|email|number|tel|url. So Detail is a
+         one-line input over an 8000-character bound.
+
+     FIELD ORDER IS THE `required` PARTITION, not the property order alone. SchemaFields renders
+     the required properties up-front in schema order and collects the rest into a collapsed
+     "Advanced · N settings". That is why `objectName` is required: it keeps the branching question
+     in third place, where the mockup puts it, instead of inside a closed Advanced bar — and a
+     field `displayingDependencies` hides is not validated even when required, so a request that is
+     not about a broken object is never asked for one. "On behalf of" is the only optional field,
+     so it renders as "Advanced · 1 setting"; that label is not configurable.
+
+     `stringSchema` AND NOT `schema`: a CR's object keys come back from the apiserver
+     alphabetically, which would render Detail first and the request kind third. The raw JSON
+     string is JSON.parsed in the browser, so insertion order survives. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-new
+  namespace: {{ $.Values.raiseNamespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The server-trusted principal, folded into the resolve input (and into this widget's cache
+       cell, so two people on this page never share one). It is the whole identity story here: this
+       widget has no apiRef, and snowplow merges the declared extras into an apiRef-less widget's
+       widgetDataTemplate input too. */}}
+  identityContext:
+    - username
+  widgetData:
+    layout: vertical
+    submitActionId: submit
+    {{/* One line, in authoring order — see the header. The three `kind` values are the sentences
+         the person reads; spec.kind is the CRD's vocabulary and is mapped on submit. Those three
+         strings appear in THREE places: this enum, the visible-when rule on objectName, and the
+         submit mapping. Change them together — a mismatch in the mapping 422s loudly at the
+         apiserver, but a mismatch in the rule silently stops asking which object. */}}
+    {{- if and $.Values.servicePickerNamespace $.Values.servicePickerName }}
+    {{/* The service picker, when the deployment supplies a source. `closed: true` so the form
+         rejects client-side what admission refuses server-side; `fallback: manual` so a failed
+         read degrades to typed input rather than an empty closed picker that blocks every
+         ticket. No `search`: a routing table is a handful of entries, so load once and filter
+         locally. The ref it names is in resourcesRefs under the same condition. */}}
+    autocomplete:
+      - name: service
+        resourceRefId: service-choices
+        closed: true
+        fallback: manual
+    {{- end }}
+    {{/* `objectName` is required, so the only thing keeping it off a request that is not about a
+         broken object is this entry: a hidden field is not rendered, validated or submitted. It
+         lives here and not in the schema because the frontend reads visibility from this list. */}}
+    displayingDependencies:
+      - name: objectName
+        dependsOn:
+          name: kind
+          conditionType: value
+          value:
+            type: string
+            stringValue: Something is broken
+    stringSchema: |-
+      {"type":"object","required":["kind","summary","objectName","detail","urgency"],"properties":{"kind":{"type":"string","title":"What kind of request is this?","description":"Something is broken \u2014 a platform object is not doing what it should \u00b7 I need a resource \u2014 a cluster, a namespace, a database, more quota \u00b7 I need access \u2014 a permission, a group, a credential","enum":["Something is broken","I need a resource","I need access"]},"summary":{"type":"string","title":"Summary","description":"One line.{{ if $.Values.deskActions }} The queue shows this, so say the thing rather than the category.{{ else }} Say the thing rather than the category.{{ end }}","minLength":1,"maxLength":200},"objectName":{"type":"string","title":"Which object is it about?","description":"The name of the composition or resource that is misbehaving.{{ if $.Values.deskActions }} The desk looks the rest up from there.{{ end }}","minLength":1,"maxLength":253},"detail":{"type":"string","title":"Detail","description":"What happened, or what is needed. One line of input \u2014 the form has no multi-line control.","minLength":1,"maxLength":8000},"urgency":{"type":"string","title":"Urgency","description":"Plainly worded on purpose: P1/P2/P3 means different things to different teams, and you are not the person who calibrated that scale.","enum":["Blocking me now","Needed this week","No particular date"],"default":"Needed this week"},"onBehalfOf":{"type":"string","title":"On behalf of","description":"A group you belong to, when the request is not for you. Leave it empty for yourself.","maxLength":253},"service":{"type":"string","title":"Which service is this about?","description":"The service the request concerns, not the team that will handle it. Leave it empty if nothing in particular.","maxLength":63,"pattern":"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}}}
+    buttonConfig:
+      primary:
+        label: Raise ticket
+        icon: fa-paper-plane
+      secondary:
+        label: Cancel
+        {{/* Back to the queue. Right for the desk, who reach this screen from the queue's button;
+             a requester cannot read /service-desk, and has no link in either (see
+             create-flex.page-ticket-new.yaml). */}}
+        navigateTo: /service-desk
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-ticket
+          headers:
+            - 'Content-Type: application/json'
+          {{/* The name is what the person is left holding: a requester has no `get` or `list` on
+               tickets (see rbac.page-readers), so the toast is how they can refer to it at all. */}}
+          successMessage: '${ "Ticket " + (.json.metadata.name // "") + " raised — the desk picks it up from the queue" }'
+          errorMessage: The ticket was not raised — nothing was created. If this says the requester is empty, the sign-in did not carry a username.
+          loading:
+            display: true
+          {{/* Everything the chart knows. metadata.name and spec.requester are written into this
+               object by the widgetDataTemplate below; the form's own fields arrive as the
+               payloadToOverride leaves.
+
+               metadata.namespace IS THE SUBMIT TARGET — snowplow's /call derives the POST-target
+               namespace from the body — and it is the QUEUE's `namespace`, deliberately, not this
+               widget's `raiseNamespace`. Tickets live with the queue. See the header: `create`
+               needs no read, which is what lets a requester write here and still not list it. */}}
+          payload:
+            apiVersion: servicedesk.krateo.io/v1alpha1
+            kind: Ticket
+            metadata:
+              namespace: {{ $.Values.namespace }}
+              labels:
+                "krateo.io/ticket-state": open
+            spec:
+              state: Open
+          {{/* LEAF overrides only. An override SETS its path, so a single `name: spec` would
+               replace the whole spec and take the server-written requester with it.
+
+               AN OPTIONAL FIELD THE PERSON LEFT EMPTY IS SENT AS `{}`, which buildPayload prunes
+               (it drops empty plain objects last, after the overrides, exactly so an override can
+               rely on it). The key is then ABSENT rather than present-and-empty — `onBehalfOf: ""`
+               would be a claim that the ticket is on behalf of nobody, and `objectRef: {name:""}`
+               a reference to an object with no name. If that pruning ever stops, the POST fails
+               with a type error instead of writing a wrong field. */}}
+          payloadToOverride:
+            - name: spec.kind
+              value: '${ { "Something is broken": "broken", "I need a resource": "resource", "I need access": "access" }[.json.kind] // "" }'
+            - name: spec.summary
+              value: '${ .json.summary // "" }'
+            - name: spec.detail
+              value: '${ .json.detail // "" }'
+            - name: spec.urgency
+              value: '${ .json.urgency // "Needed this week" }'
+            - name: spec.onBehalfOf
+              value: '${ if ((.json.onBehalfOf // "") | length) > 0 then .json.onBehalfOf else {} end }'
+            {{/* Only the name is asked for, so only the name is written. The other three members
+                 of objectRef stay absent — the CRD makes all four optional — and the desk resolves
+                 the object from the name. A picker that could fill apiVersion/kind/namespace needs
+                 an options RESTAction and is not on this screen. */}}
+            - name: spec.objectRef
+              value: '${ if ((.json.objectName // "") | length) > 0 then { name: .json.objectName } else {} end }'
+  {{/* The two values only the server may set. `.username` is the injected principal (see
+       identityContext above); `now` is snowplow's clock at resolve time. */}}
+  widgetDataTemplate:
+    - forPath: actions.rest[0].payload.metadata.name
+      expression: '${ "ticket-" + ((.username // "anon") | ascii_downcase | gsub("[^a-z0-9-]"; "-") | .[0:40]) + "-" + (now | floor | tostring) }'
+    - forPath: actions.rest[0].payload.spec.requester
+      expression: '${ .username // "" }'
+  resourcesRefs:
+    {{/* The POST collection. No `name` and no `namespace`: the frontend injects both into the
+         /call path from the built payload's metadata, as every create form in this repo does —
+         which is also why the target namespace is stated once, in that payload, and why this ref
+         carries no namespace to contradict it.
+
+         Needs `create` on tickets in the QUEUE's namespace. Without it snowplow withholds the ref
+         and nothing is sent, so a group bound to read this screen but not to create a ticket gets
+         a form that cannot submit rather than a 403 at the end. */}}
+    items:
+      - id: create-ticket
+        apiVersion: servicedesk.krateo.io/v1alpha1
+        resource: tickets
+        verb: POST
+
+      {{- if and $.Values.servicePickerNamespace $.Values.servicePickerName }}
+      {{/* The service picker's source, named by the autocomplete entry above. Cross-namespace on
+           purpose: one source in one place, rather than a copy per tenant namespace to drift.
+           Resolved AS THE CALLER, so whoever raises a ticket needs `get` on restactions there. */}}
+      - id: service-choices
+        apiVersion: templates.krateo.io/v1
+        name: {{ $.Values.servicePickerName }}
+        namespace: {{ $.Values.servicePickerNamespace }}
+        resource: restactions
+        verb: GET
+      {{- end }}

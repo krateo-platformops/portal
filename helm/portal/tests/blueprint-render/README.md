@@ -1,7 +1,7 @@
 # blueprint-render jq fixtures
 
 Self-contained jq fixtures for the `blueprint-render` RESTAction — the server-side
-helm-render seam behind the Autopilot `previewBlueprint` verb. The RA POSTs the caller's
+helm-render seam behind the Agentiko `previewBlueprint` verb. The RA POSTs the caller's
 chart source + values to the cluster-internal helm-render-service (`/render`, via
 `endpointRef` — the service is ClusterIP-only and never browser-exposed) and shapes the
 result into the drawer contract the frontend already consumes.

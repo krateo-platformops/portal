@@ -1,0 +1,60 @@
+{{/* The ticket's activity entries, OLDEST FIRST — a conversation read top to bottom, not a log
+     with the newest shouting first. Each row is who wrote it, when, and what they said; the
+     RESTAction sorts and shapes them (`.activityRows`).
+
+     AN AUTOPILOT ENTRY IS MARKED TWICE OVER: the wand glyph every Autopilot surface in the portal
+     uses, and the word "Autopilot" as a tag. Twice, because a glyph alone carries its meaning by
+     shape and colour — invisible to a screen reader, and gone the moment the page is screenshotted
+     into a ticket of its own. A human entry's tag resolves to the empty string, which the widget
+     renders as no tag at all rather than an empty pill.
+
+     The leading tile's colour says WHO WROTE IT and never how anything is: `blue` (the brand, the
+     colour of every Autopilot affordance in this repo) for a machine-written entry, `faint` for a
+     person's. An activity entry has no health, so no colour here may suggest one — the page's only
+     status colours are the state pill and the object's conditions.
+
+     `at` is passed through as the raw timestamp and formatted `relative` by the widget, in the
+     browser, at render — not pre-rendered into "2m ago" server-side, which a cached page would
+     keep saying hours later. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-activity
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    dataSource: []
+    itemLayout: horizontal
+    split: false
+    {{/* The card is gated on there being entries, so this never shows antd's "No data" — but a
+         race between the two resolutions would, and an empty conversation is better drawn as
+         nothing than as an error-shaped placeholder. */}}
+    hideWhenEmpty: true
+    itemTemplate:
+      iconVariant: tile
+      icon: '{icon}'
+      color:
+        value: '{kindKey}'
+        map:
+          agentiko: blue
+          autopilot: blue
+        default: faint
+      primaryText: '{text}'
+      subPrimaryText: '{who}'
+      secondaryText: '{tag}'
+      secondaryTextAsTag: true
+      subSecondaryText: '{at}'
+      formats:
+        subSecondaryText: relative
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .activityRows // [] }'
+  resourcesRefs:
+    items: []

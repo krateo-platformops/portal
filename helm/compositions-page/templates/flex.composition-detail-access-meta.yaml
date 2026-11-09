@@ -1,0 +1,41 @@
+{{/* The plan and when it ends. A plan with no end date shows the plan alone. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-access-meta
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    allowedResources:
+      - tags
+      - paragraphs
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ .access as $a
+        | (if $a.plan != "" then [ { resourceRefId: "composition-detail-access-plan" } ] else [] end)
+        + (if $a.when != "" then [ { resourceRefId: "composition-detail-access-when" } ] else [] end) }
+  resourcesRefs:
+    items:
+      - id: composition-detail-access-plan
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-plan
+        namespace: {{ $.Values.namespace }}
+        resource: tags
+        verb: GET
+      - id: composition-detail-access-when
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-access-when
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET

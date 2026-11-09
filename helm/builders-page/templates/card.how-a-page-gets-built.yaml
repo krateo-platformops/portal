@@ -1,0 +1,30 @@
+{{/* The frame the Steps live in. A Card, because a Steps has no heading of its own and a section */}}
+{{/* without one is a section a reader has to infer. */}}
+{{/* */}}
+{{/* Its extra slot used to carry "Ask Autopilot →". Autopilot here builds the page, which is this */}}
+{{/* page's whole workflow, so by A5 it is a header action — where /blueprint-builder and */}}
+{{/* /controller-builder already put theirs. Three sibling builders now read the same way. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: how-a-page-gets-built-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: How a page gets built
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - steps
+    items:
+      - resourceRefId: how-a-page-gets-built
+  resourcesRefs:
+    items:
+      - id: how-a-page-gets-built
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: how-a-page-gets-built
+        namespace: {{ $.Values.namespace }}
+        resource: steps
+        verb: GET

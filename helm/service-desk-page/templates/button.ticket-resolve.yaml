@@ -1,0 +1,58 @@
+{{- if $.Values.deskActions }}
+{{/* "Resolve" — the header's one primary action. A merge-PATCH of spec.state to `Resolved`, with
+     the caller's own token, carrying the `krateo.io/ticket-state` mirror in the same patch so the
+     ticket moves between the queue's chips (which are label selectors) at the same moment.
+
+     NO CONFIRMATION, deliberately. Resolving is not destructive and not final: the state is a
+     plain enum field a person sets, so a mistake is undone by setting it back. A confirm dialog on
+     a reversible action trains people to click through confirms that matter — and this page has
+     none of those, which is why Close and Discard (the incident page's irreversible pair) have no
+     counterpart here.
+
+     Its payload is built server-side for the reason given in button.ticket-assign-to-me.yaml: a
+     Button supplies no submitted values, so payloadToOverride never runs for one. It appends no
+     activity entry either, for the clock reason recorded there. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-resolve
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Resolve
+    type: primary
+    icon: fa-circle-check
+    size: middle
+    clickActionId: resolve
+    actions:
+      rest:
+        - id: resolve
+          type: rest
+          resourceRefId: patch-ticket
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          successMessage: Ticket resolved
+          payload: {}
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: actions.rest[0].payload
+      expression: '${ .resolvePatch // {} }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: patch-ticket
+        apiVersion: ${ .ticketGvr.apiVersion }
+        resource: ${ .ticketGvr.resource }
+        name: ${ .ticketGvr.name }
+        namespace: ${ .ticketGvr.namespace }
+        verb: PATCH
+{{- end }}

@@ -22,11 +22,11 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 ## The bundle (start here)
 
 - [overview](./overview.md) — what the chart deploys and how it works: the widget/RA
-  content plane, the composition model, routes and tiers, demo-system provisioning.
+  content plane, the composition model, routes and page visibility, demo-system provisioning.
 - [usage](./usage.md) — how the installer consumes it, direct registration via
   `CompositionDefinition`, and the local `helm template` loop.
 - [configuration](./configuration.md) — the whole values surface (a `Portal` CR's
-  `spec`): personas, demo-system, tenant branding, spoke read-back, RBAC tiers.
+  `spec`): personas, demo-system, tenant branding, spoke read-back.
 - [api](./api.md) — the contract it emits: the derived `Portal` composition API, the
   `AuditRecord` CRD it defines, and the CR kinds it instantiates (owned elsewhere).
 - [examples](./examples.md) — the runnable examples under `examples/`.
@@ -36,6 +36,8 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 
 ## Authoring rules (for chart contributors)
 
+- [form-options](./form-options.md) — how a blueprint field's `x-krateo-options` reaches a
+  RESTAction, the shared options sources, and the CI rules for them.
 - [authoring-keyextras](./authoring-keyextras.md) — the `spec.keyExtras` cache-key
   declaration rule, CI-enforced by `scripts/lint-keyextras.py`.
 
@@ -56,7 +58,7 @@ is [snowplow](https://github.com/krateo-platformops/snowplow).
 
 ## Chart-adjacent corpora (code-adjacent, authoritative for their scope)
 
-  — the drop-in sidebar-entry mechanism for Autopilot-authored pages (#106).
+  — the drop-in sidebar-entry mechanism for Agentiko-authored pages (#106).
 - [`helm/portal/tests/blueprints-catalog/README.md`](../helm/portal/tests/blueprints-catalog/README.md),
   [`helm/portal/tests/blueprint-render/README.md`](../helm/portal/tests/blueprint-render/README.md),
   [`helm/portal/tests/blueprint-palette/README.md`](../helm/portal/tests/blueprint-palette/README.md)

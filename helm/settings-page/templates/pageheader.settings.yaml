@@ -1,0 +1,30 @@
+{{/* The /settings page header — title and subtitle in one CR. */}}
+{{/* */}}
+{{/* Replaces three: flex.settings-title-stack (a vertical Flex whose only job was to stack them), */}}
+{{/* paragraph.settings-title and paragraph.settings-subtitle. */}}
+{{/* */}}
+{{/* "Add user" is the page's action, so it is the header's (P26), as "Register cluster" is on */}}
+{{/* /clusters. It used to sit bare in the page's stack, under the subtitle and above the table. */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: settings-page-header
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: Settings
+    subtitle: Manage local users, groups, and permissions.
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: settings-user-create-cta
+  resourcesRefs:
+    items:
+    - id: settings-user-create-cta
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: settings-user-create-cta
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

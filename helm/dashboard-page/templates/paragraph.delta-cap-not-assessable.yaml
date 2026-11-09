@@ -1,0 +1,28 @@
+{{/* "N not assessable" under the Compositions count: compositions whose Ready condition is */}}
+{{/* Unknown with reason ZeroEvidence, i.e. none of their children has a readiness signal. */}}
+{{/* delta-compositions shows it in place of "N new · past 24h" only when N > 0. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: delta-cap-not-assessable
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, q, scope, status]
+  widgetData:
+    text: 0 not assessable
+    type: secondary
+    {{/* live-refresh: watch the composition kinds so this caption changes with the count beside it. */}}
+    watch: []
+  widgetDataTemplate:
+  - forPath: watch
+    expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
+  - forPath: text
+    expression: '${ (.assessment.notAssessable | tostring) + " not assessable" }'
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  resourcesRefs:
+    items: []

@@ -1,0 +1,85 @@
+{{/* WHO SEES /dashboard (#261). The sidebar discovers the namespaces where the CALLER may `list`
+     page roots, so a group with no RoleBinding here never sees the entry, and isNavEntryAllowed
+     drops it again because the ref cannot resolve. A deep link still routes and the content /call
+     returns 403 — the defence is at the content layer.
+
+     `list` is granted and cannot be narrowed: `resourceNames` does not apply to it, which is why
+     the namespace is the boundary at all. Add a group here to give it these pages; never a
+     ClusterRole (scripts/lint-caller-cluster-reads.py enforces that). */}}
+{{- range $g := .Values.readerGroups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-dashboard-pages
+  namespace: {{ $.Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - templates.krateo.io
+  resources:
+  - restactions
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-dashboard-pages
+  namespace: {{ $.Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-dashboard-pages
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+---
+{{/* THE TRIAL BANNER'S ConfigMap, which lives in the RELEASE namespace rather than the page's.
+     `tenant-trial`'s only stage reads /api/v1/namespaces/{{ $.Release.Namespace }}/configmaps/
+     tenant-trial as the CALLER, with continueOnError, so without this a non-admin's read 403s and
+     the banner is silently empty while an admin sees it — two different dashboards with nothing
+     saying why.
+
+     Narrowed to the single object by `resourceNames`, which `get` honours (unlike `list`, as the
+     Role above notes — that is why the namespace is the boundary there and need not be here).
+     A Role, never a ClusterRole: scripts/lint-caller-cluster-reads.py enforces that.
+
+     Note this grants in the release namespace, which is shared, so it is deliberately the
+     narrowest grant the API allows: one verb, one resource, one name. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $g }}-read-tenant-trial
+  namespace: {{ $.Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - tenant-trial
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $g }}-read-tenant-trial
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $g }}-read-tenant-trial
+subjects:
+- kind: Group
+  name: {{ $g }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

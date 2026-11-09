@@ -1,0 +1,255 @@
+{{/*
+The Ticket kind: a user-submitted service-desk request.
+
+A TEMPLATE AND NOT `crds/`, DELIBERATELY. Helm's `crds/` directory is installed before templates,
+which solves CRD-before-CR ordering — but Helm NEVER upgrades what it finds there, so a schema
+change would silently not apply. This schema will churn while people learn what a ticket needs
+(core-provider's point when I asked them where this should live), so it has to be upgradeable. The
+ordering hazard that `crds/` exists to solve does not apply here: this chart ships NO Ticket objects.
+Tickets are created at runtime by people, so there is nothing for the CRD to race.
+
+NO STATUS SUBRESOURCE, ALSO DELIBERATELY. The obvious shape would put `state` in `status` — but
+nothing reconciles a ticket, because its lifecycle is human. core-provider measured what happens
+when you declare a status anyway: all 44 widget CRD versions do, and across 288 live objects the
+status is `{}` with zero conditions, because nothing ever writes it. Their own description is "we
+declared a status and never wired one". A ticket's state is set by a person, so it belongs in `spec`
+where a person writing it is the expected thing, not an anomaly.
+
+THE QUERY CEILING, AND THE ONE THING THAT MITIGATES IT. A CRD gives schema, RBAC, watch and an audit
+trail. It does not give queries: the apiserver can field-select only on `metadata.name` and
+`metadata.namespace`, so "list by assignee" or "filter by state" against etcd means listing
+everything and filtering afterwards. LABELS are the only server-side selector available, so `state`
+and `assignee` are mirrored into labels — `krateo.io/ticket-state` and `krateo.io/ticket-assignee` —
+and the page's reads use a label selector rather than listing the namespace and discarding most of
+it. Mirrored fields can drift from their spec values; the printer columns read the SPEC, so a drift
+is visible in `kubectl get tickets` rather than hidden.
+
+What this still cannot do, stated rather than discovered later: full-text search of a description,
+sort by an arbitrary field, and paginate a filtered set. Those need a database. At service-desk
+volumes the label selectors carry it; if this ever approaches thousands of tickets it is a
+migration, not a surprise.
+*/}}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tickets.servicedesk.krateo.io
+  annotations:
+    # KEEP, because deleting this CRD cascade-deletes every Ticket in the cluster. That is not a
+    # hypothetical administrative act: uninstall is on the path of an ordinary component version
+    # bump, where the CompositionDefinition prunes and recreates the release. A chart that holds
+    # the only copy of people's submitted requests must not let a version bump destroy them.
+    #
+    # Same annotation and same reason as the RESTAction CRD in snowplow's chart, which carries the
+    # note "would delete this CRD, garbage-collecting every RESTAction ... cluster-wide".
+    #
+    # THE COST, stated rather than discovered later. A kept object keeps the previous release's
+    # ownership metadata, so Helm re-adopts it on a reinstall only when the release NAME and
+    # NAMESPACE match; a composition reinstalled under a different name fails with an ownership
+    # error instead of silently taking it over. That is the right failure: it is loud, it is
+    # recoverable by hand, and the alternative is quiet data loss.
+    #
+    # `keep` governs DELETION only. The CRD is still upgraded in place while it is rendered, which
+    # is the whole reason it lives in `templates/` rather than `crds/` (see the note above).
+    helm.sh/resource-policy: keep
+    "krateo.io/verbose": "true"
+spec:
+  group: servicedesk.krateo.io
+  scope: Namespaced
+  names:
+    kind: Ticket
+    listKind: TicketList
+    plural: tickets
+    singular: ticket
+    shortNames:
+      - tkt
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      {{/* NO STATUS SUBRESOURCE, AND THAT IS A DECISION — do not add one back without a writer.
+
+           An earlier version of this chart declared `subresources: {status: {}}` and a
+           `status.activity[]`, justified by a Zendesk bridge controller that would write agent
+           replies back. That design was dropped: the ticket page now talks to Zendesk live through
+           RESTActions, so nothing writes a status at all.
+
+           Removed rather than kept, because a declared-and-never-written status is a wart this repo
+           already carries 44 times over — every widget CRD declares one and 288 live objects hold
+           `status: {}` with no conditions. Keeping a 45th "for a future backend" is how that
+           happened the first 44 times.
+
+           Free to remove because nothing is installed yet: no stored object carries a status and no
+           served version changes. If a backend ever does write back, adding the subresource THEN is
+           a smaller change than carrying a dead one until then. */}}
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .spec.state
+        - name: Kind
+          type: string
+          jsonPath: .spec.kind
+        - name: Requester
+          type: string
+          jsonPath: .spec.requester
+        - name: Assignee
+          type: string
+          jsonPath: .spec.assignee
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            {{/* `status` IS ABSENT, deliberately — see the note on subresources above. Nothing writes
+                 one, so there is nothing to declare, and declaring it without a subresource would be
+                 actively worse than either alternative: a write to `.status` through the main
+                 resource would then be ACCEPTED AND STORED rather than ignored, so any client could
+                 put anything there and the page would render it as though a controller had.
+
+                 (I removed the subresource first and left this property behind, which produced
+                 exactly that state for one render. The verification caught it; reading the rendered
+                 CRD back rather than trusting the edit is what caught it.) */}}
+            spec:
+              type: object
+              required:
+                - kind
+                - state
+                - summary
+                - requester
+              properties:
+                kind:
+                  type: string
+                  description: >-
+                    What sort of request this is. Drives which fields the create form shows, and
+                    nothing else — it is not a routing key.
+                  enum:
+                    - broken
+                    - resource
+                    - access
+                state:
+                  type: string
+                  description: >-
+                    Where the ticket is. TICKET vocabulary, not Kubernetes PascalCase: the hard
+                    K8s-vocab rule has an explicit boundary for non-K8s domains, the same boundary
+                    that lets GitHub PRs say Open/Merged/Closed.
+
+                    MIRRORED TO `krateo.io/ticket-state`, SLUGGED — lowercased with spaces turned to
+                    `-`, so `Waiting on requester` becomes `waiting-on-requester`. The slug is not
+                    cosmetic: a Kubernetes label VALUE cannot contain a space, so mirroring this
+                    verbatim would be rejected at apply time for exactly one of the five states. The
+                    read path builds its selector with the same rule, and the printer column reads
+                    the SPEC, so a mirror that drifts from it is visible in `kubectl get tickets`.
+                  enum:
+                    - Open
+                    - In progress
+                    - Waiting on requester
+                    - Resolved
+                    - Closed
+                summary:
+                  type: string
+                  description: One line. The queue shows this, so it should say the thing rather than the category.
+                  minLength: 1
+                  maxLength: 200
+                detail:
+                  type: string
+                  description: What happened, or what is needed. Free text; no search over it (see the CRD comment).
+                  maxLength: 8000
+                service:
+                  type: string
+                  maxLength: 63
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  description: >-
+                    Which service the ticket is about, as a service id rather than a queue or team
+                    name. Optional, and DELIBERATELY NOT AN ENUM: the valid set is whatever the
+                    deployment routes, it grows as a catalog gains services, and baking it in here
+                    would mean a portal release every time one is added. The pattern is the RFC1123
+                    label shape, so a value is safe to use as a label value or a routing-table key.
+
+                    A ticket about nothing in particular is the COMMON case, not the edge — "I
+                    cannot log in", "I need access" — which is why this is its own field rather than
+                    derived from `objectRef`. Deriving it would silently route every such ticket to
+                    whatever the fallback is, with no way to tell a routed ticket from an unroutable
+                    one. A deployment that wants the convenience defaults this field from
+                    `objectRef` in admission and WRITES the result here, so the answer stays visible
+                    on the ticket instead of being recomputed by every reader.
+                requester:
+                  type: string
+                  description: >-
+                    Who raised it. THE API DOES NOT ENFORCE THIS — do not build an authorization
+                    decision on it. The portal sets it from the caller's identity (snowplow
+                    establishes the caller from their validated JWT, so the client cannot choose it
+                    on that path), but anyone with `create` on tickets can set any value via kubectl
+                    or a direct call. An earlier version of this description implied the field was
+                    guaranteed, which is worse than saying nothing: a consumer would have trusted it.
+                    A deployment that needs the guarantee enforces it in admission — overwrite it
+                    from `request.userInfo.username` on create and refuse changes afterwards. The
+                    CMP does exactly that in its tenant namespaces.
+                    because the desk assigns to whichever is meaningful.
+
+                    Mirrored to `krateo.io/ticket-assignee` under the same slug rule. An ABSENT
+                    assignee mirrors to no label at all rather than to an empty value, because
+                    `labelSelector=...-assignee=` matches the empty string and would return every
+                    unassigned ticket to a query asking for a named one. Unassigned is selected with
+                    `!krateo.io/ticket-assignee`.
+                urgency:
+                  type: string
+                  description: >-
+                    Plainly worded on purpose. P1/P2/P3 means different things to different teams,
+                    and the person raising a ticket is not the person who calibrated that scale.
+                  enum:
+                    - Blocking me now
+                    - Needed this week
+                    - No particular date
+                  default: Needed this week
+                onBehalfOf:
+                  type: string
+                  description: A group the requester belongs to, when the request is not for themselves.
+                objectRef:
+                  type: object
+                  description: >-
+                    The platform object the ticket is about, when there is one. Carrying it means
+                    whoever picks the ticket up sees that object's live conditions without going to
+                    look — and it is why a "something is broken" ticket asks which object.
+                  properties:
+                    apiVersion:
+                      type: string
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                activity:
+                  type: array
+                  description: >-
+                    The conversation, oldest first. An array and not separate objects: a ticket is
+                    read as a whole, always, and splitting it would turn one read into N.
+                  maxItems: 200
+                  items:
+                    type: object
+                    required:
+                      - at
+                      - who
+                      - text
+                    properties:
+                      at:
+                        type: string
+                        format: date-time
+                      who:
+                        type: string
+                      kind:
+                        type: string
+                        description: What sort of entry this is. `agentiko` marks a machine-written one, so the page can show it as such. `autopilot` is its former name, kept so that stored tickets stay valid.
+                        enum:
+                          - comment
+                          - assigned
+                          - state-change
+                          - agentiko
+                          - autopilot
+                        default: comment
+                      text:
+                        type: string
+                        maxLength: 8000

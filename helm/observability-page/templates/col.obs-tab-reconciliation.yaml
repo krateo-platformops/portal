@@ -1,0 +1,43 @@
+{{/* Observability → Reconciliation tab content (R2 #9). A Col wrapper — the Tabs allowedResources */}}
+{{/* enum has `cols`/`rows`/`paragraphs` but not `flexes` — stacking the section header (strong */}}
+{{/* label + secondary caption) and the two composition-snapshot rows: the KPI strip (total/ */}}
+{{/* healthy/failed/pending) and the by-kind / by-namespace distribution. All off compositions-list */}}
+{{/* — live cluster health, no telemetry pipeline dependency (so this tab is always populated). */}}
+{{/* P3: the tab's own name is not repeated as a heading under it — the tab already says it, */}}
+{{/* and the strong label that did rendered as large as the page title. The caption stays. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tab-reconciliation
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - rows
+    items:
+    - resourceRefId: obs-sec-reconciliation-desc
+    - resourceRefId: obs-stats-row
+    - resourceRefId: obs-distribution-row
+  resourcesRefs:
+    items:
+    - id: obs-sec-reconciliation-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-reconciliation-desc
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-stats-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-stats-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: obs-distribution-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-distribution-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
