@@ -145,20 +145,20 @@ spec:
     | (($rejected | length) == 0 and ($a.all or ($a.acc | length) > 0)) as $queried
     | (.tracePage == true) as $canOpen
     | [ ((.rows | objects | .data) // [])[]
-        | { tsMs: (.ts_ms | tonumber? // 0), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
+        | { tsMs: (.ts_ms | num), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
             resource: (.res // ""), kind: (.kind // ""), group: (.grp // ""), name: (.name // ""),
             namespace: (.ns // ""), outcome: (.outcome // ""), code: ((.code // "") | tostring),
             server: (.server // ""), traceId: (.trace_id // ""),
             kept: (((.kept // 0) | tostring) == "1" or .kept == true), untraced: ((.no_trace // "") == "true"),
-            matched: (.matched | tonumber? // 0) }
+            matched: (.matched | num) }
         | . + { conforming: (.user != "" and .namespace != "" and (.resource != "" or .kind != "" or .server != "")
                              and (.outcome == "success" or .outcome == "failure" or .outcome == "denied")),
                 link: (if .kept and $canOpen and (.traceId | okTraceId) then .traceId else "" end) } ] as $rows
     | ((.summary | objects | .data) // [])[0] as $s
     | ($queried and (.rowsError != null or .summaryError != null or $s == null)) as $failed
     | (if $s == null then {} else $s end) as $s
-    | { total: ($s.total | tonumber? // 0), previews: ($s.previews | tonumber? // 0), unread: ($s.unread | tonumber? // 0),
-        linked: ($s.linked | tonumber? // 0), untraced: ($s.untraced | tonumber? // 0) } as $c
+    | { total: ($s.total | num), previews: ($s.previews | num), unread: ($s.unread | num),
+        linked: ($s.linked | num), untraced: ($s.untraced | num) } as $c
     | ($c.total - $c.previews) as $shown
     | (($rows[0].matched) // 0) as $matched
     | ([ $rows[] | select(.conforming | not) ] | length) as $classifiedUnread

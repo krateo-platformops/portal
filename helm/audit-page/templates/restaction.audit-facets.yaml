@@ -54,14 +54,17 @@ spec:
       continueOnError: true
       errorKey: facetsError
   {{/* `namespaces` here is the caller's own list (shown in the header for a narrowed reader), not
-       a count; the counts are under `facets`. Counts may arrive as JSON strings or numbers. */}}
+       a count; the counts are under `facets`. Counts may arrive as JSON strings or numbers (num).
+       Records with no user.name are counted under `(none)`, the value the user filter reads as
+       "no user", so their chip filters to exactly them; an empty namespace or outcome gets no
+       chip. */}}
   filter: >
     {{ include "audit.valid" . }}
     ({{ include "audit.access" . }}) as $a
     | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring)} as $f
     | (($f.ns | okNsFilter) and ($f.usr | okUser) and ($f.oc | okOutcome)) as $accepted
     | ($accepted and ($a.all or ($a.acc | length) > 0)) as $queried
-    | [ ((.facets | objects | .data) // [])[] | {dim: (.dim // ""), name: ((.val // "") | tostring), count: (.n | tonumber? // 0)} | select(.name != "") ] as $all
+    | [ ((.facets | objects | .data) // [])[] | {dim: (.dim // ""), name: ((.val // "") | tostring), count: (.n | num)} | if .dim == "user" and .name == "" then .name = "(none)" else . end | select(.name != "") ] as $all
     | { scope: (if ($a.all or ($a.acc | length) > 0) | not then "none" elif $a.all then "all" else "namespaces" end),
         namespaces: (if $a.all then [] else $a.acc end),
         facets: { namespaces: [ $all[] | select(.dim == "ns") | {name, count} ],

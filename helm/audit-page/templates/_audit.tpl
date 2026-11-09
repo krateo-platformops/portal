@@ -9,10 +9,15 @@
                   check runs on every name the namespaces stage returns before it goes into SQL.
        user:      the class obs.traces.valid allows for a user (usernames, emails,
                   system:serviceaccount:…, OIDC subjects with + / =). @uri-encoded in the URL.
+                  `(none)` selects the records written with NO user.name (rest-dynamic-controller
+                  writes none); it is outside the class, so no real user can collide with it.
        outcome:   the audit library's three words (snowplow internal/support/audit Event.Outcome).
-       traceId:   32 lowercase hex characters, as the exporter writes it. */}}
+       traceId:   32 lowercase hex characters, as the exporter writes it.
+     `num` reads a 64-bit integer either way ClickHouse writes it in FORMAT JSON: quoted (the
+     server default, output_format_json_quote_64bit_integers=1) or as a bare number (krateo-057,
+     ClickHouse 26.8). */}}
 {{- define "audit.valid" -}}
-def okNs: test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"); def okNsFilter: . == "" or okNs; def okUser: . == "" or test("^[A-Za-z0-9._@:+=/-]{1,256}$"); def okOutcome: . == "" or . == "success" or . == "failure" or . == "denied"; def okTraceId: test("^[0-9a-f]{32}$");
+def num: if type == "number" then . elif type == "string" then (tonumber? // 0) else 0 end; def okNs: test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"); def okNsFilter: . == "" or okNs; def okUser: . == "" or . == "(none)" or test("^[A-Za-z0-9._@:+=/-]{1,256}$"); def okOutcome: . == "" or . == "success" or . == "failure" or . == "denied"; def okTraceId: test("^[0-9a-f]{32}$");
 {{- end }}
 
 {{/* WHICH ROWS THE CALLER MAY SEE, from the two apiserver stages every audit RESTAction runs
@@ -83,7 +88,7 @@ def auditRoute($over): ({range: ((.range // "24h") | tostring), auditNamespace: 
      are literals, so snowplow sends them as written; the only spliced values are the checked
      namespace, user (@uri-encoded) and outcome, and the namespace list, which is @uri-encoded here. */}}
 {{- define "audit.sql.filters" -}}
-([39] | implode) as $q | (if .all then "" else "{{ include "audit.enc" " AND LogAttributes['k8s.namespace.name'] IN (" }}" + (.acc | map($q + . + $q) | join(", ") | @uri) + "%29" end) as $acc | (if .ns == "" then "" else "{{ include "audit.enc" " AND LogAttributes['k8s.namespace.name'] = '" }}" + .ns + "%27" end) as $nsC | (if .usr == "" then "" else "{{ include "audit.enc" " AND LogAttributes['user.name'] = '" }}" + (.usr | @uri) + "%27" end) as $usrC | (if .oc == "" then "" else "{{ include "audit.enc" " AND LogAttributes['outcome'] = '" }}" + .oc + "%27" end) as $ocC
+([39] | implode) as $q | (if .all then "" else "{{ include "audit.enc" " AND LogAttributes['k8s.namespace.name'] IN (" }}" + (.acc | map($q + . + $q) | join(", ") | @uri) + "%29" end) as $acc | (if .ns == "" then "" else "{{ include "audit.enc" " AND LogAttributes['k8s.namespace.name'] = '" }}" + .ns + "%27" end) as $nsC | (if .usr == "" then "" elif .usr == "(none)" then "{{ include "audit.enc" " AND LogAttributes['user.name'] = ''" }}" else "{{ include "audit.enc" " AND LogAttributes['user.name'] = '" }}" + (.usr | @uri) + "%27" end) as $usrC | (if .oc == "" then "" else "{{ include "audit.enc" " AND LogAttributes['outcome'] = '" }}" + .oc + "%27" end) as $ocC
 {{- end }}
 
 {{/* Display formats. A record time is epoch milliseconds, shown in UTC to the second. Action comes

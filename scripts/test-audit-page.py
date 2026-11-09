@@ -41,7 +41,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import yaml
 
@@ -245,8 +245,9 @@ AUDIT = [
         group='github.krateo.io', trace=TRACE_KEPT_A),
     rec(24 * 60 * 1000 + 10000, 'team-a', 'j.doe', 'POST', 'githubrepos', 'storefront-web', 'failure', 409,
         group='github.krateo.io', trace=TRACE_GONE),
-    # rest-dynamic-controller: Kind only, an external host, no trace context.
-    rec(2 * H, 'team-a', 'system:serviceaccount:krateo-system:github-controller', 'POST', '', 'storefront-web',
+    # rest-dynamic-controller, as it writes on krateo-057: Kind only, an external host, NO user.name and
+    # no trace context.
+    rec(2 * H, 'team-a', '', 'POST', '', 'storefront-web',
         'success', 201, group='github.krateo.io', kind='Repo', action='rest.write', scope=RDC,
         extra={'server.address': 'api.github.com'}),
     rec(3 * H, 'team-b', 'ci-bot', 'PATCH', 'labels', 'release-tag', 'failure', 403),
@@ -609,7 +610,8 @@ def check_columns_map_to_the_record(c):
            ('tag', 'success · 200', 'green'))
     expect(p, 'POST is Create; failure is red', (by['storefront-web/failure · 409']['action']['stringValue'],
                                                  by['storefront-web/failure · 409']['outcome']['color']), ('Create', 'red'))
-    rdc = [cells(r) for r in rows if cells(r)['user']['stringValue'].startswith('system:serviceaccount')][0]
+    rdc = [cells(r) for r in rows if cells(r)['resource']['stringValue'].startswith('Repo ')][0]
+    expect(p, 'rest-dynamic-controller: no user.name shows "—"', rdc['user']['stringValue'], '—')
     expect(p, 'rest-dynamic-controller: the Kind, its group and the host it wrote to', rdc['resource']['stringValue'],
            'Repo · github.krateo.io, on api.github.com')
     expect(p, 'a core resource names its group "core"', by['release-tag/failure · 403']['resource']['stringValue'], 'labels · core')
@@ -634,7 +636,7 @@ def check_trace_link_only_when_kept(c):
            ('open ↗', f'/observability/traces/{TRACE_KEPT_SYS}'))
     expect(p, 'a TraceId not in otel_traces: "—", no link', trace['storefront-web/failure · 409'], ('—', None))
     expect(p, 'written with no trace context', trace['release-tag/failure · 403'], ('no trace (producer)', None))
-    rdc = [cells(r)['trace']['stringValue'] for r in rows if cells(r)['user']['stringValue'].startswith('system:')]
+    rdc = [cells(r)['trace']['stringValue'] for r in rows if cells(r)['resource']['stringValue'].startswith('Repo ')]
     expect(p, 'the rest-dynamic-controller write', rdc, ['no trace (producer)'])
     expect(p, 'linked count', out['counts']['linked'], 2)
     for sentence in ['"open ↗" appears only when the request\'s trace was kept. In this range, 2 of 11 records link to a trace.',
@@ -661,10 +663,10 @@ def check_row_count_check(c):
     p = []
     _, out, _ = records(c, {}, ADMIN)
     expect(p, 'consistent: the check passes', out['check'], True)
-    expect(p, 'one incomplete record, classified and counted alike', (out['counts']['unread'], out['counts']['classifiedUnread']), (2, 2))
+    expect(p, 'incomplete records (no namespace, two with no user), classified and counted alike', (out['counts']['unread'], out['counts']['classifiedUnread']), (3, 3))
     if 'Row-count check' in out['note']:
         p.append(f'a passing check is in the note: {out["note"]!r}')
-    if '2 records lack a field this page reads' not in out['note']:
+    if '3 records lack a field this page reads' not in out['note']:
         p.append(f'the incomplete records are not named: {out["note"]!r}')
     # The two queries disagree: a record the table query did not match. Surface it, never hide it.
     responses, ch = served()
@@ -795,6 +797,43 @@ def check_filter_chips(c):
     return p
 
 
+def check_records_with_no_user(c):
+    """rest-dynamic-controller writes no user.name (2 rows on krateo-057). Such a record reads "—"
+    in the User column, its chip reads "—" and filters to exactly those records, and no chip is ever
+    empty."""
+    p = []
+    _, fac = facets(c, {}, ADMIN)
+    expect(p, 'the user facet counts them under (none)', [(x['name'], x['count']) for x in fac['facets']['users']],
+           [('admin', 4), ('j.doe', 4), ('(none)', 2), ('ci-bot', 1)])
+    users = tbi.resolved_widget(c, 'Listy', 'audit-user-chips', fac, {}, 'user chips (no user)')['spec']['widgetData']['dataSource']
+    expect(p, 'user chips', [(x['label'], x.get('count')) for x in users],
+           [('All', None), ('admin', 4), ('j.doe', 4), ('—', 2), ('ci-bot', 1)])
+    expect(p, 'the "—" chip route', users[3]['route'], '/audit?range=24h&auditUser=%28none%29')
+    for name in ('audit-namespace-chips', 'audit-user-chips', 'audit-outcome-chips'):
+        labels = [x['label'] for x in tbi.widget(c, 'Listy', name, 'dataSource', fac, {})]
+        if any(lbl.strip() == '' for lbl in labels):
+            p.append(f'{name}: an empty chip {labels}')
+    reqs, out, _ = records(c, {'auditUser': '(none)'}, ADMIN)
+    expect(p, '?auditUser=(none): accepted', out['rejected'], [])
+    expect(p, '?auditUser=(none): decoded once', sql_of(reqs[0][1]) if reqs else None,
+           ROWS_SQL.format(window='24 HOUR', access='', cond=" AND LogAttributes['user.name'] = ''"))
+    if reqs and (unquote(sql_of(reqs[0][1])) != sql_of(reqs[0][1]) or '%25' in reqs[0][1]):
+        p.append('?auditUser=(none): not encoded exactly once')
+    rows = table(c, out, {'auditUser': '(none)'}, 'audit-records (no user)')
+    expect(p, '?auditUser=(none): exactly the records with no user', sorted(cells(r)['name']['stringValue'] for r in rows),
+           ['nameless', 'storefront-web'])
+    expect(p, 'their User cells', col(rows, 'user'), ['—', '—'])
+    rdc = [cells(r) for r in rows if cells(r)['resource']['stringValue'].startswith('Repo ')]
+    expect(p, 'the rest-dynamic-controller row: no trace (producer)', [x['trace']['stringValue'] for x in rdc],
+           ['no trace (producer)'])
+    act = tbi.widget(c, 'Listy', 'audit-user-chips', 'dataSource', fac, {'auditUser': '(none)'})
+    expect(p, 'the "—" chip is active while it filters', [x['label'] for x in act if x['active']], ['—'])
+    reqs, out, _ = records(c, {'auditUser': '(none)'}, TEAM_A)
+    expect(p, 'a member filtering to no user stays narrowed', sql_of(reqs[0][1]) if reqs else None,
+           ROWS_SQL.format(window='24 HOUR', access=acc('team-a'), cond=" AND LogAttributes['user.name'] = ''"))
+    return p
+
+
 def check_64bit_integers_quoted_or_not(c):
     p = []
     views = []
@@ -805,6 +844,16 @@ def check_64bit_integers_quoted_or_not(c):
         views.append((table(c, out, {}, f'audit-records (quoted={quoted})'), out['note'], out['check'],
                       tbi.widget(c, 'Listy', 'audit-namespace-chips', 'dataSource', fac, {})))
     expect(p, 'unquoted == quoted', views[1], views[0])
+    # The fixtures really are the two shapes: ClickHouse's default quotes 64-bit integers, krateo-057's
+    # 26.8 sends bare numbers.
+    for quoted, kind in ((True, str), (False, int)):
+        ch = FakeClickHouse(quoted=quoted)
+        _, out, _ = records(c, {}, ADMIN, ch)
+        raw_rows = ch('/?query=' + quote(ch.queries[0], safe=''))['data'] if ch.queries else []
+        raw_sum = ch('/?query=' + quote(ch.queries[1], safe=''))['data'] if len(ch.queries) > 1 else []
+        shapes = {type(raw_rows[0]['ts_ms']), type(raw_rows[0]['matched']), type(raw_sum[0]['total'])} if raw_rows and raw_sum else set()
+        expect(p, f'quoted={quoted}: the fixture sends ts_ms, matched and total as {kind.__name__}', shapes, {kind})
+        expect(p, f'quoted={quoted}: read as numbers', (type(out['rows'][0]['tsMs']), type(out['counts']['total'])), (int, int))
     return p
 
 
@@ -913,6 +962,7 @@ def main():
         ('each request is encoded exactly once, as snowplow dials it', lambda: check_requests_are_encoded_exactly_once(c)),
         ('a quote or SQL fragment in any input makes no request', lambda: check_injection_is_refused(c)),
         ('filter chips, counts and the header', lambda: check_filter_chips(c)),
+        ('a record with no user reads "—", and its chip filters to exactly those', lambda: check_records_with_no_user(c)),
         ('64-bit integers read the same quoted or not', lambda: check_64bit_integers_quoted_or_not(c)),
         ('chart conventions: namespace, RBAC, endpoint, keyExtras, nav, values', lambda: check_chart_conventions(c)),
     ]
