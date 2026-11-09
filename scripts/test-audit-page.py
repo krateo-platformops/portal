@@ -844,8 +844,8 @@ def check_64bit_integers_quoted_or_not(c):
         views.append((table(c, out, {}, f'audit-records (quoted={quoted})'), out['note'], out['check'],
                       tbi.widget(c, 'Listy', 'audit-namespace-chips', 'dataSource', fac, {})))
     expect(p, 'unquoted == quoted', views[1], views[0])
-    # The fixtures really are the two shapes: ClickHouse's default quotes 64-bit integers, krateo-057's
-    # 26.8 sends bare numbers.
+    # The fixtures really are the two shapes, for rows, summary and facets: ClickHouse's default quotes
+    # 64-bit integers, krateo-057's 26.8 sends bare numbers.
     for quoted, kind in ((True, str), (False, int)):
         ch = FakeClickHouse(quoted=quoted)
         _, out, _ = records(c, {}, ADMIN, ch)
@@ -854,6 +854,11 @@ def check_64bit_integers_quoted_or_not(c):
         shapes = {type(raw_rows[0]['ts_ms']), type(raw_rows[0]['matched']), type(raw_sum[0]['total'])} if raw_rows and raw_sum else set()
         expect(p, f'quoted={quoted}: the fixture sends ts_ms, matched and total as {kind.__name__}', shapes, {kind})
         expect(p, f'quoted={quoted}: read as numbers', (type(out['rows'][0]['tsMs']), type(out['counts']['total'])), (int, int))
+        fch = FakeClickHouse(quoted=quoted)
+        _, fac = facets(c, {}, ADMIN, fch)
+        raw_fac = fch('/?query=' + quote(fch.queries[0], safe=''))['data'] if fch.queries else []
+        expect(p, f'quoted={quoted}: the facets fixture sends n as {kind.__name__}', {type(r['n']) for r in raw_fac}, {kind})
+        expect(p, f'quoted={quoted}: facet counts read as numbers', {type(x['count']) for d in fac['facets'].values() for x in d}, {int})
     return p
 
 
