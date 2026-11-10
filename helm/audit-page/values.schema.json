@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": true,
+  "properties": {
+    "namespace": {
+      "description": "The namespace this chart CREATES and installs the /audit page objects into. It is the RBAC boundary for opening the page — a group with no RoleBinding here cannot `list` the page root, so the sidebar never shows it and the page body 403s on a deep link. Which ROWS a reader sees is decided per caller by the RESTActions, not by this namespace. The release itself stays wherever the composition is created. No schema default: the default lives in values.yaml.",
+      "minLength": 1,
+      "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$",
+      "title": "namespace",
+      "type": "string"
+    },
+    "readerGroups": {
+      "description": "Groups granted read of the /audit page in `namespace`. A listed group sees Audit in the sidebar and can open it; the rows it sees are narrowed server-side to the namespaces where it may `list` auditrecords.audit.krateo.io (all of them for a group granted that cluster-wide, such as `admins`). A group also needs the portal shell's grant, or it gets no layout at all. A list REPLACES the default rather than adding to it, so a CMP tenant grant is [admins, devs, tenants]. No schema default: the installer applies schema defaults, which would silently re-assert themselves over a group set through componentValues. The chart default lives in values.yaml.",
+      "items": {
+        "type": "string"
+      },
+      "title": "readerGroups",
+      "type": "array"
+    },
+    "traceNamespace": {
+      "description": "The namespace the observability page chart installs into (its `namespace` value), where the trace page's root lives. The audit table links a record to /observability/traces/<TraceId> only for a caller who may `get` that root there; anyone else sees \"kept\" rather than a link that would answer 403. A namespace name only; anything else fails the render. No schema default: the default lives in values.yaml.",
+      "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$",
+      "title": "traceNamespace",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

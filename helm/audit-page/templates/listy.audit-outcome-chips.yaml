@@ -1,0 +1,26 @@
+{{/* Outcome chips of /audit: "All", then success, failure and denied (the audit library's three words)
+     in that order, each where the window holds a record with it, with its count. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-outcome-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  apiRef:
+    name: audit-facets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "audit.route" . }} {{ include "audit.valid" . }} . as $x | ((.auditOutcome // "") | tostring) as $sel | ([ (.facets.outcomes // [])[] | select(.name | okOutcome) ]) as $f | [ ["success", "failure", "denied"][] as $o | $f[] | select(.name == $o) ] as $top | [ {name: "", count: null} ] + [ $top[] | {name: .name, count: .count} ] + (if $sel != "" and ($sel | okOutcome) and (any($top[]; .name == $sel) | not) then [ {name: $sel, count: null} ] else [] end) | map(.name as $n | { label: (if $n == "" then "All" else ($n | (.[0:1] | ascii_upcase) + .[1:]) end), active: ($n == $sel), route: ($x | auditRoute({auditOutcome: $n})) } + (if .count == null then {} else {count: .count} end)) }'
+  resourcesRefs:
+    items: []

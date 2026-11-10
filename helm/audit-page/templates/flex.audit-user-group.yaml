@@ -1,0 +1,35 @@
+{{/* One group of the /audit filter bar: its label and its chips. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-user-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: audit-user-label
+    - resourceRefId: audit-user-chips
+  resourcesRefs:
+    items:
+    - id: audit-user-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-user-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-user-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-user-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

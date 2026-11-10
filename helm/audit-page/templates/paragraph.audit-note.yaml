@@ -1,0 +1,25 @@
+{{/* The note under the audit table (audit-records' `note`): how many records the window holds, how
+     many link to a trace and why the rest do not, previews left out, records missing a field this
+     page reads, and the row-count check when it disagrees. A refused filter, no readable namespace
+     or an unreadable trail is said here instead of an empty table with no reason. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-note
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ''
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ (.note // "") }'
+  resourcesRefs:
+    items: []

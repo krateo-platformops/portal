@@ -1,0 +1,29 @@
+{{/* User chips of /audit (user.name): "All", then the 12 users with the most records in the window and
+     the caller's namespaces. Records written with no user.name (rest-dynamic-controller) count
+     under `(none)`, shown as "—" and filtering to exactly those records — never an empty chip. A
+     name outside the filter's character class gets no chip, because a link to it would be refused.
+     A user value is @uri-encoded in the route. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-user-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  apiRef:
+    name: audit-facets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "audit.route" . }} {{ include "audit.valid" . }} . as $x | ((.auditUser // "") | tostring) as $sel | [ (.facets.users // [])[] | select(.name | okUser) ] as $top | [ {name: "", count: null} ] + [ $top[] | {name: .name, count: .count} ] + (if $sel != "" and ($sel | okUser) and (any($top[]; .name == $sel) | not) then [ {name: $sel, count: null} ] else [] end) | map(.name as $n | { label: (if $n == "" then "All" elif $n == "(none)" then "—" else $n end), active: ($n == $sel), route: ($x | auditRoute({auditUser: $n})) } + (if .count == null then {} else {count: .count} end)) }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,75 @@
+{{/* /audit (AUDIT-9, installer#415): who changed what, to which object, when, and with what outcome.
+     Its own page rather than a tab of /observability, because that page is admin-only and this one
+     is not: whoever may open it sees the records of the namespaces whose audit trail they have been
+     granted (restaction.audit-records.yaml), and a cluster-wide reader sees all of them.
+     In the sidebar's Observability group, after the entries already there (an integer order: the
+     Menu CRD types `order` as an integer, so it cannot sit between Observability's 11 and 12). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-audit
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-path": "/audit"
+    "krateo.io/nav-label": "Audit"
+    "krateo.io/nav-icon": "fa-clipboard-list"
+    "krateo.io/nav-group": "Observability"
+    "krateo.io/nav-order": "15"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  widgetData:
+    allowedResources:
+    - flexes
+    - pageheaders
+    - paragraphs
+    - tables
+    vertical: true
+    {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
+    gap: middle
+    items:
+    - resourceRefId: audit-page-header
+    - resourceRefId: audit-filters
+    - resourceRefId: audit-completeness
+    - resourceRefId: audit-table-caption
+    - resourceRefId: audit-records
+    - resourceRefId: audit-note
+  resourcesRefs:
+    items:
+    - id: audit-page-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-page-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: audit-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-filters
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: audit-completeness
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-completeness
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-table-caption
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-table-caption
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-records
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-records
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: audit-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-note
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

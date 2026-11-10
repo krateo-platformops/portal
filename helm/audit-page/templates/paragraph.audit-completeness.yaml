@@ -1,0 +1,19 @@
+{{/* What the trail does not hold yet. Changes made with kubectl or any client that talks to the
+     Kubernetes API directly never pass through snowplow, so no audit record is written for them;
+     AUDIT-5 (installer#411) brings the signal that says how complete the trail is. Until it lands
+     this sentence is the page's honest limit. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-completeness
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  widgetData:
+    text: 'Completeness: changes made directly against the Kubernetes API, bypassing the portal, are not in this trail yet. A completeness signal comes with AUDIT-5 (installer#411).'
+    type: secondary
+  resourcesRefs:
+    items: []

@@ -1,0 +1,24 @@
+{{/* Time-range chips of /audit: 1h, 24h (the default), 7d, 30d. No unbounded choice — the trail keeps
+     365 days and one screen does not need them. No apiRef: snowplow merges the request extras into
+     the data source. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-range-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ {{ include "audit.route" . }} . as $x | ((.range // "24h") | tostring) as $r | (if ($r == "1h" or $r == "7d" or $r == "30d") then $r else "24h" end) as $sel | ["1h", "24h", "7d", "30d"] | map(. as $k | { label: $k, active: ($k == $sel), route: ($x | auditRoute({range: $k})) }) }'
+  resourcesRefs:
+    items: []
