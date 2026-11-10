@@ -352,6 +352,14 @@ jobs:
           # /blueprint-builder, widget for widget; the Configure form under the frontend's rules.
           python3 scripts/test-controller-builder.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # Deleting a publish must never delete its GitHub repository: the Repository CR carries
+      # krateo.io/deletion-policy: orphan. Runs its own control (annotation removed => must fail).
+      - name: builder-publish Repository is orphaned on delete
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-builder-publish-orphan.py
+
   # The Builder CRs (files/builders/*.builder.yaml, rendered by templates/builders.yaml) are byte-identical copies of the frontend's fixtures
   # (krateo-platformops/frontend ui/src/builders/fixtures). This compares them with the frontend
   # revision FRONTEND_REF pins — NOT main, so a fixture change over there cannot redden a branch

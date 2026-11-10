@@ -65,6 +65,16 @@ metadata:
   labels:
     krateo.io/builder: {{ .Values.builder }}
     krateo.io/publish: {{ .Values.name }}
+  # THE REPOSITORY OUTLIVES THE PUBLISH. It holds the published blueprint or page's source and its
+  # whole history; uninstalling the publish, or the chart pruning this CR, must drop the CR only and
+  # never call GitHub's DELETE /repos/{owner}/{repo}. Without this annotation the runtime defaults to
+  # `delete` (unstructured-runtime pkg/meta/meta.go:341-344), so the day github-provider-kog declares
+  # the delete verb, every uninstall would delete a real repository. With it, the worker releases
+  # the finalizer and returns before any vendor call (pkg/controller/worker.go:482, v1.9.0; the
+  # return that makes this safe with more than one finalizer is unstructured-runtime#23).
+  # Decided 2026-11-10: keep the repo, orphaned. Test: scripts/test-builder-publish-orphan.py.
+  annotations:
+    krateo.io/deletion-policy: orphan
 spec:
   configurationRef:
     name: {{ $cfgName | quote }}
