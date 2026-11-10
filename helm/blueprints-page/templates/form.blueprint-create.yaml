@@ -132,11 +132,16 @@ spec:
     {{/* browser's localStorage), so there is no draft ConfigMap ref here. */}}
     items: []
   resourcesRefsTemplate:
+    {{/* The create target's namespace is the formdef's `createNamespace` (the composition-namespace */}}
+    {{/* picker's default: one the user can create in). It was `.namespace`, which the formdef never */}}
+    {{/* emits, so it fell through to the route's blueprint namespace (from the extras) — read-only */}}
+    {{/* for a tenant, so snowplow dropped the ref and the button sent nothing. The submit */}}
+    {{/* still posts to the PICKED namespace: the frontend rewrites the URL from metadata.namespace. */}}
     - template:
         id: create-composition
         apiVersion: '${ .apiVersion }'
         resource: '${ .resource }'
-        namespace: '${ .namespace }'
+        namespace: '${ .createNamespace }'
         verb: POST
     {{/* One GET ref per `x-krateo-options` source in the blueprint's schema (blueprint-formdef's */}}
     {{/* optionRefs): the field names it by `id`, snowplow resolves the RESTAction path and its */}}

@@ -6,8 +6,8 @@
 {{/* 2. Its status carries the generated CRD's GVR: apiVersion (group/version), */}}
 {{/* kind, resource (plural). CRD name = <resource>.<group>. */}}
 {{/* 3. GET that CRD; its openAPIV3Schema.properties.spec IS the form's JSON schema. */}}
-{{/* Returns { schemaSpec, apiVersion, kind, resource } — schema for the fields, GVR for */}}
-{{/* the create POST target. Needs the core-provider CRDs + a CompositionDefinition whose */}}
+{{/* Returns { schemaSpec, apiVersion, kind, resource, createNamespace } — schema for the fields, */}}
+{{/* GVR + namespace for the create POST target. Needs the core-provider CRDs + a CompositionDefinition whose */}}
 {{/* status carries the generated GVR. VERIFIED on kind-krateo-dash after installing the */}}
 {{/* core-provider CRDs and populating a CompositionDefinition status (the controller itself */}}
 {{/* needs a newer k8s — MutatingAdmissionPolicy — than that demo cluster has). */}}
@@ -183,7 +183,7 @@ spec:
             propertiesToHide: [],
             initialValues: { __owner: $ownerKey },
             optionRefs: [],
-            apiVersion: "", kind: "", resource: "" }
+            apiVersion: "", kind: "", resource: "", createNamespace: "" }
       else
     ($cdApiVersion | split("/")[1]) as $ver
     | ((.namespace // "") | if . == "" then "{{ .Release.Namespace }}" else . end) as $blueprintNs
@@ -331,6 +331,19 @@ spec:
         initialValues: { __owner: $draftKey },
         apiVersion: .compdef.status.apiVersion,
         kind: .compdef.status.kind,
-        resource: .compdef.status.resource
+        resource: .compdef.status.resource,
+        # THE CREATE REF'S NAMESPACE (blueprint-create's resourcesRefsTemplate). The ref used to read
+        # `.namespace`, which this output never carried, so it fell through to the request extras
+        # snowplow folds in underneath: the ROUTE's blueprint namespace. An admin can create there; a
+        # tenant whose blueprints live in a read-only namespace cannot, so snowplow dropped the ref and
+        # the button sent nothing ("Cannot find resources refs for resource ref with ID
+        # create-composition"). It is the picker's default, so the ref names a namespace the user
+        # can create in; on submit the frontend rewrites the URL namespace from the body's
+        # metadata.namespace (the picked value).
+        # Its own key, not `namespace`: that word is the route's blueprint namespace and, in a
+        # blueprint's spec, its own workload target. With no create-permitted namespace anywhere,
+        # $nsOpts falls back to [$blueprintNs] (above), the ref names a namespace the user cannot
+        # create in, and snowplow drops it — the same no-ref outcome, not a ref that would 403.
+        createNamespace: $nsDefault
       }
       end
