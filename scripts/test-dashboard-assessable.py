@@ -301,11 +301,25 @@ for d in DEFECTS:
     check(f'defects: rail {name} has no tooltip', row and row['tooltip'], '')
 check('defects: only the not assessable rows carry rail.reason',
       sorted(i['name'] for i in out['list'] if i['rail'].get('reason')), sorted(SET_ASIDE))
-# Ready=False/Creating is converging: Pending and assessable, not set aside. Checked on its own row
-# rather than in the card figures, whose pendingPercent counts only Ready neither True nor False.
+# Ready=False/Creating is converging: Pending and assessable, not set aside.
 item = compositions_list([CREATING])['list'][0]
 check('creating: assessable and pending', (item['assessable'], item['state'], item['railState']), (True, 'pending', 'pending'))
 check('creating: its pending bar, no reason', item['rail'], {'percent': 50, 'state': 'pending', 'label': '50%'})
+# ...and so the Pending card counts it, in its figure AND in its tag. The tag's pendingPercent used
+# to count only rows whose Ready was neither True nor False, which left Creating out: here the card
+# said 4 beside a 2%. Both now come from the same set, so they agree.
+CREATING2 = copy.deepcopy(CREATING)
+CREATING2['metadata'].update(name='creating-2', uid='uid-creating-2')
+out = compositions_list(LIVE + [UNREADABLE] + DEFECTS + [CREATING, CREATING2])
+got = page(out)
+check('creating: the card counts both Creating with the two other Unknowns, and its tag says the same set',
+      got['pending'], (4, '4%', 'of assessable'))
+check('creating: Healthy over 84 assessable', got['healthy'], (80, '95%', 'of 84 assessable'))
+check('creating: pendingPercent is pending over assessable',
+      out['assessment']['pendingPercent'], out['assessment']['pending'] * 100 // out['assessment']['assessable'])
+only_creating = compositions_list([CREATING])['assessment']
+check('only Creating: one pending, and that is all of the assessable',
+      (only_creating['pending'], only_creating['pendingPercent']), (1, 100))
 
 # --- 3. nothing to set aside: the page reads as it did before ------------------------------------
 # These are the values the widgets' previous expressions give over the same data (diffed against
