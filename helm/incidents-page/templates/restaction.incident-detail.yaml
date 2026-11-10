@@ -257,7 +257,10 @@ spec:
                        elif $reanalysis != null then { label: "Re-analysis", value: ("#" + (($reanalysis.count // 1) | tostring) + " · " + ($reanalysis.at | stamp)
                          + (if ($reanalysis.feedback // "") != "" then (" · \"" + ($reanalysis.feedback | if length > 200 then (.[0:200] + "…") else . end) + "\"") else "" end)) }
                        else empty end),
-                      (if ($st.resolution.at // "") != "" then { label: (if $st.resolution.by == "verify" then "Resolved" else "Closed" end), value: (($st.resolution.at | stamp) + (if $st.resolution.by == "verify" then " by the verify script" else " by a person" end)) } else empty end) ]),
+                      # Who ended it, from status.resolution.by (incident-controller): "verify" proves it fixed (Resolved); every other value closes it.
+                      # "alert-gone" (incident-provider 0.8.0) and "analysis-failed" (alert-provider) are automated closes, not a person.
+                      # A value this map does not know yet reads as itself in parentheses rather than being attributed to anyone.
+                      (if ($st.resolution.at // "") != "" then { label: (if $st.resolution.by == "verify" then "Resolved" else "Closed" end), value: (($st.resolution.at | stamp) + ({ verify: " by the verify script", user: " by a person", "alert-gone": " automatically: its Alert was deleted", "analysis-failed": " automatically: the analysis failed" }[$st.resolution.by // "" | tostring] // (" (" + (if ($st.resolution.by // "") == "" then "unknown" else ($st.resolution.by | tostring) end) + ")"))) } else empty end) ]),
         summary: {
           whatHappened: ($title + (if $comp then (" — affecting " + (($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "")) else "" end)),
           why: (if ($rc.statement // "") != "" then $rc.statement

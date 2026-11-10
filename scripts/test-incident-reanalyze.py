@@ -14,7 +14,10 @@ what a reader would see:
   - a waiting request and a recorded reanalysis show in the incident's meta items;
   - a precondition or verify whose last run gave no verdict shows what the run printed
     (status.lastChecks.<script>.output); the apply step never does;
-  - the Flagged note offers the re-run.
+  - the Flagged note offers the re-run;
+  - a Resolved or Closed incident names what ended it (status.resolution.by): the verify script, a
+    person, or an automated close (alert-gone: its Alert was deleted; analysis-failed: the analysis
+    failed), and a value the page does not know yet reads as itself, never as "a person".
 
 HOW. As test-incident-apply: helm/portal is rendered, incident-detail is resolved over fixtures shaped
 like krateo-057's Incidents, and the widgets are evaluated over its output.
@@ -138,6 +141,33 @@ def check_meta_items_show_the_reanalysis(chart):
     return f
 
 
+# status.resolution.by -> the meta item a reader sees. "Resolved" only for verify; everything else is
+# "Closed". The automated closes (incident-provider's alert-gone, alert-provider's analysis-failed)
+# must never read "by a person", and neither may a value the page has not been taught yet.
+RESOLUTIONS = [
+    ('verify', 'Resolved', 'Resolved', '2026-10-21 10:00 UTC by the verify script'),
+    ('user', 'Closed', 'Closed', '2026-10-21 10:00 UTC by a person'),
+    ('alert-gone', 'Closed', 'Closed', '2026-10-21 10:00 UTC automatically: its Alert was deleted'),
+    ('analysis-failed', 'Closed', 'Closed', '2026-10-21 10:00 UTC automatically: the analysis failed'),
+    ('budget-exceeded', 'Closed', 'Closed', '2026-10-21 10:00 UTC (budget-exceeded)'),
+    (None, 'Closed', 'Closed', '2026-10-21 10:00 UTC (unknown)'),
+    ('', 'Closed', 'Closed', '2026-10-21 10:00 UTC (unknown)'),
+]
+
+
+def check_meta_items_name_what_ended_it(chart):
+    f = []
+    for by, state, label, value in RESOLUTIONS:
+        inc = incident(f'r-{by or "none"}', state=state)
+        inc['status']['resolution'] = {'at': '2026-10-21T10:00:00Z'} if by is None else {'at': '2026-10-21T10:00:00Z', 'by': by}
+        out, _ = resolve(chart, inc, f'resolution {by!r}')
+        expect(f, f'resolution.by={by!r}', out['metaItems'][-1], {'label': label, 'value': value})
+    inc = incident('r-open')
+    out, _ = resolve(chart, inc, 'no resolution')
+    expect(f, 'no resolution: no item', [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
+    return f
+
+
 def check_an_unknown_result_shows_what_it_printed(chart):
     f = []
     lc = {'precondition': {'exit': 0, 'since': '2026-10-19T15:31:15Z'},
@@ -168,6 +198,7 @@ CHECKS = [
     check_shown_for_open_and_verifying_only,
     check_drawer_form_patches_spec_reanalysis,
     check_meta_items_show_the_reanalysis,
+    check_meta_items_name_what_ended_it,
     check_an_unknown_result_shows_what_it_printed,
     check_flagged_note_offers_the_rerun,
 ]
