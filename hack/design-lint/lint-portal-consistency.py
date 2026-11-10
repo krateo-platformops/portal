@@ -1162,7 +1162,7 @@ def rule_hex_colour(crs):
             found = sorted(set(QUOTED_HEX.findall(text)))
             if found:
                 out.append((fname, f'{path} computes a colour as a hex literal ({", ".join(found)}): '
-                                   f'emit a palette key instead — the Table resolves it per mode'))
+                                   f'emit a palette key or its var(--<key>-color) alias — both follow the mode'))
     return out
 
 
