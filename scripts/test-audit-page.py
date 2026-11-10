@@ -990,6 +990,8 @@ def check_chart_conventions(c):
                                       'audit-outcome-label', 'audit-user-label']},
            {'audit-table-caption': None, 'audit-range-label': 'eyebrow', 'audit-namespace-label': 'eyebrow',
             'audit-outcome-label': 'eyebrow', 'audit-user-label': 'eyebrow'})
+    expect(p, 'the caption is muted, like the Traces caption (type: secondary)',
+           c.get('Paragraph', 'audit-table-caption')['spec']['widgetData'].get('type'), 'secondary')
     role = c.get('Role', 'devs-read-audit-pages')
     expect(p, 'what a reader group may do there', role['rules'], [
         {'apiGroups': ['widgets.templates.krateo.io'], 'resources': ['*'], 'verbs': ['get', 'list']},
