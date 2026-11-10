@@ -982,6 +982,65 @@ def check_create_form_loads_field_options(chart):
     return f
 
 
+def create_ref(chart, kind, name, ra_output, extras):
+    """The form's NON-iterated resourcesRefsTemplate entry — its create target — as snowplow renders
+    it: each `${ … }` field over the RA output with the request extras folded in UNDERNEATH
+    (snowplow mergeExtras: the apiRef result wins every key it carries)."""
+    entries = [e for e in chart.get(kind, name)['spec'].get('resourcesRefsTemplate') or []
+               if not (e.get('iterator') or '').strip()]
+    assert len(entries) == 1, f'{kind} {name}: expected one non-iterated ref template, got {len(entries)}'
+    data = dict(extras)
+    data.update(ra_output)
+    return {k: (jq(v.strip()[2:-1], data) if isinstance(v, str) and v.strip().startswith('${') else v)
+            for k, v in entries[0]['template'].items()}
+
+
+def check_create_ref_names_a_namespace_the_user_can_create_in(chart):
+    """The create POST ref must name a namespace the CALLER can create in, or snowplow drops it and
+    the button sends nothing ("Cannot find resources refs for resource ref with ID
+    create-composition"). The ref used `.namespace`, which the formdef never emits, so it fell
+    through to the route's blueprint namespace: fine for an admin, a dropped ref for a tenant whose
+    blueprints live in a namespace they can only read. `namespaces` here is the userAccessFilter
+    output — the namespaces where the caller can `create` this kind."""
+    f = []
+    bp_ns = 'krateo-blueprints'
+    registered = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+                  'metadata': {'name': 'my-bp', 'namespace': bp_ns},
+                  'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'MyBp', 'resource': 'mybps'}}
+    schema_cm = {'data': {'values.schema.json': json.dumps({'type': 'object', 'properties': {'replicas': {'type': 'integer'}}})}}
+    allowed = lambda *names: {'items': [{'metadata': {'name': n}} for n in names]}
+
+    def create(label, username, namespaces, compdef=registered):
+        extras = {'name': 'my-bp', 'namespace': bp_ns, 'username': username}
+        out = resolve(chart, 'blueprint-formdef',
+                      {'compdef': compdef, 'jsonschema': schema_cm, 'crd': 'ERROR', 'namespaces': namespaces}, extras)
+        resolved_widget(chart, 'Form', 'blueprint-create', out, extras, f'blueprint-create ({label})')
+        return out, create_ref(chart, 'Form', 'blueprint-create', out, extras)
+
+    for label, username, namespaces, want in [
+            ('tenant, create only in its own namespace', 'tenant-a', allowed('team-a'), 'team-a'),
+            ('admin, create in the blueprint namespace too', 'admin', allowed('krateo-system', bp_ns, 'team-a'), bp_ns)]:
+        out, ref = create(label, username, namespaces)
+        expect(f, f'{label}: the formdef names the create namespace', out.get('createNamespace'), want)
+        expect(f, f'{label}: the create ref POSTs into that namespace',
+               {k: ref.get(k) for k in ('id', 'apiVersion', 'resource', 'namespace', 'verb')},
+               {'id': 'create-composition', 'apiVersion': 'composition.krateo.io/v0-1-0', 'resource': 'mybps',
+                'namespace': want, 'verb': 'POST'})
+        picker = json.loads(out['stringSchema'])['properties']['__composition_namespace__']
+        expect(f, f'{label}: the ref and the namespace picker\'s default agree', picker.get('default'), ref.get('namespace'))
+
+    # Nowhere to create: the picker falls back to the blueprint namespace, and so does the ref — one
+    # the caller cannot create in, which snowplow drops. No ref is the honest answer; one invented to
+    # resolve would only 403.
+    out, ref = create('can create nowhere', 'tenant-b', allowed())
+    expect(f, 'can create nowhere: the ref names the picker\'s fallback, not a guess', ref.get('namespace'), bp_ns)
+
+    out, ref = create('not registered', 'tenant-a', allowed('team-a'),
+                      compdef={k: v for k, v in registered.items() if k != 'status'})
+    expect(f, 'not registered: no create namespace (no form, no target)', out.get('createNamespace'), '')
+    return f
+
+
 def check_marketplace_detail_resolves_without_a_name(chart):
     """The marketplace detail RESTAction behind /marketplace/<name> and the Install page header. The
     background prewarm resolves it with no ?extras.name, and `.entries[null]` raised "expected a
@@ -1312,6 +1371,7 @@ CHECKS = [
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
     check_create_form_loads_field_options,
+    check_create_ref_names_a_namespace_the_user_can_create_in,
     check_marketplace_detail_resolves_without_a_name,
     check_render_draft_reads_the_chart_from_its_configmap,
     check_my_drafts_are_the_callers_own,
