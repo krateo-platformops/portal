@@ -27,6 +27,9 @@ team-a only, over rows from team-a, team-b and krateo-system, sees ZERO team-b a
 rows; the admin sees all three; a caller with no grant sees zero rows and makes no ClickHouse request
 at all — including one who may list every composition in team-a, which was the rule this replaced.
 
+THE DEMO PERSONA: the portal chart's `devs` (rbac.cyberjoker-rbac.yaml) may `list` auditrecords in
+demo-system and nowhere else, read off the rendered RoleBindings and run through the same stages.
+
 Uses the `jq` binary (JQ=gojq runs the same checks on it). Needs `go` and `git` for snowplow's path
 renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
 Usage: test-audit-page.py [--crds DIR | --pinned] [--print-sql]. Exit code = failed checks.
@@ -47,6 +50,7 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHART = os.path.join(HERE, '..', 'helm', 'audit-page')
+PORTAL_CHART = os.path.join(HERE, '..', 'helm', 'portal')   # where the demo persona's grants live
 
 
 def _load(name, file):
@@ -67,14 +71,14 @@ TRACE_NS = 'krateo-observability'
 KEY_EXTRAS = ['projects', 'range', 'auditNamespace', 'auditUser', 'auditOutcome']
 
 
-def render(sets=(), values=None):
+def render(sets=(), values=None, chart=CHART, release='audit-page'):
     with tempfile.TemporaryDirectory() as tmp:
         staged = os.path.join(tmp, 'chart')
-        shutil.copytree(CHART, staged)
+        shutil.copytree(chart, staged)
         meta = os.path.join(staged, 'Chart.yaml')
         text = open(meta, encoding='utf-8').read()
-        open(meta, 'w', encoding='utf-8').write(text.replace('CHART_VERSION', '0.0.0-dev'))
-        cmd = ['helm', 'template', 'audit-page', staged, '--namespace', RELEASE_NS]
+        open(meta, 'w', encoding='utf-8').write(text.replace('CHART_VERSION', '0.0.0-dev').replace('APP_VERSION', '0.0.0-dev'))
+        cmd = ['helm', 'template', release, staged, '--namespace', RELEASE_NS]
         for value in sets:
             cmd += ['--set-string', value]
         if values is not None:
@@ -568,6 +572,65 @@ def check_scope_is_the_explicit_audit_grant(c):
     return p
 
 
+def group_rules(docs, group):
+    """Every rule bound to `group` in a rendered chart, as Caller rules (verb, apiGroup, resource,
+    namespace) with namespace '' for a ClusterRoleBinding — the same shape snowplow's RBAC model
+    evaluates. A RoleBinding may reference a ClusterRole; it still applies only in its namespace."""
+    roles = {(d['kind'], (d['metadata'].get('namespace') or ''), d['metadata']['name']): d
+             for d in docs if d.get('kind') in ('Role', 'ClusterRole')}
+    out = []
+    for b in docs:
+        if b.get('kind') not in ('RoleBinding', 'ClusterRoleBinding'):
+            continue
+        if not any(s.get('kind') == 'Group' and s.get('name') == group for s in b.get('subjects') or []):
+            continue
+        ns = (b['metadata'].get('namespace') or '') if b['kind'] == 'RoleBinding' else ''
+        ref = b['roleRef']
+        role = roles.get((ref['kind'], ns if ref['kind'] == 'Role' else '', ref['name']))
+        if role is None:
+            raise LookupError(f'{b["kind"]} {b["metadata"]["name"]} references {ref["kind"]} {ref["name"]}, which the chart does not render')
+        for rule in role.get('rules') or []:
+            for v in rule.get('verbs') or []:
+                for g in rule.get('apiGroups') or []:
+                    for r in rule.get('resources') or []:
+                        out.append((v, g, r, ns))
+    return out
+
+
+def check_portal_grants_devs_the_demo_audit_trail(c):
+    """The portal chart's demo persona (group `devs`, rbac.cyberjoker-rbac.yaml) may `list`
+    auditrecords.audit.krateo.io in demo-system and nowhere else, so /audit shows a dev demo-system's
+    records and only those. Read off the RENDERED RoleBindings and the Roles they reference, any rule
+    that could reach auditrecords counted (a '*' verb, group or resource included), then run through
+    the page's own access stages as that persona."""
+    p = []
+    on = render(values={'enableCyberjokerUser': True}, chart=PORTAL_CHART, release='portal')
+    rules = group_rules(on.docs, 'devs')
+    reach = sorted(r for r in rules if r[1] in ('*', 'audit.krateo.io') and r[2] in ('*', 'auditrecords'))
+    expect(p, 'what devs may do on auditrecords: list, in demo-system only',
+           reach, [('list', 'audit.krateo.io', 'auditrecords', 'demo-system')])
+    expect(p, 'devs bound cluster-wide by the portal chart', sorted(r for r in rules if r[3] == ''), [])
+    role = on.get('Role', 'devs-list-auditrecords-in-demo-namespace')
+    expect(p, 'the Role, exactly', (role['metadata']['namespace'], role['rules']),
+           ('demo-system', [{'apiGroups': ['audit.krateo.io'], 'resources': ['auditrecords'], 'verbs': ['list']}]))
+    rb = on.get('RoleBinding', 'devs-list-auditrecords-in-demo-namespace')
+    expect(p, 'the RoleBinding, exactly', (rb['metadata']['namespace'], rb['roleRef'], rb['subjects']),
+           ('demo-system', {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': 'devs-list-auditrecords-in-demo-namespace'},
+            [{'kind': 'Group', 'name': 'devs', 'apiGroup': 'rbac.authorization.k8s.io'}]))
+    dev = Caller('cyberjoker', rules)
+    reqs, out, _ = records(c, {}, dev)
+    expect(p, 'a dev on /audit: demo-system\'s records, by the namespace predicate',
+           (out['scope'], [sql_of(r[1]) for r in reqs if r[0] == 'rows']),
+           ('namespaces', [ROWS_SQL.format(window='24 HOUR', access=acc('demo-system'), cond='')]))
+    # Driven by the same switches as the other demo-system grants: off with either of them.
+    for label, values in (('enableCyberjokerUser off (the chart default)', {}),
+                          ('enableDemoSystemNamespace off', {'enableCyberjokerUser': True, 'enableDemoSystemNamespace': False})):
+        off = render(values=values, chart=PORTAL_CHART, release='portal')
+        expect(p, f'{label}: devs on auditrecords', sorted(r for r in group_rules(off.docs, 'devs')
+                                                           if r[1] in ('*', 'audit.krateo.io') and r[2] in ('*', 'auditrecords')), [])
+    return p
+
+
 def check_population_and_previews(c):
     p = []
     _, out, ch = records(c, {}, ADMIN)
@@ -920,6 +983,15 @@ def check_chart_conventions(c):
         ('Namespace', '', NS),
         ('Role', NS, 'admins-read-audit-pages'), ('Role', NS, 'devs-read-audit-pages'),
         ('RoleBinding', NS, 'admins-read-audit-pages'), ('RoleBinding', NS, 'devs-read-audit-pages')])
+    # Diego, 2026-11-10: the table caption is a sentence in plain text, like the Traces tab's; the eyebrow
+    # (uppercase since frontend#654) is for the four short chip-group labels only.
+    expect(p, 'paragraph variants', {n: c.get('Paragraph', n)['spec']['widgetData'].get('variant') for n in
+                                     ['audit-table-caption', 'audit-range-label', 'audit-namespace-label',
+                                      'audit-outcome-label', 'audit-user-label']},
+           {'audit-table-caption': None, 'audit-range-label': 'eyebrow', 'audit-namespace-label': 'eyebrow',
+            'audit-outcome-label': 'eyebrow', 'audit-user-label': 'eyebrow'})
+    expect(p, 'the caption is muted, like the Traces caption (type: secondary)',
+           c.get('Paragraph', 'audit-table-caption')['spec']['widgetData'].get('type'), 'secondary')
     role = c.get('Role', 'devs-read-audit-pages')
     expect(p, 'what a reader group may do there', role['rules'], [
         {'apiGroups': ['widgets.templates.krateo.io'], 'resources': ['*'], 'verbs': ['get', 'list']},
@@ -989,6 +1061,8 @@ def main():
          lambda: check_access_predicate_is_the_callers_own(c)),
         ('the scope is the explicit audit grant: compositions or other reads count for nothing',
          lambda: check_scope_is_the_explicit_audit_grant(c)),
+        ('the portal chart grants devs list auditrecords in demo-system, and nothing broader',
+         lambda: check_portal_grants_devs_the_demo_audit_trail(c)),
         ('only the two audit scopes, no previews, bounded windows', lambda: check_population_and_previews(c)),
         ('columns map to the record as approved', lambda: check_columns_map_to_the_record(c)),
         ('a trace links only when it is kept and openable', lambda: check_trace_link_only_when_kept(c)),

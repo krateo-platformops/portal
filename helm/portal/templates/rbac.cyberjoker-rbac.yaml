@@ -366,5 +366,41 @@ subjects:
 - kind: Group
   name: devs
   apiGroup: rbac.authorization.k8s.io
+---
+{{- /*
+  The audit trail of demo-system, and only demo-system. The /audit page (helm/audit-page) shows a
+  caller the records of exactly the namespaces where it may `list` auditrecords.audit.krateo.io, so
+  this Role is what puts demo-system's rows in a dev's table; without it the page opens empty. It is
+  `list` on the one kind in the one namespace devs work in, never a wildcard and never a ClusterRole
+  (#261), so it shares nothing of krateo-system or any other namespace. It lives here, beside the
+  other demo-system grants, because it is a fact about the demo persona and its namespace rather
+  than about the page: the page chart grants opening /audit, the persona's chart grants what it sees.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devs-list-auditrecords-in-demo-namespace
+  namespace: demo-system
+rules:
+- apiGroups:
+  - audit.krateo.io
+  resources:
+  - auditrecords
+  verbs:
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devs-list-auditrecords-in-demo-namespace
+  namespace: demo-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devs-list-auditrecords-in-demo-namespace
+subjects:
+- kind: Group
+  name: devs
+  apiGroup: rbac.authorization.k8s.io
 {{- end }}
 {{- end }}
