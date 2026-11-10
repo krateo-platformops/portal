@@ -10,7 +10,8 @@ CI here should not break because another repo landed a new rule, and a lint that
 is a lint that fails on a bad morning. The cost is that this file can drift from upstream — if the
 rules change there, re-copy the script, its fixtures and its self-test together.
 
-VENDORED AT: krateo-platformops/frontend main @ a4f3e75 (design/lint/), re-copied 2026-11-09.
+VENDORED AT: krateo-platformops/frontend main @ a4f3e75 (design/lint/), re-copied 2026-11-09;
+`hex-colour` (T1) added 2026-11-10 from frontend#663.
 This stamp exists because the copy
 HAD drifted and nothing noticed — it was missing rule_containment (X5) entirely, so that gate never
 ran here after it landed upstream. The self-test now fails when a registered rule is undocumented,
@@ -1116,6 +1117,55 @@ def rule_colour_vocabulary(crs):
     return out
 
 
+QUOTED_HEX = re.compile(r'"(#(?:[0-9A-Fa-f]{3}){1,2}(?:[0-9A-Fa-f]{2})?)"')
+STATIC_HEX = re.compile(r'^#(?:[0-9A-Fa-f]{3}){1,2}(?:[0-9A-Fa-f]{2})?$')
+# Charts hand their mark `style` to G2 as is: there is no palette name a mark spec can use, so a hex
+# there is the only way to colour a mark. Exempt until the chart widgets resolve palette names.
+HEX_EXEMPT_KINDS = {'LineChart', 'BarChart', 'PieChart', 'FlowChart'}
+
+
+def rule_hex_colour(crs):
+    """T1 — a colour written as a hex literal in a CR, where a palette name belongs.
+
+    The palette is mode-aware: `gray` is one value in light and another in dark, each pinned AA by
+    T7. A hex is one value in both modes, and it is the value of the palette it was copied from. The
+    portal's tables carried antd v4's greys and reds (`#8c8c8c`, `#cf1322`) and a cell in the
+    retired Krateo blue `#11B2E2`, a week after the portal moved to Agentiko violet; `#595959` was
+    under AA on the dark panel.
+
+    WHY THE TEMPLATES. T8 reads static `widgetData` and leaves hex to "T1's business", but T1 had no
+    check, and the hex lived where no rule looked: inside `widgetDataTemplate` expressions and the
+    RESTAction jq that computes a row's colour (`sevColor`, `resultColor`). So this rule reads both,
+    and flags a QUOTED hex (`"#cf1322"`) — the only form a jq string literal can take, which keeps a
+    URL fragment or a `#` in prose from matching.
+    """
+    out = []
+    for fname, doc in crs:
+        kind = doc.get('kind')
+        if kind in HEX_EXEMPT_KINDS:
+            continue
+        spec = doc.get('spec') or {}
+        if str(doc.get('apiVersion', '')).startswith(WIDGET_API):
+            for path, value in walk_strings(widget_data(doc)):
+                if path.rsplit('.', 1)[-1] == 'color' and STATIC_HEX.match(value.strip()):
+                    out.append((fname, f'{path} -> `{value.strip()}` is a hex literal: name a palette '
+                                       f'key (gray, red, orange, green, primary...) so it follows the mode'))
+            sources = [(f'widgetDataTemplate[{i}]', e.get('expression'))
+                       for i, e in enumerate(spec.get('widgetDataTemplate') or []) if isinstance(e, dict)]
+        elif kind == 'RESTAction':
+            sources = list(walk_strings(spec))
+        else:
+            continue
+        for path, text in sources:
+            if not isinstance(text, str):
+                continue
+            found = sorted(set(QUOTED_HEX.findall(text)))
+            if found:
+                out.append((fname, f'{path} computes a colour as a hex literal ({", ".join(found)}): '
+                                   f'emit a palette key instead — the Table resolves it per mode'))
+    return out
+
+
 def rule_page_discovery_alive(crs):
     """P0 — the page-discovery walk found nothing, so every rule built on it is vacuous.
 
@@ -1159,6 +1209,7 @@ RULES = {
     'section-rhythm': (rule_section_rhythm, 'P9'),
     'root-coverage': (rule_root_coverage, 'P9+P25'),
     'colour-vocabulary': (rule_colour_vocabulary, 'T8'),
+    'hex-colour': (rule_hex_colour, 'T1'),
 }
 
 

@@ -51,7 +51,7 @@ spec:
             stateKey: ($state | ascii_downcase),
             age: (.metadata.creationTimestamp // .spec.triggeredAt // ""),
             triggeredAt: (.spec.triggeredAt // .metadata.creationTimestamp // ""),
-            sevColor: ({ Open: "#cf1322", Verifying: "#d48806", Resolved: "#389e0d" }[$state] // "#8c8c8c")
+            sevColor: ({ Open: "var(--red-color)", Verifying: "var(--orange-color)", Resolved: "var(--green-color)" }[$state] // "var(--gray-color)")
           }
       ) | sort_by(.triggeredAt) | reverse) as $rows
     | ([ $items[] | select((.status.state // "Analyzing") as $s | ($s != "Resolved" and $s != "Closed")) | alertlabel ] | unique) as $openAlerts

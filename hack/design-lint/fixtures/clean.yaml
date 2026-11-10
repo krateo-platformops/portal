@@ -462,3 +462,25 @@ spec:
     actions:
       navigate:
         - {id: del, type: navigate, path: /compositions/delete}
+---
+# T1: a palette name computed into a cell, a URL fragment, and a chart mark (exempt) stay silent.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-palette-cell}
+spec:
+  widgetData:
+    columns:
+      - valueKey: sev
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ [ .rows[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:.sev,color:"red"}, {valueKey:"doc",kind:"jsonSchemaType",type:"string",stringValue:"/docs#section"} ] ] }'
+---
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata: {name: good-chart-mark}
+spec:
+  widgetData:
+    title: Throughput
+  widgetDataTemplate:
+    - forPath: annotations
+      expression: '${ [ { style: { fill: "#F2A33C" } } ] }'

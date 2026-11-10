@@ -530,3 +530,24 @@ spec:
     actions:
       navigate:
         - {id: del, type: navigate, path: /compositions/delete}
+---
+# T1 — a hex literal computed into a table cell, and one in a RESTAction's jq.
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: t1-hex-cell
+spec:
+  widgetData:
+    columns:
+      - valueKey: sev
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ [ .rows[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:.sev,color:"#cf1322"} ] ] }'
+---
+kind: RESTAction
+apiVersion: templates.krateo.io/v1
+metadata:
+  name: t1-hex-restaction
+spec:
+  filter: '{ rows: [ .items[] | { sevColor: ({ Open: "#cf1322" }[.state] // "#8c8c8c") } ] }'
+
