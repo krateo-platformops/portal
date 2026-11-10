@@ -1,0 +1,27 @@
+{{/* GUARDED by observability.reconcileTracing, like restaction.obs-composition-staleness.yaml and
+     the Reconciliation tab entry that reaches this CR (col.obs-tab-reconciliation.yaml). */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* The empty state: no composition is overdue (every live one reconciled within 5 min). */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-staleness-allclear
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  widgetData:
+    status: success
+    title: All compositions reconciled within the last 5 min
+    subTitle: Nothing is overdue.
+  widgetDataTemplate:
+  - forPath: title
+    expression: '${ .allClear // "All compositions reconciled within the last 5 min" }'
+  apiRef:
+    name: obs-composition-staleness
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}
