@@ -43,7 +43,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"pod",kind:"jsonSchemaType",type:"string",stringValue:.pod}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"cpu",kind:"jsonSchemaType",type:"string",stringValue:((.cpu_m|tostring)+" m")}, {valueKey:"mem",kind:"jsonSchemaType",type:"string",stringValue:((.mem_mib|tostring)+" MiB"),color:((.mem_mib|tonumber) | if . > 1024 then "#cf1322" elif . > 512 then "#d48806" else "#8c8c8c" end)} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"pod",kind:"jsonSchemaType",type:"string",stringValue:.pod}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"cpu",kind:"jsonSchemaType",type:"string",stringValue:((.cpu_m|tostring)+" m")}, {valueKey:"mem",kind:"jsonSchemaType",type:"string",stringValue:((.mem_mib|tostring)+" MiB"),color:((.mem_mib|tonumber) | if . > 1024 then "var(--red-color)" elif . > 512 then "var(--orange-color)" else "var(--gray-color)" end)} ] ] }'
   apiRef:
     name: obs-resource-usage
     namespace: {{ $.Values.namespace }}

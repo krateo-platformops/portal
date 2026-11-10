@@ -191,7 +191,7 @@ spec:
         phase: (.status.phase // "Pending"),
         exit: (if (.status.exitCode // null) | isnum then (.status.exitCode | tostring) else "—" end),
         message: (.status.message // ""),
-        color: ({ Succeeded: "#389e0d", Failed: "#cf1322", Rejected: "#d46b08", Running: "#1677ff" }[.status.phase // ""] // "#8c8c8c") })) as $runRows
+        color: ({ Succeeded: "var(--green-color)", Failed: "var(--red-color)", Rejected: "var(--orange-color)", Running: "var(--info-color)" }[.status.phase // ""] // "var(--gray-color)") })) as $runRows
     | ((($fix.apply // "") | rtrimstr("\n")) as $applyScript
        | $runs[0:10] | map(
         (.status // {}) as $rs
