@@ -556,8 +556,9 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-compositions-table.py
 
-      # A composition with no readiness signal (Ready=Unknown, reason ZeroEvidence) is set aside on
-      # the Dashboard, and an Unknown with any other reason is not. Runs the RA's and the widgets' own
+      # A composition that cannot be judged (Ready=Unknown, reason ZeroEvidence, or ChildrenForbidden
+      # which the rail labels as the RBAC defect it is) is set aside on the Dashboard, and an Unknown
+      # with any other reason is not. Runs the RA's and the widgets' own
       # jq over krateo-057's compositions; same job because it needs helm, jq and the CRDs pulled above.
       - name: Dashboard not-assessable bucket, over the chart's own jq
         run: |

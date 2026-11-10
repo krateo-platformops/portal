@@ -32,8 +32,10 @@ spec:
       {{/* D4: each rail row is clickable → that composition's detail page (logs/manifest/relations). */}}
       navigateTo: '/compositions/{ns}/{name}'
       {{/* `rail` is the RA's bar for this row: healthPercent / railState / "N%", except for a */}}
-      {{/* composition that is not assessable (Ready=Unknown, reason ZeroEvidence): percent 0 and */}}
-      {{/* gray, so the whole `rail` trail is the neutral hatch, labelled "No signal". */}}
+      {{/* composition that is not assessable, whose bar is percent 0 (the whole trail hatched): */}}
+      {{/*   Ready=Unknown/ZeroEvidence       state notAssessable, gray, "No signal" (nobody's defect) */}}
+      {{/*   Ready=Unknown/ChildrenForbidden  state unreadable, the palette's `warning` (attention) */}}
+      {{/*                                    colour, "Children unreadable": an RBAC defect to fix */}}
       bar:
         percent: '{rail.percent}'
         color:
@@ -45,9 +47,11 @@ spec:
             degraded: orange
             paused: gray
             notAssessable: gray
+            unreadable: warning
             failed: red
         label: '{rail.label}'
-        {{/* The reason behind "No signal", on hover or focus. The RA sets `rail.reason` only on a */}}
+        {{/* The reason behind "No signal" / "Children unreadable", on hover or focus (for the */}}
+        {{/* latter the controller's message names the refused children). The RA sets `rail.reason` only on a */}}
         {{/* not assessable row; on any other row it is absent, and the label has no tooltip. */}}
         {{/* Needs frontend-crds 1.8.33 (the Listy CRD's bar.tooltip). */}}
         tooltip: '{rail.reason}'

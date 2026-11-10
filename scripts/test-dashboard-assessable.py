@@ -8,10 +8,16 @@ now marks it `assessable: false`; the stat cards, the condition coverage and the
 set it aside and say how many they set aside. Hovering a rail row's "No signal" names the reason
 (`rail.reason`, "Ready=Unknown · ZeroEvidence: <the controller's message>"); no other row has one.
 
-THE RULE, and the one that is easy to get wrong: the bucket is matched on the REASON. Unknown also
-comes with `ChildrenForbidden` and `InventoryNotRecorded` (cdc childhealth.go), which are defects,
-and the set of reasons is open. So an Unknown with any reason but ZeroEvidence must stay Pending.
-A match on `status == "Unknown"` alone passes the 057 case and fails the defect case below.
+`ChildrenForbidden` (core-provider 2.13.82, cdc childhealth.go) is the other Unknown that cannot be
+judged: the controller was REFUSED reading every child it could not otherwise assess, an RBAC
+defect. Since Diego's decision of 2026-11-10 it is set aside too (not Pending: nothing converges),
+but labelled as the defect it is: its rail row says "Children unreadable" in the attention colour
+(`warning`), with the controller's reason on hover, where ZeroEvidence says a neutral "No signal".
+
+THE RULE, and the one that is easy to get wrong: the bucket is matched on the REASON, exactly as
+core-provider spells it. Unknown also comes with `InventoryNotRecorded` (transient by design), and
+the set of reasons is open. So an Unknown with any other reason must stay Pending. A match on
+`status == "Unknown"` alone passes the 057 case and fails the defect case below.
 
 HOW. The fixture is krateo-057's 82 compositions as read on 2026-11-08 (65 Available, 14
 AvailablePartialCoverage, 1 ReconcilePaused, 2 ZeroEvidence), trimmed to the fields the RA reads.
@@ -205,9 +211,18 @@ def ready_reason(item):
     return next((c['reason'] for c in item['status']['conditions'] if c['type'] == 'Ready'), None)
 
 
-DEFECTS = [unknown('children-forbidden', 'ChildrenForbidden'),
-           unknown('inventory-not-recorded', 'InventoryNotRecorded'),
+# core-provider 2.13.82's message for this reason (childrenForbiddenMessage + withUnreadable).
+FORBIDDEN_MSG = ('Composition health is unknown: none of its 3 managed children could be health-evaluated '
+                 '(3 of 3 managed children could NOT BE READ — this controller\'s ServiceAccount was refused '
+                 'access, which is a gap in the generated RBAC rather than a problem with the children: '
+                 'Deployment/web, Service/web, ConfigMap/web-config)')
+UNREADABLE = unknown('children-forbidden', 'ChildrenForbidden')
+UNREADABLE['status']['conditions'][0]['message'] = FORBIDDEN_MSG
+# Unknowns that are NOT this bucket, and a composition still coming up: all Pending, all assessable.
+DEFECTS = [unknown('inventory-not-recorded', 'InventoryNotRecorded'),
            unknown('some-new-reason', 'SomeNewReason')]
+CREATING = unknown('creating', 'Creating')
+CREATING['status']['conditions'][0]['status'] = 'False'
 
 check('the fixture is the 057 mix', sorted({r: [ready_reason(i) for i in LIVE].count(r)
                                             for r in map(ready_reason, LIVE)}.items()),
@@ -249,26 +264,48 @@ check('057: no other rail row has a tooltip',
 check('057: the RA keeps .state and .railState for the pages that read them',
       sorted({(i['state'], i['railState']) for i in out['list'] if i['name'] in SILENT}), [('pending', 'pending')])
 
-# --- 2. an Unknown with any other reason is a defect, not silence ---------------------------------
-out = compositions_list(LIVE + DEFECTS)
+# --- 2. ChildrenForbidden is set aside too, and says it is a defect; other Unknowns stay Pending --
+out = compositions_list(LIVE + [UNREADABLE] + DEFECTS)
 got = page(out)
+SET_ASIDE = SILENT | {'children-forbidden'}
 check('defects: Compositions', got['compositions'], 85)
-check('defects: still only the ZeroEvidence pair is set aside', got['subline'], '2 not assessable')
-check('defects: Healthy over 83 assessable', got['healthy'], (80, '96%', 'of 83 assessable'))
-check('defects: all three Unknowns are Pending', got['pending'], (3, '3%', 'of assessable'))
+check('defects: the ZeroEvidence pair and ChildrenForbidden are set aside', got['subline'], '3 not assessable')
+check('defects: Healthy over 82 assessable', got['healthy'], (80, '97%', 'of 82 assessable'))
+check('defects: the two other Unknowns are Pending', got['pending'], (2, '2%', 'of assessable'))
 check('defects: coverage Ready', got['coverage'].get('Ready'),
-      ('80/83', 96, '+ 2 not assessable (no readiness signal)'))
+      ('80/82', 97, '+ 3 not assessable (no readiness signal)'))
+item = next(i for i in out['list'] if i['name'] == 'children-forbidden')
+check('defects: children-forbidden is not assessable', item['assessable'], False)
+check('defects: children-forbidden keeps .state and .railState for the pages that read them',
+      (item['state'], item['railState']), ('pending', 'pending'))
+row = got['rail'].get('children-forbidden')
+check('defects: rail children-forbidden is a fully hatched bar in the attention colour, saying why',
+      row and (row['percent'], row['color'], row['label']), (0, 'warning', 'Children unreadable'))
+check('defects: rail children-forbidden names its reason on hover', row and row['tooltip'],
+      'Ready=Unknown · ChildrenForbidden: ' + FORBIDDEN_MSG.removeprefix('Composition health is unknown: '))
+for name in sorted(SILENT):
+    r = got['rail'].get(name)
+    check(f'defects: rail {name} stays the neutral No signal', r and (r['percent'], r['color'], r['label']),
+          (0, 'gray', 'No signal'))
+check('defects: only children-forbidden says Children unreadable',
+      sorted(n for n, r in got['rail'].items() if r['label'] == 'Children unreadable'), ['children-forbidden'])
 for d in DEFECTS:
     name = d['metadata']['name']
     item = next(i for i in out['list'] if i['name'] == name)
     check(f'defects: {name} is assessable', item['assessable'], True)
+    check(f'defects: {name} is pending', (item['state'], item['railState']), ('pending', 'pending'))
     row = got['rail'].get(name)
     check(f'defects: rail {name} keeps its pending bar', row and (row['percent'], row['color'], row['label']),
           (50, 'orange', '50%'))
     check(f'defects: {name} carries no rail.reason', 'reason' in item['rail'], False)
     check(f'defects: rail {name} has no tooltip', row and row['tooltip'], '')
-check('defects: only the ZeroEvidence pair carries rail.reason',
-      sorted(i['name'] for i in out['list'] if i['rail'].get('reason')), sorted(SILENT))
+check('defects: only the not assessable rows carry rail.reason',
+      sorted(i['name'] for i in out['list'] if i['rail'].get('reason')), sorted(SET_ASIDE))
+# Ready=False/Creating is converging: Pending and assessable, not set aside. Checked on its own row
+# rather than in the card figures, whose pendingPercent counts only Ready neither True nor False.
+item = compositions_list([CREATING])['list'][0]
+check('creating: assessable and pending', (item['assessable'], item['state'], item['railState']), (True, 'pending', 'pending'))
+check('creating: its pending bar, no reason', item['rail'], {'percent': 50, 'state': 'pending', 'label': '50%'})
 
 # --- 3. nothing to set aside: the page reads as it did before ------------------------------------
 # These are the values the widgets' previous expressions give over the same data (diffed against
@@ -277,12 +314,12 @@ check('defects: only the ZeroEvidence pair carries rail.reason',
 NONE = [i for i in LIVE if ready_reason(i) != 'ZeroEvidence'] + DEFECTS
 out = compositions_list(NONE)
 got = page(out)
-check('none: Compositions', got['compositions'], 83)
+check('none: Compositions', got['compositions'], 82)
 check('none: the subline is the new-in-range pair', got['subline'],
       ['delta-tag-compositions', 'delta-cap-compositions'])
-check('none: Healthy of total', got['healthy'], (80, '96%', 'of total'))
-check('none: Pending of total', got['pending'], (3, '3%', 'of total'))
-check('none: coverage Ready has no note', got['coverage'].get('Ready'), ('80/83', 96, ''))
+check('none: Healthy of total', got['healthy'], (80, '97%', 'of total'))
+check('none: Pending of total', got['pending'], (2, '2%', 'of total'))
+check('none: coverage Ready has no note', got['coverage'].get('Ready'), ('80/82', 97, ''))
 rail_map = named(DASH, 'rail-list')['spec']['widgetData']['itemTemplate']['bar']['color']['map']
 by_name = {i['name']: i for i in out['list']}
 check('none: every rail row is its healthPercent and railState colour',
@@ -309,6 +346,17 @@ odd = copy.deepcopy(only_silent[0])
 odd['status']['conditions'][0]['status'] = 'False'
 check('ZeroEvidence on Ready=False is not set aside', compositions_list([odd])['list'][0]['assessable'], True)
 check('ZeroEvidence on Ready=False carries no rail.reason', 'reason' in compositions_list([odd])['list'][0]['rail'], False)
+odd = copy.deepcopy(UNREADABLE)
+odd['status']['conditions'][0]['status'] = 'False'
+check('ChildrenForbidden on Ready=False is not set aside', compositions_list([odd])['list'][0]['assessable'], True)
+check('ChildrenForbidden on Ready=False is failed, not unreadable',
+      compositions_list([odd])['list'][0]['rail']['state'], 'failed')
+# A near-miss spelling is not the reason: core-provider pins the exact string, and so does this.
+odd = unknown('forbidden', 'Forbidden')
+check('Unknown/Forbidden is not ChildrenForbidden', compositions_list([odd])['list'][0]['assessable'], True)
+only_unreadable = compositions_list([UNREADABLE])
+check('only ChildrenForbidden: nothing assessable, nothing pending',
+      (only_unreadable['assessment']['notAssessable'], only_unreadable['assessment']['pending']), (1, 0))
 # The reason text when the message is not the usual one: empty says the condition alone, and one
 # without the usual opening is kept whole.
 bare = copy.deepcopy(only_silent[0])
@@ -324,7 +372,8 @@ check('ZeroEvidence with another message: kept whole',
 
 # --- every rail state the RA emits is coloured (a missing one renders near-black) ----------------
 check('the dashboard rail colours every rail.state',
-      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused', 'notAssessable'} - set(rail_map)), [])
+      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused', 'notAssessable', 'unreadable'}
+             - set(rail_map)), [])
 
 
 # --- widgets as authored and as resolved, against the frontend CRDs -------------------------------
@@ -376,7 +425,7 @@ if args.crds:
         for err in sorted(jsonschema.Draft7Validator(schema).iter_errors(doc), key=lambda e: list(e.path)):
             failures.append(f'{label}: {"/".join(map(str, err.path))}: {err.message[:200]}')
 
-    for case, items in [('057', LIVE), ('defects', LIVE + DEFECTS), ('none', NONE)]:
+    for case, items in [('057', LIVE), ('defects', LIVE + [UNREADABLE] + DEFECTS), ('none', NONE)]:
         out = compositions_list(items)
         for name in WIDGETS:
             doc = copy.deepcopy(named(DASH, name))

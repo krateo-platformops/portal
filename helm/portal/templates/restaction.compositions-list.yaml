@@ -75,19 +75,31 @@ spec:
   {{/* failed put every new composition on the dashboard's failure count. A paused one reports */}}
   {{/* Ready=True and Synced=False on purpose, which is why railState checks it first: it would */}}
   {{/* otherwise read as Drift. Reasons are the values core-provider emits. */}}
-  {{/* NOT ASSESSABLE. Ready=Unknown with reason exactly `ZeroEvidence` means none of the */}}
-  {{/* composition's managed children has readiness semantics the controller can read */}}
-  {{/* (unstructured-runtime condition.go). That is permanent and healthy, so `assessable: false` */}}
-  {{/* takes it out of the dashboard's Pending figures. The match is on the REASON: Unknown also */}}
-  {{/* comes with ChildrenForbidden and InventoryNotRecorded (cdc childhealth.go), which are */}}
-  {{/* defects, and the set of reasons is open, so any other Unknown stays assessable. `.state` and */}}
-  {{/* `.railState` are unchanged (the Compositions and Observability pages read them); `rail` is */}}
-  {{/* the dashboard rail's bar, and `assessment` + `conditionCoverage` are its card and coverage */}}
-  {{/* figures, computed over `list` (the same set the cards count). `rail.reason` is set on a not */}}
-  {{/* assessable row only, and the rail shows it on hover over "No signal": "Ready=Unknown · */}}
-  {{/* ZeroEvidence: <message>". The message is the controller's, less its opening "Composition */}}
-  {{/* health is unknown: ", which says again what Ready=Unknown says. Any other row has no */}}
-  {{/* `rail.reason`, so its label has no tooltip. */}}
+  {{/* NOT ASSESSABLE. Two Ready=Unknown reasons mean the controller could judge NOT ONE of the */}}
+  {{/* composition's managed children, so the composition cannot be judged either, and counting */}}
+  {{/* it as Pending says it is converging, which it is not. `assessable: false` takes both out */}}
+  {{/* of the dashboard's Pending figures and puts them in its "not assessable" count: */}}
+  {{/*   ZeroEvidence       the children publish no readiness semantics the controller can read */}}
+  {{/*                      (unstructured-runtime condition.go). Permanent, and nobody's defect, */}}
+  {{/*                      so its rail row is neutral: gray, "No signal". */}}
+  {{/*   ChildrenForbidden  at least one read was REFUSED by RBAC and nothing else was assessed */}}
+  {{/*                      (cdc childhealth.go, core-provider#318). A defect in the generated */}}
+  {{/*                      RBAC an operator can fix, so its rail row is the attention colour, */}}
+  {{/*                      "Children unreadable" (rail.state `unreadable`): set aside like */}}
+  {{/*                      ZeroEvidence, but not passed off as a quiet one. */}}
+  {{/* This used to keep ChildrenForbidden assessable (Pending) for being a defect; Diego's */}}
+  {{/* decision of 2026-11-10 replaced that: a defect is shown as one, not as progress. The */}}
+  {{/* match is on those two REASONS, exactly as core-provider emits them: Unknown also comes */}}
+  {{/* with InventoryNotRecorded (transient by design), and the set of reasons is open, so any */}}
+  {{/* other Unknown stays assessable and Pending. `.state` and `.railState` are unchanged (the */}}
+  {{/* Compositions and Observability pages read them, and show both reasons as Pending); `rail` */}}
+  {{/* is the dashboard rail's bar, and `assessment` + `conditionCoverage` are its card and */}}
+  {{/* coverage figures, computed over `list` (the same set the cards count). `rail.reason` is */}}
+  {{/* set on a not assessable row only, and the rail shows it on hover over its label: */}}
+  {{/* "Ready=Unknown · <reason>: <message>". The message is the controller's, less its opening */}}
+  {{/* "Composition health is unknown: " (both reasons' messages start with it), which says */}}
+  {{/* again what Ready=Unknown says; for ChildrenForbidden it names the refused children. Any */}}
+  {{/* other row has no `rail.reason`, so its label has no tooltip. */}}
   {{/* ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state */}}
   {{/* OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the */}}
   {{/* reconcile-breakdown drill-down; the other status values keep filtering on .state. */}}
@@ -102,7 +114,7 @@ spec:
     | (.scope // "workloads") as $scope
     | ((.q // "") | ascii_downcase) as $q
     | now as $now
-    | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False" and .reason != "Creating")) as $notready | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence")) as $silent | (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end) as $railState | (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end) as $healthPercent | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: $railState, healthPercent: $healthPercent, coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end), assessable: ($silent | not), rail: (if $silent then {percent: 0, state: "notAssessable", label: "No signal", reason: (first($c[]? | select(.type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence") | ((.message // "") | ltrimstr("Composition health is unknown: ")) as $m | "Ready=" + .status + " · " + .reason + (if $m != "" then ": " + $m else "" end)) // "")} else {percent: $healthPercent, state: $railState, label: (($healthPercent | tostring) + "%")} end)}))) as $all
+    | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False" and .reason != "Creating")) as $notready | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence")) as $silent | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden")) as $unreadable | (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" else "pending" end) as $railState | (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end) as $healthPercent | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" else "pending" end), railState: $railState, healthPercent: $healthPercent, coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end), assessable: (($silent or $unreadable) | not), rail: (if ($silent or $unreadable) then {percent: 0, state: (if $silent then "notAssessable" else "unreadable" end), label: (if $silent then "No signal" else "Children unreadable" end), reason: (first($c[]? | select(.type == "Ready" and .status == "Unknown" and (.reason == "ZeroEvidence" or .reason == "ChildrenForbidden")) | ((.message // "") | ltrimstr("Composition health is unknown: ")) as $m | "Ready=" + .status + " · " + .reason + (if $m != "" then ": " + $m else "" end)) // "")} else {percent: $healthPercent, state: $railState, label: (($healthPercent | tostring) + "%")} end)}))) as $all
     | $all as $dated
     | ($dated | map(select(if $scope == "all" then true elif $scope == "platform" then .platform else (.platform | not) end))) as $scoped
     | ($all | map(select(.assessable | not)) | length) as $na
