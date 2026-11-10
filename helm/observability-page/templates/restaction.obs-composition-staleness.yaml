@@ -104,7 +104,7 @@ spec:
     continueOnError: true
     errorKey: lastError
   {{/* Output: {telemetry: ok|unavailable|empty, view: table|unavailable|allclear, extra (the card
-       header), message (the centred text for the unavailable view), allClear (the empty state's
+       header), title + message (the unavailable view's bold line and text), allClear (the empty state's
        title), listError, counts: {live, never, overdue}, rows, alert: null | {type, title, text}}.
        rows: {kind, ns, name, never, last (epoch s), lastIso, lastUtc, createdText}, compositions
        with no reconcile span in the window FIRST (oldest-created first), then oldest reconcile
@@ -146,6 +146,7 @@ spec:
         telemetry: $telemetry,
         view: (if $telemetry != "ok" then "unavailable" elif $overdue == 0 and ($listError | not) then "allclear" else "table" end),
         extra: (if $telemetry == "ok" then "trace window: since " + short($since) + " (7 days)" else "trace window: unavailable" end),
+        title: (if $telemetry == "empty" then "No reconcile traces" else "Telemetry unavailable" end),
         message: (if $telemetry == "empty" then "No reconcile traces from the last 7 days were found, so last-reconcile times can't be shown right now. Reconcile tracing may be off on this cluster. The compositions themselves are not affected."
                   else "The reconcile traces could not be read, so last-reconcile times can't be shown right now. The compositions themselves are not affected." end),
         allClear: ("All " + (($rows | length) | tostring) + " compositions reconciled within the last " + (($overdueAfter / 60) | floor | tostring) + " min"),

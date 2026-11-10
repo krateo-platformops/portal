@@ -798,11 +798,11 @@ def check_staleness_joins_live_compositions(c):
             cells(r)['last']['kind'], cells(r)['last']['stringValue'], cells(r)['utc']['stringValue'],
             cells(r)['age']['stringValue']) for r in rows]
     expect(p, 'rows: none-in-window first (oldest created first), then oldest reconcile first; trace-only dropped', got, [
-        ('team-b/never-old', '· FireworksApp', 'tag', 'none in the trace window', '—', 'created 3h ago'),
-        ('team-b/never-new', '· FireworksApp', 'tag', 'none in the trace window', '—', 'created 10m ago'),
-        ('team-a/stuck', '· FireworksApp', 'jsonSchemaType', '2026-11-10T12:00:00Z', '2026-11-10 12:00:00 UTC', 'created 8d ago'),
-        ('krateo-system/portal', '· Portal', 'jsonSchemaType', '2026-11-10T13:58:50Z', '2026-11-10 13:58:50 UTC', 'created 77d ago'),
-        ('team-a/fresh', '· FireworksApp', 'jsonSchemaType', '2026-11-10T13:59:30Z', '2026-11-10 13:59:30 UTC', 'created 9d ago'),
+        ('team-b/never-old', 'FireworksApp', 'tag', 'none in the trace window', '—', 'created 3h ago'),
+        ('team-b/never-new', 'FireworksApp', 'tag', 'none in the trace window', '—', 'created 10m ago'),
+        ('team-a/stuck', 'FireworksApp', 'jsonSchemaType', '2026-11-10T12:00:00Z', '2026-11-10 12:00:00 UTC', 'created 8d ago'),
+        ('krateo-system/portal', 'Portal', 'jsonSchemaType', '2026-11-10T13:58:50Z', '2026-11-10 13:58:50 UTC', 'created 77d ago'),
+        ('team-a/fresh', 'FireworksApp', 'jsonSchemaType', '2026-11-10T13:59:30Z', '2026-11-10 13:59:30 UTC', 'created 9d ago'),
     ])
     first = cells(rows[0])
     expect(p, 'the pill is the warning token', first['last'].get('color'), 'warning')
@@ -843,8 +843,8 @@ UNAVAILABLE = ("The reconcile traces could not be read, so last-reconcile times 
 
 def check_staleness_never_flags_every_row(c):
     p = []
-    for label, kw, want in [('ClickHouse down', {'ch_down': True}, UNAVAILABLE),
-                            ('no reconcile span at all', {'spans': []}, None)]:
+    for label, kw, want, title in [('ClickHouse down', {'ch_down': True}, UNAVAILABLE, 'Telemetry unavailable'),
+                                   ('no reconcile span at all', {'spans': []}, None, 'No reconcile traces')]:
         _, _, out = stale_resolve(c, **kw)
         card, items = stale_view(c, out, label)
         expect(p, f'{label}: one message, no table', items, ['obs-staleness-unavailable'])
@@ -853,6 +853,7 @@ def check_staleness_never_flags_every_row(c):
         expect(p, f'{label}: no composition counted as never reconciled or overdue', out['counts'],
                {'live': 5, 'never': 0, 'overdue': 0})
         res = tbi.resolved_widget(c, 'Result', 'obs-staleness-unavailable', out, {}, label)['spec']['widgetData']
+        expect(p, f'{label}: the bold title', res.get('title'), title)
         if want:
             expect(p, f'{label}: the message', res['subTitle'], want)
         elif 'not affected' not in res['subTitle'] or 'tracing' not in res['subTitle']:
