@@ -100,6 +100,10 @@ spec:
   {{/* "Composition health is unknown: " (both reasons' messages start with it), which says */}}
   {{/* again what Ready=Unknown says; for ChildrenForbidden it names the refused children. Any */}}
   {{/* other row has no `rail.reason`, so its label has no tooltip. */}}
+  {{/* `assessment.pendingPercent` is `pending` over `assessable`, from the one `$pending` count, so */}}
+  {{/* the Pending card's figure and its tag cannot disagree. It used to count rows whose Ready was */}}
+  {{/* neither True nor False, which left out Ready=False/Creating (Pending, above): the card could */}}
+  {{/* say 3 beside a tag computed from 2. */}}
   {{/* ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state */}}
   {{/* OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the */}}
   {{/* reconcile-breakdown drill-down; the other status values keep filtering on .state. */}}
@@ -119,15 +123,16 @@ spec:
     | ($dated | map(select(if $scope == "all" then true elif $scope == "platform" then .platform else (.platform | not) end))) as $scoped
     | ($all | map(select(.assessable | not)) | length) as $na
     | (($all | length) - $na) as $assessable
+    | ($all | map(select(.assessable and .state == "pending")) | length) as $pending
     | {
         list: $all,
         assessment: {
           total: ($all | length),
           assessable: $assessable,
           notAssessable: $na,
-          pending: ($all | map(select(.assessable and .state == "pending")) | length),
+          pending: $pending,
           healthyPercent: (if $assessable > 0 then (($all | map(select(.state == "healthy")) | length) * 100 / $assessable | floor) else 0 end),
-          pendingPercent: (if $assessable > 0 then (($all | map(select(.assessable and ((.conditions // []) | any(.type == "Ready" and (.status == "True" or .status == "False")) | not))) | length) * 100 / $assessable | floor) else 0 end)
+          pendingPercent: (if $assessable > 0 then ($pending * 100 / $assessable | floor) else 0 end)
         },
         conditionCoverage: (([ $all[].conditions[]?.type ] | unique) as $types | [ $types[] | . as $t | ($all | map(select($t != "Ready" or .assessable))) as $l | ([ $l[] | select(any(.conditions[]?; .type == $t and .status == "True")) ] | length) as $tc | ([ $l[] | select(any(.conditions[]?; .type == $t)) ] | length) as $n | { type: $t, percent: (if $n > 0 then ($tc * 100 / $n | floor) else 0 end), label: (($tc | tostring) + "/" + ($n | tostring)), route: (if $t == "Ready" then "/compositions?status=failed" else "" end), note: (if $t == "Ready" and $na > 0 then ("+ " + ($na | tostring) + " not assessable (no readiness signal)") else "" end) } ]),
         filtered: ($scoped | map(select((if $status == "drift" then (.railState == "drift") else ($status == "all" or .state == $status) end) and ($q == "" or ((.name // "") | ascii_downcase | contains($q)) or ((.kind // "") | ascii_downcase | contains($q)))))),
