@@ -983,6 +983,13 @@ def check_chart_conventions(c):
         ('Namespace', '', NS),
         ('Role', NS, 'admins-read-audit-pages'), ('Role', NS, 'devs-read-audit-pages'),
         ('RoleBinding', NS, 'admins-read-audit-pages'), ('RoleBinding', NS, 'devs-read-audit-pages')])
+    # Diego, 2026-11-10: the table caption is a sentence in plain text, like the Traces tab's; the eyebrow
+    # (uppercase since frontend#654) is for the four short chip-group labels only.
+    expect(p, 'paragraph variants', {n: c.get('Paragraph', n)['spec']['widgetData'].get('variant') for n in
+                                     ['audit-table-caption', 'audit-range-label', 'audit-namespace-label',
+                                      'audit-outcome-label', 'audit-user-label']},
+           {'audit-table-caption': None, 'audit-range-label': 'eyebrow', 'audit-namespace-label': 'eyebrow',
+            'audit-outcome-label': 'eyebrow', 'audit-user-label': 'eyebrow'})
     role = c.get('Role', 'devs-read-audit-pages')
     expect(p, 'what a reader group may do there', role['rules'], [
         {'apiGroups': ['widgets.templates.krateo.io'], 'resources': ['*'], 'verbs': ['get', 'list']},
