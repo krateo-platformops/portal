@@ -22,7 +22,7 @@ spec:
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
   - forPath: value
     {{/* The RA's pending count: `.state == "pending"` minus the not-assessable compositions */}}
-    {{/* (Ready=Unknown, reason ZeroEvidence), which have no readiness signal and are not waiting on */}}
+    {{/* (Ready=Unknown, reason ZeroEvidence or ChildrenForbidden), which have no readiness signal and are not waiting on */}}
     {{/* anything. With none of those it is the same count as `.state == "pending"`. */}}
     expression: '${ .assessment.pending }'
   apiRef:
