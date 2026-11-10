@@ -133,7 +133,7 @@ spec:
     | [ (.comps // [])[] | select(type == "object" and (.name // "") != "")
         | (if $telemetry == "ok" then $byKey[(.kind // "") + "|" + (.ns // "") + "|" + (.name // "")] else null end) as $l
         | ((.ts // "") | fromdateiso8601? // null) as $created
-        | {kind: (.kind // ""), ns: (.ns // ""), name, never: ($l == null), last: $l,
+        | {kind: (.kind // ""), ns: (.ns // ""), name, never: ($telemetry == "ok" and $l == null), last: $l,
            ageSec: (if $l != null and $now != null then ([$now - $l, 0] | max) else null end),
            createdAgeSec: (if $created != null and $now != null then ([$now - $created, 0] | max) else null end),
            lastIso: (if $l != null then ($l | todate) else "" end),

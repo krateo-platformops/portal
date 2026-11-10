@@ -850,6 +850,8 @@ def check_staleness_never_flags_every_row(c):
         expect(p, f'{label}: one message, no table', items, ['obs-staleness-unavailable'])
         expect(p, f'{label}: header', card['extra'], 'trace window: unavailable')
         expect(p, f'{label}: no rows', out['rows'], [])
+        expect(p, f'{label}: no composition counted as never reconciled or overdue', out['counts'],
+               {'live': 5, 'never': 0, 'overdue': 0})
         res = tbi.resolved_widget(c, 'Result', 'obs-staleness-unavailable', out, {}, label)['spec']['widgetData']
         if want:
             expect(p, f'{label}: the message', res['subTitle'], want)
