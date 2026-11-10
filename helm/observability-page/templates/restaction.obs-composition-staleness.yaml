@@ -1,0 +1,157 @@
+{{/* GUARDED by observability.reconcileTracing, like the widgets that read it (row/card/table/results/
+     alert obs-staleness-*): the last-reconcile times come from composition-dynamic-controller
+     traces, so without the cdc tracing pipeline every live composition would read as never
+     reconciled. Absent beats wrong. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* COMPOSITION STALENESS: which LIVE compositions have stopped reconciling, and since when.
+     core-provider dropped status.lastReconcileTime (core-provider#439), so liveness comes from
+     traces: every cdc reconcile is a `reconcile` span in otel_traces naming its composition in
+     SpanAttributes[k8s.object.kind|namespace|name].
+
+     WHY THE PER-KIND COMPOSITION LIST. Traces alone cannot answer the question. A composition that
+     never reconciled inside the trace window has no span at all, and that is exactly the row that
+     matters most; and a composition deleted since its last span still has spans. So the live set
+     comes from the apiserver and the spans only date it:
+       crds  CompositionDefinitions -> unique {plural, version} (status.resource/apiVersion), the
+             compositions-list / events shape;
+       comps one cluster-scope LIST per composition kind -> {kind, ns, name, ts};
+       last  ONE ClickHouse aggregate: the newest (and oldest) reconcile span per kind|ns|name.
+     The final filter joins on kind|ns|name (kind, not the controller's deployment name, so a
+     version upgrade that renames the controller keeps the match). Span rows with no live
+     composition are dropped. No ParentSpanId filter: a composition stamped with
+     krateo.io/traceparent records reconcile as a CHILD span (about 18/min roots of 85/min on
+     krateo-057), and filtering roots would date most compositions wrongly.
+
+     RBAC. Both apiserver stages carry a userAccessFilter, so snowplow's SA dials them and narrows
+     per item; the caller needs no cluster grant (lint-caller-cluster-reads.py, #261). The page
+     namespace is admins-only (rbac.page-readers.yaml; OTEL-11 decision: every ClickHouse-backed
+     widget stays admin-only). ClickHouse is reached through the existing clickhouse-endpoint.
+
+     COST. ServiceName and SpanName lead otel_traces' sort key, toDate(Timestamp) is its partition,
+     and the 7-day bound prunes on both. On krateo-057 (2026-11-10, ~87 reconcile spans/min, 114
+     live compositions): 155k rows / 8.5 MiB read, 32 ms, 76 ms CPU, 112 result rows.
+
+     THE TRACE WINDOW. "7 days" is the otel_traces TTL; the window is really "since the oldest
+     reconcile span still held". The card header says "trace window: since <that span> (7 days)",
+     so "none in the trace window" reads honestly while retention is shorter (on 057 tracing started 2026-11-09 12:21
+     UTC, about 27 h before this widget was written).
+
+     NOT REFRESH-ARMED. The `last` stage dials an external endpoint, so snowplow neither keeps the
+     resolve warm nor refreshes it on apiserver events; nothing here declares `watch`. Every view
+     resolves it again, softened only by the widgets' krateo.io/external-cache-ttl-seconds (20 s,
+     as on obs-reconcile-by-composition). Creation ages use ClickHouse's own now(); the relative
+     "last reconcile" is rendered by the browser from the exact timestamp.
+
+     DEGRADED STATES, never a flag on every row:
+       ClickHouse unreadable -> telemetry "unavailable": no rows, the card shows one centred
+         message and its header says "trace window: unavailable";
+       ClickHouse answers but holds no reconcile span in the window -> telemetry "empty": the same
+         view, worded for tracing being off (otherwise every composition would read as never
+         reconciled);
+       a composition LIST failed -> `listError`: an alert above the table says rows may be missing. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-composition-staleness
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: crds
+    path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    userAccessFilter:
+      verb: list
+      group: core.krateo.io
+      resource: compositiondefinitions
+      namespaceFrom: .metadata.namespace
+    filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, version: (.status.apiVersion | split(\"/\")[1])}] | unique"
+    continueOnError: true
+    errorKey: crdsError
+  - name: comps
+    dependsOn:
+      name: crds
+      iterator: .crds
+    path: ${ "/apis/composition.krateo.io/" + .version + "/" + .plural }
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    userAccessFilter:
+      verb: list
+      group: composition.krateo.io
+      resourcesFrom: "[ (.crds // [])[] | .plural ]"
+      namespaceFrom: .metadata.namespace
+    filter: "[.comps.items[]? | {kind: .kind, ns: .metadata.namespace, name: .metadata.name, ts: (.metadata.creationTimestamp // \"\")}]"
+    continueOnError: true
+    errorKey: compsError
+  {{/* Decoded: SELECT SpanAttributes['k8s.object.kind'] AS kind, SpanAttributes['k8s.object.namespace'] AS ns,
+       SpanAttributes['k8s.object.name'] AS name, toUnixTimestamp(max(Timestamp)) AS last,
+       toUnixTimestamp(min(Timestamp)) AS first, toUnixTimestamp(now()) AS now FROM otel_traces
+       WHERE ServiceName = 'composition-dynamic-controller' AND SpanName = 'reconcile'
+       AND Timestamp > now() - INTERVAL 7 DAY GROUP BY kind, ns, name FORMAT JSON
+       No request input reaches it. */}}
+  - name: last
+    endpointRef:
+      name: clickhouse-endpoint
+      namespace: {{ .Release.Namespace }}
+    path: '${ "/?query=SELECT%20SpanAttributes%5B%27k8s.object.kind%27%5D%20AS%20kind%2C%20SpanAttributes%5B%27k8s.object.namespace%27%5D%20AS%20ns%2C%20SpanAttributes%5B%27k8s.object.name%27%5D%20AS%20name%2C%20toUnixTimestamp%28max%28Timestamp%29%29%20AS%20last%2C%20toUnixTimestamp%28min%28Timestamp%29%29%20AS%20first%2C%20toUnixTimestamp%28now%28%29%29%20AS%20now%20FROM%20otel_traces%20WHERE%20ServiceName%20%3D%20%27composition-dynamic-controller%27%20AND%20SpanName%20%3D%20%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%207%20DAY%20GROUP%20BY%20kind%2C%20ns%2C%20name%20FORMAT%20JSON" }'
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    continueOnError: true
+    errorKey: lastError
+  {{/* Output: {telemetry: ok|unavailable|empty, view: table|unavailable|allclear, extra (the card
+       header), message (the centred text for the unavailable view), allClear (the empty state's
+       title), listError, counts: {live, never, overdue}, rows, alert: null | {type, title, text}}.
+       rows: {kind, ns, name, never, last (epoch s), lastIso, lastUtc, createdText}, compositions
+       with no reconcile span in the window FIRST (oldest-created first), then oldest reconcile
+       first. OVERDUE is no span in the window or a last reconcile over 5 min ago: a healthy
+       composition reconciles every couple of minutes. With nothing overdue (and every list read)
+       the card shows the all-clear instead of the table; an incomplete list never reads as "all". FORMAT JSON quotes 64-bit integers on some servers, hence
+       tonumber. Times are UTC. */}}
+  filter: >
+    def ago($s): ($s | if . < 0 then 0 else . end | floor) as $x
+      | if $x < 60 then ($x | tostring) + "s"
+        elif $x < 3600 then (($x / 60) | floor | tostring) + "m"
+        elif $x < 86400 then (($x / 3600) | floor | tostring) + "h"
+        else (($x / 86400) | floor | tostring) + "d" end;
+    def pad2: tostring | if length < 2 then "0" + . else . end;
+    def short($t): ($t | gmtime) as $g
+      | ($g[2] | tostring) + " " + (["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][$g[1]]) + ", " + ($g[3] | pad2) + ":" + ($g[4] | floor | pad2);
+    300 as $overdueAfter
+    | (.last | if type == "object" then . else null end) as $ch
+    | ($ch != null and (.lastError // null) == null) as $read
+    | [ (($ch // {}).data // [])[] | select(type == "object" and (.name // "") != "") ] as $spans
+    | (if $read | not then "unavailable" elif ($spans | length) == 0 then "empty" else "ok" end) as $telemetry
+    | ($spans | map({key: ((.kind // "") + "|" + (.ns // "") + "|" + (.name // "")), value: (.last | tonumber? // null)}) | from_entries) as $byKey
+    | (if $telemetry == "ok" then ($spans[0].now | tonumber? // null) else null end) as $now
+    | (if $telemetry == "ok" then ([ $spans[] | .first | tonumber? // empty ] | min) else null end) as $since
+    | ((.crdsError // null) != null or (.compsError // null) != null) as $listError
+    | [ (.comps // [])[] | select(type == "object" and (.name // "") != "")
+        | (if $telemetry == "ok" then $byKey[(.kind // "") + "|" + (.ns // "") + "|" + (.name // "")] else null end) as $l
+        | ((.ts // "") | fromdateiso8601? // null) as $created
+        | {kind: (.kind // ""), ns: (.ns // ""), name, never: ($l == null), last: $l,
+           ageSec: (if $l != null and $now != null then ([$now - $l, 0] | max) else null end),
+           createdAgeSec: (if $created != null and $now != null then ([$now - $created, 0] | max) else null end),
+           lastIso: (if $l != null then ($l | todate) else "" end),
+           lastUtc: (if $l != null then ($l | todate | .[0:10] + " " + .[11:19] + " UTC") else "" end)}
+        | . + {createdText: (if .createdAgeSec != null then "created " + ago(.createdAgeSec) + " ago" else "—" end)} ]
+    | sort_by(if .never then [0, -(.createdAgeSec // 0), .kind, .ns, .name] else [1, (.last // 0), .kind, .ns, .name] end) as $rows
+    | ($rows | map(select(.never)) | length) as $never
+    | ($rows | map(select(.never or (.ageSec // 0) > $overdueAfter)) | length) as $overdue
+    | {
+        telemetry: $telemetry,
+        view: (if $telemetry != "ok" then "unavailable" elif $overdue == 0 and ($listError | not) then "allclear" else "table" end),
+        extra: (if $telemetry == "ok" then "trace window: since " + short($since) + " (7 days)" else "trace window: unavailable" end),
+        message: (if $telemetry == "empty" then "No reconcile traces from the last 7 days were found, so last-reconcile times can't be shown right now. Reconcile tracing may be off on this cluster. The compositions themselves are not affected."
+                  else "The reconcile traces could not be read, so last-reconcile times can't be shown right now. The compositions themselves are not affected." end),
+        allClear: ("All " + (($rows | length) | tostring) + " compositions reconciled within the last " + (($overdueAfter / 60) | floor | tostring) + " min"),
+        listError: $listError,
+        counts: {live: ($rows | length), never: $never, overdue: $overdue},
+        rows: (if $telemetry == "ok" then $rows else [] end),
+        alert: (if $listError then {type: "error", title: "Composition list incomplete", text: "A CompositionDefinition or composition list could not be read, so some live compositions may be missing below."} else null end)
+      }
+{{- end }}

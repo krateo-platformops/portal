@@ -1,0 +1,52 @@
+{{/* GUARDED by observability.reconcileTracing, like restaction.obs-composition-staleness.yaml and
+     the Reconciliation tab entry that reaches this CR (col.obs-tab-reconciliation.yaml). */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* "Last reconcile by composition": every live composition with its last cdc reconcile, from
+     restaction.obs-composition-staleness (which explains the join and the trace window). Rows
+     come sorted server-side: no reconcile span in the window first, as a warning pill, then the
+     oldest reconcile first. A row opens the composition (hidden ns/name cells).
+     Colours are design tokens only: a tag colour is a palette NAME (getTagStyle), a text colour
+     the token's CSS variable (--<token>-color, set by the theme), so both follow light/dark.
+     The Table cell is one value, so the mockup's two-line cells are split into neighbouring
+     columns: Kind beside Composition, UTC beside Last reconcile, both faint. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-composition-staleness
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  {{/* F6 (snowplow#130): the shell scope and the shared range chips ride every /observability
+       visit (see tabs.obs-main.yaml); this RESTAction reads neither. */}}
+  keyExtras: [projects, range]
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /compositions/{ns}/{name}
+    pagination:
+      defaultPageSize: 10
+    columns:
+    - valueKey: composition
+      title: Composition
+    - valueKey: kind
+      title: Kind
+    - valueKey: last
+      title: Last reconcile
+    - valueKey: utc
+      title: UTC
+    - valueKey: age
+      title: Age
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"composition",kind:"jsonSchemaType",type:"string",stringValue:(.ns + "/" + .name)}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:("· " + .kind),color:"var(--faint-color)"}, (if .never then {valueKey:"last",kind:"tag",stringValue:"none in the trace window",color:"warning"} else {valueKey:"last",kind:"jsonSchemaType",type:"string",stringValue:.lastIso,format:"relative"} end), {valueKey:"utc",kind:"jsonSchemaType",type:"string",stringValue:(if .never then "—" else .lastUtc end),color:"var(--faint-color)"}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:.createdText} ] ] }'
+  apiRef:
+    name: obs-composition-staleness
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

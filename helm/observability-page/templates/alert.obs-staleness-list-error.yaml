@@ -1,0 +1,29 @@
+{{/* GUARDED by observability.reconcileTracing, like restaction.obs-composition-staleness.yaml and
+     the Reconciliation tab entry that reaches this CR (col.obs-tab-reconciliation.yaml). */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* Shown above the table only when a CompositionDefinition or composition LIST failed, so a
+     missing composition is never mistaken for one that does not exist. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-staleness-list-error
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  widgetData:
+    type: error
+    showIcon: true
+    title: Composition list incomplete
+    description: ''
+  widgetDataTemplate:
+  - forPath: description
+    expression: '${ (.alert // {}).text // "" }'
+  apiRef:
+    name: obs-composition-staleness
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

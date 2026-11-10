@@ -54,7 +54,10 @@ NS = 'krateo-system'
 # enableIncidentResponse renders the one cluster binding this chart is allowed to make for a
 # persona (#340 gates it; see ALLOWED_CLUSTER_BINDINGS). Without it this gate would pass
 # because the binding is switched off, not because it is acceptable.
-EXTRA_VALUES = {'portal': ['observability.snowplowSli=true', 'enableIncidentResponse=true']}
+# observability-page: reconcileTracing renders obs-composition-staleness, whose composition lists
+# are cluster-scope reads; checked with the flag on so they are not passed by being switched off.
+EXTRA_VALUES = {'portal': ['observability.snowplowSli=true', 'enableIncidentResponse=true'],
+                'observability-page': ['observability.reconcileTracing=true']}
 
 # Every first-class chart in helm/. The page-set charts split out of portal (#261) carry page
 # RESTActions of their own, so they are checked on the same terms — a cluster-scoped caller dial is

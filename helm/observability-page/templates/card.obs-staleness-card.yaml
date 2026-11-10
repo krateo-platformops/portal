@@ -1,0 +1,71 @@
+{{/* GUARDED by observability.reconcileTracing, like restaction.obs-composition-staleness.yaml and
+     the Reconciliation tab entry that reaches this CR (col.obs-tab-reconciliation.yaml). */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* "Last reconcile by composition", its own card on the Reconciliation tab (not merged into the
+     reconcile-latency table on Telemetry). The header right is the trace window, "since <oldest
+     reconcile span> (7 days)" or "unavailable", so "none in the trace window" reads honestly
+     while retention is shorter than the TTL. The body is ONE of three, chosen by the RESTAction's
+     `view`: the table, the all-clear (nothing overdue), or the unavailable message. The
+     list-error alert sits above the table when a composition LIST failed. `items` is templated
+     and resourcesRefs hold the full pool; an unreferenced child is never fetched. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-staleness-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  apiRef:
+    name: obs-composition-staleness
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Last reconcile by composition
+    titleVariant: eyebrow
+    variant: outlined
+    extra: 'trace window: unavailable'
+    allowedResources:
+    - tables
+    - results
+    - alerts
+    items:
+    - resourceRefId: obs-staleness-unavailable
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ .extra // "trace window: unavailable" }'
+  - forPath: items
+    expression: >-
+      ${ (.view // "unavailable") as $v
+      | (if .listError == true and $v != "unavailable" then [ { resourceRefId: "obs-staleness-list-error" } ] else [] end)
+      + (if $v == "table" then [ { resourceRefId: "obs-composition-staleness" } ]
+         elif $v == "allclear" then [ { resourceRefId: "obs-staleness-allclear" } ]
+         else [ { resourceRefId: "obs-staleness-unavailable" } ] end) }
+  resourcesRefs:
+    items:
+    - id: obs-composition-staleness
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-composition-staleness
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: obs-staleness-allclear
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-staleness-allclear
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET
+    - id: obs-staleness-unavailable
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-staleness-unavailable
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET
+    - id: obs-staleness-list-error
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-staleness-list-error
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+{{- end }}

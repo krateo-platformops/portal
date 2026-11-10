@@ -1,0 +1,27 @@
+{{/* GUARDED by observability.reconcileTracing, like restaction.obs-composition-staleness.yaml and
+     the Reconciliation tab entry that reaches this CR (col.obs-tab-reconciliation.yaml). */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* The card's whole body when last-reconcile times cannot be shown: ClickHouse unreadable, or
+     no reconcile span in the window at all. One centred message, never a flag on every row. */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-staleness-unavailable
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  widgetData:
+    status: warning
+    subTitle: The reconcile traces could not be read, so last-reconcile times can't be shown right now. The compositions themselves are not affected.
+  widgetDataTemplate:
+  - forPath: subTitle
+    expression: '${ .message // "The reconcile traces could not be read, so last-reconcile times can''t be shown right now. The compositions themselves are not affected." }'
+  apiRef:
+    name: obs-composition-staleness
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}
