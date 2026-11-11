@@ -579,6 +579,15 @@ jobs:
           python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
           python3 scripts/test-dashboard-rows.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # The activity feed links a row from the event alone: the composition sse-proxy (>= 1.5.0) names
+      # on it, or a blueprint's own page; an id-only event stays unlinked. The events RA lists no
+      # compositions, which this asserts too. Same job: it needs helm and jq, and runs the chart's own jq.
+      - name: Dashboard activity feed routes, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-dashboard-events-routes.py
+
       # A refused read must not render as a quiet desk. Same job for the same reason as the steps
       # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
       - name: Service desk queue, over the chart's own jq
