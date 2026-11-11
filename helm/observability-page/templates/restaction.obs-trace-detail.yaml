@@ -53,13 +53,38 @@ spec:
       errorKey: spansError
   {{/* 64-bit integers (start_us, dur_ns) arrive as JSON strings. Spans stay in start order; the */}}
   {{/* widgets derive offsets, the summary and the service graph from them. */}}
+  {{/* */}}
+  {{/* askHref: "Ask Agentiko →" in the page header (button.trace-detail-ask-agentiko) — THIS page */}}
+  {{/* with an ?ask seed, @uri-encoded once: the span count, the services, the wall-clock length */}}
+  {{/* (first start to last end, as the header subtitle measures it) and the spans in error (top 8, */}}
+  {{/* numbered). "" when there is nothing to ask about — not a trace id, ClickHouse did not answer, */}}
+  {{/* or no span came back — so the button falls back to the Traces tab rather than seed a prompt */}}
+  {{/* about a trace nobody read. */}}
   filter: >
-    {{ include "obs.traces.valid" . }}
+    {{ include "obs.traces.valid" . }} {{ include "obs.traces.format" . }}
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     ((.traceId // "") | tostring | ascii_downcase) as $t
     | ($t | okTraceId) as $valid
     | [ ((.spans.data) // [])[]
         | { startUs: (.start_us | tonumber? // 0), spanId: (.span_id // ""), parentId: (.parent_id // ""),
             service: (.svc // ""), span: (.span // ""), durationNs: (.dur_ns | tonumber? // 0),
             status: (.status // ""), httpStatus: ((.http // "") | tostring), user: (.sub // "") } ] as $spans
+    | (.spansError != null) as $failed
+    | (($spans | length) >= 1000) as $truncated
+    | ($spans | map(.service | select(. != "")) | unique) as $services
+    | [ $spans[] | select(.status == "Error") ] as $errors
+    | (if ($spans | length) == 0 then "" else
+         (([ $spans[] | .startUs ] | min) as $start | ([ $spans[] | .startUs + (.durationNs / 1000) ] | max) as $end | ((($end - $start) * 1000) | traceDuration)) end) as $wall
+    | ("Explain trace " + $t + ": " + ($spans | length | tostring) + (if ($spans | length) == 1 then " span" else " spans" end)
+       + (if $truncated then " (the first 1000; the trace has more)" else "" end)
+       + " across " + ($services | length | tostring) + (if ($services | length) == 1 then " service (" else " services (" end)
+       + ($services[0:8] | join(", ")) + (if ($services | length) > 8 then ", and " + (($services | length) - 8 | tostring) + " more" else "" end) + "), "
+       + $wall + " end to end, "
+       + (if ($errors | length) == 0 then "and no span in error. Where is the time going, and what should I change?"
+          else ($errors | length | tostring) + (if ($errors | length) == 1 then " span in error: " else " spans in error: " end)
+            + ([ $errors[0:8] | to_entries[] | ((.key + 1) | tostring) + ". " + (if .value.service != "" then .value.service else "unknown" end) + " · " + (.value.span | cap(110))
+                 + (if .value.httpStatus != "" then " (HTTP " + .value.httpStatus + ")" else "" end) ] | join(" "))
+            + ". Where is the time going, what caused the errors, and what should I change?" end)) as $ask
     | { traceId: (if $valid then $t else "" end), valid: $valid, spans: $spans,
-        truncated: (($spans | length) >= 1000), failed: (.spansError != null) }
+        truncated: $truncated, failed: $failed,
+        askHref: (if $valid and ($failed | not) and ($spans | length) > 0 then ("/observability/traces/" + $t + "?ask=" + ($ask | @uri)) else "" end) }

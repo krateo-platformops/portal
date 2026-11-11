@@ -7,6 +7,9 @@
 {{/* of a pill that claims something: "Not a trace id" (the route param is not 32 hex characters — */}}
 {{/* obs-trace-detail made no call), "Not found" (no span with that id in the last 7 days) and */}}
 {{/* "Unreadable" (ClickHouse did not answer). */}}
+{{/* */}}
+{{/* "Ask Agentiko →" (button.trace-detail-ask-agentiko) is the header's one action and not a */}}
+{{/* primary; "Open in HyperDX" stays where it was, beside the topology. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,6 +29,10 @@ spec:
     tags:
     - label: Unknown
       color: gray
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: trace-detail-ask-agentiko
   widgetDataTemplate:
     - forPath: title
       expression: '${ {{ include "obs.traces.format" . }} if .valid then "Trace " + (.traceId | traceShort) else "Trace" end }'
@@ -34,4 +41,10 @@ spec:
     - forPath: subtitle
       expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | if (.valid | not) then "A trace id is 32 hexadecimal characters." elif .failed and ($s | length) == 0 then "ClickHouse did not answer, so this trace could not be read." elif ($s | length) == 0 then "No span with this trace id in the last 7 days." else ([ $s[] | .spanId ] ) as $ids | (([ $s[] | select(.parentId == "" or (.parentId as $p | any($ids[]; . == $p) | not)) ] | first) // $s[0]) as $root | ($root.user // "") as $u | ([ $s[] | .startUs ] | min) as $start | ([ $s[] | .startUs + (.durationNs / 1000) ] | max) as $end | ([ (if $u != "" then $u else ([ $s[] | .user | select(. != "") ] | first) // "unattributed" end), ((($start / 1000) | floor | traceUtc) + " UTC"), ((($end - $start) * 1000) | traceDuration), (($s | length | tostring) + (if ($s | length) == 1 then " span" else " spans" end)) ] + (if .truncated then ["first 1000 spans shown"] else [] end)) | join(" · ") end }'
   resourcesRefs:
-    items: []
+    items:
+    - id: trace-detail-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: trace-detail-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

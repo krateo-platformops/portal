@@ -1,4 +1,4 @@
-{{/* The /observability page header — title, subtitle and the optional console deep-link, in one CR. */}}
+{{/* The /observability page header — title, subtitle, "Ask Agentiko →" and the optional console deep-link. */}}
 {{/* */}}
 {{/* Replaces SIX: row.obs-header-row, flex.obs-header, flex.obs-header-actions, */}}
 {{/* paragraph.obs-eyebrow, paragraph.obs-title and paragraph.obs-subtitle. The Button stays — it */}}
@@ -14,7 +14,11 @@
 {{/* THE EYEBROW IS GONE, and that is a deletion rather than a regression: Paragraph.tsx already */}}
 {{/* returns null for `variant: eyebrow`, so "Platform · tenant …" has been rendering as nothing. */}}
 {{/* */}}
-{{/* The guard around the action is the SAME `.Values.observabilityConsoleUrl` condition that wraps */}}
+{{/* "Ask Agentiko →" is the page's ONE agent entry point (button.observability-ask-agentiko), and it */}}
+{{/* is always there, so `allowedResources` and `items` are no longer inside the console-URL */}}
+{{/* condition. It sits first, LEFT of "View in console" when that exists; neither is the primary. */}}
+{{/* */}}
+{{/* The console link keeps its guard: the SAME `.Values.observabilityConsoleUrl` condition wraps */}}
 {{/* button.obs-console-link itself — that Button CR does not exist on installs without a console */}}
 {{/* URL, so referencing it unconditionally would leave a dangling resourceRefId, which renders as */}}
 {{/* silence (a Flex/Card drops a missing child with only a console message). X13 cannot catch this */}}
@@ -32,21 +36,26 @@ spec:
     subtitle: >-
       Platform health — reconciliation, performance, logs and resource usage; alerts and
       investigations live on Incidents
-{{- if .Values.observabilityConsoleUrl }}
     allowedResources:
     - buttons
     items:
+    - resourceRefId: observability-ask-agentiko
+{{- if .Values.observabilityConsoleUrl }}
     - resourceRefId: obs-console-link
 {{- end }}
   resourcesRefs:
-{{- if .Values.observabilityConsoleUrl }}
     items:
+    - id: observability-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: observability-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+{{- if .Values.observabilityConsoleUrl }}
     - id: obs-console-link
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-console-link
       namespace: {{ $.Values.namespace }}
       resource: buttons
       verb: GET
-{{- else }}
-    items: []
 {{- end }}

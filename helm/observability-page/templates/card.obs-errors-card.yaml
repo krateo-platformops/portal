@@ -24,24 +24,19 @@ spec:
     items:
     - resourceRefId: obs-error-log-list
   widgetDataTemplate:
+  {{/* On a failed read the totals are not zero, they are unknown: obs-error-log-digest's `failed`
+       says so, so the header does not read "0 errors · 0 distinct" over an estate nobody looked at. */}}
   - forPath: extra
-    expression: '${ ((.total // 0)|tostring) + " errors · " + ((.distinct // 0)|tostring) + " distinct · grouped" }'
-  {{/* "Diagnose with Autopilot" sits ABOVE the list, but ONLY when there are errors (exception-only): */}}
-  {{/* a clean estate shows the empty digest with no diagnose CTA. When present it seeds an on-demand */}}
-  {{/* RCA of the top errors (see button.obs-errors-diagnose / the digest's diagnoseHref). */}}
-  - forPath: items
-    expression: '${ (if (.hasErrors // false) then [ { resourceRefId: "obs-errors-diagnose" } ] else [] end) + [ { resourceRefId: "obs-error-log-list" } ] }'
+    expression: '${ if (.failed // false) then "telemetry could not be read" else ((.total // 0)|tostring) + " errors · " + ((.distinct // 0)|tostring) + " distinct · grouped" end }'
+  {{/* NO Agentiko button here any more. The page has ONE entry point, in its header
+       (button.observability-ask-agentiko), and it carries these errors: its prompt is built from the
+       same digest. This card used to host "Ask Agentiko →" (obs-errors-diagnose), which sent the top
+       errors to /incidents, so the page had two entry points saying different things. */}}
   apiRef:
     name: obs-error-log-digest
     namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items:
-    - id: obs-errors-diagnose
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-errors-diagnose
-      namespace: {{ $.Values.namespace }}
-      resource: buttons
-      verb: GET
     - id: obs-error-log-list
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-error-log-list

@@ -1,0 +1,45 @@
+{{/* "Ask Agentiko →" on /observability — the page's ONE agent entry point, in its header. It navigates
+     to THIS page, with the filters the person has on it, and an ?ask seed the rail consumes on mount.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set.
+     It is not the header's primary (the header has none; "View in console" is a default button).
+
+     The href is built server-side (obs-error-log-digest `.askHref`, @uri-encoded) from the error
+     digest the Errors card shows: the most frequent errors in the selected window, a clean window,
+     or — honestly — a read that failed. It replaces obs-errors-diagnose, which sat in the Errors
+     card and sent the same errors to /incidents.
+
+     keyExtras are EVERY query param the href keeps, not only `range` (which is all the digest's SQL
+     reads): a cell keyed on range alone would hand the Traces tab's link, filters and all, to someone
+     on the Telemetry tab. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: observability-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus]
+  apiRef:
+    name: obs-error-log-digest
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /observability
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to the page — never a 404 — if
+         askHref is empty, which the digest never makes it, but a render with no data does. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/observability" end) } ] } }'
+  resourcesRefs:
+    items: []
