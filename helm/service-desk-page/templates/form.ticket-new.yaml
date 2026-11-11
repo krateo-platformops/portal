@@ -64,7 +64,22 @@
 
      `stringSchema` AND NOT `schema`: a CR's object keys come back from the apiserver
      alphabetically, which would render Detail first and the request kind third. The raw JSON
-     string is JSON.parsed in the browser, so insertion order survives. */}}
+     string is JSON.parsed in the browser, so insertion order survives.
+
+     RAISED FROM AN INCIDENT, THE SAME FORM. The incident page links here as
+     `/service-desk/new?incidentName=<name>&incidentNamespace=<ns>`; restaction.ticket-raise-context
+     reads that Incident as the caller and, when it comes back, this form is pre-filled from it
+     (summary, detail), hides the two questions the incident answers (the request kind is "something
+     is broken"; the object is the Incident), says where the ticket goes in its notice, and submits
+     with `submit-incident` instead of `submit`.
+
+     TWO SUBMIT ACTIONS, NOT ONE TEMPLATED LIST, because an override cannot see the incident: a
+     payloadToOverride expression is evaluated against the form values and nothing else, and the
+     two fields the incident decides are not form fields once hidden. `submit` stays exactly what it
+     was. `submit-incident` overrides only the fields the person still sees, and carries the rest —
+     `spec.kind: broken`, the full objectRef, the `krateo.io/incident-uid` label the incident page
+     selects on — in its payload, written server-side below. Which one runs is `submitActionId`,
+     templated from the context; a plain visit resolves it to `submit`. */}}
 kind: Form
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -74,11 +89,20 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   {{/* The server-trusted principal, folded into the resolve input (and into this widget's cache
-       cell, so two people on this page never share one). It is the whole identity story here: this
-       widget has no apiRef, and snowplow merges the declared extras into an apiRef-less widget's
-       widgetDataTemplate input too. */}}
+       cell, so two people on this page never share one). It is the whole identity story here:
+       snowplow folds the declared identity into the request extras, which reach both the apiRef
+       RESTAction and, under its result, this widget's widgetDataTemplate input — which is why
+       ticket-raise-context emits no `username` of its own. */}}
   identityContext:
     - username
+  {{/* The incident a ticket is raised from, when the incident page sent the person here. Declared so
+       each incident's pre-filled form is its own cache cell: a widget served extras it does not
+       declare is never cached, and one that shared a cell across incidents would pre-fill one
+       incident's text into another's ticket. */}}
+  keyExtras: [incidentName, incidentNamespace]
+  apiRef:
+    name: ticket-raise-context
+    namespace: {{ $.Values.raiseNamespace }}
   widgetData:
     layout: vertical
     submitActionId: submit
@@ -178,13 +202,69 @@ spec:
                  an options RESTAction and is not on this screen. */}}
             - name: spec.objectRef
               value: '${ if ((.json.objectName // "") | length) > 0 then { name: .json.objectName } else {} end }'
-  {{/* The two values only the server may set. `.username` is the injected principal (see
-       identityContext above); `now` is snowplow's clock at resolve time. */}}
+        {{/* Raised from an incident (see the header). The same POST into the same queue, with what the
+             incident decides written into the payload server-side — kind, objectRef, the label —
+             and overrides for the fields the person still sees. The objectRef and the label are
+             the link: the incident page lists the tickets carrying its uid, and the ticket page
+             reads the Incident through objectRef. Back on the incident page afterwards, where the
+             ticket now shows. */}}
+        - id: submit-incident
+          type: rest
+          resourceRefId: create-ticket
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: '${ "Ticket " + (.json.metadata.name // "") + " raised for this incident" }'
+          errorMessage: The ticket was not raised — nothing was created. If this says the requester is empty, the sign-in did not carry a username.
+          onSuccessNavigateTo: /service-desk/new
+          loading:
+            display: true
+          payload:
+            apiVersion: servicedesk.krateo.io/v1alpha1
+            kind: Ticket
+            metadata:
+              namespace: {{ $.Values.namespace }}
+              labels:
+                "krateo.io/ticket-state": open
+            spec:
+              state: Open
+              kind: broken
+          payloadToOverride:
+            - name: spec.summary
+              value: '${ .json.summary // "" }'
+            - name: spec.detail
+              value: '${ .json.detail // "" }'
+            - name: spec.urgency
+              value: '${ .json.urgency // "Needed this week" }'
+            - name: spec.onBehalfOf
+              value: '${ if ((.json.onBehalfOf // "") | length) > 0 then .json.onBehalfOf else {} end }'
+  {{/* The values only the server may set. `.username` is the injected principal (see
+       identityContext above); `now` is snowplow's clock at resolve time. The rest come from
+       ticket-raise-context, and on a plain visit resolve to what the static widgetData already says. */}}
   widgetDataTemplate:
     - forPath: actions.rest[0].payload.metadata.name
       expression: '${ "ticket-" + ((.username // "anon") | ascii_downcase | gsub("[^a-z0-9-]"; "-") | .[0:40]) + "-" + (now | floor | tostring) }'
     - forPath: actions.rest[0].payload.spec.requester
       expression: '${ .username // "" }'
+    - forPath: submitActionId
+      expression: '${ if (.fromIncident // false) then "submit-incident" else "submit" end }'
+    - forPath: notice
+      expression: '${ .notice // "" }'
+    - forPath: initialValues
+      expression: '${ .initialValues // {} }'
+    - forPath: propertiesToHide
+      expression: '${ .hide // [] }'
+    - forPath: buttonConfig.secondary.navigateTo
+      expression: '${ .cancelTo // "/service-desk" }'
+    - forPath: actions.rest[1].payload.metadata.name
+      expression: '${ "ticket-" + ((.username // "anon") | ascii_downcase | gsub("[^a-z0-9-]"; "-") | .[0:40]) + "-" + (now | floor | tostring) }'
+    - forPath: actions.rest[1].payload.metadata.labels
+      expression: '${ { "krateo.io/ticket-state": "open" } + (if (.incidentUid // "") != "" then { "krateo.io/incident-uid": .incidentUid } else {} end) }'
+    - forPath: actions.rest[1].payload.spec.requester
+      expression: '${ .username // "" }'
+    - forPath: actions.rest[1].payload.spec.objectRef
+      expression: '${ .incidentRef // {} }'
+    - forPath: actions.rest[1].onSuccessNavigateTo
+      expression: '${ if (.incidentRoute // "") != "" then .incidentRoute else "/service-desk/new" end }'
   resourcesRefs:
     {{/* The POST collection. No `name` and no `namespace`: the frontend injects both into the
          /call path from the built payload's metadata, as every create form in this repo does —
