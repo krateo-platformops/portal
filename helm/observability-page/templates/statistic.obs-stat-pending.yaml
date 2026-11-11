@@ -15,8 +15,11 @@ spec:
   widgetDataTemplate:
   - forPath: watch
     expression: '${ [ .list[] | { apiVersion: .av, kind: .kind } ] | unique }'
+  {{/* Ready neither True nor False, less a composition whose children the controller was refused */}}
+  {{/* reading (Ready=Unknown/ChildrenForbidden, `.state == "unreadable"`): that is an RBAC defect, */}}
+  {{/* not a composition waiting on anything, and the Compositions page labels it so. */}}
   - forPath: value
-    expression: '${ ([.list[]|select((.conditions//[])|(any(.type=="Ready" and (.status=="True" or .status=="False"))|not))]|length) }'
+    expression: '${ ([.list[]|select(.state != "unreadable")|select((.conditions//[])|(any(.type=="Ready" and (.status=="True" or .status=="False"))|not))]|length) }'
   apiRef:
     name: compositions-list
     namespace: {{ $.Release.Namespace }}

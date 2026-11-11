@@ -15,6 +15,12 @@ AND THE ALIGNMENT. A Table renders `dataSource` cells positionally against `colu
 that disagrees with the column list does not error: every row silently shifts. Adding a column
 without its cell, or a cell without its column, is a one-line change that nothing else here
 catches, so the agreement is asserted rather than eyeballed.
+
+CHILDREN UNREADABLE. Ready=Unknown with reason `ChildrenForbidden` (core-provider 2.13.82) means the
+controller was refused reading the children: an RBAC defect, not a composition converging. The
+table's reconcile tag says "Children unreadable" (`warning`) rather than "Pending", it leaves the
+Pending chip and the Observability Pending stat, and ?status=unreadable filters to it. ZeroEvidence
+and every other Unknown stay Pending.
 """
 import json
 import os
@@ -158,6 +164,9 @@ check('unavailable is still NotReady',
 check('unknown is still gray',
       pills([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}], 'pending'),
       ([('ReadyUnknown', 'gray')], ('Pending', 'orange')))
+check('children unreadable is its own reconcile tag, in the attention colour',
+      pills([{'reason': 'ChildrenForbidden', 'status': 'Unknown', 'type': 'Ready'}], 'unreadable'),
+      ([('ReadyUnknown', 'gray')], ('Children unreadable', 'warning')))
 
 # The RA filter is where a composition is counted, so the dashboard's numbers come from here.
 portal = render('portal')
@@ -184,13 +193,73 @@ check('a real drift is still drift', state_of([{'reason': 'Available', 'status':
       {'reason': 'ReconcileError', 'status': 'False', 'type': 'Synced'}]), ('healthy', 'drift'))
 check('unknown is pending', state_of([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}]),
       ('pending', 'pending'))
+check('children forbidden is unreadable, not pending',
+      state_of([{'reason': 'ChildrenForbidden', 'status': 'Unknown', 'type': 'Ready'}]), ('unreadable', 'unreadable'))
+check('inventory not recorded stays pending',
+      state_of([{'reason': 'InventoryNotRecorded', 'status': 'Unknown', 'type': 'Ready'}]), ('pending', 'pending'))
+check('a near-miss spelling stays pending',
+      state_of([{'reason': 'Forbidden', 'status': 'Unknown', 'type': 'Ready'}]), ('pending', 'pending'))
+check('children forbidden on Ready=False is failed',
+      state_of([{'reason': 'ChildrenForbidden', 'status': 'False', 'type': 'Ready'}]), ('failed', 'failed'))
+
+# --- where an unreadable composition is counted and filtered: the Compositions chips + filter, and the
+# Observability Pending stat. One of each Ready shape that lands in Pending or near it.
+def comp(name, status, reason):
+    return {'uid': name, 'name': name, 'ns': 'krateo-system', 'ts': '2026-11-04T10:00:00Z', 'kind': 'K',
+            'conditions': [{'reason': reason, 'status': status, 'type': 'Ready'}]}
+
+
+MIX = [comp('available', 'True', 'Available'), comp('zero-evidence', 'Unknown', 'ZeroEvidence'),
+       comp('forbidden', 'Unknown', 'ChildrenForbidden'), comp('inventory', 'Unknown', 'InventoryNotRecorded'),
+       comp('creating', 'False', 'Creating'), comp('unavailable', 'False', 'Unavailable')]
+
+
+def listing(items, **params):
+    return jq(ra_filter, {'allCompositions': items, **params})
+
+
+out = listing(MIX)
+check('counts: pending leaves children unreadable out, keeps the other Unknowns and Creating',
+      (out['counts']['pending'], out['counts'].get('unreadable')), (3, 1))
+check('?status=pending lists no unreadable composition',
+      sorted(i['name'] for i in listing(MIX, status='pending')['filtered']), ['creating', 'inventory', 'zero-evidence'])
+check('?status=unreadable lists exactly the unreadable ones',
+      [i['name'] for i in listing(MIX, status='unreadable')['filtered']], ['forbidden'])
+check('?status=all still lists every composition', len(listing(MIX, status='all')['filtered']), len(MIX))
+
+chips_doc = named(render('compositions-page'), 'compositions-status-chips')
+chips_expr = unwrap(next(e['expression'] for e in chips_doc['spec']['widgetDataTemplate'] if e['forPath'] == 'dataSource'))
+
+
+def chips(out):
+    return [(c['label'], c['count'], c['active']) for c in jq(chips_expr, out)]
+
+
+check('chips: Children unreadable appears after Pending with its count while some are unreadable',
+      chips(out), [('All', 6, True), ('Healthy', 1, False), ('Drift', 0, False), ('Pending', 3, False),
+                   ('Children unreadable', 1, False), ('Degraded', 0, False), ('Failed', 1, False)])
+check('chips: its route filters to them',
+      [c['route'] for c in jq(chips_expr, out) if c['label'] == 'Children unreadable'],
+      ['/compositions?status=unreadable&scope=workloads'])
+none_out = listing([i for i in MIX if i['name'] != 'forbidden'])
+check('chips: no Children unreadable chip when none is',
+      [c[0] for c in chips(none_out)], ['All', 'Healthy', 'Drift', 'Pending', 'Degraded', 'Failed'])
+check('chips: kept while it is the selected filter, even at 0',
+      [c for c in chips(listing([MIX[0]], status='unreadable')) if c[0] == 'Children unreadable'],
+      [('Children unreadable', 0, True)])
+
+obs_pending = named(render('observability-page'), 'obs-stat-pending')
+obs_expr = unwrap(next(e['expression'] for e in obs_pending['spec']['widgetDataTemplate'] if e['forPath'] == 'value'))
+check('observability Pending leaves children unreadable out (ZeroEvidence and InventoryNotRecorded stay)',
+      jq(obs_expr, out), 2)
+check('observability Pending is unchanged without an unreadable composition', jq(obs_expr, none_out), 2)
 
 # Every railState must be in the dashboard rail's colour map: a value missing there renders near-black.
 rail_list = named(render('dashboard-page'), 'rail-list')
 rail_map = rail_list['spec']['widgetData']['itemTemplate']['bar']['color']['map'] \
     if 'bar' in rail_list['spec']['widgetData']['itemTemplate'] else {}
 check('the dashboard rail colours every railState',
-      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused'} - set(rail_map)), [])
+      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused', 'unreadable'} - set(rail_map)), [])
 
 for line in failures:
     print(f'FAIL  {line}')
