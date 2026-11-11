@@ -100,7 +100,30 @@ spec:
              readyLabel: ([ .status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown" | if . == "True" then "Ready" elif . == "False" then "Failed" else "Pending" end),
              readyColor: ([ .status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown" | if . == "True" then "Healthy" elif . == "False" then "Down" else "Pending" end) }
        ] | sort_by(.created) | reverse) as $comps
+    # ASK AGENTIKO (button.blueprint-detail-ask-agentiko): this page's own route with an ?ask seed
+    # about the blueprint — its version against the catalog's latest, Ready and Synced, and the
+    # compositions that run from it. "" when the CompositionDefinition was not read, so the Button
+    # falls back to the list rather than asking about a blueprint nobody found. When the
+    # compositions could not be listed (compsError, under continueOnError) the prompt says so
+    # rather than "0 compositions run from it".
+    | (($d.metadata.name // "") != "") as $found
+    | ((.compsError // null) | if . == null or . == [] or . == "" then ""
+        else ((if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end
+              | if length > 200 then .[0:199] + "…" else . end) end) as $compsError
+    | ([ $comps[] | select(.readyLabel != "Ready") ] | length) as $notReady
+    | ($d.metadata.name // $n) as $bpName
+    | ($d.metadata.namespace // $ns) as $bpNs
+    | (if $found then
+         ("/blueprints/" + $bpNs + "/" + $bpName + "?ask="
+          + (("Explain blueprint \"" + $bpName + "\" in namespace \"" + $bpNs + "\": it is at version " + (if $cur != "" then $cur else "unknown" end)
+              + (if ($idxVers | length) == 0 then " (not in the catalog)" elif $latest == $cur then " (the catalog's latest)" else " (latest " + $latest + ")" end)
+              + ", Ready=" + $ready + ", Synced=" + $synced + ", and "
+              + (if $compsError != "" then "the compositions running from it could not be listed (" + $compsError + ")"
+                 else ($comps | length | tostring) + (if ($comps | length) == 1 then " composition runs" else " compositions run" end) + " from it (" + ($notReady | tostring) + " not ready)" end)
+              + ". Is it healthy, should I upgrade it, and what would an upgrade change for those compositions?") | @uri))
+       else "" end) as $askHref
     | {
+        askHref: $askHref,
         detail: $d,
         compositions: $comps,
         compositionsCount: ($comps | length),

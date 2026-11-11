@@ -1,0 +1,41 @@
+{{/* "Ask Agentiko →" on /marketplace — help choosing what to install or upgrade. It navigates to
+     THIS page with an ?ask seed the rail consumes on mount, keeping ?category, ?source, ?q and
+     ?sort, so the prompt is about the cards the person is looking at.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set.
+     The header has no primary, so this is its only action.
+
+     The href is built server-side (blueprints-catalog `.askHref`, @uri-encoded): the charts in
+     view, how many are installed here, and which installed ones are NOT AT the catalog's latest
+     version — a string inequality, never "newer" — or what could not be read. The click is a plain
+     literal navigate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: marketplace-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the same set as the header and grid. */}}
+  keyExtras: [category, q, source, sort]
+  apiRef:
+    name: blueprints-catalog
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /marketplace
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed; falls back to the catalog, never a 404. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/marketplace" end) } ] } }'
+  resourcesRefs:
+    items: []

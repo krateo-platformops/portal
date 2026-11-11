@@ -1,0 +1,37 @@
+{{/* "Ask Agentiko →" on /blueprints/{namespace}/{name}, in the header's action Flex immediately left
+     of Create, which keeps the container's one primary (P6). It navigates to THIS page with an ?ask
+     seed the rail consumes on mount.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4). The href is built server-side (blueprint-detail
+     `.askHref`, @uri-encoded): the version against the catalog's latest, Ready and Synced, and the
+     compositions running from it. It is "" when the blueprint was not read, and the click then
+     falls back to the list — never a 404. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-detail-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /blueprints
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/blueprints" end) } ] } }'
+  resourcesRefs:
+    items: []

@@ -113,8 +113,30 @@ spec:
   {{/* The scope params (status/range/q/from/to/projects) are ECHOED back so the toolbar */}}
   {{/* chip Listys (compositions-status-chips) can rebuild query-merged routes and their */}}
   {{/* active flag server-side — chip navigateTo does not client-merge like Buttons did. */}}
+  {{/* ASK AGENTIKO. Two links, both @uri-encoded server-side so their Buttons are plain navigates:
+       `askHref` for /compositions (compositions-page button.compositions-ask-agentiko) and
+       `dashboardAskHref` for /dashboard (dashboard-page button.dashboard-ask-agentiko). One
+       RESTAction, two prompts, because the two pages show different sets: /compositions shows
+       `.filtered` (status, scope, search and namespace applied) and counts it, so its prompt is
+       about THAT view and its link keeps the same ?status/?scope/?q/?projects; the dashboard
+       counts `.list` (every composition the namespace scope admits), so its prompt does too, and
+       its link keeps ?range and ?projects. Each lists its unhealthy compositions, failed first,
+       at most eight.
+       `readError` is the first error of the two list stages, which used to be swallowed: with
+       continueOnError, a refused or failed read looked like a platform with no compositions. A
+       prompt never says "no compositions" over a failed read: with nothing read it asks what the
+       error means, and with part of the list read it says the list may be incomplete. The
+       Observability staleness RESTAction treats the same two error keys the same way. */}}
   filter: >
-    (((.projects // "") | split(",") | map(select(. != ""))) as $projSel
+    def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def nn($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+    def attention: if .state == "failed" then 0 elif .state == "degraded" then 1 elif .state == "unreadable" then 2 elif .railState == "drift" then 3 else null end;
+    def why: if .state == "failed" then "failed" elif .state == "degraded" then "degraded" elif .state == "unreadable" then "children unreadable" else "drifted" end;
+    def unhealthy: [ .[] | select(attention != null) ] | sort_by(attention, .kind, .name) | .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | (.kind // "") + "/" + (.name // "") + " · " + (.ns // "") + " — " + why)) | join(" ");
+    def qs($p): [ $p[] | select(.[1] != "") | .[0] + "=" + (.[1] | @uri) ] | join("&") | if . == "" then "" else . + "&" end;
+    (first([.crdsError, .allCompositionsError][] | select(. != null and . != [] and . != "") | errmsg) // "" | cap(300)) as $readError
+    | (((.projects // "") | split(",") | map(select(. != ""))) as $projSel
      | ((.project // .namespace) // "") as $proj
      | if ($projSel | length) > 0 then $projSel elif $proj != "" then [$proj] else [] end) as $projects
     | (.status // "all") as $status
@@ -127,7 +149,50 @@ spec:
     | ($all | map(select(.assessable | not)) | length) as $na
     | (($all | length) - $na) as $assessable
     | ($all | map(select(.assessable and .state == "pending")) | length) as $pending
+    | ($scoped | map(select((if $status == "drift" then (.railState == "drift") else ($status == "all" or .state == $status) end) and ($q == "" or ((.name // "") | ascii_downcase | contains($q)) or ((.kind // "") | ascii_downcase | contains($q)))))) as $filtered
+    | (if ($projects | length) > 0 then " in namespace" + (if ($projects | length) > 1 then "s " else " " end) + ($projects | join(", ")) else "" end) as $where
+    | ([ (if $status != "all" then "only " + ({healthy: "healthy", drift: "drifted", pending: "pending", unreadable: "with unreadable children", degraded: "degraded", failed: "failed"}[$status] // $status) + " ones" else empty end),
+         (if $scope == "platform" then "platform components only" elif $scope == "all" then "workloads and platform components" else empty end),
+         (if ($projects | length) > 0 then ("namespace" + (if ($projects | length) > 1 then "s " else " " end) + ($projects | join(", "))) else empty end),
+         (if $q != "" then "name or type matching \"" + ((.q // "") | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
+    | (if $readError != "" then " Part of the list could not be read (" + $readError + "), so this may not be all of them." else "" end) as $partial
+    | (if $readError != "" and ($all | length) == 0 then
+         "My compositions could not be read (" + $readError + "). Explain what that error means and what to check."
+       elif ($filtered | length) == 0 then
+         "No composition is in view" + (if $view != "" then " (" + $view + ")" else "" end)
+         + (if ($all | length) > 0 then "; " + nn($all | length; "other composition is"; "other compositions are") + " outside it. Tell me whether that is expected, and whether anything in my other compositions needs attention."
+            else ". Explain how a composition is created on this platform from an installed blueprint." end)
+       else
+         ($filtered | unhealthy) as $bad
+         | "Review my compositions" + (if $view != "" then " (" + $view + ")" else "" end) + ": "
+           + ($filtered | length | tostring) + " in view — "
+           + ($filtered | map(select(.state == "healthy")) | length | tostring) + " healthy, "
+           + ($filtered | map(select(.state == "failed")) | length | tostring) + " failed, "
+           + ($filtered | map(select(.state == "degraded")) | length | tostring) + " degraded, "
+           + ($filtered | map(select(.railState == "drift")) | length | tostring) + " drifted, "
+           + ($filtered | map(select(.state == "pending")) | length | tostring) + " pending, "
+           + ($filtered | map(select(.state == "unreadable")) | length | tostring) + " with unreadable children."
+           + (if $bad != "" then " The unhealthy ones are: " + $bad + ". For each, explain what is wrong from its conditions and managed resources, and what to fix first."
+              else " None of them is failed, degraded, drifted or unreadable. Check their conditions and managed resources and tell me whether anything still needs attention." end)
+       end + (if ($all | length) > 0 then $partial else "" end)) as $askPrompt
+    | (if $readError != "" and ($all | length) == 0 then
+         "My platform's compositions could not be read (" + $readError + "). Explain what that error means and what to check."
+       elif ($all | length) == 0 then
+         "Brief me on my platform" + $where + ": I have no compositions yet. Explain how a composition is created here from an installed blueprint."
+       else
+         ($all | unhealthy) as $bad
+         | "Brief me on my platform" + $where + ": " + nn($all | length; "composition"; "compositions") + " — "
+           + ($all | map(select(.state == "healthy")) | length | tostring) + " healthy, "
+           + ($all | map(select(.state == "failed")) | length | tostring) + " failed, "
+           + ($all | map(select(.state == "degraded")) | length | tostring) + " degraded, "
+           + ($pending | tostring) + " pending."
+           + (if $bad != "" then " The ones that need attention are: " + $bad + "." else " None of them is failed, degraded, drifted or unreadable." end)
+           + " What needs my attention first, and what should I do about it?" + $partial
+       end) as $dashPrompt
     | {
+        readError: $readError,
+        askHref: ("/compositions?" + qs([["status", (if $status == "all" then "" else ($status | tostring) end)], ["scope", ((.scope // "") | tostring)], ["q", ((.q // "") | tostring)], ["projects", ((.projects // "") | tostring)]]) + "ask=" + ($askPrompt | @uri)),
+        dashboardAskHref: ("/dashboard?" + qs([["range", ((.range // "") | tostring)], ["projects", ((.projects // "") | tostring)]]) + "ask=" + ($dashPrompt | @uri)),
         list: $all,
         assessment: {
           total: ($all | length),
@@ -138,7 +203,7 @@ spec:
           pendingPercent: (if $assessable > 0 then ($pending * 100 / $assessable | floor) else 0 end)
         },
         conditionCoverage: (([ $all[].conditions[]?.type ] | unique) as $types | [ $types[] | . as $t | ($all | map(select($t != "Ready" or .assessable))) as $l | ([ $l[] | select(any(.conditions[]?; .type == $t and .status == "True")) ] | length) as $tc | ([ $l[] | select(any(.conditions[]?; .type == $t)) ] | length) as $n | { type: $t, percent: (if $n > 0 then ($tc * 100 / $n | floor) else 0 end), label: (($tc | tostring) + "/" + ($n | tostring)), route: (if $t == "Ready" then "/compositions?status=failed" else "" end), note: (if $t == "Ready" and $na > 0 then ("+ " + ($na | tostring) + " not assessable (no readiness signal)") else "" end) } ]),
-        filtered: ($scoped | map(select((if $status == "drift" then (.railState == "drift") else ($status == "all" or .state == $status) end) and ($q == "" or ((.name // "") | ascii_downcase | contains($q)) or ((.kind // "") | ascii_downcase | contains($q)))))),
+        filtered: $filtered,
         counts: {all: ($scoped | length), healthy: ($scoped | map(select(.state == "healthy")) | length), drift: ($scoped | map(select(.railState == "drift")) | length), pending: ($scoped | map(select(.state == "pending")) | length), unreadable: ($scoped | map(select(.state == "unreadable")) | length), degraded: ($scoped | map(select(.state == "degraded")) | length), failed: ($scoped | map(select(.state == "failed")) | length)},
         scopeCounts: {workloads: ($dated | map(select(.platform | not)) | length), platform: ($dated | map(select(.platform)) | length), all: ($dated | length)},
         scope: $scope,

@@ -1,0 +1,44 @@
+{{/* "Ask Agentiko →" on /compositions — the assistant entry point for the compositions the person
+     is looking at. It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping
+     ?status, ?scope, ?q and ?projects, so the conversation starts on the same view: with a status
+     chip or a search applied, the prompt is about those compositions, not all of them.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set.
+     Being filled does not take the header's one primary: "Create composition" keeps it (P6), and
+     this sits immediately left of it.
+
+     The href is built server-side (the shell's compositions-list `.askHref`, @uri-encoded) from the
+     same `.filtered` set the table shows: its counts per state and its unhealthy compositions, or
+     the read error when nothing could be read. The click is a plain literal navigate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the same set as the table, whose
+       rows the prompt describes. */}}
+  keyExtras: [projects, q, scope, status, namespace]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /compositions
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to the list — never a 404 — if
+         askHref is empty, which compositions-list never makes it, but a render with no data does. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/compositions" end) } ] } }'
+  resourcesRefs:
+    items: []
