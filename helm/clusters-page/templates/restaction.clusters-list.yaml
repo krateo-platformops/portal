@@ -84,8 +84,22 @@ spec:
   {{/* Build the registry rows. For each KubernetesTarget, JOIN the CompositionDefinitions whose */}}
   {{/* spec.deploy.targetRef.name == target.metadata.name, roll their status.target.connectionStatus */}}
   {{/* up to a health verdict, and count them. `counts` summarises the fleet for an optional header. */}}
+  {{/* */}}
+  {{/* `failed`/`readError` say when the targets read itself failed: under continueOnError an absent */}}
+  {{/* step and an empty registry were the same empty table. `askHref` is the "Ask Agentiko →" link */}}
+  {{/* (button.clusters-ask-agentiko): this page's route with an ?ask seed about the clusters on it, */}}
+  {{/* built here and @uri-encoded so the Button is a plain literal navigate. A failed read asks */}}
+  {{/* what the error means instead of describing a registry nobody managed to read. */}}
+  {{/* */}}
+  {{/* This filter is a FOLDED scalar (`>`): a line at its own indentation is joined onto the next, */}}
+  {{/* so the jq below carries no `#` comments. */}}
   filter: >
-    (.compdefs // []) as $cd
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def errText($e): if $e == null then "" else ([ $e | if type == "array" then .[] else . end | if type == "object" then (.message // .reason // tojson) else tostring end ] | map(select(. != "")) | unique | join("; ")) end;
+    def numbered: .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + .value) | join(" ");
+    errText(.targetsError) as $tErr
+    | errText(.compdefsError) as $cErr
+    | (.compdefs // []) as $cd
     | ([ (.targets // [])[]
         | . as $t
         | ($t.name) as $name
@@ -106,12 +120,34 @@ spec:
             blueprintCount: $count,
             secretRef: ($t.secretRef // ""),
             lastProbe: ($t.lastProbe // "") } ]) as $rows
+    | ($rows | map(select(.health == "failed"))) as $down
+    | ($rows | map(select(.health == "unknown"))) as $unk
+    | ($rows | length) as $total
+    | (if $tErr != "" then
+         "The cluster registry could not be read (" + ($tErr | cap(300)) + "). Explain what that error means and what an administrator has to fix."
+       elif $total == 0 then
+         "No cluster is registered on this platform yet. Explain what registering one does, what it needs, and how compositions are then deployed to it."
+       elif ($down | length) == 0 and ($unk | length) == 0 then
+         "Check my registered clusters: " + ($total | tostring) + " registered, all healthy. Tell me whether anything about them still needs attention."
+       else
+         "Check my registered clusters: " + ($total | tostring) + " registered — "
+         + (($total - ($down | length) - ($unk | length)) | tostring) + " healthy, "
+         + ($down | length | tostring) + " down"
+         + (if ($down | length) > 0 then " (" + ($down | map(.name + " — " + (if .lastProbe != "" then "last probe " + .lastProbe else "no probe recorded" end)) | numbered) + ")" else "" end)
+         + ", " + ($unk | length | tostring) + " unknown"
+         + (if ($unk | length) > 0 then " (" + ($unk | map(.name) | numbered) + ")" else "" end)
+         + ". For each one that is not healthy, explain what its connection probe says and how to restore it."
+       end
+       + (if $tErr == "" and $cErr != "" then " The blueprints that target them could not be read (" + ($cErr | cap(200)) + "), so each cluster's health here comes from its own probe alone." else "" end)) as $prompt
     | {
         list: $rows,
         counts: {
-          total: ($rows | length),
+          total: $total,
           healthy: ($rows | map(select(.health == "healthy")) | length),
-          failed:  ($rows | map(select(.health == "failed"))  | length),
-          unknown: ($rows | map(select(.health == "unknown")) | length)
-        }
+          failed:  ($down | length),
+          unknown: ($unk | length)
+        },
+        failed: ($tErr != ""),
+        readError: $tErr,
+        askHref: ("/clusters?ask=" + ($prompt | @uri))
       }

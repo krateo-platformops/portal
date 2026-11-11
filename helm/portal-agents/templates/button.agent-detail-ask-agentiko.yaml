@@ -1,0 +1,40 @@
+{{/* "Ask Agentiko →" on /agents/{namespace}/{name} — the assistant entry point for this agent. It
+     navigates to THIS page with an ?ask seed the rail consumes on mount.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4). The header has no primary; this is its one action.
+
+     The href is built server-side (agent-detail `.askHref`, @uri-encoded) from the description, the
+     resolved model, the tool servers and sub-agents, and the gateway finding or the Agent's own
+     conditions. It is "" for an agent that was not found or not readable, and the click then
+     falls back to /agents. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agent-detail-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the prompt differs per agent. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: agent-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /agents
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to /agents — never a 404 — if
+         askHref is empty. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/agents" end) } ] } }'
+  resourcesRefs:
+    items: []

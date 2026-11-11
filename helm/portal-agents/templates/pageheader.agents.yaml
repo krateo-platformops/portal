@@ -45,10 +45,12 @@ spec:
       Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources.
     allowedResources:
     - buttons
-    {{/* Right-aligned by the widget. Autopilot-free deterministic routes, policy first then agent — */}}
-    {{/* `agents-new` is the page's primary, and P6 allows exactly one. */}}
+    {{/* Right-aligned by the widget: policy first, then "Ask Agentiko →", then agent — `agents-new` */}}
+    {{/* is the page's primary, and P6 allows exactly one. The Agentiko button does not count */}}
+    {{/* against it and sits immediately left of it, as on every other header. */}}
     items:
     - resourceRefId: agents-policy-new-header
+    - resourceRefId: agents-ask-agentiko
     - resourceRefId: agents-new
   widgetDataTemplate:
     {{/* Was paragraph.agents-subtitle's `forPath: text`. */}}
@@ -60,6 +62,12 @@ spec:
       expression: '${ [ ( if ((.failedCount // 0) > 0) then {label:"ReadFailed", color:"red"} else empty end ),   ( if ((.unregisteredCount // 0) > 0) then {label:"NotRegistered", color:"red"} else empty end ) ] }'
   resourcesRefs:
     items:
+    - id: agents-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
     - id: agents-policy-new-header
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-policy-new-header

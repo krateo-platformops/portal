@@ -1,0 +1,40 @@
+{{/* "Ask Agentiko →" on /agents — the assistant entry point for the agent control plane. It
+     navigates to THIS page with an ?ask seed the rail consumes on mount.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not
+     set. Being filled does not take the header's one primary: "New agent" keeps it (P6), and this
+     sits immediately left of it, after "Add policy".
+
+     The href is built server-side (agents-list `.askHref`, @uri-encoded) from what the table and
+     the subtitle already say: the agents the gateway refuses, the agents whose conditions are not
+     Ready/Accepted, a failed read stated first, and a gateway check that could not run said as a
+     gap rather than a clean bill. The click is a plain literal navigate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /agents
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to /agents — never a 404 — if
+         askHref is empty. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/agents" end) } ] } }'
+  resourcesRefs:
+    items: []

@@ -317,3 +317,36 @@ spec:
             # same footing as a failed read. A merely UNCHECKED registration does not: the sentence
             # it adds is a caveat, and colouring a caveat red would train the reader past the colour.
             subtitleType: ( if ($failed | length) > 0 or ($unreg | length) > 0 then "danger" else "secondary" end ) }
+    # "Ask Agentiko →" (button.agents-ask-agentiko): this page's route with an ?ask seed about the
+    # fleet the table shows, built here and @uri-encoded so the Button is a plain literal navigate.
+    # It claims no more than the subtitle does: a failed Agent read asks about the error and says
+    # nothing about agents; another failed read is stated first; "registered" is said only when the
+    # gateway check actually ran ($gatewayKnown), and an empty table is not "no agents".
+    | ( [ .rows[] | select((.statusLabel // "") != "") ] ) as $sick
+    | ( def numbered: .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + .value) | join(" ");
+        ( if $agErr != "" then
+            ( "The agent control plane could not be read: " + ($failed | join("; "))
+              + ". Explain what that error means and what an administrator has to fix." )
+          elif (.rows | length) == 0 then
+            ( ( if ($failed | length) > 0 then ("Some of the reads behind my agent control plane failed — " + ($failed | join("; ")) + ". ") else "" end )
+              + "I can read no agents on this cluster. Explain whether that means none is installed or that my permissions do not cover them, and how to tell." )
+          else
+            ( ( if ($failed | length) > 0 then ("Some of the reads behind my agent control plane failed — " + ($failed | join("; ")) + "; what is missing is missing for that reason. ") else "" end )
+              + "Review my agent control plane: " + (.rows | length | tostring) + ( if (.rows | length) == 1 then " agent, " else " agents, " end )
+              + ($orch | length | tostring) + ( if ($orch | length) == 1 then " orchestrator." else " orchestrators." end )
+              + ( if ($unreg | length) == 0 and ($sick | length) == 0 then
+                    ( if $gatewayKnown and ($failed | length) == 0 then
+                        ( " All " + (.rows | length | tostring) + " are registered at the gateway and report no problem. Explain how they delegate to one another, and anything that looks risky." )
+                      elif $gatewayKnown then
+                        " None of those I can read is unregistered at the gateway or reports a problem. Explain how they delegate to one another, and anything that looks risky."
+                      else
+                        ( " None reports a problem, but gateway registration could not be checked (" + $gatewayUnknownWhy + "). Explain how they delegate to one another, what that gap hides, and anything that looks risky." ) end )
+                  else
+                    ( " " + ($unreg | length | tostring) + " cannot be reached through the gateway"
+                      + ( if ($unreg | length) > 0 then (" (" + ([ $unreg[] | (.name + " — " + .gateway) ] | numbered) + ")") else "" end )
+                      + " and " + ($sick | length | tostring) + ( if ($sick | length) == 1 then " reports a problem" else " report a problem" end )
+                      + ( if ($sick | length) > 0 then (" (" + ([ $sick[] | (.name + " — " + .statusLabel) ] | numbered) + ")") else "" end )
+                      + ( if ($gatewayKnown | not) then (". Gateway registration could not be checked (" + $gatewayUnknownWhy + ")") else "" end )
+                      + ". Explain what is wrong with each and how to fix it, starting with the one that breaks the most delegation." ) end ) )
+          end ) ) as $prompt
+    | . + { askHref: ( "/agents?ask=" + ($prompt | @uri) ) }

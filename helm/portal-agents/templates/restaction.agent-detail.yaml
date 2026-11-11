@@ -417,10 +417,37 @@ spec:
                        and ( ($r == null) or ((($r.value // "") != ($e.value // "")) and ($e.valueFrom == null)) ) ) } ]
         | sort_by(.name) ) as $envRows
     | ( ( ($ctr.env // []) | length ) - ($declEnv | length) ) as $injectedEnv
+    # "Ask Agentiko →" (button.agent-detail-ask-agentiko): this page's route with an ?ask seed
+    # about this agent, built here and @uri-encoded. "" when the agent was not found or could not
+    # be read, so the Button falls back to /agents rather than asking about nothing. The status is
+    # the gateway finding when registration is broken, else the Agent's own conditions verbatim —
+    # never "healthy" from the absence of a condition.
+    | ( if ($found | not) then ""
+        else ( ( "Explain agent \"" + $an + "\" in namespace \"" + $ans + "\""
+                 + ( if (($sp.description // "") != "") then (": " + ($sp.description | clip(200)) | rtrimstr(".")) else "" end )
+                 + ". It runs on "
+                 + ( if $d == null then "its own container (BYO)"
+                     elif $mc != null then (($mcs.provider // "an unknown provider") + " · " + ($mcs.model // "no model set"))
+                     elif ($modelsReadable | not) then ("ModelConfig " + $mcName + ", which could not be read")
+                     else ("ModelConfig " + $mcName + ", which is not readable") end )
+                 + ", may call " + ($serverRows | length | tostring) + ( if ($serverRows | length) == 1 then " tool server" else " tool servers" end )
+                 + " and hand work to " + ($delegateRows | length | tostring) + ( if ($delegateRows | length) == 1 then " sub-agent" else " sub-agents" end )
+                 + ", and its status is "
+                 + ( if $regBroken then ( "\"" + ( if ($aSel == null) and (($allow.card or $allow.call) | not) then "This agent is not registered at the gateway"
+                                                   elif $aSel == null then "This agent has no gateway route"
+                                                   elif (($allow.card or $allow.call) | not) then "The gateway's Allow rules do not name this agent"
+                                                   elif ($allow.call | not) then "The gateway refuses calls to this agent"
+                                                   else "The gateway refuses A2A discovery of this agent" end ) + "\""
+                                     + ( if ($exc | length) > 0 then (" and " + ([ $exc[] | condLabel ] | join(" · "))) else "" end ) )
+                     elif ($conds | length) == 0 then "not reported (the Agent carries no conditions)"
+                     else ([ $conds[] | condLabel ] | join(" · ")) end )
+                 + ". Is it working end to end, and if not, what should I fix first?" )
+               | "/agents/" + ($ans | @uri) + "/" + ($an | @uri) + "?ask=" + @uri ) end ) as $askHref
     | {
         name: $an,
         namespace: $ans,
         found: $found,
+        askHref: $askHref,
         description: ( $sp.description // "" ),
         emptyText: ( if ($rn == "") then "No agent was named in the route."
                      elif ($agentErr != null) then ("The Agent " + $rns + "/" + $rn + " could not be read — " + errOf($agentErr) + ". That is a failed read, not evidence the agent is absent.")
