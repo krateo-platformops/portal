@@ -20,6 +20,9 @@
 {{/* */}}
 {{/* All four absorbed CRs read the same apiRef (component-detail) and declare the same keyExtras */}}
 {{/* ([name]), which is why this merges: a PageHeader has one apiRef. */}}
+{{/* */}}
+{{/* "Ask Agentiko →" (button.component-detail-ask-agentiko) is the header's one action and not a */}}
+{{/* primary; the day-2 controls (Scale, Restart) stay in component-detail-actions below. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -40,6 +43,10 @@ spec:
     tags:
     - label: Unknown
       color: gray
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: component-detail-ask-agentiko
   widgetDataTemplate:
     {{/* Was paragraph.component-detail-header's `forPath: text`. */}}
     - forPath: title
@@ -51,4 +58,10 @@ spec:
     - forPath: tags
       expression: '${ [ ( if (.found // false) | not then {label:"NotFound", color:"gray"} elif (.dep.replicas // 0) == 0 then {label:"ScaledToZero", color:"gray"} elif (.dep.ready // 0) == (.dep.replicas // 0) then {label:"Ready", color:"green"} else {label:"NotReady", color:"red"} end ) ] }'
   resourcesRefs:
-    items: []
+    items:
+    - id: component-detail-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: component-detail-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

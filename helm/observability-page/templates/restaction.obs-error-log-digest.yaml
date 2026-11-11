@@ -55,17 +55,48 @@ spec:
   {{/* Each row gains a server-baked `route` into the log stream scoped to its component */}}
   {{/* (/observability?serviceName= — the same hand-off the component-detail logs CTA uses); a row */}}
   {{/* with no ServiceName carries route:"" and stays INERT in the list. */}}
-  {{/* diagnoseHref: an on-demand "Diagnose with Autopilot" seed (button.obs-errors-diagnose) — the */}}
-  {{/* top-8 errors baked into an /incidents?ask= prompt (@uri-encoded ONCE, navigate uses it verbatim), */}}
-  {{/* so the rail opens pre-seeded to RCA the most frequent errors WITHOUT an alert/incident. Empty + */}}
-  {{/* hasErrors:false on a clean estate (the button is gated off), so it never links to a bare ask. */}}
-  {{/* Literal `|` block (NOT folded `>`) — the seed string carries newlines; folding would mangle them. */}}
+  {{/* */}}
+  {{/* `failed`: A FAILED READ IS NOT A CLEAN ESTATE. Both steps run under continueOnError, and the */}}
+  {{/* `// []` and `// 0` guards below turned a ClickHouse error (a timeout, an auth failure, the */}}
+  {{/* endpoint missing) into rows:[] and total:0 — exactly what a platform with no errors returns, */}}
+  {{/* so the page, and a prompt built from it, would have said "no errors". A step counts as read */}}
+  {{/* only when it carries no error AND its result is an object (the obs-composition-staleness rule). */}}
+  {{/* `readError` is the first step's error text, for the prompt. */}}
+  {{/* */}}
+  {{/* askHref: "Ask Agentiko →" in the page header (button.observability-ask-agentiko). THIS page */}}
+  {{/* with the filters the person has on it (range, tab, the log and trace filters, projects) and an */}}
+  {{/* ?ask seed, @uri-encoded once. Worded per case: the most frequent errors (top 8, numbered), a */}}
+  {{/* clean window, or a read that failed — never the clean claim on a failure. The window named is */}}
+  {{/* the one the SQL above READ: it knows 1h, 24h and 7d, and reads anything else (the page's 6h */}}
+  {{/* chip included) as 24 hours, so a 6h prompt says "24 hours" rather than claim a window it did */}}
+  {{/* not look at. */}}
+  {{/* Literal `|` block (NOT folded `>`). */}}
   filter: |
-    (((.digest.data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?serviceName=" + ($s | @uri) + "&tab=Telemetry") end) })) as $rows
-    | ([ $rows[0:8] | to_entries[] | (((.key) + 1) | tostring) + ". " + (.value.service // "unknown") + " — \"" + (.value.msg // "") + "\" (x" + ((.value.occurrences // 0) | tostring) + ")" ] | join("\n")) as $top
-    | ("Diagnose the most frequent errors in my platform's telemetry. The top recurring errors are:\n" + $top + "\n\nFor the most frequent ones, explain the likely root cause and give concrete, ordered recovery steps; where a fix is a safe Kubernetes change, propose it so I can apply it (I will confirm before anything is applied).") as $ask
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def stepRead($k; $e): ((.[$k] | type) == "object") and (.[$e] == null);
+    ((.range // "24h") | tostring) as $r
+    | (if $r == "1h" then "hour" elif $r == "7d" then "7 days" else "24 hours" end) as $window
+    | (stepRead("digest"; "digestError") and stepRead("tot"; "totError") | not) as $failed
+    | ([ .digestError, .totError ] | map(select(. != null) | if type == "string" then . else tojson end) | first // "") as $err
+    | (((.digest | objects | .data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?serviceName=" + ($s | @uri) + "&tab=Telemetry") end) })) as $rows
+    | (((.tot | objects | .data) // [])[0].total // 0) as $total
+    | (((.tot | objects | .data) // [])[0].distinct_problems // 0) as $distinct
+    | ([ $rows[0:8] | to_entries[] | (((.key) + 1) | tostring) + ". " + (if (.value.service // "") != "" then .value.service else "unknown" end) + " — \"" + ((.value.msg // "") | cap(110)) + "\" (x" + ((.value.occurrences // 0) | tostring) + ")" ] | join(" ")) as $top
+    | (if $failed then
+         "The telemetry for this page could not be read (" + ($err | cap(300)) + "). Explain what that means and what to check."
+       elif ($rows | length) == 0 then
+         "My platform logged no errors in the last " + $window + ". Check reconciliation, performance and resource usage on this page and tell me whether anything needs attention."
+       else
+         "Assess my platform's health from its telemetry over the last " + $window + ": " + ($total | tostring) + " error lines, "
+         + ($distinct | tostring) + " distinct problems; the most frequent are: " + $top + ". Explain the likely root causes and which ones matter,"
+         + " and give concrete, ordered recovery steps; where a fix is a safe Kubernetes change, propose it so I can confirm it."
+       end) as $ask
+    | . as $x
+    | ([ "range", "tab", "serviceName", "limit", "traceService", "traceUser", "traceStatus", "projects" ]
+       | map(. as $k | (($x[$k] // "") | tostring) as $v | select($v != "") | $k + "=" + ($v | @uri) + "&") | join("")) as $keep
     | { rows: $rows,
-        total: (((.tot.data) // [])[0].total // 0),
-        distinct: (((.tot.data) // [])[0].distinct_problems // 0),
-        hasErrors: (($rows | length) > 0),
-        diagnoseHref: (if ($rows | length) > 0 then ("/incidents?ask=" + ($ask | @uri)) else "" end) }
+        total: $total,
+        distinct: $distinct,
+        failed: $failed,
+        readError: $err,
+        askHref: ("/observability?" + $keep + "ask=" + ($ask | @uri)) }

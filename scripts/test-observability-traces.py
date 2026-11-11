@@ -32,7 +32,12 @@ snowplow-path.py), runs the widgets' own jq over the result, and checks what a r
     composition list on kind|ns|name, trace-only rows dropped, compositions with no reconcile in the
     trace window first as a "none in the trace window" pill, then the oldest reconcile first; the
     header names the trace window; an unreadable or empty trace store shows one message and never
-    a flag on every row; nothing overdue shows the all-clear; colours are design tokens only.
+    a flag on every row; nothing overdue shows the all-clear; colours are design tokens only;
+  - "Ask Agentiko →": ONE entry point on /observability, in the header, whose prompt is the error
+    digest's (top errors, a clean window, or a read that FAILED — obs-error-log-digest's `failed`,
+    never "no errors" on a failure) and whose link keeps the page's filters; the trace page's prompt
+    (spans, services, wall clock, spans in error) and the component page's (readiness, restarts,
+    pod states), each "" when there is nothing read to ask about.
 
 With --crds DIR every widget, as rendered and as resolved, is validated against that frontend-crds
 chart; --pinned pulls the version the installer pins (lint-pinned-crds.py reads it), which is what
@@ -579,7 +584,9 @@ def check_tab_and_route_are_wired(c):
         if 'traceId' not in (doc['spec'].get('keyExtras') or []):
             p.append(f'{doc["kind"]} {name} is on /observability/traces/{{traceId}} without keyExtras traceId')
         todo += [r['name'] for r in (doc['spec'].get('resourcesRefs') or {}).get('items') or []]
-    expect(p, 'widgets the trace route reaches', len(seen), 10)
+    # The ten drawn since installer#404, plus the header's "Ask Agentiko →".
+    expect(p, 'widgets the trace route reaches', len(seen), 11)
+    expect(p, 'the Ask button is one of them', 'trace-detail-ask-agentiko' in seen, True)
     for kind, name in NEW_WIDGETS:
         if name.startswith(('obs-traces-', 'obs-tab-traces', 'obs-sec-traces')):
             missing = {'range', 'tab', 'traceService', 'traceUser', 'traceStatus', 'projects'} - set(c.get(kind, name)['spec'].get('keyExtras') or [])
@@ -938,6 +945,183 @@ def check_staleness_admins_only_and_tokens(c):
     return p
 
 
+# ---------------------------------------------------------------------------------------------
+# "Ask Agentiko →": the page header (obs-error-log-digest), the trace page, the component page
+# ---------------------------------------------------------------------------------------------
+
+def ask_of(href):
+    """(the path with the query params the link keeps, in order, ?ask removed; the decoded prompt)."""
+    path, _, query = href.partition('?')
+    kept, prompt = [], None
+    for pair in query.split('&') if query else []:
+        key, _, value = pair.partition('=')
+        if key == 'ask':
+            prompt = unquote(value)
+        else:
+            kept.append(pair)
+    return (path + ('?' + '&'.join(kept) if kept else '')), prompt
+
+
+def digest_rows(n):
+    return [{'service': f'svc-{i}', 'msg': f'boom {i}', 'occurrences': str(100 - i), 'last_ts': '2026-11-10T13:00:00Z'}
+            for i in range(n)]
+
+
+def check_page_ask_agentiko_reads_the_digest(c, with_console):
+    """L7 — one entry point, in the header; its prompt is the digest's, and a failed read says so."""
+    p = []
+    errors = {'digest': ch([{'service': 'snowplow', 'msg': 'x' * 150, 'occurrences': '120', 'last_ts': '2026-11-10T13:00:00Z'}]
+                           + digest_rows(9)),
+              'tot': ch([{'total': '1495', 'distinct_problems': '10'}])}
+    ex = {'range': '7d', 'tab': 'Telemetry', 'serviceName': 'snowplow', 'projects': 'team-a'}
+    _, _, out = resolve(c, 'obs-error-log-digest', ex, errors)
+    expect(p, 'errors: not failed', out['failed'], False)
+    href, prompt = ask_of(out['askHref'])
+    # PO decision 2: the link keeps the filters on the page, so the rail opens over the same view.
+    expect(p, 'errors: self page, filters kept', href, '/observability?range=7d&tab=Telemetry&serviceName=snowplow&projects=team-a')
+    expect(p, 'errors: the headline', prompt.split(' the most frequent')[0],
+           "Assess my platform's health from its telemetry over the last 7 days: 1495 error lines, 10 distinct problems;")
+    expect(p, 'errors: a message is cut at 110', ('1. snowplow — "' + 'x' * 109 + '…" (x120)') in prompt, True)
+    expect(p, 'errors: eight at most', ('8. svc-6 — "boom 6" (x94)' in prompt, '9. ' in prompt), (True, False))
+    expect(p, 'errors: the ask', prompt.endswith('Explain the likely root causes and which ones matter, and give concrete, '
+           'ordered recovery steps; where a fix is a safe Kubernetes change, propose it so I can confirm it.'), True)
+
+    _, _, clean = resolve(c, 'obs-error-log-digest', {'range': '1h'},
+                          {'digest': ch([]), 'tot': ch([{'total': '0', 'distinct_problems': '0'}])})
+    expect(p, 'clean: not failed', clean['failed'], False)
+    expect(p, 'clean: the prompt', ask_of(clean['askHref']),
+           ('/observability?range=1h', 'My platform logged no errors in the last hour. Check reconciliation, performance and '
+            'resource usage on this page and tell me whether anything needs attention.'))
+    # The 6h chip exists on the page but the digest's SQL reads it as 24 hours: the prompt names the
+    # window that was READ, and the link still keeps the chip.
+    _, _, six = resolve(c, 'obs-error-log-digest', {'range': '6h'},
+                        {'digest': ch([]), 'tot': ch([{'total': '0', 'distinct_problems': '0'}])})
+    expect(p, '6h: the window read', ask_of(six['askHref'])[1].startswith('My platform logged no errors in the last 24 hours.'), True)
+    expect(p, '6h: the chip kept', ask_of(six['askHref'])[0], '/observability?range=6h')
+
+    # A FAILED READ IS NOT A CLEAN ESTATE. Both steps unanswered, then each one alone.
+    for label, responses in (('both steps', {}),
+                             ('digest only', {'tot': ch([{'total': '0', 'distinct_problems': '0'}])}),
+                             ('tot only', {'digest': ch([])}),
+                             ('digest not an object', {'digest': 'Code: 241. DB::Exception: memory limit', 'tot': ch([])})):
+        _, _, down = resolve(c, 'obs-error-log-digest', {}, responses)
+        expect(p, f'failed ({label}): failed', down['failed'], True)
+        href, prompt = ask_of(down['askHref'])
+        expect(p, f'failed ({label}): no clean claim', 'no errors' in prompt, False)
+        expect(p, f'failed ({label}): says the read failed',
+               prompt.startswith('The telemetry for this page could not be read (') and
+               prompt.endswith('). Explain what that means and what to check.'), True)
+        expect(p, f'failed ({label}): card does not count zero',
+               tbi.widget(c, 'Card', 'obs-errors-card', 'extra', down, {}), 'telemetry could not be read')
+    # The error text, as snowplow puts it under the errorKey, is named in the prompt (cut at 300).
+    timed_out = tbi.jq(c.get('RESTAction', 'obs-error-log-digest')['spec']['filter'],
+                       {'range': '24h', 'digestError': 'context deadline exceeded', 'tot': ch([{'total': '0', 'distinct_problems': '0'}])})
+    expect(p, 'failed: the error is named', ask_of(timed_out['askHref']),
+           ('/observability?range=24h', 'The telemetry for this page could not be read (context deadline exceeded). '
+            'Explain what that means and what to check.'))
+    _, _, down = resolve(c, 'obs-error-log-digest', {}, {})
+    expect(p, 'card: the healthy headline', tbi.widget(c, 'Card', 'obs-errors-card', 'extra', out, ex), '1495 errors · 10 distinct · grouped')
+
+    # The Button: the digest's link, or the page — never a 404. Every param the link keeps is a key.
+    btn = tbi.resolved_widget(c, 'Button', 'observability-ask-agentiko', out, ex, 'observability-ask-agentiko (errors)')
+    nav = btn['spec']['widgetData']['actions']['navigate'][0]
+    expect(p, 'button -> askHref', nav['path'], out['askHref'])
+    expect(p, 'button, no data -> the page', tbi.widget(c, 'Button', 'observability-ask-agentiko', 'actions', {}, {})['navigate'][0]['path'], '/observability')
+    tbi.resolved_widget(c, 'Button', 'observability-ask-agentiko', down, {}, 'observability-ask-agentiko (failed)')
+    expect(p, 'button keyExtras', sorted(btn['spec']['keyExtras']),
+           sorted(['projects', 'range', 'tab', 'serviceName', 'limit', 'traceService', 'traceUser', 'traceStatus']))
+    wd = btn['spec']['widgetData']
+    expect(p, 'button label and intent', (wd['label'], wd['intent']), ('Ask Agentiko →', 'agentiko'))
+
+    # ONE entry point: in the header, first, beside "View in console" only when that exists; the
+    # Errors card's own button is gone.
+    for chart, want in ((c, ['observability-ask-agentiko']), (with_console, ['observability-ask-agentiko', 'obs-console-link'])):
+        hdr = chart.get('PageHeader', 'observability-page-header')['spec']
+        expect(p, f'header items ({len(want)})', [i['resourceRefId'] for i in hdr['widgetData']['items']], want)
+        expect(p, f'header refs ({len(want)})', [r['id'] for r in hdr['resourcesRefs']['items']], want)
+        tbi.RESOLVED.append((f'PageHeader observability-page-header ({len(want)})', copy.deepcopy(chart.get('PageHeader', 'observability-page-header'))))
+        try:
+            chart.get('Button', 'obs-errors-diagnose')
+            p.append('obs-errors-diagnose still renders')
+        except LookupError:
+            pass
+    card = c.get('Card', 'obs-errors-card')['spec']
+    expect(p, 'card: the list only', [i['resourceRefId'] for i in card['widgetData']['items']], ['obs-error-log-list'])
+    expect(p, 'card: no templated items', [e['forPath'] for e in card['widgetDataTemplate']], ['extra'])
+    tbi.resolved_widget(c, 'Card', 'obs-errors-card', down, {}, 'obs-errors-card (failed)')
+    return p
+
+
+def check_trace_ask_agentiko(c):
+    """D1 — the trace page's prompt: spans, services, wall clock, spans in error; "" with nothing read."""
+    p = []
+    _, _, b = resolve(c, 'obs-trace-detail', {'traceId': TRACE_B}, {'spans': ch(TRACE_B_SPANS)})
+    expect(p, 'errors', ask_of(b['askHref']),
+           (f'/observability/traces/{TRACE_B}',
+            f'Explain trace {TRACE_B}: 3 spans across 1 service (snowplow), 1.94 s end to end, 2 spans in error: '
+            '1. snowplow · GET /call restactions/obs-log-stream (HTTP 500) 2. snowplow · clickhouse query. '
+            'Where is the time going, what caused the errors, and what should I change?'))
+    _, _, a = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch(TRACE_A_SPANS)})
+    expect(p, 'no error', ask_of(a['askHref'])[1],
+           f'Explain trace {TRACE_A}: 6 spans across 3 services (agentgateway, agentiko, k8s-agent), 5.81 s end to end, '
+           'and no span in error. Where is the time going, and what should I change?')
+    many = [span(US + i, f'{i:016x}', '', 'svc', 'op', 1000) for i in range(1000)]
+    _, _, big = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch(many)})
+    expect(p, 'truncated: said', '1000 spans (the first 1000; the trace has more) across' in ask_of(big['askHref'])[1], True)
+    # Nothing to ask about: the button falls back rather than seed a prompt about an unread trace.
+    _, _, none = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch([])})
+    _, _, down = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {})
+    _, _, bad = resolve(c, 'obs-trace-detail', {'traceId': "x' OR 1=1"}, {'spans': ch(TRACE_A_SPANS)})
+    for label, out in (('not found', none), ('unreadable', down), ('not a trace id', bad)):
+        expect(p, f'{label}: no askHref', out['askHref'], '')
+        btn = tbi.resolved_widget(c, 'Button', 'trace-detail-ask-agentiko', out, {'traceId': TRACE_A}, f'trace-detail-ask-agentiko ({label})')
+        expect(p, f'{label}: button falls back', btn['spec']['widgetData']['actions']['navigate'][0]['path'], '/observability?tab=Traces')
+    btn = tbi.resolved_widget(c, 'Button', 'trace-detail-ask-agentiko', b, {'traceId': TRACE_B}, 'trace-detail-ask-agentiko (errors)')
+    expect(p, 'button -> askHref', btn['spec']['widgetData']['actions']['navigate'][0]['path'], b['askHref'])
+    expect(p, 'button keyExtras', btn['spec']['keyExtras'], ['traceId'])
+    hdr = c.get('PageHeader', 'trace-detail-page-header')['spec']
+    expect(p, 'header items', [i['resourceRefId'] for i in hdr['widgetData']['items']], ['trace-detail-ask-agentiko'])
+    return p
+
+
+def check_component_ask_agentiko(c):
+    """D5 — the component page's prompt: readiness, restarts and pod states; "" when not found."""
+    p = []
+    dep = {'metadata': {'name': 'snowplow', 'namespace': RELEASE_NS},
+           'spec': {'replicas': 2, 'selector': {'matchLabels': {'app': 'snowplow'}}, 'template': {'spec': {'containers': [{'image': 'x'}]}}},
+           'status': {'readyReplicas': 1}}
+
+    def pod(name, restarts, waiting=None, phase='Running'):
+        cs = {'ready': waiting is None, 'restartCount': restarts, 'state': {'waiting': {'reason': waiting}} if waiting else {'running': {}}}
+        return {'metadata': {'name': name, 'namespace': RELEASE_NS, 'labels': {'app': 'snowplow'}},
+                'spec': {'containers': [{'image': 'x'}]}, 'status': {'phase': phase, 'containerStatuses': [cs]}}
+    pods = {'items': [pod('snowplow-6d9f-aaaaa', 0), pod('snowplow-6d9f-bbbbb', 7, 'CrashLoopBackOff'),
+                      {'metadata': {'name': 'other-1', 'namespace': RELEASE_NS, 'labels': {'app': 'other'}}, 'status': {}}]}
+    ok = {'dep': dep, 'pods': pods, 'events': {'items': []}}
+    _, _, out = resolve(c, 'component-detail', {'name': 'snowplow'}, ok)
+    expect(p, 'found', ask_of(out['askHref']),
+           ('/observability/components/snowplow',
+            f'Diagnose the platform component "snowplow" (a Deployment in {RELEASE_NS}): 1/2 replicas ready, 7 container restarts '
+            'across 2 pods (1. snowplow-6d9f-aaaaa — Running 2. snowplow-6d9f-bbbbb — CrashLoopBackOff). Is it healthy? If not, '
+            'explain what is wrong from its pods and recent events, and how to fix it.'))
+    # A pods read that failed is not "0 restarts across 0 pods".
+    _, _, nopods = resolve(c, 'component-detail', {'name': 'snowplow'}, {'dep': dep, 'events': {'items': []}})
+    prompt = ask_of(nopods['askHref'])[1]
+    expect(p, 'pods unread: said', '1/2 replicas ready, and its pods could not be read. Is it healthy?' in prompt, True)
+    expect(p, 'pods unread: no zero claim', '0 pods' in prompt, False)
+    _, _, missing = resolve(c, 'component-detail', {'name': 'nope'}, {'pods': pods, 'events': {'items': []}})
+    expect(p, 'not found: no askHref', missing['askHref'], '')
+    for label, data in (('found', out), ('not found', missing)):
+        btn = tbi.resolved_widget(c, 'Button', 'component-detail-ask-agentiko', data, {'name': 'snowplow'}, f'component-detail-ask-agentiko ({label})')
+        want = out['askHref'] if label == 'found' else '/observability?tab=Components'
+        expect(p, f'{label}: button path', btn['spec']['widgetData']['actions']['navigate'][0]['path'], want)
+    hdr = c.get('PageHeader', 'component-detail-page-header')['spec']
+    expect(p, 'header items', [i['resourceRefId'] for i in hdr['widgetData']['items']], ['component-detail-ask-agentiko'])
+    tbi.RESOLVED.append(('PageHeader component-detail-page-header as rendered', copy.deepcopy(c.get('PageHeader', 'component-detail-page-header'))))
+    tbi.RESOLVED.append(('PageHeader trace-detail-page-header as rendered', copy.deepcopy(c.get('PageHeader', 'trace-detail-page-header'))))
+    return p
+
+
 def check_staleness_widgets_validate(c):
     for kind, name in STALE_WIDGETS:
         tbi.RESOLVED.append((f'{kind} {name} as rendered (reconcileTracing)', copy.deepcopy(c.get(kind, name))))
@@ -986,6 +1170,10 @@ def main():
         ('staleness: nothing overdue shows the all-clear', lambda: check_staleness_all_clear(stale)),
         ('staleness: unreadable or empty traces never flag every row', lambda: check_staleness_never_flags_every_row(stale)),
         ('staleness: admins only, design tokens only', lambda: check_staleness_admins_only_and_tokens(stale)),
+        ('Ask Agentiko: one entry point in the page header, from the digest; a failed read says so',
+         lambda: check_page_ask_agentiko_reads_the_digest(c, with_console)),
+        ('Ask Agentiko: the trace page', lambda: check_trace_ask_agentiko(c)),
+        ('Ask Agentiko: the component page', lambda: check_component_ask_agentiko(c)),
     ]
     if crds_dir:
         checks.append(('(authored widgets queued for validation)', lambda: check_authored_widgets_validate(c, with_console, crds_dir)))

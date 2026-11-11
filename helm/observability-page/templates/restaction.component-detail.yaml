@@ -71,6 +71,11 @@ spec:
       {{/* Thin projection only (type/reason/message/involvedObject/ts) — the per-component */}}
       {{/* narrowing needs the live pod set, so it happens in the final filter below. */}}
       filter: '[ .events.items[]? | { type: (.type // "Normal"), reason: (.reason // ""), message: (.message // ""), kind: (.involvedObject.kind // ""), obj: (.involvedObject.name // ""), count: (.count // 1), ts: ((.lastTimestamp // .eventTime // .firstTimestamp) // "") } ]'
+  {{/* askHref: "Ask Agentiko →" in the page header (button.component-detail-ask-agentiko) — THIS */}}
+  {{/* page with an ?ask seed, @uri-encoded once: readiness, restarts across the live pods and each */}}
+  {{/* pod's state (top 8, numbered). "" when the Deployment was not found, so the button falls back */}}
+  {{/* to the Components tab. A pods read that FAILED is said as such, not as "0 restarts across 0 */}}
+  {{/* pods", which would describe a component with nothing running. */}}
   filter: >
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
     | (.dep // {}) as $d
@@ -81,6 +86,17 @@ spec:
          | select((($sel | length) > 0) and ($sel | to_entries | all($l[.key] == .value))) ]) as $livePods
     | ($livePods | map(.metadata.name)) as $podNames
     | ($podNames | map(split("-")[0:-1] | join("-")) | unique) as $rsNames
+    | ([ $livePods[] | {
+          name: .metadata.name,
+          restarts: ([ (.status.containerStatuses // [])[] | (.restartCount // 0) ] | add // 0),
+          state: (([ (.status.containerStatuses // [])[] | (.state.waiting.reason // empty) ] | .[0]) // (.status.phase // "")) } ]) as $podRows
+    | ("Diagnose the platform component \"" + $n + "\" (a Deployment in {{ $.Release.Namespace }}): "
+       + (($d.status.readyReplicas // 0) | tostring) + "/" + (($d.spec.replicas // 0) | tostring) + " replicas ready, "
+       + (if (.podsError // null) != null then "and its pods could not be read"
+          else ([ $podRows[].restarts ] | add // 0 | tostring) + " container restarts across " + ($podRows | length | tostring)
+            + (if ($podRows | length) == 1 then " pod" else " pods" end)
+            + (if ($podRows | length) == 0 then "" else " (" + ([ $podRows[0:8] | to_entries[] | ((.key + 1) | tostring) + ". " + .value.name + " — " + (if .value.state != "" then .value.state else "unknown" end) ] | join(" ")) + ")" end) end)
+       + ". Is it healthy? If not, explain what is wrong from its pods and recent events, and how to fix it.") as $ask
     | {
         found: $found,
         name: (if $found then $d.metadata.name else $n end),
@@ -119,5 +135,6 @@ spec:
                 else ($gvp | split("/")) as $s
                   | ("/resources/{{ $.Release.Namespace }}/" + $s[0] + "/" + $s[1] + "/" + $s[2] + "/" + $o)
                 end) } ]
-          | sort_by(.ts) | reverse | .[0:20])
+          | sort_by(.ts) | reverse | .[0:20]),
+        askHref: (if $found then ("/observability/components/" + $n + "?ask=" + ($ask | @uri)) else "" end)
       }
