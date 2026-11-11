@@ -1,5 +1,6 @@
-{{/* The /agents/{namespace}/{name} page header — the agent's name, its description, and up to two */}}
-{{/* pills (orchestrator, status), in one CR. */}}
+{{/* The /agents/{namespace}/{name} page header — the agent's name, its description, up to two */}}
+{{/* pills (orchestrator, status) and "Ask Agentiko →" (button.agent-detail-ask-agentiko, the */}}
+{{/* header's only action), in one CR. */}}
 {{/* */}}
 {{/* Replaces SIX: flex.agent-detail-header-block, flex.agent-detail-titleline, */}}
 {{/* paragraph.agent-detail-title, paragraph.agent-detail-subtitle, tag.agent-detail-orchestrator and */}}
@@ -35,6 +36,10 @@ spec:
     title: Agent
     subtitle: ""
     tags: []
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: agent-detail-ask-agentiko
   widgetDataTemplate:
     {{/* Was paragraph.agent-detail-title's `forPath: text` (level 1 — PageHeader sets the rank). */}}
     - forPath: title
@@ -48,4 +53,10 @@ spec:
         ${ (if ((.orchestratorLabel // "") != "") then [ { label: .orchestratorLabel, color: "violet" } ] else [] end)
         + (if ((.statusLabel // "") != "") then [ { label: .statusLabel, color: (if ((.statusColor // "") == "") then "orange" else .statusColor end) } ] else [] end) }
   resourcesRefs:
-    items: []
+    items:
+    - id: agent-detail-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agent-detail-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

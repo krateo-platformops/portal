@@ -81,6 +81,10 @@ spec:
   {{/* derive the single health verdict (clusters-list's mapping). `blueprints` rows carry */}}
   {{/* everything the Listy renders — per-row health label/colour computed HERE (server-side */}}
   {{/* value→presentation), versionLabel pre-formatted so an absent version renders empty. */}}
+  {{/* `askHref` is the "Ask Agentiko →" link (button.cluster-detail-ask-agentiko): this page's */}}
+  {{/* route with an ?ask seed about this cluster, built here and @uri-encoded. "" when the cluster */}}
+  {{/* was not found, so the Button falls back to /clusters rather than asking about nothing. */}}
+  {{/* FOLDED scalar (`>`): no `#` comments in the jq. */}}
   filter: >
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
     | ([ (.targets // [])[] | select(.name == $n) ] | first // {}) as $t
@@ -93,7 +97,16 @@ spec:
        elif ($conns | any(. == "Down")) then "failed"
        elif ((($refs | length) > 0) and ($conns | all(. == "Healthy"))) then "healthy"
        else "unknown" end) as $health
+    | (if $health == "healthy" then "Healthy" elif $health == "failed" then "Down" else "Unknown" end) as $hl
+    | (($t.version // "") as $tv | if $tv != "" then $tv else (([ $refs[] | .k8sVer ] | map(select(. != "")))[0] // "") end) as $ver
+    | ([ $refs[] | select(.conn == "Down") ] | length) as $refsDown
     | {
+        askHref: (if $found then ("/clusters/" + ($n | @uri) + "?ask="
+          + (("Diagnose cluster \"" + $n + "\": its connection is " + $hl
+              + (if ($t.lastProbe // "") != "" then " (last probe " + $t.lastProbe + ")" else " (no probe recorded)" end)
+              + ", " + (if $ver != "" then "Kubernetes " + $ver else "its Kubernetes version is unknown" end)
+              + ", and " + ($refs | length | tostring) + (if ($refs | length) == 1 then " blueprint targets it" else " blueprints target it" end)
+              + " (" + ($refsDown | tostring) + " report it Down). Is it reachable and healthy? If not, explain why and how to restore it.") | @uri)) else "" end),
         found: $found,
         name: (if $found then $t.name else $n end),
         health: $health,

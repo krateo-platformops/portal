@@ -1,0 +1,42 @@
+{{/* "Ask Agentiko →" on /resources/{namespace}/{group}/{version}/{plural}/{name} — the assistant
+     entry point for this Kubernetes object. It navigates to THIS page with an ?ask seed the rail
+     consumes on mount.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4). The header has no primary; this is its one action.
+
+     The href is built server-side (resource-detail `.askHref`, @uri-encoded) from the object's kind,
+     scope, apiVersion and its False conditions. It is "" when the object was not read, and the
+     click then falls back to /compositions: this generic page has no list of its own, and
+     /compositions is where its links come from (composition-detail's own button falls back there
+     too). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: resource-detail-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the five route params name the object. */}}
+  keyExtras: [namespace, group, version, plural, name]
+  apiRef:
+    name: resource-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /compositions
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to /compositions — never a 404 — if
+         askHref is empty. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/compositions" end) } ] } }'
+  resourcesRefs:
+    items: []

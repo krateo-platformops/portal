@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The resources page's detail subtitle, over the chart's OWN jq.
+"""The resources page's detail subtitle and its "Ask Agentiko →" link, over the chart's OWN jq.
 
 A forbidden read is not a missing resource. The `object` stage is continueOnError with errorKey
 `objectError`, so a 403 left `.object` empty and the subtitle fell through to "Not found" — which
@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 
 import yaml
 
@@ -103,9 +104,76 @@ CASES = [
 ]
 
 
+def ask(href):
+    path, _, query = href.partition('?')
+    return path, urllib.parse.parse_qs(query).get('ask', [''])[0]
+
+
+def found(conds=None, **over):
+    """A namespaced Deployment the read DID return."""
+    obj = {'apiVersion': 'apps/v1', 'kind': 'Deployment',
+           'metadata': {'name': 'orders-api', 'namespace': 'team-alpha', 'creationTimestamp': '2026-11-01T00:00:00Z'},
+           'status': {'conditions': conds or []}}
+    base = {'group': 'apps', 'version': 'v1', 'plural': 'deployments', 'name': 'orders-api', 'namespace': 'team-alpha',
+            'disco': {'resources': [{'name': 'deployments', 'namespaced': True, 'kind': 'Deployment'}]}, 'object': obj}
+    base.update(over)
+    return base
+
+
+def ask_checks(docs, program, failures):
+    """"Ask Agentiko →": the self-href is rebuilt from the five route extras, the prompt names the
+    False conditions, says "cluster-scoped" for a cluster-scoped kind, and there is no link at all
+    when the object was not read."""
+    def check(label, got, want):
+        if got != want:
+            failures.append(f'ask: {label}: {got!r} != {want!r}')
+
+    conds = [{'type': 'Available', 'status': 'False', 'reason': 'MinimumReplicasUnavailable'},
+             {'type': 'Progressing', 'status': 'True', 'reason': 'NewReplicaSetAvailable'},
+             {'type': 'ReplicaFailure', 'status': 'False', 'reason': ''}]
+    path, prompt = ask(jq(program, found(conds))['askHref'])
+    check('found -> the same page', path, '/resources/team-alpha/apps/v1/deployments/orders-api')
+    check('found -> prompt', prompt,
+          'Diagnose the Deployment "orders-api" in namespace "team-alpha" (apps/v1): is it healthy? Explain its '
+          'conditions (2 of 3 False: Available — MinimumReplicasUnavailable, ReplicaFailure) and how to fix what is wrong.')
+    _, prompt = ask(jq(program, found([conds[1]]))['askHref'])
+    check('found, nothing False -> said', prompt.endswith(
+        'Explain its conditions (none of 1 is False) and whether anything still needs attention.'), True)
+    _, prompt = ask(jq(program, found())['askHref'])
+    check('found, no conditions -> said', prompt.endswith(
+        'It reports no status conditions, so explain what its manifest and status say and whether anything is wrong.'), True)
+    # Cluster-scoped: the route's namespace segment is the link builders' literal `cluster`, kept
+    # verbatim so the link is THIS page; the prompt says cluster-scoped and names no namespace.
+    cr = {'apiVersion': 'rbac.authorization.k8s.io/v1', 'kind': 'ClusterRole', 'metadata': {'name': 'viewer'}}
+    out = jq(program, {'group': 'rbac.authorization.k8s.io', 'version': 'v1', 'plural': 'clusterroles', 'name': 'viewer',
+                       'namespace': 'cluster', 'object': cr,
+                       'disco': {'resources': [{'name': 'clusterroles', 'namespaced': False, 'kind': 'ClusterRole'}]}})
+    path, prompt = ask(out['askHref'])
+    check('cluster-scoped -> the same page', path, '/resources/cluster/rbac.authorization.k8s.io/v1/clusterroles/viewer')
+    check('cluster-scoped -> prompt', prompt.startswith(
+        'Diagnose the ClusterRole "viewer" (cluster-scoped, rbac.authorization.k8s.io/v1): is it healthy?'), True)
+    check('cluster-scoped -> no namespace named', 'namespace' in prompt, False)
+    # NOT READ -> no link: absent, forbidden and unfetchable alike.
+    for label, data, _want in CASES:
+        check(f'{label} -> no link', jq(program, data).get('askHref'), '')
+
+    b = [d for d in docs if d.get('kind') == 'Button' and d['metadata']['name'] == 'resource-detail-ask-agentiko'][0]
+    expr = [e for e in b['spec']['widgetDataTemplate'] if e['forPath'] == 'actions'][0]['expression'].strip()[2:-1]
+    check('button -> askHref', jq(expr, {'askHref': '/x?ask=y'})['navigate'][0]['path'], '/x?ask=y')
+    check('button -> fallback, never a 404', jq(expr, {'askHref': ''})['navigate'][0]['path'], '/compositions')
+    check('button -> keyExtras', b['spec']['keyExtras'], ['namespace', 'group', 'version', 'plural', 'name'])
+    check('button -> label, intent', (b['spec']['widgetData']['label'], b['spec']['widgetData']['intent']),
+          ('Ask Agentiko →', 'agentiko'))
+    header = [d for d in docs if d.get('kind') == 'PageHeader' and d['metadata']['name'] == 'resource-detail-page-header'][0]
+    check('header -> the button', [i['resourceRefId'] for i in header['spec']['widgetData']['items']],
+          ['resource-detail-ask-agentiko'])
+
+
 def main():
-    program = restaction_filter(render(CHART), 'resource-detail')
+    docs = render(CHART)
+    program = restaction_filter(docs, 'resource-detail')
     failures = []
+    ask_checks(docs, program, failures)
     for label, data, want in CASES:
         got = jq(program, data)
         if got.get('subtitle') != want:
@@ -114,7 +182,8 @@ def main():
             failures.append(f'{label}: found should be false when nothing was read')
     for f in failures:
         print(f'FAIL  {f}')
-    print(f'{len(CASES) - len(failures)}/{len(CASES)} cases ok')
+    asks = [f for f in failures if f.startswith('ask: ')]
+    print(f'{len(CASES) - (len(failures) - len(asks))}/{len(CASES)} cases ok; Ask Agentiko: {len(asks)} failure(s)')
     return 1 if failures else 0
 
 

@@ -1,4 +1,5 @@
-{{/* The /clusters/{name} page header — the cluster's name and its health pill, in one CR. */}}
+{{/* The /clusters/{name} page header — the cluster's name, its health pill and "Ask Agentiko →" */}}
+{{/* (button.cluster-detail-ask-agentiko, the header's only action), in one CR. */}}
 {{/* */}}
 {{/* Replaces three: flex.cluster-detail-title-line (a horizontal Flex holding the two), */}}
 {{/* paragraph.cluster-detail-header and tag.cluster-detail-status. */}}
@@ -39,6 +40,10 @@ spec:
     tags:
     - label: Unknown
       color: gray
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: cluster-detail-ask-agentiko
   widgetDataTemplate:
     {{/* Was paragraph.cluster-detail-header's `forPath: text`. */}}
     - forPath: title
@@ -49,4 +54,10 @@ spec:
     - forPath: tags
       expression: '${ [ { label: (.healthLabel // "Unknown"), color: (.healthColor // "gray") } ] }'
   resourcesRefs:
-    items: []
+    items:
+    - id: cluster-detail-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: cluster-detail-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

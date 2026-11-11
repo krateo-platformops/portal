@@ -21,9 +21,11 @@
 {{/* for that variant — it has rendered as nothing for some time. The apiVersion is not lost to the */}}
 {{/* reader: it is the first line of the manifest card directly below. */}}
 {{/* */}}
-{{/* No counter, no tags, no items. This page has no count; its status lives in the conditions list, */}}
-{{/* which composes only when the kind HAS conditions; and its one action — clearing a stuck */}}
-{{/* create-pending annotation — belongs to the exception block that explains it, not to the header. */}}
+{{/* No counter and no tags. This page has no count, and its status lives in the conditions list, */}}
+{{/* which composes only when the kind HAS conditions. Its one header item is "Ask Agentiko →" */}}
+{{/* (button.resource-detail-ask-agentiko), the only action about the whole object; the other */}}
+{{/* action — clearing a stuck create-pending annotation — belongs to the exception block that */}}
+{{/* explains it, not to the header. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -42,6 +44,10 @@ spec:
   widgetData:
     title: ""
     subtitle: ""
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: resource-detail-ask-agentiko
   widgetDataTemplate:
     {{/* "Kind · name", e.g. "Deployment · krateo-portal". Was paragraph.resource-detail-title. */}}
     - forPath: title
@@ -50,4 +56,10 @@ spec:
     - forPath: subtitle
       expression: '${ .subtitle // "" }'
   resourcesRefs:
-    items: []
+    items:
+    - id: resource-detail-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: resource-detail-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

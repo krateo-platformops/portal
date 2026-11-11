@@ -144,5 +144,22 @@ spec:
         patchName: ($o.metadata.name // (.name // "")),
         patchNamespace: (if $nsd then ($o.metadata.namespace // (.namespace // "")) else "" end),
         conditionsCount: ($conds | length),
+        # "Ask Agentiko →" (button.resource-detail-ask-agentiko): THIS page's route, rebuilt from
+        # the five route extras exactly as they arrived (a cluster-scoped object's namespace
+        # segment is the literal the link builders use, `cluster`), with an ?ask seed about this
+        # object's conditions. Built here and @uri-encoded so the Button is a plain literal
+        # navigate. "" when the object was not read (absent, forbidden, or a kind the portal does
+        # not read), so the Button falls back instead of asking about nothing.
+        askHref: (if (($o.metadata.name // "") == "") then "" else
+            ([ $conds[] | select((.status // "") == "False") ]) as $falseConds
+            | ("Diagnose the " + $kind + " \"" + $o.metadata.name + "\""
+               + (if $nsd then (" in namespace \"" + ($o.metadata.namespace // (.namespace // "")) + "\" (") else " (cluster-scoped, " end)
+               + ($o.apiVersion // (if $g == "" then (.version // "") else ($g + "/" + (.version // "")) end)) + "): is it healthy? "
+               + (if ($conds | length) == 0 then "It reports no status conditions, so explain what its manifest and status say and whether anything is wrong."
+                  elif ($falseConds | length) == 0 then ("Explain its conditions (none of " + ($conds | length | tostring) + " is False) and whether anything still needs attention.")
+                  else ("Explain its conditions (" + ($falseConds | length | tostring) + " of " + ($conds | length | tostring) + " False: "
+                        + ($falseConds[0:8] | map((.type // "") + (if (.reason // "") != "" then " — " + .reason else "" end)) | join(", "))
+                        + ") and how to fix what is wrong.") end)) as $prompt
+            | ("/resources/" + ([ .namespace, .group, .version, .plural, .name ] | map((. // "") | tostring | @uri) | join("/")) + "?ask=" + ($prompt | @uri)) end),
         manifestJson: (if (($o.metadata.name // "") != "") then (($o | del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) | tojson) else "" end)
       }

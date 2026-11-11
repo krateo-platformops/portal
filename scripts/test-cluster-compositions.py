@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The clusters page's readiness summary, over the chart's OWN jq.
+"""The clusters page's readiness summary — and its "Ask Agentiko →" links — over the chart's OWN jq.
 
 portal#333: `notReady` was `$total - $ready`, the complement of Ready=="True", so it absorbed
 Ready=Unknown as well as Ready=="False". The row LABEL already had three states, so the summary
@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 
 import yaml
 
@@ -238,9 +239,113 @@ CASES = [
 ]
 
 
+def ask(href):
+    """(the path the link opens, the decoded ?ask prompt)."""
+    path, _, query = href.partition('?')
+    return path, urllib.parse.parse_qs(query).get('ask', [''])[0]
+
+
+def target(name, conn='', version='', probe=''):
+    return {'metadata': {'name': name}, 'spec': {'kubeconfigRef': {'name': name + '-kc'}},
+            'status': {'connectionStatus': conn, 'version': version, 'lastProbeTime': probe}}
+
+
+def compdef(name, tgt, conn='', ns='krateo-system'):
+    return {'metadata': {'name': name, 'namespace': ns},
+            'spec': {'deploy': {'targetRef': {'name': tgt}}, 'chart': {'version': '1.4.2'}},
+            'status': {'target': {'connectionStatus': conn, 'version': ''}}}
+
+
+def ask_checks(docs, failures):
+    """"Ask Agentiko →" on /clusters and /clusters/{name}: the prompt names what the table shows,
+    and a failed read asks about the error rather than describing a registry nobody read."""
+    def check(label, got, want):
+        if got != want:
+            failures.append(f'ask: {label}: {got!r} != {want!r}')
+
+    for ra in ('clusters-list', 'cluster-detail'):
+        doc = [d for d in docs if d.get('kind') == 'RESTAction' and d['metadata']['name'] == ra][0]
+        steps = {s['name']: s['filter'] for s in doc['spec']['api']}
+        final = doc['spec']['filter']
+
+        def run(targets=None, compdefs=None, extra=None):
+            data = dict(extra or {})
+            if targets is not None:
+                data['targets'] = jq(steps['targets'], {'targets': {'items': targets}})
+            if compdefs is not None:
+                data['compdefs'] = jq(steps['compdefs'], {'compdefs': {'items': compdefs}})
+            return jq(final, data)
+
+        fleet = [target('hub', 'Healthy', 'v1.31.2', '2026-11-11T09:00:00Z'),
+                 target('spoke-eu-west', 'Down', 'v1.30.4', '2026-11-11T08:56:00Z'),
+                 target('spoke-new')]
+        cds = [compdef('web-app', 'spoke-eu-west', 'Down'), compdef('db', 'spoke-eu-west', 'Down'),
+               compdef('cache', 'spoke-eu-west', 'Healthy')]
+        if ra == 'clusters-list':
+            out = run(fleet, cds)
+            path, prompt = ask(out['askHref'])
+            check('list -> self page', path, '/clusters')
+            check('list -> not failed', out['failed'], False)
+            check('list -> prompt', prompt,
+                  'Check my registered clusters: 3 registered — 1 healthy, 1 down (1. spoke-eu-west — last probe '
+                  '2026-11-11T08:56:00Z), 1 unknown (1. spoke-new). For each one that is not healthy, explain what '
+                  'its connection probe says and how to restore it.')
+            _, prompt = ask(run([target('hub', 'Healthy')], [])['askHref'])
+            check('list, all healthy -> no "not healthy" list', prompt,
+                  'Check my registered clusters: 1 registered, all healthy. Tell me whether anything about them still needs attention.')
+            _, prompt = ask(run([], [])['askHref'])
+            check('list, none registered -> says so', prompt.startswith('No cluster is registered on this platform yet.'), True)
+            # A FAILED READ IS NOT AN EMPTY REGISTRY.
+            failed = run(None, cds, {'targetsError': [{'code': 403, 'message': 'kubernetestargets is forbidden'}]})
+            check('list, failed read -> failed', (failed['failed'], failed['readError']), (True, 'kubernetestargets is forbidden'))
+            _, prompt = ask(failed['askHref'])
+            check('list, failed read -> asks about the error', prompt,
+                  'The cluster registry could not be read (kubernetestargets is forbidden). Explain what that error '
+                  'means and what an administrator has to fix.')
+            # The roll-up half failing is stated, not hidden: health then comes from the probe alone.
+            _, prompt = ask(run(fleet, None, {'compdefsError': 'timeout'})['askHref'])
+            check('list, compdefs failed -> stated', prompt.endswith(
+                'The blueprints that target them could not be read (timeout), so each cluster\'s health here comes '
+                'from its own probe alone.'), True)
+            many = [target(f'c{i}', 'Down', probe='2026-11-11T00:00:00Z') for i in range(10)]
+            _, prompt = ask(run(many, [])['askHref'])
+            check('list -> eight at most', ('8. c7' in prompt, '9. c8' in prompt), (True, False))
+        else:
+            out = run(fleet, cds, {'name': 'spoke-eu-west'})
+            path, prompt = ask(out['askHref'])
+            check('detail -> self page', path, '/clusters/spoke-eu-west')
+            check('detail -> prompt', prompt,
+                  'Diagnose cluster "spoke-eu-west": its connection is Down (last probe 2026-11-11T08:56:00Z), '
+                  'Kubernetes v1.30.4, and 3 blueprints target it (2 report it Down). Is it reachable and healthy? '
+                  'If not, explain why and how to restore it.')
+            _, prompt = ask(run(fleet, [], {'name': 'spoke-new'})['askHref'])
+            check('detail, no probe, no version -> said', prompt,
+                  'Diagnose cluster "spoke-new": its connection is Unknown (no probe recorded), its Kubernetes version '
+                  'is unknown, and 0 blueprints target it (0 report it Down). Is it reachable and healthy? If not, '
+                  'explain why and how to restore it.')
+            check('detail, not found -> no link', run(fleet, cds, {'name': 'nope'})['askHref'], '')
+            check('detail, failed read -> no link', run(None, cds, {'name': 'hub', 'targetsError': 'x'})['askHref'], '')
+
+    for name, ra, fb, ke in (('clusters-ask-agentiko', 'clusters-list', '/clusters', None),
+                             ('cluster-detail-ask-agentiko', 'cluster-detail', '/clusters', ['name'])):
+        b = [d for d in docs if d.get('kind') == 'Button' and d['metadata']['name'] == name][0]
+        expr = [e for e in b['spec']['widgetDataTemplate'] if e['forPath'] == 'actions'][0]['expression'].strip()[2:-1]
+        check(f'{name} -> askHref', jq(expr, {'askHref': '/x?ask=y'})['navigate'][0]['path'], '/x?ask=y')
+        check(f'{name} -> fallback', jq(expr, {'askHref': ''})['navigate'][0]['path'], fb)
+        check(f'{name} -> reads', b['spec']['apiRef']['name'], ra)
+        check(f'{name} -> keyExtras', b['spec'].get('keyExtras'), ke)
+        check(f'{name} -> label, intent', (b['spec']['widgetData']['label'], b['spec']['widgetData']['intent']),
+              ('Ask Agentiko →', 'agentiko'))
+    header = [d for d in docs if d.get('kind') == 'PageHeader' and d['metadata']['name'] == 'clusters-page-header'][0]
+    check('header -> Ask, then Register', [i['resourceRefId'] for i in header['spec']['widgetData']['items']],
+          ['clusters-ask-agentiko', 'register-cluster'])
+
+
 def main():
-    program = restaction_filter(render(CHART), 'cluster-compositions')
+    docs = render(CHART)
+    program = restaction_filter(docs, 'cluster-compositions')
     failures = []
+    ask_checks(docs, failures)
     for readys, want_counts, want_color in CASES:
         got = jq(program, rows(*readys))
         label = f'ready={readys!r}'
@@ -299,7 +404,9 @@ def main():
                 failures.append(f'{label}: a {row.get("readyLabel")} pill is {row.get("readyColor")!r}, want {want!r}')
     for f in failures:
         print(f'FAIL  {f}')
-    print(f'{len(CASES) - len({f.split(":")[0] for f in failures})}/{len(CASES)} cases ok')
+    asks = [f for f in failures if f.startswith('ask: ')]
+    print(f'{len(CASES) - len({f.split(":")[0] for f in failures if f not in asks})}/{len(CASES)} cases ok; '
+          f'Ask Agentiko: {len(asks)} failure(s)')
     return 1 if failures else 0
 
 

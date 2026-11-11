@@ -1,0 +1,41 @@
+{{/* "Ask Agentiko →" on /clusters — the assistant entry point for the registered clusters. It
+     navigates to THIS page with an ?ask seed the rail consumes on mount, so the conversation starts
+     on the page that shows them.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not
+     set. Being filled does not take the header's one primary: "Register cluster" keeps it (P6),
+     and this sits immediately left of it.
+
+     The href is built server-side (clusters-list `.askHref`, @uri-encoded) from the health roll-up
+     the table already shows: the down and unknown clusters by name, a registry with none, and a
+     failed read, where it asks what the error means instead. The click is a plain literal
+     navigate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: clusters-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: clusters-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /clusters
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to /clusters — never a 404 — if
+         askHref is empty. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/clusters" end) } ] } }'
+  resourcesRefs:
+    items: []
