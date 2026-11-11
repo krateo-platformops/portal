@@ -1,9 +1,12 @@
 {{/* The /service-desk header: title, a one-line description that says what the page is FOR rather
-     than what it contains, and the one primary action.
+     than what it contains, "Ask Agentiko →", and the one primary action.
 
-     "Raise a ticket" is the primary. It is deliberately NOT "Ask Autopilot" — that is the one
-     approved CTA label for asking the assistant, and this page's primary action is a human one.
-     Autopilot belongs on a ticket, where there is something to reason about, not on the queue. */}}
+     "Raise a ticket" is the primary: this page's primary action is a human one. "Ask Agentiko →"
+     sits immediately left of it and does not take that slot (P6). An earlier version of this
+     comment said the assistant belonged on a ticket and not on the queue; that was reversed when
+     every data page got an entry point — the queue IS something to reason about (which ticket to
+     pick up first, what is stuck), and tickets-list builds the prompt from the counts and the
+     oldest open tickets it already read. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,11 +24,13 @@ spec:
        at all and every ticket arrives through snowplow's refilter, so a misconfigured grant
        produces exactly that empty-looking queue — the silent case became the DEFAULT failure.
 
-       THE HEADER RATHER THAN AN ALERT, and the reason is the CRDs. No widget in the set has a
-       visibility flag and Table has no empty-state field, so an Alert would be a box that is
-       always drawn and usually says nothing. A PageHeader `tags` array renders nothing when it is
-       empty, which makes a tag conditional by construction — and the portal's rule is that status
-       indicators are exception-only: nothing marks the healthy case. */}}
+       THE HEADER RATHER THAN AN ALERT. A PageHeader `tags` array renders nothing when it is empty,
+       which makes a tag conditional by construction — and the portal's rule is that status
+       indicators are exception-only: nothing marks the healthy case. An Alert could now be drawn
+       conditionally too (the page root templates its `items`, which is how the empty-state
+       sentence replaces the table), but the failure belongs with the page's title, and it would
+       say the same thing twice. The empty-state sentence is never drawn on a failed read, for the
+       same reason. */}}
   apiRef:
     name: tickets-list
     namespace: {{ $.Values.namespace }}
@@ -44,6 +49,7 @@ spec:
     allowedResources:
     - buttons
     items:
+    - resourceRefId: service-desk-ask-agentiko
     - resourceRefId: service-desk-raise
   widgetDataTemplate:
     {{/* Empty on the healthy path, so nothing is drawn. The three failures are distinguished
@@ -65,6 +71,12 @@ spec:
       expression: '${ if (.failed // false) then (if (.denied // false) then "Your access could not be confirmed, so this list is not your tickets — it is nothing at all. Tell an administrator." elif (.absent // false) then "No service desk is installed here, so there is nothing to show." else "This list is empty because the read failed, not because you have no tickets." end) else {{ if $.Values.deskActions }}"Requests raised by people on this platform."{{ else }}"Requests you have raised."{{ end }} end }'
   resourcesRefs:
     items:
+    - id: service-desk-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
     - id: service-desk-raise
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: service-desk-raise

@@ -208,9 +208,11 @@ spec:
         # Resolved or Closed ticket is not picked up.
         canAssign: ($exists and $me != "" and $assignee != $me and ($state | IN("Resolved", "Closed") | not)),
         canResolve: ($exists and ($state | IN("Resolved", "Closed") | not)),
-        # Both patches carry the spec field AND its label mirror, because the queue's reads are
-        # label selectors (restaction.tickets-list) — a spec written without its mirror is a ticket
-        # that disappears from the chip it belongs to.
+        # Both patches carry the spec field AND its label mirror, because the Ticket CRD promises
+        # the mirror (crd.tickets.yaml) and a label selector — `kubectl get tickets -l`, or a future paged
+        # read of the queue — trusts it. The queue itself filters `spec.state` in jq
+        # (restaction.tickets-list), so a missing mirror does not hide a ticket there; it makes the
+        # label lie.
         assignPatch: { metadata: { labels: { "krateo.io/ticket-assignee": ($me | labelslug) } }, spec: { assignee: $me } },
         resolvePatch: { metadata: { labels: { "krateo.io/ticket-state": ("Resolved" | slug) } }, spec: { state: "Resolved" } },
         # The object the ticket is about: its identity from the ref (always available when the ref

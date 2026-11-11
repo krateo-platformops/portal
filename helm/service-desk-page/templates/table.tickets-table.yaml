@@ -1,5 +1,8 @@
-{{/* The queue — one row per Ticket off tickets-list (which applies the ?state= chip as a LABEL
-     SELECTOR, server-side). Summary, state, requester, age, and assignee when deskActions is on. Row click → the ticket.
+{{/* The queue — one row per Ticket off tickets-list, which applies the ?state= chip
+     (listy.service-desk-state-chips) as a jq `select` over its one read, server-side. Summary,
+     state, requester, age, and assignee when deskActions is on. Row click → the ticket. When the
+     selected view holds no ticket the page root draws result.service-desk-empty instead of this
+     table, because a Table can only say "No rows".
 
      THE STATE COLOURS FOLLOW THE STATUS-PILL SPEC, which is stricter than it first looks and which
      parts of this repo do not follow — incidents-table maps `Resolved: "green"`, and green is
@@ -36,8 +39,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* The extras keys that partition this widget's cache cell. `state` drives the label selector, so
-       a cell keyed without it would serve one chip's rows to another chip. */}}
+  {{/* The extras keys that partition this widget's cache cell. `state` selects the rows, so a cell
+       keyed without it would serve one chip's rows to another chip. */}}
   keyExtras: [state]
   widgetData:
     {{/* Shrink columns to the container rather than growing a horizontal scrollbar: a long summary

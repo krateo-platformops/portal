@@ -1,0 +1,36 @@
+{{/* Ticket state filter chips (All · Open · In progress · Waiting on requester · Resolved · Closed),
+     built as incidents-page builds its status chips: one data-driven Listy(chip) whose state is URL
+     state. Each chip navigates to /service-desk?state=<slug>, which reaches tickets-list as an
+     extra; the RESTAction filters `.rows`, counts over EVERY ticket and echoes `.state`, so each
+     chip shows its live count and whether it is the one selected.
+
+     A FIXED SET, not one chip per state that occurs: the five are the Ticket CRD's enum, and a
+     state with no tickets shows 0 rather than vanishing, so the row does not change shape as the
+     queue moves. The slugs are the ones the table's `stateKey` and the label mirror use.
+
+     A ?state= that is not one of these leaves no chip active, and tickets-list words the empty
+     state for it (`stateValid`), so a mistyped address is said, not drawn as a quiet desk. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-state-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: `state` drives the active flag. */}}
+  keyExtras: [state]
+  apiRef:
+    name: tickets-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ ((.state // "all") | tostring) as $sel | (.counts // {}) as $counts | [{key: "all", label: "All"}, {key: "open", label: "Open"}, {key: "in-progress", label: "In progress"}, {key: "waiting-on-requester", label: "Waiting on requester"}, {key: "resolved", label: "Resolved"}, {key: "closed", label: "Closed"}] | map({label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/service-desk?state=" + .key)}) }'
+  resourcesRefs:
+    items: []
