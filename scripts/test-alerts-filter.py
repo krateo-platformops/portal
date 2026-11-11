@@ -11,7 +11,8 @@ set. The rules a reader would notice:
   - a chip is matched in any case; a ?status= that is no chip shows no rows, as on /incidents;
   - every chip route, and the header's "Ask Agentiko →" link, keep the ?projects= scope; the link
     also keeps the chip, so opening the rail does not reset the view;
-  - the page is the header, the chips and the table: the summary band is gone.
+  - the page is the header, the chips and the table: the summary band is gone;
+  - the alert page's state pill says "Not evaluated" too, in gray.
 Every resolved widget is validated against its CRD with --crds.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it.
@@ -154,7 +155,20 @@ def check_button_and_page():
     return f
 
 
-CHECKS = [check_counts_and_rows, check_chips, check_table, check_button_and_page]
+def check_detail_pill():
+    f = []
+    ra = CH.get('RESTAction', 'alert-detail')
+    ex = {'name': 'x', 'namespace': 'krateo-system'}
+    for a, want in ((alert('x', 'OK'), [{'label': 'OK', 'color': 'green'}]),
+                    (alert('x', 'ALERT', paused=True), [{'label': 'Alert', 'color': 'red'}, {'label': 'Paused', 'color': 'gray'}]),
+                    (alert('x', 'OK', synced=False), [{'label': 'Not evaluated', 'color': 'gray'}])):
+        out = tbi.jq(ra['spec']['filter'], dict(ex, alert=a, incidents={'items': []}))
+        got = tbi.resolved_widget(CH, 'PageHeader', 'alert-detail-page-header', out, ex, 'detail header')['spec']['widgetData']['tags']
+        expect(f, f'detail pill ({a["status"]})', got, want)
+    return f
+
+
+CHECKS = [check_counts_and_rows, check_chips, check_table, check_button_and_page, check_detail_pill]
 
 
 def main():
