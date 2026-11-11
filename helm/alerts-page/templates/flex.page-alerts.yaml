@@ -2,7 +2,7 @@
 {{/* surface. Alert *rules* (descriptions/thresholds/intervals, incl. quiet OK ones) are config, not */}}
 {{/* incidents, so they moved OFF the /incidents triage page to here. /incidents keeps only the */}}
 {{/* firing signal (awaiting strip) + the per-alert investigation feed; this page owns the full */}}
-{{/* rule catalog. Header + the obs-alerts rules table. */}}
+{{/* rule catalog. Header, the state filter chips, and the obs-alerts rules table. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -22,16 +22,14 @@ spec:
     - flexes
     - tables
     - listies
-    - rows
     vertical: true
     gap: middle
     items:
     {{/* Title, subtitle and BOTH create routes in one CR — see pageheader.alerts. */}}
     - resourceRefId: alerts-page-header
-    {{/* The summary band. "Is anything firing?" was answered by scanning a STATE column for a red */}}
-    {{/* chip — workable at 8 rows, not at 30 — and two of the three counts (a rule evaluated by */}}
-    {{/* NOTHING, an investigation that produced nothing) have no column at all. */}}
-    - resourceRefId: alerts-stats
+    {{/* State filter chips with their counts: "is anything firing?" is the Alert chip's number, */}}
+    {{/* and one click narrows the table to it. */}}
+    - resourceRefId: alerts-status-chips
     - resourceRefId: obs-alerts
   resourcesRefs:
     items:
@@ -41,11 +39,11 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: alerts-stats
+    - id: alerts-status-chips
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-stats
+      name: alerts-status-chips
       namespace: {{ $.Values.namespace }}
-      resource: rows
+      resource: listies
       verb: GET
     - id: obs-alerts
       apiVersion: widgets.templates.krateo.io/v1beta1

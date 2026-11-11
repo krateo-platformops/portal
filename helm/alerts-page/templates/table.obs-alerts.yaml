@@ -4,6 +4,9 @@
 {{/* word, and "Ok"/"Healthy" would be prettier but less truthful). The numbers/threshold are the */}}
 {{/* real alert config; state is mirrored from HyperDX by the reconciler. */}}
 {{/* A paused alert (krateo.io/paused: "true") keeps its state word, suffixed "· paused", in gray. */}}
+{{/* An alert with no HyperDX alert behind it reads "Not evaluated", in gray, whatever its last */}}
+{{/* mirrored state: nothing evaluates it, so a "Pending" or "OK" there would be a claim nobody made. */}}
+{{/* The ?status= chip above filters the rows server-side (obs-alerts). */}}
 {{/* Lives on the /alerts rule catalog. Row click → the per-alert detail page */}}
 {{/* /alerts/{namespace}/{name} (item 25); the "Investigate with Autopilot" ask flow the row used */}}
 {{/* to own now rides that page's pagehead button (the seed is still built server-side, just one */}}
@@ -16,6 +19,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, status]
   widgetData:
     allowedResources: []
     bordered: false
@@ -54,7 +59,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")}, {valueKey:"description",kind:"jsonSchemaType",type:"string",stringValue:(.description // "-")}, {valueKey:"threshold",kind:"jsonSchemaType",type:"string",stringValue:((.thresholdType // "") + " " + (.threshold // ""))}, {valueKey:"interval",kind:"jsonSchemaType",type:"string",stringValue:(.interval // "-"),color:"var(--gray-color)"}, {valueKey:"state",kind:"tag",stringValue:(((.state // "PENDING") | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end) + (if (.paused // false) then " · paused" else "" end)),color:(if (.paused // false) then "gray" else ((.state // "PENDING") | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end) end)} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")}, {valueKey:"description",kind:"jsonSchemaType",type:"string",stringValue:(.description // "-")}, {valueKey:"threshold",kind:"jsonSchemaType",type:"string",stringValue:((.thresholdType // "") + " " + (.threshold // ""))}, {valueKey:"interval",kind:"jsonSchemaType",type:"string",stringValue:(.interval // "-"),color:"var(--gray-color)"}, {valueKey:"state",kind:"tag",stringValue:((if .evaluated == false then "Not evaluated" else ((.state // "PENDING") | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end) end) + (if (.paused // false) then " · paused" else "" end)),color:(if (.paused // false) or .evaluated == false then "gray" else ((.state // "PENDING") | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end) end)} ] ] }'
   apiRef:
     name: obs-alerts
     namespace: {{ $.Values.namespace }}
