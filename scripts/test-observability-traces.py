@@ -1019,6 +1019,13 @@ def check_page_ask_agentiko_reads_the_digest(c, with_console):
     expect(p, 'failed: the error is named', ask_of(timed_out['askHref']),
            ('/observability?range=24h', 'The telemetry for this page could not be read (context deadline exceeded). '
             'Explain what that means and what to check.'))
+    # And as snowplow ACTUALLY stores it: a list, one item per failure, each a message or a
+    # Status-shaped object (resolve.go accumulateErrorKey). The message is quoted, not the list.
+    for shape, value in (('[string]', ['context deadline exceeded']),
+                         ('[Status]', [{'kind': 'Status', 'code': 500, 'message': 'context deadline exceeded'}])):
+        listed = tbi.jq(c.get('RESTAction', 'obs-error-log-digest')['spec']['filter'],
+                        {'range': '24h', 'digestError': value, 'tot': ch([{'total': '0', 'distinct_problems': '0'}])})
+        expect(p, f'failed: errorKey {shape} -> the message, not the list', ask_of(listed['askHref']), ask_of(timed_out['askHref']))
     _, _, down = resolve(c, 'obs-error-log-digest', {}, {})
     expect(p, 'card: the healthy headline', tbi.widget(c, 'Card', 'obs-errors-card', 'extra', out, ex), '1495 errors · 10 distinct · grouped')
 

@@ -77,7 +77,12 @@ spec:
     ((.range // "24h") | tostring) as $r
     | (if $r == "1h" then "hour" elif $r == "7d" then "7 days" else "24 hours" end) as $window
     | (stepRead("digest"; "digestError") and stepRead("tot"; "totError") | not) as $failed
-    | ([ .digestError, .totError ] | map(select(. != null) | if type == "string" then . else tojson end) | first // "") as $err
+    # THE ERROR IS A LIST: snowplow appends every failure of a step to its errorKey (resolve.go
+    # accumulateErrorKey), each item a message string or a Status-shaped object. The prompt quotes
+    # the first message, never the list or the JSON around it; a bare string is still accepted.
+    | ([ .digestError, .totError ] | map(select(. != null) | if type == "array" then .[] else . end
+         | if type == "object" then (.message // tojson) elif type == "string" then . else tojson end)
+       | first // "") as $err
     | (((.digest | objects | .data) // []) | map(. + { route: ((.service // "") as $s | if $s == "" then "" else ("/observability?serviceName=" + ($s | @uri) + "&tab=Telemetry") end) })) as $rows
     | (((.tot | objects | .data) // [])[0].total // 0) as $total
     | (((.tot | objects | .data) // [])[0].distinct_problems // 0) as $distinct
