@@ -121,7 +121,19 @@ spec:
     # That was already a defect; the per-ticket RBAC model makes it the DEFAULT failure, because
     # every misconfigured grant now produces exactly that shape. `denied` and `readError` follow
     # reviews-page/platform-reviews, which draws the same distinction for the same reason.
-    | ((.ticketsError // "") | tostring) as $err
+    #
+    # THE ERROR IS A LIST, not a string: snowplow appends every failure of a stage to its errorKey
+    # (resolve.go accumulateErrorKey), each item a message string or, for an HTTP failure, the
+    # apiserver's Status object. `tostring` on that would put `["…"]` or raw JSON into the prompt,
+    # so the text is read from either shape; a bare string is still accepted.
+    | ((.ticketsError // null)
+       | if . == null then ""
+         elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ")
+         elif type == "object" then (.message // tojson)
+         else tostring end) as $err
+    # A Status item's `code` too, so a 403 or 404 is recognised by its number even when the message
+    # does not happen to say "forbidden" or "not found".
+    | ([ (.ticketsError // null) | if type == "array" then .[] else . end | objects | .code // empty ]) as $codes
     | ($err != "") as $failed
     | ((.state // "") | tostring | ascii_downcase | if . == "" then "all" else . end) as $sel
     | ($sel | okState) as $valid
@@ -208,8 +220,8 @@ spec:
        end) as $prompt
     | {
         failed: $failed,
-        denied: ($err | test("403|forbidden"; "i")),
-        absent: ($err | test("404|not found|could not find"; "i")),
+        denied: (($codes | index(403)) != null or ($err | test("403|forbidden"; "i"))),
+        absent: (($codes | index(404)) != null or ($err | test("404|not found|could not find"; "i"))),
         readError: $err,
         rows: $shown,
         counts: $counts,

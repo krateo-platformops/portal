@@ -364,6 +364,23 @@ for desk_actions in (False, True):
           'The service-desk queue could not be read (tickets.servicedesk.krateo.io is forbidden: User "erin" cannot list resource). '
           'Explain what that error means and what an administrator has to fix.')
     check(f'{tag}: ask, failed read -> no claim about tickets', 'empty' in prompt or 'Triage' in prompt, False)
+    # WHAT snowplow ACTUALLY PUTS UNDER errorKey: a list, one item per failure, each a message or the
+    # apiserver's Status object (resolve.go accumulateErrorKey). The prompt quotes the message, never
+    # the list or the JSON around it.
+    status = {'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'reason': 'Forbidden', 'code': 403,
+              'message': 'tickets.servicedesk.krateo.io is forbidden: User "erin" cannot list resource'}
+    for shape, value in (('[Status]', [status]), ('[string]', [status['message']])):
+        listed = run(data={'ticketsError': value})
+        check(f'{tag}: errorKey {shape} -> failed, denied', (listed['failed'], listed['denied']), (True, True))
+        check(f'{tag}: errorKey {shape} -> readError is the message', listed['readError'], status['message'])
+        check(f'{tag}: errorKey {shape} -> the prompt quotes the message', ask(listed['askHref'])[1], prompt)
+    two = run(data={'ticketsError': ['first failure', {'message': 'second failure'}]})
+    check(f'{tag}: errorKey, two failures -> both, in order', two['readError'], 'first failure; second failure')
+    check(f'{tag}: errorKey 404 Status -> absent', run(data={'ticketsError': [
+        {'kind': 'Status', 'code': 404, 'message': 'the server could not find the requested resource'}]})['absent'], True)
+    coded = run(data={'ticketsError': [{'kind': 'Status', 'code': 403, 'message': 'access refused by policy'}]})
+    check(f'{tag}: errorKey 403 Status, message without the word -> denied by its code',
+          (coded['denied'], coded['absent']), (True, False))
     href, _ = ask(run('open', {'ticketsError': 'dial tcp: i/o timeout'})['askHref'])
     check(f'{tag}: ask, failed read -> keeps the chip', href, '/service-desk?state=open')
     # A summary is cut at 110, and at most eight tickets are listed.
