@@ -330,7 +330,9 @@ GATES = {
                 ('spans', '/?query=' + quote(
                     "SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, "
                     "ParentSpanId AS parent_id, ServiceName AS svc, SpanName AS span, Duration AS dur_ns, "
-                    "StatusCode AS status, SpanAttributes['jwt.sub'] AS sub FROM otel_traces "
+                    "StatusCode AS status, coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), "
+                    "nullIf(SpanAttributes['http.status_code'], ''), SpanAttributes['http.status']) AS http, "
+                    "SpanAttributes['jwt.sub'] AS sub FROM otel_traces "
                     "WHERE TraceId = '4f1c9e2a7b3d4c5e8f9a0b1c2d3ea07e' AND Timestamp > now() - INTERVAL 7 DAY "
                     "ORDER BY Timestamp ASC, SpanId ASC LIMIT 1000 FORMAT JSON", safe=''))]),
             ('not a trace id: no request', {'traceId': "4f1c9e2a7b3d4c5e8f9a0b1c2d3ea0' OR '1'='1"}, {}, [])],
@@ -545,7 +547,8 @@ def nav_namespaces(*names):
 def nav_flexes(chart, extra=()):
     """The page roots a LIST of flexes returns, per namespace: every nav-declaring Flex the chart
     renders (so adding a page to the chart extends this test's input), plus any `extra` roots
-    planted in another namespace as a page chart installed there would be."""
+    planted in another namespace as a page chart installed there would be. An `extra` root is
+    (namespace, name, annotations) or (namespace, name, annotations, labels)."""
     out = {}
     for d in chart.docs:
         if d.get('kind') != 'Flex' or not d.get('apiVersion', '').startswith('widgets.templates.krateo.io/'):
@@ -556,9 +559,11 @@ def nav_flexes(chart, extra=()):
         out.setdefault(md['namespace'], []).append({'metadata': {
             'name': md['name'], 'namespace': md['namespace'],
             'annotations': md.get('annotations') or {}}})
-    for ns, name, annotations in extra:
-        out.setdefault(ns, []).append({'metadata': {
-            'name': name, 'namespace': ns, 'annotations': annotations}})
+    for ns, name, annotations, *labels in extra:
+        md = {'name': name, 'namespace': ns, 'annotations': annotations}
+        if labels:
+            md['labels'] = labels[0]
+        out.setdefault(ns, []).append({'metadata': md})
     return out
 
 
@@ -586,6 +591,8 @@ def check_nav_discovery(charts):
         (the `if length > 0 then . else [release] end` fallback in the iterator);
       - a caller who may read page roots NOWHERE gets an empty sidebar and not a failed resolve
         (an unserved LIST is an errorKey, and the final filter must still yield its one value);
+      - a page root labelled `krateo.io/purpose=preview-draft` is never an entry or a ref, for an
+        admin's collapsed cluster-scope list as for a tenant's fan-out, in any namespace;
       - an admin, for whom snowplow replaces the fan-out with ONE cluster-scope list
         (cluster_list.go:156 — gate 5 permits it only for a caller who may list cluster-wide),
         sees the union, which for that caller is what the per-namespace walk would have returned.
@@ -711,6 +718,48 @@ def check_nav_discovery(charts):
         if base is not None and len(out['items']) != len(base['items']):
             f.append(f'sidebar-nav, the preview sandbox is never listed: {len(out["items"])} items, '
                      f'expected {HOME}\'s {len(base["items"])}')
+
+    # NO PREVIEW DRAFT IS A PAGE ROOT, WHEREVER IT IS LISTED FROM. The case above holds only for a
+    # caller snowplow fans out for. An admin gets ONE cluster-scope list (the collapse), and that
+    # list carries the sandbox's flexes, so the namespace exclusion never runs for them: a stale
+    # draft root, page-demoday-b2da9489 in krateo-preview, was in every admin's sidebar on krateo-057
+    # with that exclusion live. The fixture is that root, labelled as the builder preview labels
+    # every CR it writes; a second draft sits in team-a, a namespace nothing excludes, so the case
+    # fails for a fix keyed on a namespace name. A root whose purpose label says anything else is
+    # still a page.
+    draft_labels = {'krateo.io/purpose': 'preview-draft', 'krateo.io/draft-owner': 'admin',
+                    'krateo.io/preview-session': 'unattributed'}
+    drafts = [
+        (NS_SANDBOX, 'page-demoday-b2da9489',
+         {'krateo.io/nav-path': '/demoday', 'krateo.io/nav-label': 'Demo Day'}, draft_labels),
+        ('team-a', 'page-team-a-draft-b2da9489',
+         {'krateo.io/nav-path': '/team-a-draft', 'krateo.io/nav-label': 'Team A draft', 'krateo.io/nav-order': '500'},
+         draft_labels)]
+    kept = ('team-a', 'page-team-a-labelled', {'krateo.io/nav-path': '/team-a-labelled',
+                                               'krateo.io/nav-label': 'Team A labelled'},
+            {'krateo.io/purpose': 'page'})
+    with_drafts = nav_flexes(chart, extra=[other, kept] + drafts)
+    draft_paths = ('/demoday', '/team-a-draft')
+    for label, caller, ns_resp, pages in [
+            ('admin (cluster-list collapse)', ADMIN, cluster_ns,
+             {NAV_CLUSTER_PATH: {'items': [i for items in with_drafts.values() for i in items]}}),
+            ('a tenant in team-a', tenant({NAV_GROUP: [HOME, 'team-a']}), cluster_ns,
+             {NAV_PATH % ns: {'items': with_drafts[ns]} for ns in (HOME, 'team-a')})]:
+        reqs, _, out = run(f'no preview draft, {label}', caller, ns_resp, pages)
+        if out is None:
+            continue
+        if label.startswith('admin') and [p for n, p, _ in reqs if n == 'pages'] != [NAV_CLUSTER_PATH]:
+            f.append(f'sidebar-nav, no preview draft, {label}: the fixture did not take the collapse '
+                     f'({[p for n, p, _ in reqs if n == "pages"]}), so it proves nothing about it')
+        leaked = [i.get('path') for i in out['items'] if i.get('path') in draft_paths]
+        if leaked:
+            f.append(f'sidebar-nav, no preview draft, {label}: draft root(s) in the nav: {leaked}')
+        if any(r['name'] in {d[1] for d in drafts} for r in out['refs']):
+            f.append(f'sidebar-nav, no preview draft, {label}: a ref to a draft root')
+        if not any(i.get('path') == '/team-a-labelled' for i in out['items']):
+            f.append(f'sidebar-nav, no preview draft, {label}: a root labelled another purpose was dropped')
+        if not any(i.get('path') == '/team-a-thing' for i in out['items']):
+            f.append(f'sidebar-nav, no preview draft, {label}: lost the unlabelled team-a page')
 
     reqs, _, out = run('admin (cluster-list collapse)', ADMIN, cluster_ns,
                        {NAV_CLUSTER_PATH: everywhere})

@@ -58,6 +58,21 @@
   The exclusion is in the `namespaces` filter rather than the iterator, so the sandbox is dropped
   BEFORE the fan-out and never costs a request. Empty `previewSandbox.namespace` excludes nothing.
 
+  AND NO PREVIEW DRAFT, WHEREVER IT IS LISTED FROM. The namespace exclusion above only shapes the
+  fan-out, and for an admin there is no fan-out: snowplow's cluster-list collapse
+  (resolvers/restactions/api/cluster_list.go, attemptClusterListCollapse) replaces the
+  per-namespace LISTs with ONE cluster-scope LIST of flexes for any caller who may list flexes
+  cluster-wide, and that list holds the sandbox's flexes too. So a stale draft root,
+  `page-demoday-b2da9489` in krateo-preview (nav-path /demoday, nav-label "Demo Day"), was in every
+  admin's sidebar on krateo-057 while the RESTAction there already carried the namespace
+  exclusion. The `pages` filter therefore drops every flex labelled
+  `krateo.io/purpose=preview-draft` — the label the builder preview stamps on every CR it writes
+  (frontend ui/src/components/Agentiko/previewSandbox.ts) and that "Unowned drafts" selects on
+  (builders-page restaction.unowned-drafts). It keys on what the object IS, not on where it sits,
+  so it holds on the collapsed list, in any namespace a draft lands in, and whatever
+  `previewSandbox.namespace` is set to. The namespace exclusion stays for what it does do: a tenant who may read the sandbox
+  makes no request for it.
+
   THE `pages` STEP CARRIES NO userAccessFilter, DELIBERATELY. It has no endpointRef either, and
   that pair is what makes it the caller's own read: `resolveStageEndpoint` sends a UAF stage to
   snowplow's SA endpoint and a non-UAF stage "through the per-user clientconfig" (its own words,
@@ -134,8 +149,11 @@ spec:
       {{/* sidebar. The per-iteration results are concatenated into one flat `.pages` array. */}}
       continueOnError: true
       errorKey: pagesError
+      {{/* A builder preview draft is never a page root, wherever it was listed from: see */}}
+      {{/* "AND NO PREVIEW DRAFT" in the header. */}}
       filter: >
         [ .pages.items[]?
+          | select(((.metadata.labels // {})["krateo.io/purpose"] // "") != "preview-draft")
           | { metadata: { name: .metadata.name,
                           namespace: .metadata.namespace,
                           annotations: (.metadata.annotations // {}) } } ]

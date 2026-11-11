@@ -2,6 +2,13 @@
 {{/* Start is the offset from the trace's first span; both it and Duration come from the */}}
 {{/* exporter's own clock (start in microseconds, duration in nanoseconds), so no column is */}}
 {{/* derived from wall time on the portal's side. */}}
+{{/* */}}
+{{/* Status says which span failed and how: the span's HTTP status code where its producer */}}
+{{/* recorded one (obs-trace-detail reads all three keys), then "error" when the span's OTel */}}
+{{/* StatusCode is Error — "403 · error" on the span that failed, "403" on the spans that only */}}
+{{/* carried the answer back with StatusCode Unset, "—" where there is neither. Only an Error */}}
+{{/* span is a red tag; every other row is plain text, so the failure is the one thing in the */}}
+{{/* column that stands out. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -32,9 +39,11 @@ spec:
       title: Start
     - valueKey: duration
       title: Duration
+    - valueKey: status
+      title: Status
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | [ $s[] | [ {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"start",kind:"jsonSchemaType",type:"string",stringValue:(((.startUs - $t0) * 1000) | traceDuration)}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)} ] ] }'
+    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | [ $s[] | (((if (.httpStatus // "") == "" then [] else [.httpStatus] end) + (if .status == "Error" then ["error"] else [] end)) | join(" · ")) as $st | [ {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"start",kind:"jsonSchemaType",type:"string",stringValue:(((.startUs - $t0) * 1000) | traceDuration)}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)}, (if .status == "Error" then {valueKey:"status",kind:"tag",stringValue:$st,color:"red"} else {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:(if $st == "" then "—" else $st end)} end) ] ] }'
   resourcesRefs:
     items: []

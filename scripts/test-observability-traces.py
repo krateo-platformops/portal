@@ -14,6 +14,10 @@ snowplow-path.py), runs the widgets' own jq over the result, and checks what a r
   - the request snowplow dials is encoded exactly once: decoded once it is that SQL (portal 1.8.99
     encoded its WHERE fragments twice, and ClickHouse refused every span-list query);
   - an Error span shows as a red "Error" pill, Ok as "OK", Unset as "Unset";
+  - the trace page's Status column says which span failed: the span's HTTP code under any of the
+    three keys producers write it (`http.response.status_code`, `http.status_code`, `http.status`),
+    then "error" when StatusCode is Error — "403 · error" as a red tag on the failing span, "403" as
+    plain text on spans that carried it back Unset, "—" where there is neither;
   - a row opens /observability/traces/<its full trace id>;
   - the trace page lists spans in start order with offsets from the first, and draws one node per
     service with an edge wherever a span's ParentSpanId belongs to another service;
@@ -147,9 +151,10 @@ LIST_ROWS = [
 US = T0_MS * 1000                          # trace A's start, in microseconds
 
 
-def span(start_us, sid, parent, svc, name, dur_ns, status='Unset', sub=''):
+def span(start_us, sid, parent, svc, name, dur_ns, status='Unset', sub='', http=''):
+    # `http` is the SQL's coalesce over the three HTTP status keys: '' when the span has none.
     return {'start_us': str(start_us), 'span_id': sid, 'parent_id': parent, 'svc': svc, 'span': name,
-            'dur_ns': str(dur_ns), 'status': status, 'sub': sub}
+            'dur_ns': str(dur_ns), 'status': status, 'http': http, 'sub': sub}
 
 
 # The mockup's trace: the gateway receives the A2A call, agentiko calls the model and k8s-agent back
@@ -164,9 +169,27 @@ TRACE_A_SPANS = [
 ]
 # Its root's parent (the portal's browser span) was never exported, so no span has parent_id "".
 TRACE_B_SPANS = [
-    span(US - 133886000, 'b000000000000001', 'ffffffffffffffff', 'snowplow', 'GET /call restactions/obs-log-stream', 1940000000, 'Error', 'cyberjoker'),
+    span(US - 133886000, 'b000000000000001', 'ffffffffffffffff', 'snowplow', 'GET /call restactions/obs-log-stream', 1940000000, 'Error', 'cyberjoker', '500'),
     span(US - 133880000, 'b000000000000002', 'b000000000000001', 'snowplow', 'clickhouse query',                    1900000000, 'Error'),
     span(US - 133000000, 'b000000000000003', 'b000000000000001', 'snowplow', 'jq filter',                           820000),
+]
+# A widget fetch snowplow refused, as krateo-057's ClickHouse answered the detail query for trace
+# ff5a4879d0c68269b1139c9f397df304: only the browser span is Error; the gateway's two spans and
+# snowplow's carry the same 403 with StatusCode Unset. The gateway writes it as `http.status`, the
+# others as `http.response.status_code`; the SQL folds both into `http`. Unquoted 64-bit integers,
+# as 057 sends them.
+TRACE_C = 'ff5a4879d0c68269b1139c9f397df304'
+TRACE_C_SPANS = [
+    {'start_us': 1794325039029000, 'span_id': '6d0efbb1933ac92e', 'parent_id': '', 'svc': 'krateo-frontend',
+     'span': 'krateo.widget.fetch', 'dur_ns': 115000000, 'status': 'Error', 'http': '403', 'sub': ''},
+    {'start_us': 1794325039169499, 'span_id': 'c17089a8861ddd6f', 'parent_id': '6d0efbb1933ac92e',
+     'svc': 'krateo-agent-gateway-platform', 'span': 'POST /content/*', 'dur_ns': 69155777, 'status': 'Unset',
+     'http': '403', 'sub': ''},
+    {'start_us': 1794325039169950, 'span_id': '25c7e32e998d976e', 'parent_id': 'c17089a8861ddd6f',
+     'svc': 'krateo-agent-gateway-platform', 'span': 'POST snowplow.krateo-system.svc.cluster.local:8081',
+     'dur_ns': 68638957, 'status': 'Unset', 'http': '403', 'sub': ''},
+    {'start_us': 1794325039180670, 'span_id': 'd47b19fd2666d974', 'parent_id': '25c7e32e998d976e', 'svc': 'snowplow',
+     'span': 'POST /call', 'dur_ns': 57521053, 'status': 'Unset', 'http': '403', 'sub': ''},
 ]
 
 FACETS = {'services': ch([{'svc': 'agentgateway', 'n': '4120'}, {'svc': 'snowplow', 'n': '2210'},
@@ -203,6 +226,8 @@ LIST_SQL = ("SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ServiceName AS s
             "ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON")
 DETAIL_SQL = ("SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, ParentSpanId AS parent_id, "
               "ServiceName AS svc, SpanName AS span, Duration AS dur_ns, StatusCode AS status, "
+              "coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), "
+              "nullIf(SpanAttributes['http.status_code'], ''), SpanAttributes['http.status']) AS http, "
               "SpanAttributes['jwt.sub'] AS sub FROM otel_traces WHERE TraceId = '{tid}' "
               "AND Timestamp > now() - INTERVAL 7 DAY ORDER BY Timestamp ASC, SpanId ASC LIMIT 1000 FORMAT JSON")
 
@@ -265,6 +290,39 @@ def check_error_status_shows_as_an_error(c):
     _, _, det = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch(TRACE_A_SPANS)})
     tags = tbi.widget(c, 'PageHeader', 'trace-detail-page-header', 'tags', det, {'traceId': TRACE_A})
     expect(p, 'a trace with no Error span', tags, [{'label': 'OK', 'color': 'green'}])
+    return p
+
+
+def check_span_status_says_which_span_failed(c):
+    """The trace page's Status column: the HTTP code where the span has one, then "error" when its
+    StatusCode is Error. Only the Error span is a red tag, so the failing span is the one that
+    stands out; a span that only carried the 403 back reads "403", and one with neither "—"."""
+    p = []
+
+    def status(tid, spans):
+        _, _, out = resolve(c, 'obs-trace-detail', {'traceId': tid}, {'spans': ch(spans)})
+        rows = tbi.resolved_widget(c, 'Table', 'trace-detail-spans', out, {'traceId': tid},
+                                   f'trace-detail-spans (status, {tid[:4]})')['spec']['widgetData']['dataSource']
+        return [(cells(r)['span']['stringValue'],) + tuple(cells(r)['status'].get(k) for k in ('kind', 'stringValue', 'color'))
+                for r in rows]
+
+    expect(p, 'a widget fetch snowplow refused (057 trace ff5a…f304)', status(TRACE_C, TRACE_C_SPANS), [
+        ('krateo.widget.fetch', 'tag', '403 · error', 'red'),
+        ('POST /content/*', 'jsonSchemaType', '403', None),
+        ('POST snowplow.krateo-system.svc.cluster.local:8081', 'jsonSchemaType', '403', None),
+        ('POST /call', 'jsonSchemaType', '403', None)])
+    expect(p, 'an Error span with no HTTP code still says error', status(TRACE_B, TRACE_B_SPANS), [
+        ('GET /call restactions/obs-log-stream', 'tag', '500 · error', 'red'),
+        ('clickhouse query', 'tag', 'error', 'red'),
+        ('jq filter', 'jsonSchemaType', '—', None)])
+    expect(p, 'Ok is not dressed as an error', status(TRACE_A, [span(US, 'a000000000000001', '', 'snowplow', 'GET /call', 1000, 'Ok', http='200')]),
+           [('GET /call', 'jsonSchemaType', '200', None)])
+    expect(p, 'a row from a ClickHouse without the http column', status(TRACE_A, [{k: v for k, v in TRACE_A_SPANS[0].items() if k != 'http'}]),
+           [('POST /api/a2a/krateo-system/agentiko', 'jsonSchemaType', '—', None)])
+    cols = [col['title'] for col in c.get('Table', 'trace-detail-spans')['spec']['widgetData']['columns']]
+    expect(p, 'columns', cols, ['Service', 'Span', 'Start', 'Duration', 'Status'])
+    reqs, _, _ = resolve(c, 'obs-trace-detail', {'traceId': TRACE_C}, {'spans': ch(TRACE_C_SPANS)})
+    expect(p, 'the SQL reads all three HTTP status keys', [sql_of(r[1]) for r in reqs], [DETAIL_SQL.format(tid=TRACE_C)])
     return p
 
 
@@ -906,6 +964,7 @@ def main():
     checks = [
         ('span list is newest first and bounded', lambda: check_span_list_is_newest_first_and_bounded(c)),
         ('an Error span shows as an error', lambda: check_error_status_shows_as_an_error(c)),
+        ('the trace page says which span failed, and with what HTTP code', lambda: check_span_status_says_which_span_failed(c)),
         ('each filter reaches the SQL as one predicate', lambda: check_filters_reach_the_sql_as_one_predicate_each(c)),
         ('each request is encoded exactly once, as snowplow dials it', lambda: check_requests_are_encoded_exactly_once(c)),
         ('a quote or SQL fragment in any input makes no request', lambda: check_injection_is_refused(c)),
