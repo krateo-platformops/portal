@@ -40,7 +40,7 @@ spec:
     | (if (.run.kind // "") == "ReviewRun" then .run else null end) as $r
     | ((.runError // null) | if . == null then "" else tostring end) as $rerr
     | if $r == null then
-        { found: false, name: $name,
+        { found: false, name: $name, askHref: "",
           title: (if ($rerr | test("403|forbidden"; "i")) then "You cannot read this review run" else "Review run not found" end),
           message: (if ($rerr | test("403|forbidden"; "i")) then "Reading review.krateo.io review runs was refused for your account."
                     else ("No review run named " + $name + " exists. Finished runs are kept until their expiry date.") end) }
@@ -50,8 +50,31 @@ spec:
         | ([ ($st.conditions // [])[] | select(.type == "ValidationNotes") | (.message // "") | split(" | ")[] | select(. != "") ]) as $notes
         | ([ ($st.evidence // {}) | to_entries[] | select((.value.queries // null) != null)
              | .key as $src | (.value.queries | to_entries[]) | { source: $src, name: .key, sql: .value } ]) as $queries
+        | ([ ($st.evidence // {}) | to_entries[] ]) as $sources
+        | ([ $sources[] | select(.value.ok == false) | .key ]) as $unread
+        | ([ $sources[] | select(.value.ok != false and .value.empty == true) | .key ]) as $emptySrc
+        | ([ ((.all.items) // [])[] | select((.spec.producedBy.runRef // "") == $name) ] | length) as $wrote
+        | ((.allError // null) != null) as $allFailed
+        # The "Ask Agentiko →" prompt (button.review-run-ask-agentiko): what the run did, what it did
+        # NOT read, and what it wrote — the three things that decide how far to trust it.
+        | ("Explain nightly-review run " + $name + ": it "
+           + (if $ph == "Completed" then "completed"
+              elif $ph == "PartiallyCompleted" then "completed, but saw only part of the platform"
+              elif $ph == "Failed" then "failed (" + (($st.error // "no error was recorded") | if length > 300 then .[0:299] + "…" else . end) + ")"
+              elif $ph == "Running" then "is still running"
+              else "has not started yet" end)
+           + "; " + (($unread | length) | tostring) + " of " + (($sources | length) | tostring)
+           + (if ($sources | length) == 1 then " evidence source was" else " evidence sources were" end) + " not read"
+           + (if ($unread | length) > 0 then " (" + ($unread | join(", ")) + ")" else "" end)
+           + (if ($emptySrc | length) > 0 then ", " + (($emptySrc | length) | tostring) + " returned nothing (" + ($emptySrc | join(", ")) + ")" else "" end)
+           + (if $allFailed then ", and its proposals could not be listed"
+              else ", and it wrote " + ($wrote | tostring) + (if $wrote == 1 then " proposal" else " proposals" end) end)
+           + ". What did it find, how far can I trust it given what it did not read, and what should I do with its proposals?") as $prompt
         | { found: true,
             name: $name,
+            # This page's own route with an ?ask seed the rail consumes on mount; "" on the
+            # not-found branch above, where the button falls back to /reviews.
+            askHref: ("/reviews/runs/" + $name + "?ask=" + ($prompt | @uri)),
             phase: $ph,
             phaseColor: ($ph | rv_run_color),
             subtitle: ("Reviewed " + ($r.spec.window.from | rv_when) + " to " + ($r.spec.window.to | rv_when)

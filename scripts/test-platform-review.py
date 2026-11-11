@@ -46,6 +46,7 @@ import importlib.util
 import json
 import os
 import sys
+from urllib.parse import parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
@@ -414,8 +415,9 @@ def check_run_review_now(chart):
     f = []
     out = resolved(chart, 'platform-reviews', list_responses(cronjob=CRONJOB), {})
     w = resolve_widgets(chart, 'platform-reviews', out, {}, 'run-now')
+    # "Ask Agentiko →" sits immediately left of the primary it does not take (P6).
     expect(f, 'header actions', [i['resourceRefId'] for i in w['reviews-header-actions']['items']],
-           ['reviews-last-run', 'reviews-run-now'])
+           ['reviews-last-run', 'reviews-ask-agentiko', 'reviews-run-now'])
     expect(f, 'last run line', w['reviews-last-run']['text'], 'Last run rr-20260929-1933 · Completed · 2026-09-29 19:33 UTC')
     act = w['reviews-run-now']['actions']['rest'][0]
     body = act['payload']
@@ -441,7 +443,8 @@ def check_run_review_now(chart):
     out = resolved(chart, 'platform-reviews', list_responses(
         cronjob='ERROR:cronjobs.batch "nightly-review" is forbidden: User "u" cannot get (403)'), {})
     w = resolve_widgets(chart, 'platform-reviews', out, {}, 'run-now-denied')
-    expect(f, 'no CronJob, no button', w['reviews-header-actions']['items'], [])
+    # No CronJob, no "Run review now" — but Ask Agentiko stays, outside that condition.
+    expect(f, 'no CronJob, no button', w['reviews-header-actions']['items'], [{'resourceRefId': 'reviews-ask-agentiko'}])
     expect(f, 'no CronJob, no ref', tbi.jq(expr(t['iterator']), out), [])
     return f
 
@@ -577,6 +580,102 @@ def check_run_detail(chart):
     out = resolved(chart, 'review-run', {'run': 'ERROR:reviewruns "rr-nope" not found', 'all': {'items': []}, 'apis': APIS}, ex)
     expect(f, 'missing run is content', out['title'], 'Review run not found')
     resolve_widgets(chart, 'review-run', out, ex, 'run-missing')
+    return f
+
+
+def ask(href):
+    """(the path and query the link opens with ?ask removed, the decoded prompt)."""
+    path, _, query = href.partition('?')
+    params = parse_qs(query, keep_blank_values=True)
+    prompt = params.pop('ask', [''])
+    kept = '&'.join(f'{k}={v[0]}' for k, v in params.items())
+    return (path + ('?' + kept if kept else ''), prompt[0])
+
+
+def check_agentiko_asks(chart):
+    """"Ask Agentiko →" on /reviews and on a run: the prompt is about what the page read, and a
+    proposals read that failed — not installed, refused, or anything else — is said as such, never
+    as "no open proposals"."""
+    f = []
+    out = resolved(chart, 'platform-reviews', list_responses(cronjob=CRONJOB), {})
+    href, prompt = ask(out['askHref'])
+    expect(f, 'list: self page, no filter to keep', href, '/reviews')
+    expect(f, 'list: the open proposals, newest first, with kind and phase', prompt,
+           'Help me work through the open nightly-review proposals: 4 are open — '
+           '1. "Doc for chart-inspector" (Documentation, Proposed) 2. "Policy" (Policy, Proposed) '
+           '3. "Legacy widget fix" (Widget, Proposed) 4. "SAR alert v3" (Alert, Proposed). '
+           'The last review run is rr-20260929-1933 (Completed, started 2026-09-29 19:33 UTC). '
+           'Check each against the platform\'s telemetry, and say which I should act on first, which to reject, and why.')
+    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'ask')
+    nav = w['reviews-ask-agentiko']['actions']['navigate'][0]
+    expect(f, 'button: the RA\'s link', nav['path'], out['askHref'])
+    expect(f, 'button: label and intent', (w['reviews-ask-agentiko']['label'], w['reviews-ask-agentiko']['intent']),
+           ('Ask Agentiko →', 'agentiko'))
+    expect(f, 'button, no data: the page', tbi.jq(expr(chart.get('Button', 'reviews-ask-agentiko')['spec']['widgetDataTemplate'][0]['expression']), {})['navigate'][0]['path'], '/reviews')
+
+    many = [proposal(f'p-{i:04d}aaaaaaaaaaaa', f'2026-09-2{i % 9}T02:00:50Z', 'x' * 150, subject=f's/{i}') for i in range(10)]
+    _, prompt = ask(resolved(chart, 'platform-reviews', list_responses(proposals={'items': many}), {})['askHref'])
+    expect(f, 'list: eight at most, a title cut at 110', ('8. "' in prompt, '9. "' in prompt, '"' + 'x' * 109 + '…"' in prompt), (True, False, True))
+
+    # Empty: no open proposal, and the last run named.
+    _, prompt = ask(resolved(chart, 'platform-reviews', list_responses(proposals={'items': []}), {})['askHref'])
+    expect(f, 'list, empty', prompt, 'The nightly review has no open proposals. The last review run is rr-20260929-1933 '
+           '(Completed, started 2026-09-29 19:33 UTC). Check the platform\'s telemetry and tell me whether that matches '
+           'what you see, or whether the review missed something.')
+    _, prompt = ask(resolved(chart, 'platform-reviews', list_responses(proposals={'items': []}, runs={'items': []}), {})['askHref'])
+    expect(f, 'list, never run', prompt, 'The nightly review has no open proposals. No review run is recorded. '
+           'Explain what the nightly review reads, and when its first proposals will appear.')
+    _, prompt = ask(resolved(chart, 'platform-reviews', list_responses(runs='ERROR:dial tcp: i/o timeout'), {})['askHref'])
+    expect(f, 'list, runs unread: said, not "no run"', 'The review runs could not be read (dial tcp: i/o timeout).' in prompt, True)
+
+    # The three failed reads of the proposals, each worded for its remedy.
+    for label, err, want in (
+            ('not installed', 'ERROR:the server could not find the requested resource (404)',
+             'The nightly review is not installed on this cluster: it serves no review.krateo.io API, so there are no '
+             'proposals to read. Explain what the nightly review does and what installing it would take.'),
+            ('refused', 'ERROR:proposals.review.krateo.io is forbidden: User "u" cannot list (403)',
+             'I cannot read the nightly review\'s proposals on this platform (proposals.review.krateo.io is forbidden: '
+             'User "u" cannot list (403)). Explain what access I need and who can grant it.'),
+            ('failed', 'ERROR:dial tcp: i/o timeout',
+             'The nightly review\'s proposals could not be read (dial tcp: i/o timeout). Explain what that error means '
+             'and what to check.')):
+        out = resolved(chart, 'platform-reviews', list_responses(proposals=err), {})
+        _, prompt = ask(out['askHref'])
+        expect(f, f'list, {label}', prompt, want)
+        expect(f, f'list, {label}: no claim about proposals', 'no open proposals' in prompt, False)
+        w = resolve_widgets(chart, 'platform-reviews', out, {}, f'ask-{label}')
+        expect(f, f'list, {label}: the button is still drawn', w['reviews-header-actions']['items'], [{'resourceRefId': 'reviews-ask-agentiko'}])
+
+    # The run page: what it did, what it did not read, what it wrote.
+    for ex, run_doc, want in (
+            ({'name': 'rr-20260929-1933'}, RUNS[0],
+             'Explain nightly-review run rr-20260929-1933: it completed; 0 of 3 evidence sources were not read, and it wrote '
+             '2 proposals. What did it find, how far can I trust it given what it did not read, and what should I do with its proposals?'),
+            ({'name': 'rr-20260928-0849'}, RUNS[1],
+             'Explain nightly-review run rr-20260928-0849: it completed, but saw only part of the platform; 1 of 3 evidence '
+             'sources were not read (clickhouse), 1 returned nothing (kagent-sessions), and it wrote 1 proposal. What did it '
+             'find, how far can I trust it given what it did not read, and what should I do with its proposals?'),
+            ({'name': 'rr-20260926-0200'}, RUNS[2],
+             'Explain nightly-review run rr-20260926-0200: it failed (' + RUNS[2]['status']['error'] + '); 0 of 0 evidence '
+             'sources were not read, and it wrote 0 proposals. What did it find, how far can I trust it given what it did not '
+             'read, and what should I do with its proposals?')):
+        out = resolved(chart, 'review-run', {'run': run_doc, 'all': {'items': PROPOSALS}, 'apis': APIS, 'kinds': KINDS}, ex)
+        href, prompt = ask(out['askHref'])
+        expect(f, f'run {ex["name"]}: self page', href, '/reviews/runs/' + ex['name'])
+        expect(f, f'run {ex["name"]}: prompt', prompt, want)
+        w = resolve_widgets(chart, 'review-run', out, ex, f'ask-run-{ex["name"]}')
+        expect(f, f'run {ex["name"]}: header carries the button', [i['resourceRefId'] for i in w['review-run-header']['items']],
+               ['review-run-ask-agentiko'])
+        expect(f, f'run {ex["name"]}: button path', w['review-run-ask-agentiko']['actions']['navigate'][0]['path'], out['askHref'])
+    out = resolved(chart, 'review-run', {'run': RUNS[0], 'all': 'ERROR:dial tcp: i/o timeout', 'apis': APIS, 'kinds': KINDS},
+                   {'name': 'rr-20260929-1933'})
+    expect(f, 'run: proposals unread -> said', 'its proposals could not be listed' in ask(out['askHref'])[1], True)
+    ex = {'name': 'rr-nope'}
+    out = resolved(chart, 'review-run', {'run': 'ERROR:reviewruns "rr-nope" not found', 'all': {'items': []}, 'apis': APIS}, ex)
+    expect(f, 'run not found: no link', out['askHref'], '')
+    w = resolve_widgets(chart, 'review-run', out, ex, 'ask-run-missing')
+    expect(f, 'run not found: the button falls back to /reviews', w['review-run-ask-agentiko']['actions']['navigate'][0]['path'], '/reviews')
+    expect(f, 'run button keyExtras', chart.get('Button', 'review-run-ask-agentiko')['spec'].get('keyExtras'), ['name'])
     return f
 
 
@@ -731,6 +830,7 @@ CHECKS = [
     check_runs_tab,
     check_banner_and_empty_states,
     check_run_review_now,
+    check_agentiko_asks,
     check_proposal_detail,
     check_change_request_claim,
     check_run_detail,

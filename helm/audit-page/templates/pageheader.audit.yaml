@@ -1,6 +1,7 @@
 {{/* The /audit page header. The subtitle says whose records these are: all namespaces for a
      cluster-wide reader, otherwise the namespaces whose audit trail the caller was granted (audit-facets'
-     `namespaces`, the same list the table is narrowed to). Up to eight are named. */}}
+     `namespaces`, the same list the table is narrowed to). Up to eight are named. Its one action is
+     "Ask Agentiko →" (button.audit-ask-agentiko); the header has no primary. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,8 +18,18 @@ spec:
   widgetData:
     title: Audit
     subtitle: Every change made through the portal and the platform API, who made it, to which object, and the outcome.
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: audit-ask-agentiko
   widgetDataTemplate:
     - forPath: subtitle
       expression: '${ (.namespaces // []) as $ns | if .scope == "all" then "Every change made through the portal and the platform API: who made it, to which object, and the outcome. You see all namespaces." elif .scope == "namespaces" then "Records for the namespaces where you have been granted access to the audit trail: " + ($ns[0:8] | join(", ")) + (if ($ns | length) > 8 then " and " + ((($ns | length) - 8) | tostring) + " more" else "" end) + "." else "You see records for namespaces where you have been granted access to the audit trail, and you have none yet. Ask an administrator for access to a namespace." end }'
   resourcesRefs:
-    items: []
+    items:
+    - id: audit-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

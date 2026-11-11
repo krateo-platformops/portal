@@ -94,7 +94,36 @@ spec:
     | ([ ((.runs.items) // [])[] ] | sort_by(.status.startedAt // .metadata.creationTimestamp // "") | reverse) as $runs
     | ($runs[0] // null) as $last
     | ((.cronjob // {}) | if type == "object" and (.kind // "") == "CronJob" and ((.metadata.name // "") != "") and (.spec.jobTemplate.spec != null) then . else null end) as $cron
-    | { installed: ($perr | test("404|not found|could not find"; "i") | not),
+    | ((.proposalsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $perrText
+    | ((.runsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $rerr
+    | def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end;
+      def numbered: .[0:8] | to_entries
+        | map(((.key + 1) | tostring) + ". \"" + (.value.title | cap(110)) + "\" (" + .value.kind + ", " + .value.phase + ")") | join(" ");
+      # The "Ask Agentiko →" prompt (button.reviews-ask-agentiko). A refused, missing or failed read
+      # of the proposals is said as such — never "no open proposals", which is a claim about a list
+      # nobody managed to read.
+      (if ($perr | test("404|not found|could not find"; "i")) then
+         "The nightly review is not installed on this cluster: it serves no review.krateo.io API, so there are no proposals to read. Explain what the nightly review does and what installing it would take."
+       elif ($perr | test("403|forbidden"; "i")) then
+         "I cannot read the nightly review's proposals on this platform (" + ($perrText | cap(300)) + "). Explain what access I need and who can grant it."
+       elif $perr != "" then
+         "The nightly review's proposals could not be read (" + ($perrText | cap(300)) + "). Explain what that error means and what to check."
+       else
+         (if $rerr != "" then " The review runs could not be read (" + ($rerr | cap(300)) + ")."
+          elif $last == null then " No review run is recorded."
+          else " The last review run is " + $last.metadata.name + " (" + ($last.status.phase // "Pending") + ", started " + ($last.status.startedAt | rv_when) + ")." end) as $lastLine
+         | if ($open | length) == 0 then
+             "The nightly review has no open proposals." + $lastLine
+             + (if $last == null and $rerr == "" then " Explain what the nightly review reads, and when its first proposals will appear."
+                else " Check the platform's telemetry and tell me whether that matches what you see, or whether the review missed something." end)
+           else
+             "Help me work through the open nightly-review proposals: " + (($open | length) | tostring) + (if ($open | length) == 1 then " is" else " are" end)
+             + " open — " + ($open | numbered) + "." + $lastLine
+             + " Check each against the platform's telemetry, and say which I should act on first, which to reject, and why."
+           end
+       end) as $prompt
+    | { askHref: ("/reviews?ask=" + ($prompt | @uri)),
+        installed: ($perr | test("404|not found|could not find"; "i") | not),
         denied: ($perr | test("403|forbidden"; "i")),
         readError: $perr,
         open: ($open | length),
