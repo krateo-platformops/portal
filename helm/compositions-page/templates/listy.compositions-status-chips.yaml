@@ -6,6 +6,9 @@
 {{/* railState-backed value (Ready+Unsynced — a healthy-state OVERLAY, so its count can overlap */}}
 {{/* Healthy's); its Button predecessor rendered on main but was never wired into the status */}}
 {{/* group — the data-driven row finally surfaces it. */}}
+{{/* "Children unreadable" (?status=unreadable, Ready=Unknown/ChildrenForbidden: an RBAC defect, */}}
+{{/* so not counted as Pending) is a chip only while some composition is in it, or while it is */}}
+{{/* the selected filter (so a link to it never lands on a page with no active chip). */}}
 {{/* */}}
 {{/* apiRef = compositions-list so each chip shows its live COUNT (the muted suffix) and reads */}}
 {{/* `.status` for its active flag. Counts come from the RA's `.counts`, computed over the */}}
@@ -40,6 +43,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.status // "all") | tostring) as $sel | (.counts // {}) as $counts | ((.q // "") | tostring) as $q | ((.projects // "") | tostring) as $projects | ((.scope // "") | tostring) as $scope | ((if $q != "" then ("&q=" + ($q | @uri)) else "" end) + (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) + (if $scope != "" then ("&scope=" + ($scope | @uri)) else "" end)) as $carry | [{key: "all", label: "All"}, {key: "healthy", label: "Healthy"}, {key: "drift", label: "Drift"}, {key: "pending", label: "Pending"}, {key: "degraded", label: "Degraded"}, {key: "failed", label: "Failed"}] | map({label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/compositions?status=" + .key + $carry)}) }'
+      expression: '${ ((.status // "all") | tostring) as $sel | (.counts // {}) as $counts | ((.q // "") | tostring) as $q | ((.projects // "") | tostring) as $projects | ((.scope // "") | tostring) as $scope | ((if $q != "" then ("&q=" + ($q | @uri)) else "" end) + (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) + (if $scope != "" then ("&scope=" + ($scope | @uri)) else "" end)) as $carry | ([{key: "all", label: "All"}, {key: "healthy", label: "Healthy"}, {key: "drift", label: "Drift"}, {key: "pending", label: "Pending"}] + (if (($counts.unreadable // 0) > 0) or $sel == "unreadable" then [{key: "unreadable", label: "Children unreadable"}] else [] end) + [{key: "degraded", label: "Degraded"}, {key: "failed", label: "Failed"}]) | map({label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/compositions?status=" + .key + $carry)}) }'
   resourcesRefs:
     items: []

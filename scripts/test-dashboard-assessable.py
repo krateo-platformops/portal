@@ -276,8 +276,8 @@ check('defects: coverage Ready', got['coverage'].get('Ready'),
       ('80/82', 97, '+ 3 not assessable (no readiness signal)'))
 item = next(i for i in out['list'] if i['name'] == 'children-forbidden')
 check('defects: children-forbidden is not assessable', item['assessable'], False)
-check('defects: children-forbidden keeps .state and .railState for the pages that read them',
-      (item['state'], item['railState']), ('pending', 'pending'))
+check('defects: children-forbidden is unreadable, not pending, on the pages that read .state/.railState',
+      (item['state'], item['railState']), ('unreadable', 'unreadable'))
 row = got['rail'].get('children-forbidden')
 check('defects: rail children-forbidden is a fully hatched bar in the attention colour, saying why',
       row and (row['percent'], row['color'], row['label']), (0, 'warning', 'Children unreadable'))
