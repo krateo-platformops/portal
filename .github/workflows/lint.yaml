@@ -588,6 +588,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-dashboard-events-routes.py
 
+      # The composition detail page's events feed: each row's deep-link survives every shape the
+      # per-group discovery stage can hand the filter (flat, nested, empty, null, garbage). A jq error
+      # there empties the feed for every composition. This script existed but no workflow ran it.
+      - name: Composition events routes, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-events-routes.py
+
       # A refused read must not render as a quiet desk. Same job for the same reason as the steps
       # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
       - name: Service desk queue, over the chart's own jq
