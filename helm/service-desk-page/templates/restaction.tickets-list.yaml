@@ -1,20 +1,24 @@
 {{/* /service-desk data source — one row per Ticket, shaped server-side.
 
-     rows   : summary, state, requester, assignee, age, and the kind; filtered by the ?state= chip.
-     counts : per-state totals, for the chips' live counts.
+     rows       : summary, state, requester, assignee, age, and the kind; filtered by the ?state= chip.
+     counts     : per-state totals over EVERY ticket, plus `all`, for the chips' live counts.
+     state      : the selected chip, echoed ("all" when none is asked for), and `stateValid`.
+     emptyTitle/emptyText : the sentence the page draws in place of the table when `rows` is empty.
+     askHref    : the "Ask Agentiko →" link, a prompt about the view the person is looking at.
 
-     THE FILTER IS A LABEL SELECTOR, NOT A jq PASS OVER THE WHOLE NAMESPACE, and that is the only
-     mitigation available for the query ceiling a CRD gives us. The apiserver field-selects on
-     `metadata.name` and `metadata.namespace` and nothing else, so filtering by state or assignee has
-     to go through labels — which is why the Ticket CRD mirrors `spec.state` and `spec.assignee` into
-     `krateo.io/ticket-state` and `krateo.io/ticket-assignee`. With a chip selected we ask the
-     apiserver for that state's tickets; without one we ask for the open set. We never list the
-     namespace and discard most of it.
+     THE FILTER IS A jq `select` OVER THE ONE READ, NOT A LABEL SELECTOR. The Ticket CRD mirrors
+     `spec.state` and `spec.assignee` into `krateo.io/ticket-state` and `krateo.io/ticket-assignee`
+     because the apiserver field-selects on `metadata.name` and `metadata.namespace` only, and an
+     earlier version of this file asked the apiserver for one state's tickets by that label. That
+     leg is gone (see the step's comment): the counts already need every ticket, so the filtered
+     list is a subset of rows in hand, and a second request for it was a second request for data
+     this read already returned. The chips (listy.service-desk-state-chips) and the table read this
+     same RESTAction with the same keyExtras, so they cannot disagree.
 
      WHAT THIS STILL CANNOT DO, so nobody discovers it later: no full-text search of a description,
-     no sort by an arbitrary field, and the counts below DO list the namespace (a count is a count of
+     no sort by an arbitrary field, and the one read lists the namespace (a count is a count of
      everything, and there is no aggregate API). At service-desk volumes that is fine. At thousands
-     of tickets the counts leg is the first thing that hurts, and the answer then is a real database,
+     of tickets that read is the first thing that hurts, and the answer then is a real database,
      not a cleverer jq.
 
      The jq runs in snowplow, as the caller, not in the browser — so a ticket the caller may not read
@@ -43,11 +47,9 @@ spec:
 
          The fix is not to gate that leg, it is that THE LEG WAS NEVER NEEDED. This leg already
          lists every ticket in the namespace, so the filtered leg could only ever return a subset of
-         rows this one already has — a second request for data in hand. And the approved queue
-         design has no state-filter control: every ticket is shown with its state as a pill, with
-         counts in the header. There was nothing to filter server-side. So the state selection is
-         gone rather than gated, which is one request fewer, no expression in any path, and nothing
-         to dial at prewarm.
+         rows this one already has — a second request for data in hand. So the ?state= chip is a jq
+         `select` in the filter below, over these rows: one request, no expression in any path, and
+         nothing to dial at prewarm.
 
          This leg lists the namespace, deliberately and knowingly — see the header comment. It is the
          read here that does not scale, and now it is the only one, so when it has to become a paged
@@ -87,11 +89,32 @@ spec:
       errorKey: ticketsError
   filter: |
     def slug: (. // "") | ascii_downcase | gsub(" "; "-");
+    # The five Ticket states (crd.tickets.yaml, spec.state) in queue order: the slug that ?state=
+    # and the chips use, the label the table and the chips show, and the noun a sentence says.
+    def states: [
+      { key: "open", label: "Open", noun: "open tickets", active: true },
+      { key: "in-progress", label: "In progress", noun: "tickets in progress", active: true },
+      { key: "waiting-on-requester", label: "Waiting on requester", noun: "tickets waiting on the requester", active: true },
+      { key: "resolved", label: "Resolved", noun: "resolved tickets", active: false },
+      { key: "closed", label: "Closed", noun: "closed tickets", active: false } ];
+    # WHAT ?state= MAY BE, checked the way audit-page checks ?auditOutcome= (okOutcome): one of the
+    # five slugs, or `all`. Anything else selects nothing and the page SAYS so (emptyTitle below),
+    # rather than drawing an empty table with no chip active, which reads as an empty state.
+    def okState: . == "all" or IN(states[].key);
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+    # One ticket in a prompt: its summary, then its urgency and the day it was raised. The DAY, not
+    # an age: this string is cached with the widget, and "3 days old" would go on saying 3 days.
+    def item: "\"" + (.summary | cap(110)) + "\""
+      + ([ (if .urgency != "" then .urgency else empty end), (if .age != "" then ("raised " + .age[0:10]) else empty end) ]
+         | if length > 0 then " (" + join(", ") + ")" else "" end);
+    # The first eight, numbered — the cap the error digest's prompt uses.
+    def numbered: .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | item)) | join(" ");
+    {{ if $.Values.deskActions }}true{{ else }}false{{ end }} as $desk
     # One leg now, so rows and counts are both derived from it. `// []` here is a GUARD on a step
     # result, not a default in a path: the step is absent from the dict when it failed under
     # continueOnError, and an absent key must render an empty queue rather than a jq error.
-    ((.tickets.items) // []) as $all
-    | $all as $items
+    | ((.tickets.items) // []) as $all
     # A REFUSED READ MUST NOT RENDER AS A QUIET DESK. `continueOnError` plus the `// []` guard
     # above turned every failure into an empty queue: a 403, a 404 on an install with no Ticket
     # CRD, and a desk with nothing in it all drew the same empty table with no error anywhere.
@@ -99,12 +122,11 @@ spec:
     # every misconfigured grant now produces exactly that shape. `denied` and `readError` follow
     # reviews-page/platform-reviews, which draws the same distinction for the same reason.
     | ((.ticketsError // "") | tostring) as $err
-    | {
-        failed: ($err != ""),
-        denied: ($err | test("403|forbidden"; "i")),
-        absent: ($err | test("404|not found|could not find"; "i")),
-        readError: $err,
-        rows: ($items | map({
+    | ($err != "") as $failed
+    | ((.state // "") | tostring | ascii_downcase | if . == "" then "all" else . end) as $sel
+    | ($sel | okState) as $valid
+    | ([ states[] | select(.key == $sel) ] | .[0]) as $st
+    | ($all | map({
           name: (.metadata.name // ""),
           # The chart namespace, not `.metadata.namespace` — and NOT because the field is absent.
           # The previous comment here said a namespaced list omits it per item; that is false. The
@@ -118,7 +140,10 @@ spec:
           namespace: "{{ $.Values.namespace }}",
           summary: (.spec.summary // ""),
           state: (.spec.state // "Open"),
-          stateKey: (.spec.state | slug),
+          # The same default as `state` and `counts`: a ticket with no state is Open everywhere.
+          # `(.spec.state | slug)` made it "" here while the pill and the count said Open, so the
+          # Open chip would not have shown it.
+          stateKey: ((.spec.state // "Open") | slug),
           kind: (.spec.kind // ""),
           requester: (.spec.requester // ""),
           # ONLY when this install works tickets (deskActions). An absent assignee is then a FACT
@@ -132,11 +157,81 @@ spec:
 {{- end }}
           age: (.metadata.creationTimestamp // ""),
           urgency: (.spec.urgency // ""),
-        }) | sort_by(.age) | reverse),
-        counts: ($all
-          | map(.spec.state // "Open")
-          | group_by(.)
-          | map({ key: (.[0] | slug), value: length })
-          | from_entries),
-        total: ($all | length),
+        }) | sort_by(.age) | reverse) as $rows
+    | (if $sel == "all" then $rows elif $valid then [ $rows[] | select(.stateKey == $sel) ] else [] end) as $shown
+    | ({ all: ($rows | length) } + (states | map(.key as $k | { key: $k, value: ([ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)) as $counts
+    | ([ states[] | select(.active) | .key ]) as $activeKeys
+    | ([ $rows[] | select(.stateKey | IN($activeKeys[])) ]) as $live
+    | ([ $live[] | select(.assigned == false) ] | length) as $unassigned
+    | ($counts.all) as $total
+    # THE PROMPT DESCRIBES THE VIEW THE PERSON IS LOOKING AT: with a chip selected it is about that
+    # chip's tickets, and the link keeps ?state= so the page behind the rail is the same page. A
+    # ?state= that is not a state selected nothing, so the prompt is about the whole queue and the
+    # link drops it.
+    | (if $failed then
+         "The service-desk queue could not be read (" + ($err | cap(300)) + "). Explain what that error means and what an administrator has to fix."
+       elif $total == 0 then
+         (if $desk then "The service-desk queue is empty: no one has raised a ticket on this platform yet."
+          else "I have not raised any service-desk tickets." end)
+         + " Explain what the service desk on this platform can be asked for, and what a good request includes."
+       elif $desk then
+         (if $sel == "all" or ($valid | not) then
+            ([ $rows[] | select(.stateKey == "open") ] | reverse) as $oldest
+            | "Triage the service-desk queue: " + n($total; "ticket"; "tickets") + " — "
+              + ($counts.open | tostring) + " open, " + ($counts["in-progress"] | tostring) + " in progress, "
+              + ($counts["waiting-on-requester"] | tostring) + " waiting on the requester, "
+              + ($unassigned | tostring) + " unassigned."
+              + (if ($oldest | length) == 0 then ""
+                 elif ($oldest | length) == 1 then " The oldest open one is: " + ($oldest | numbered) + "."
+                 else " The oldest open ones are: " + ($oldest | numbered) + "." end)
+              + " Tell me which to pick up first and why, and what the desk should do next for each — grounded in the evidence on this page."
+          elif ($shown | length) == 0 then
+            "The service-desk queue has no " + $st.noun + "; its " + n($total; "ticket is"; "tickets are") + " in other states. Tell me whether anything in the queue needs the desk's attention — grounded in the evidence on this page."
+          elif $st.active then
+            ([ $shown[] | select(.assigned == false) ] | length) as $u
+            | "Triage the " + $st.noun + " in the service-desk queue: " + ($shown | length | tostring) + " of " + n($total; "ticket"; "tickets")
+              + ", " + ($u | tostring) + " unassigned. "
+              + (if ($shown | length) == 1 then "It is: " else "The oldest are: " end) + ($shown | reverse | numbered) + "."
+              + " Tell me which to pick up first and why, and what the desk should do next for each — grounded in the evidence on this page."
+          else
+            "Review the " + $st.noun + " in the service-desk queue: " + ($shown | length | tostring) + " of " + n($total; "ticket"; "tickets") + ". "
+              + (if ($shown | length) == 1 then "It is: " else "The most recently raised are: " end) + ($shown | numbered) + "."
+              + " Tell me whether any was " + ($st.label | ascii_downcase) + " without what was asked actually being done, and whether any should be reopened — grounded in the evidence on this page."
+          end)
+       else
+         (if $sel == "all" or ($valid | not) or ($shown | length) == 0 then
+            (if $sel != "all" and $valid then "I have no " + $st.noun + ". " else "" end)
+            + "Go through the tickets I have raised (" + ($total | tostring) + "; " + ($live | length | tostring) + " still open): what is happening with each, and does any need something from me?"
+          else
+            "Go through the " + $st.noun + " I have raised (" + ($shown | length | tostring) + " of my " + ($total | tostring) + "): what is happening with each, and does any need something from me?"
+          end)
+       end) as $prompt
+    | {
+        failed: $failed,
+        denied: ($err | test("403|forbidden"; "i")),
+        absent: ($err | test("404|not found|could not find"; "i")),
+        readError: $err,
+        rows: $shown,
+        counts: $counts,
+        total: $total,
+        state: $sel,
+        stateValid: $valid,
+        # The sentence the page draws INSTEAD of the table when `rows` is empty — never on a failed
+        # read, where the header already says what happened and "no one has raised a ticket" would
+        # be a claim about a queue nobody managed to read. Worded per case, because the next step
+        # differs: nothing to do, choose All, or fix the address.
+        emptyTitle: (if $failed or ($shown | length) > 0 then ""
+                     elif ($valid | not) then "That is not a ticket state"
+                     elif $total == 0 then (if $desk then "No one has raised a ticket yet." else "You have not raised a ticket yet." end)
+                     else "No ticket is " + $st.label + "." end),
+        emptyText: (if $failed or ($shown | length) > 0 then ""
+                    elif ($valid | not) then "The state in this page's address is not one a ticket can be in. Choose a state above, or All to see every ticket."
+                    elif $total == 0 then (if $desk then "When someone raises a request on this platform, it appears here with its state and who is working on it."
+                                           else "When you raise a request, it appears here with its state and what is happening with it." end)
+                    elif $total == 1 then "1 ticket is in another state. Choose All to see it."
+                    else ($total | tostring) + " tickets are in other states. Choose All to see them." end),
+        # "Ask Agentiko →" (button.service-desk-ask-agentiko): this page's own route, with the
+        # chip kept, and an ?ask seed the rail consumes on mount. Built here, @uri-encoded, so the
+        # Button is a plain literal navigate.
+        askHref: ("/service-desk?" + (if $valid and $sel != "all" then "state=" + $sel + "&" else "" end) + "ask=" + ($prompt | @uri)),
       }

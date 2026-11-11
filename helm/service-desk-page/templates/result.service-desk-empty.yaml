@@ -1,0 +1,35 @@
+{{/* What the queue says when there is no ticket to show, drawn by the page root IN PLACE OF the
+     table (flex.page-service-desk.yaml), because the Table hard-codes "No rows" and has no field to
+     say anything else.
+
+     The sentence is tickets-list's `emptyTitle`/`emptyText`, worded there per case — no ticket at
+     all, none in the selected state, a ?state= that is not a state — because what to do next
+     differs. It is never drawn on a failed read: the page root keeps the table then, and the
+     header's red tag and subtitle say what happened. The static title below is only the CR's
+     shape; the page root draws this widget only when tickets-list has a sentence for it.
+
+     Same construction as reviews-page result.reviews-decided-empty, with the words from the RA as
+     portal-agents paragraph.agent-detail-empty does. */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the sentence differs per chip. */}}
+  keyExtras: [state]
+  apiRef:
+    name: tickets-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    status: info
+    title: No tickets to show
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ if (.emptyTitle // "") != "" then .emptyTitle else "No tickets to show" end }'
+    - forPath: subTitle
+      expression: '${ .emptyText // "" }'
+  resourcesRefs:
+    items: []

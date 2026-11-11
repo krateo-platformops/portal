@@ -2,10 +2,12 @@
 {{/* "Assign to me" — one merge-PATCH of spec.assignee, with the caller's own token. The desk's
      Role grants `patch` on tickets in this namespace (rbac.page-readers.yaml).
 
-     IT WRITES THE LABEL MIRROR TOO, in the same patch. The queue reads by label selector
-     (restaction.tickets-list), because the apiserver can field-select only on metadata.name and
-     metadata.namespace — so a spec.assignee written without `krateo.io/ticket-assignee` is an
-     assignment the queue cannot see. One patch, both fields, so they cannot be written apart.
+     IT WRITES THE LABEL MIRROR TOO, in the same patch. The apiserver can field-select only on
+     metadata.name and metadata.namespace, so the Ticket CRD mirrors spec.assignee into
+     `krateo.io/ticket-assignee` for anything that selects by it (`kubectl get tickets -l`, a future paged
+     read of the queue). The queue today filters in jq over one read (restaction.tickets-list), so
+     a missing mirror would not hide the assignment there — it would make the label lie. One patch,
+     both fields, so they cannot be written apart.
 
      THE PAYLOAD IS BUILT SERVER-SIDE, and it has to be: a Button has no submitted values, so
      `payloadToOverride` is skipped for it entirely (buildPayload applies overrides only when a
