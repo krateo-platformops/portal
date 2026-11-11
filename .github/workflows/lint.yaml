@@ -568,6 +568,15 @@ jobs:
           python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
           python3 scripts/test-dashboard-assessable.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # The four stat cards stack on a phone (4 across, 2 x 2 below 768 px, one per row below 576 px)
+      # instead of four ~86 px columns. Resolves the rendered spans the way antd's grid does, and
+      # validates the Row against the CRDs pulled above, so a span key the CRD lacks fails here.
+      - name: Dashboard stat cards per row, at phone, tablet and desktop widths
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          python3 scripts/test-dashboard-stat-cards.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
       # A refused read must not render as a quiet desk. Same job for the same reason as the steps
       # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
       - name: Service desk queue, over the chart's own jq
