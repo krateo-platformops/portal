@@ -59,6 +59,9 @@ spec:
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
       | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
+    def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
+    def failed: . != null and . != [] and . != "";
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     # Presentational icon variety (honest — driven by the card's REAL helm data, not invented).
     # At ~330 charts the two source glyphs (fa-layer-group / fa-gears) make the grid a wall of
     # identical icons; this maps a card to a Font Awesome glyph off its own keywords first
@@ -193,7 +196,37 @@ spec:
     | (if $src == "blueprint" then "blueprints"
        elif $src == "operator" then "operators"
        else "charts" end) as $countLabel
+    # ASK AGENTIKO (button.marketplace-ask-agentiko): the prompt is about the cards the active
+    # facets show, and the link keeps ?category, ?source, ?q and ?sort. "Not at the catalog's
+    # latest" is a STRING INEQUALITY between the installed CompositionDefinition's chart version
+    # and the catalog entry's version — nothing here compares versions, so it never says "newer"
+    # or "behind". The two index reads and the installed-CD read each fail open under
+    # continueOnError (an empty catalog, or nothing installed), so a prompt over a failed read says
+    # it failed rather than "the catalog offers 0 charts" or "none are installed".
+    | ([ (if (.catalogError | failed) then "the blueprints index could not be read (" + (.catalogError | errmsg | cap(200)) + ")" else empty end),
+         (if (.operatorsError | failed) then "the operators index could not be read (" + (.operatorsError | errmsg | cap(200)) + ")" else empty end) ]) as $indexErrors
+    | (if (.compdefsError | failed) then (.compdefsError | errmsg | cap(200)) else "" end) as $installError
+    | ([ (if $src != "all" then (if $src == "operator" then "operators only" else "blueprints only" end) else empty end),
+         (if $sel != "all" then "keyword " + ($sel | tostring) else empty end),
+         (if $q != "" then "matching \"" + ($q | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
+    | ([ $shown[] | select(.installed) ]) as $inst
+    | ([ $inst[] | select(.installedVersion != .version) ] | sort_by(.name)) as $stale
+    | (if ($cards | length) == 0 and ($indexErrors | length) > 0 then
+         "The Marketplace catalog could not be read: " + ($indexErrors | join("; ")) + ". Explain what that means and what to check."
+       else
+         "Help me choose from the Marketplace: "
+         + (if $view != "" then "this view (" + $view + ") shows " + ($shown | length | tostring) + " of the catalog's " + ($cards | length | tostring) + " charts"
+            else "the catalog offers " + ($cards | length | tostring) + " charts" end)
+         + " (" + ([ $shown[] | select(.source == "blueprint") ] | length | tostring) + " blueprints, " + ([ $shown[] | select(.source == "operator") ] | length | tostring) + " operators)"
+         + (if $installError != "" then "; which of them are installed here could not be read (" + $installError + ")."
+            else "; " + ($inst | length | tostring) + " " + (if ($inst | length) == 1 then "is" else "are" end) + " installed here, and " + ($stale | length | tostring) + " of those " + (if ($stale | length) == 1 then "is" else "are" end) + " not at the catalog's latest version"
+              + (if ($stale | length) > 0 then " (" + ($stale | .[0:8] | map(.name + " " + (if .installedVersion != "" then .installedVersion else "unknown" end) + " → " + .version) | join(", ")) + ")" else "" end) + "." end)
+         + (if ($indexErrors | length) > 0 then " The catalog may be incomplete: " + ($indexErrors | join("; ")) + "." else "" end)
+         + " What should I install or upgrade for this platform, and why?"
+       end) as $prompt
     | {
+        askHref: (qstr({category: (if $sel == "all" then "" else ($sel | @uri) end), source: (if $src == "all" then "" else $src end), q: ($q | @uri), sort: (if $sort == "name" then "" else $sort end)})
+                  | . + (if test("\\?") then "&" else "?" end) + "ask=" + ($prompt | @uri)),
         selectedCategory: $sel,
         selectedSource: $src,
         selectedSort: $sort,

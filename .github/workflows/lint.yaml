@@ -558,6 +558,16 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-compositions-table.py
 
+      # "Ask Agentiko →" on /compositions, /dashboard, /blueprints, /marketplace and the blueprint and
+      # marketplace detail pages: the prompt describes the view on screen and the link keeps its
+      # filters, a failed read is never described as an empty one, and a detail link is empty when
+      # the object was not read. Over the RESTActions' own jq.
+      - name: Ask Agentiko on compositions, dashboard, blueprints and marketplace, over the charts' own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-agentiko-compositions-blueprints.py
+
       # A composition that cannot be judged (Ready=Unknown, reason ZeroEvidence, or ChildrenForbidden
       # which the rail labels as the RBAC defect it is) is set aside on the Dashboard, and an Unknown
       # with any other reason is not. Runs the RA's and the widgets' own

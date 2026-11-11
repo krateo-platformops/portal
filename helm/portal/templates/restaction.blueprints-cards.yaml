@@ -57,15 +57,49 @@ spec:
   {{/* selectedCategory (the active-chip read-back) and filter the cards by the blueprint tier */}}
   {{/* (platform/observability/blueprint). "all" / no param shows every blueprint. The dashboard */}}
   {{/* "Top blueprints" reuse passes no ?category, so $sel defaults to "all" → unfiltered. */}}
+  {{/* ASK AGENTIKO (blueprints-page button.blueprints-ask-agentiko): `askHref` is /blueprints with
+       the current ?category, ?q and ?projects kept and an @uri-encoded ?ask seed about the cards in
+       view — how many, how many are ready, which are failing to reconcile (Synced=False, with the
+       reason) and how many are still installing. `readError` is the compdefs step's error, which
+       continueOnError used to hide: a refused list looked like a platform with no blueprints. With
+       nothing read the prompt asks what the error means instead of saying there are none. The
+       dashboard's "Top blueprints" reads only `.cards` and is unchanged. */}}
   filter: >
+    def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def qs($p): [ $p[] | select(.[1] != "") | .[0] + "=" + (.[1] | @uri) ] | join("&") | if . == "" then "" else . + "&" end;
     ((.category) // "all") as $sel
     | ((.q // "") | ascii_downcase) as $q
     | ((.projects // "") | split(",") | map(select(. != ""))) as $projects
+    | ((.compdefsError // null) | if . == null or . == [] or . == "" then "" else (errmsg | cap(300)) end) as $readError
+    | ((.compdefs // []) | sort_by(.metadata.name // "")) as $all
+    | ($all
+        | map(select(($sel == "all" or .category == $sel)
+            and ($q == "" or ((.metadata.name // "") | ascii_downcase | contains($q)) or ((.provisions // "") | ascii_downcase | contains($q)))
+            and (($projects | length) == 0 or (([.metadata.namespace] - $projects) | length == 0))))) as $cards
+    | ([ (if $sel != "all" then "category " + ($sel | tostring) else empty end),
+         (if ($projects | length) > 0 then ("namespace" + (if ($projects | length) > 1 then "s " else " " end) + ($projects | join(", "))) else empty end),
+         (if $q != "" then "name or kind matching \"" + ((.q // "") | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
+    | ([ $cards[] | select(.readyColor == "red") ]) as $failing
+    | (if $readError != "" and ($all | length) == 0 then
+         "The blueprints on this platform could not be read (" + $readError + "). Explain what that error means and what to check."
+       elif ($cards | length) == 0 then
+         (if $view != "" then "No installed blueprint is in view (" + $view + "); " + (($all | length) | tostring) + (if ($all | length) == 1 then " is" else " are" end) + " installed outside it. Tell me whether that is expected."
+          else "No blueprint is installed on this platform yet. Explain how a blueprint is installed from the Marketplace and what it lets me create." end)
+       else
+         "Review the blueprints installed on this platform" + (if $view != "" then " (" + $view + ")" else "" end) + ": "
+         + ($cards | length | tostring) + (if ($cards | length) == 1 then " blueprint — " else " blueprints — " end)
+         + ([ $cards[] | select(.readyColor == "green") ] | length | tostring) + " ready, "
+         + ($failing | length | tostring) + " failing to reconcile"
+         + (if ($failing | length) > 0 then " (" + ($failing | .[0:8] | map((.metadata.name // "") + " · " + (.metadata.namespace // "") + " — " + (if (.readyReason // "") != "" then .readyReason else "Synced=False" end)) | join("; ")) + ")" else "" end)
+         + ", " + ([ $cards[] | select(.readyColor == "orange") ] | length | tostring) + " still installing."
+         + (if ($failing | length) > 0 then " Explain what the failing ones are stuck on and how to fix them."
+            else " None is failing to reconcile. Tell me whether any still installing looks stuck, and what each blueprint lets me create." end)
+       end
+       + (if $readError != "" and ($all | length) > 0 then " Part of the list could not be read (" + $readError + "), so this may not be all of them." else "" end)) as $prompt
     | {
         selectedCategory: $sel,
-        cards: ((.compdefs // [])
-          | sort_by(.metadata.name // "")
-          | map(select(($sel == "all" or .category == $sel)
-              and ($q == "" or ((.metadata.name // "") | ascii_downcase | contains($q)) or ((.provisions // "") | ascii_downcase | contains($q)))
-              and (($projects | length) == 0 or (([.metadata.namespace] - $projects) | length == 0)))))
+        cards: $cards,
+        readError: $readError,
+        askHref: ("/blueprints?" + qs([["category", (if $sel == "all" then "" else ($sel | tostring) end)], ["q", ((.q // "") | tostring)], ["projects", ((.projects // "") | tostring)]]) + "ask=" + ($prompt | @uri))
       }

@@ -78,7 +78,18 @@ spec:
         digest: ($latest.digest // ""),
         installed: ($instVer[$n] != null),
         installedVersion: ($instVer[$n] // ""),
-        installedNamespace: ($instNs[$n] // "{{ $.Release.Namespace }}")
+        installedNamespace: ($instNs[$n] // "{{ $.Release.Namespace }}"),
+        askHref: (if ($vers | length) > 0 then
+          ("/marketplace/" + $n + "?ask="
+           + (("Tell me about the \"" + $n + "\" chart in the Marketplace ("
+               + ([ (if ($latest.version // "") != "" then "v" + $latest.version else empty end), $cat,
+                    (if ($ann["krateo.io/maturity"] // "") != "" then $ann["krateo.io/maturity"] else empty end) ] | join(", "))
+               + "; " + (if ((.compdefsError // null) | . != null and . != [] and . != "") then "whether it is installed here could not be read"
+                         elif $instVer[$n] != null then "installed here at v" + ($instVer[$n] // "")
+                         else "not installed here" end) + "): what it provisions, "
+               + (if $instVer[$n] != null then "what it has created in my namespace" else "what installing it would create in my namespace" end)
+               + ", and whether it fits this platform.") | @uri))
+          else "" end)
       }
 ---
 {{/* PAGE ROOT — header block over a 2-column grid (mirrors page-blueprint-detail). */}}
@@ -122,7 +133,7 @@ spec:
         resource: rows
         verb: GET
 ---
-{{/* Header action — Install (catalog) or Configure (already installed). */}}
+{{/* Header actions — "Ask Agentiko →", then Install (catalog) or Configure (already installed), the primary. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -139,9 +150,16 @@ spec:
     vertical: false
     gap: small
     items:
+      - resourceRefId: marketplace-detail-ask-agentiko
       - resourceRefId: marketplace-detail-action
   resourcesRefs:
     items:
+      - id: marketplace-detail-ask-agentiko
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-ask-agentiko
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
       - id: marketplace-detail-action
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: marketplace-detail-action
@@ -346,5 +364,39 @@ spec:
   widgetDataTemplate:
     - forPath: text
       expression: '${ ([ (if (.home // "") != "" then ("Home   " + .home) else empty end), (if ((.sources // []) | length) > 0 then ("Sources   " + (.sources | join("   "))) else empty end), (if (.chartUrl // "") != "" then ("Package   " + .chartUrl) else empty end) ] | join("\n")) }'
+  resourcesRefs:
+    items: []
+---
+{{/* "Ask Agentiko →" on /marketplace/{name}, immediately left of Install/Configure, which keeps the
+     container's one primary (P6). Same object as service-desk-page's button.ticket-ask-autopilot —
+     read the comment there: label and `intent: agentiko` fixed (A4), a plain navigate to the
+     server-built marketplace-detail `.askHref` (the chart's version, category, maturity and whether
+     it is installed here), falling back to the catalog — never a 404 — for a chart the catalog does
+     not hold, where askHref is "". */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: marketplace-detail-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: marketplace-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /marketplace
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/marketplace" end) } ] } }'
   resourcesRefs:
     items: []

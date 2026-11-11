@@ -1,4 +1,4 @@
-{{/* The dashboard page header — the greeting, what it is showing, and the create CTA, in one CR. */}}
+{{/* The dashboard page header — the greeting, what it is showing, "Ask Agentiko →" and the create CTA, in one CR. */}}
 {{/* */}}
 {{/* Replaces SIX: row.header-row, flex.header-greeting-flex, flex.header-actions-flex, */}}
 {{/* paragraph.greeting-eyebrow, paragraph.greeting-title and paragraph.greeting-subtitle. */}}
@@ -41,6 +41,7 @@ spec:
     allowedResources:
     - buttons
     items:
+    - resourceRefId: dashboard-ask-agentiko
     - resourceRefId: new-composition
   widgetDataTemplate:
     {{/* Was paragraph.greeting-subtitle's `forPath: text`, lifted verbatim and re-indented. */}}
@@ -49,6 +50,12 @@ spec:
         ${ "Here's what's happening across your platform" + ({"24h":" in the last 24 hours","7d":" this week","30d":" this month","all":""}[.range // "all"]) }
   resourcesRefs:
     items:
+    - id: dashboard-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
     {{/* SHELL-owned: the Button lives in helm/portal because BOTH this page and the
          other one use it, so neither page chart can own it. The shell is readable by
          anything holding the chrome grant, so the release namespace is correct here --

@@ -1,0 +1,43 @@
+{{/* "Ask Agentiko →" on /dashboard — "brief me on my platform". It navigates to THIS page with an
+     ?ask seed the rail consumes on mount, keeping ?range and ?projects.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); "Create composition" keeps the header's one
+     primary (P6), and this sits immediately left of it.
+
+     IT READS compositions-list, NOT dashboard-data. dashboard-data holds only the compositions
+     CREATED INSIDE the selected range, so a prompt built from it would leave out an older
+     composition that is failing now. compositions-list's `.list` is every composition the
+     namespace scope admits — the set the dashboard's stat cards count — and it builds the prompt
+     as `.dashboardAskHref`, @uri-encoded: the counts, the compositions that need attention, or the
+     read error when nothing could be read. The click is a plain literal navigate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the set every other dashboard
+       reader of compositions-list declares, plus `range`, which the link carries. */}}
+  keyExtras: [projects, q, scope, status, range]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /dashboard
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed; falls back to the dashboard, never a 404. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.dashboardAskHref // "") != "" then .dashboardAskHref else "/dashboard" end) } ] } }'
+  resourcesRefs:
+    items: []
