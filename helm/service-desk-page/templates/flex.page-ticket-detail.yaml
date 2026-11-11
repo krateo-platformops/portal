@@ -1,6 +1,6 @@
 {{/* Page root for /service-desk/{namespace}/{name}, top to bottom: the header (summary, the ticket
-     id, the actions) → the state pill → What was asked → The object it is about → Activity →
-     the reply.
+     id, the actions) → the state pill → What was asked → The object it is about (or, for a ticket
+     about an Incident, the Incident) → Activity → the reply.
 
      IT STACKS, AND THAT IS NOT A LAYOUT PREFERENCE. The narrative of a ticket — what was asked,
      what it is about, what has happened since — is never put behind Tabs: tabbed content sits
@@ -54,6 +54,7 @@ spec:
         ${ (.sections // {}) as $s
         | [ { resourceRefId: "ticket-detail-header" }, { resourceRefId: "ticket-state" }, { resourceRefId: "ticket-asked-card" } ]
         + (if ($s.object // false) then [ { resourceRefId: "ticket-object-card" } ] else [] end)
+        + (if ($s.incident // false) then [ { resourceRefId: "ticket-incident-card" } ] else [] end)
         + (if ($s.activity // false) then [ { resourceRefId: "ticket-activity-card" } ] else [] end)
         + (if ($s.reply // false) then [ { resourceRefId: "ticket-reply-card" } ] else [] end) }
   resourcesRefs:
@@ -79,6 +80,12 @@ spec:
     - id: ticket-object-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: ticket-object-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: ticket-incident-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-incident-card
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET

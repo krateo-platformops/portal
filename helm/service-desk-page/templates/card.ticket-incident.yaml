@@ -1,0 +1,144 @@
+{{/* "Incident" — shown in place of "The object it is about" when the ticket is about an Incident
+     (a ticket raised from the incident page; `sections.incident`).
+
+     What the incident is doing NOW: its state and how it ended, its owner verdict and its root
+     cause, read from the Incident as the caller through the same `object` step the generic card
+     uses. Nothing here is copied onto the ticket, so the card cannot drift from the incident page,
+     and a desk member who may not read the incident sees its name and the reason there is nothing
+     else rather than the desk's permissions answering for them.
+
+     A ticket page asserts no health, so nothing here is coloured: a Resolved incident reads as the
+     word, and the incident's own page keeps its own colours. "Open incident" is the header link, in
+     the card's `extraRefId` slot. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-incident-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Incident
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - descriptions
+    - paragraphs
+    - buttons
+    extraRefId: ticket-incident-open
+    items:
+    - resourceRefId: ticket-incident-meta
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "ticket-incident-meta" } ]
+        + (if ((.sections // {}).incidentCause // false) then [ { resourceRefId: "ticket-incident-cause" } ] else [] end) }
+    - forPath: headerLeft
+      expression: '${ (.incident // {}).note // "" }'
+  resourcesRefs:
+    items:
+    - id: ticket-incident-meta
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-incident-meta
+      namespace: {{ $.Values.namespace }}
+      resource: descriptions
+      verb: GET
+    - id: ticket-incident-cause
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-incident-cause
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: ticket-incident-open
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: ticket-incident-open
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+---
+{{/* The incident's identity and state, one per row, shaped by ticket-detail (`.incident.items`). */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-incident-meta
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    column: 1
+    bordered: false
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ (.incident // {}).items // [] }'
+  resourcesRefs:
+    items: []
+---
+{{/* The incident's root cause, verbatim from status.rootCause.statement, muted: the incident page is
+     where it is argued; here it is context for the ticket. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-incident-cause
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ' '
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ (.incident // {}).statement // " " }'
+  resourcesRefs:
+    items: []
+---
+{{/* "Open incident" — the card header's link to /incidents/{namespace}/{name}. A link, not a button
+     with a fill: it goes somewhere and changes nothing. Falls back to the incident list, never to a
+     404, when the ref is incomplete. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: ticket-incident-open
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: ticket-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Open incident
+    type: link
+    size: small
+    clickActionId: open
+    actions:
+      navigate:
+        - id: open
+          type: navigate
+          path: /incidents
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open", type: "navigate", path: (if ((.incident // {}).route // "") != "" then .incident.route else "/incidents" end) } ] } }'
+  resourcesRefs:
+    items: []

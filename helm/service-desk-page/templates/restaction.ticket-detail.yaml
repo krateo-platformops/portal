@@ -124,6 +124,13 @@ spec:
       if $status == "True" then (if ($type | negative) then "red" else "faint" end)
       elif $status == "False" then (if ($type | negative) then "faint" else "red" end)
       else "gold" end;
+    # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
+    def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    # Absolute times, never relative ones: the page is cached until the ticket or the incident changes.
+    def stamp: (. // "") as $s | ($s | epoch) as $at
+      | if $at == null then ($s | tostring | .[0:10]) else ($at | strftime("%Y-%m-%d %H:%M UTC")) end;
+    def hhmm: (. // "") as $s | ($s | epoch) as $at
+      | if $at == null then ($s | tostring) else ($at | strftime("%H:%M UTC")) end;
     (.name // "") as $n
     | (.namespace // "{{ $.Values.namespace }}") as $ns
     # The authenticated principal, injected by snowplow for a widget declaring
@@ -150,19 +157,47 @@ spec:
     | ((.object // {}) | if type == "object" and ((.metadata.name // "") != "") then . else null end) as $obj
     | ($obj != null) as $objRead
     | (if $objRead then ($obj.status.conditions // []) else [] end) as $conds
+    # A TICKET ABOUT AN INCIDENT — the one the incident page raises (form.ticket-new.yaml,
+    # `submit-incident`) points objectRef at the Incident, and the `object` step above has already
+    # read it as the caller. That read is the incident card's whole source: its state, how it ended,
+    # its owner verdict and its root cause, from the Incident itself and never copied onto the ticket,
+    # so the card cannot disagree with the incident page. Recognised by group and kind, any version.
+    | ((($ref.apiVersion // "") | tostring | split("/") | .[0]) == "observability.krateo.io" and ($ref.kind // "") == "Incident") as $isIncident
+    | (if $isIncident and $objRead and ($obj.kind // "Incident") == "Incident" then $obj else null end) as $inc
+    | (($inc.status // {}) | if type == "object" then . else {} end) as $incSt
+    | ($incSt.state // "Analyzing") as $incState
+    | (($incSt.resolution // {}) | if type == "object" then . else {} end) as $incRes
+    # status.resolution.by (incident-provider docs/api.md): `verify` goes with Resolved — its verify
+    # script passed — and every other value with Closed. A value this map does not know yet reads as
+    # itself rather than being attributed to anyone, as on the incident page.
+    | ({ verify: "by its checks", user: "by a person", "alert-gone": "automatically: its Alert was deleted",
+         "analysis-failed": "automatically: the analysis failed" }[($incRes.by // "") | tostring]
+       // (if ($incRes.by // "") == "" then "" else ("(" + ($incRes.by | tostring) + ")") end)) as $incBy
+    | ((($incSt.rootCause // {}).owner // "") | tostring | if IN("customer", "krateo", "unknown") then . else "" end) as $incOwner
+    # THE RESOLVE PROPOSAL, DERIVED, NOT STORED. When the linked incident is Resolved by its checks,
+    # Agentiko's entry asks whether to resolve the ticket. It is computed here on every read, from the
+    # Incident's status.resolution, and never written into spec.activity: the reply form patches that
+    # array WHOLE (see activityExisting), so a written entry would race every reply and would need a
+    # writer with patch on tickets. It goes away when the ticket is Resolved or Closed, or when the
+    # desk keeps it open — the `krateo.io/resolve-proposal: kept` label button.ticket-keep-open sets.
+    | ((($t.metadata.labels // {})["krateo.io/resolve-proposal"] // "") == "kept") as $keptOpen
+    | ($exists and $inc != null and ($incRes.by // "") == "verify" and (($incRes.at // "") | tostring) != ""
+       and ($state | IN("Resolved", "Closed") | not) and ($keptOpen | not)) as $proposeResolve
+    | (if $proposeResolve then [ { at: $incRes.at, who: "Agentiko", kind: "agentiko",
+         text: ("Incident resolved. Its checks passed at " + ($incRes.at | hhmm) + ". Resolve this ticket?") } ] else [] end) as $externalActs
     # TWO BINDINGS, AND THEY MUST NOT BE COLLAPSED INTO ONE. Read this before using either.
     #
     #   $acts     spec.activity ONLY — what the reply form patches back (see activityExisting).
-    #   $allActs  what the page DISPLAYS. Identical to $acts today; see below.
+    #   $allActs  what the page DISPLAYS: $acts plus the entries derived above ($externalActs).
     #
     # The split exists because the reply form patches `spec.activity` WHOLESALE — a merge-patch
     # replaces an array, so every existing entry is resent with the new one. Anything that did not
     # come from spec must therefore be kept OUT of the form's payload, or on the next reply it gets
     # copied into spec and becomes user-written.
     #
-    # THIS IS WHERE AN EXTERNAL CONVERSATION LEG GOES, and the reason both bindings survive even
-    # though they currently hold the same thing. A deployment reading replies live from a ticketing
-    # system (the CMP's Zendesk design) adds its shaped entries as a second term:
+    # THIS IS WHERE EVERY ENTRY THAT IS NOT IN spec GOES. Today that is the derived resolve proposal
+    # ($externalActs above); a deployment reading replies live from a ticketing system (the CMP's
+    # Zendesk design) adds its shaped entries to the same second term:
     #
     #     | (($acts + $externalActs) | sort_by(.at // "")) as $allActs
     #
@@ -179,7 +214,7 @@ spec:
     # Sorting: the CRD says the array is stored oldest-first, and sorting here means the page does not
     # depend on every writer having kept that promise.
     | (($sp.activity // []) | sort_by(.at // "")) as $acts
-    | ($acts | sort_by(.at // "")) as $allActs
+    | (($acts + $externalActs) | sort_by(.at // "")) as $allActs
     | {
         exists: $exists,
         # The summary is the page title; the id is its one line of context. An absent ticket says
@@ -265,8 +300,39 @@ spec:
         # the form overrides it with the time the reply was sent.
         servedAt: (now | todate),
         me: $me,
+        # The incident card, for a ticket about an Incident (see $isIncident): what the incident is
+        # doing now, read as the caller. A read that did not come back shows the incident's name and
+        # says why there is nothing else, rather than an object card listing an Incident's
+        # provider-runtime conditions.
+        incident: {
+          name: ($ref.name // ""),
+          namespace: ($ref.namespace // ""),
+          route: (if ($ref.name // "") != "" and ($ref.namespace // "") != "" then ("/incidents/" + $ref.namespace + "/" + $ref.name) else "" end),
+          read: ($inc != null),
+          items: ([ { label: "Incident", value: ($ref.name // "") } ]
+            + (if $inc != null then
+                 [ { label: "State", value: ($incState
+                       + (if ($incState | IN("Resolved", "Closed")) and (($incRes.at // "") | tostring) != ""
+                          then (", " + (if $incBy != "" then $incBy + " " else "" end) + "at " + ($incRes.at | stamp)) else "" end)) } ]
+                 + (if $incOwner != "" then [ { label: "Owner", value: ({ customer: "Your organization", krateo: "Krateo", unknown: "Not determined" }[$incOwner]) } ] else [] end)
+               else [] end)),
+          statement: (if $inc != null then ((($incSt.rootCause // {}).statement // "") | tostring) else "" end),
+          note: (if $inc != null then ""
+                 elif ($ref.namespace // "") == "" then "This incident has no namespace, so it is not read."
+                 else "This incident could not be read: it may be gone, or you may not have access to it." end)
+        },
+        # Keep open: the desk's answer to the resolve proposal, remembered on the ticket so the
+        # proposal does not come back on the next read. A label, not an activity entry: the reply
+        # form owns spec.activity and patches it whole.
+        keepOpenPatch: { metadata: { labels: { "krateo.io/resolve-proposal": "kept" } } },
         sections: {
-          object: (($ref | length) > 0),
+          # An Incident gets the incident card instead of the generic object card.
+          object: (($ref | length) > 0 and ($isIncident | not)),
+          incident: $isIncident,
+          incidentCause: ($inc != null and ((($incSt.rootCause // {}).statement // "") | tostring) != ""),
+          # The derived entry's two buttons, under the conversation. The entry itself is in
+          # activityRows whatever deskActions says; the buttons are the desk's.
+          resolveProposal: $proposeResolve,
           # The conditions TABLE, separately from the card that holds it: an object with no
           # readable conditions still has an identity worth showing, and an empty table saying
           # "No data" says nothing about why. The card's own note says why instead.
