@@ -497,6 +497,35 @@ jobs:
   # merge-PATCHes spec.reanalysis {feedback} on the incident, and an unknown check result shows what
   # the run printed. Evaluated over krateo-057-shaped Incidents, every widget validated against the
   # newest released frontend CRDs.
+  # The incident page's owner verdict (incident-provider 0.10.0), Agentiko's ticket proposal and the
+  # Tickets card: owner present, absent (nothing new renders) and unknown;
+  # each proposal condition flipped; the ticket list by label, refused, missing and failed in both
+  # errorKey shapes; Dismiss's target; and the raise link followed into service-desk-page's form and
+  # back through this page's own ticket list. Resolved widgets validated against the newest released
+  # CRDs and the ones the installer pins.
+  incident-tickets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Incident owner, proposal and tickets, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-incident-tickets.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-incident-tickets.py --pinned
+
   incident-reanalyze:
     runs-on: ubuntu-latest
     steps:

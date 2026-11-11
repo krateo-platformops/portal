@@ -1,0 +1,131 @@
+{{/* "Tickets" — the service-desk tickets raised for this incident, and "Raise a ticket" (the approved
+     mockup's frames A, C and F; the Escalation column waits for the Krateo support relay).
+
+     The rows are the tickets carrying `krateo.io/incident-uid: <this incident's uid>`, listed by
+     incident-detail AS THE CALLER. Listing tickets is the service desk's grant (service-desk-page
+     readerGroups), so only the desk sees them: anyone else is refused by the apiserver and the card
+     says, in one line, who can — Kubernetes RBAC cannot express "the tickets I raised". With no
+     ticket the card says so and offers the raise. A read that failed for another reason says that,
+     never "No ticket yet". An install with no service desk (no Ticket CRD: a 404) gets no card.
+
+     "Raise a ticket" is always there, for a reader who disagrees with the verdict or wants the desk
+     anyway: the same pre-filled raise form the proposal opens. Who may raise one is
+     service-desk-page's requesterGroups (and its raise screen's namespace), not this page. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-tickets-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Tickets
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    - buttons
+    extraRefId: incident-raise-ticket
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ if ((.sections // {}).ticketRows // false) then [ { resourceRefId: "incident-tickets-list" } ] else [] end }'
+    - forPath: headerLeft
+      expression: '${ .ticketsNote // "" }'
+  resourcesRefs:
+    items:
+    - id: incident-tickets-list
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-tickets-list
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: incident-raise-ticket
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-raise-ticket
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+---
+{{/* One row per ticket, newest first: its summary, its name (mono), its state as the queue colours
+     it — the status-pill spec service-desk-page's tickets-table follows (Open slate, In progress and
+     Waiting on requester gold, Resolved and Closed faint: a ticket never asserts health) — and who
+     raised it when. A row opens the ticket. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-tickets-list
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    dataSource: []
+    itemLayout: horizontal
+    split: true
+    hideWhenEmpty: true
+    itemTemplate:
+      primaryText: '{summary}'
+      subPrimaryText: '{name}'
+      subPrimaryTextMono: true
+      secondaryText: '{state}'
+      secondaryTextAsTag: true
+      subSecondaryText: '{raised}'
+      navigateTo: /service-desk/{namespace}/{name}
+      color:
+        value: '{state}'
+        map:
+          Open: slate
+          In progress: gold
+          Waiting on requester: gold
+          Resolved: faint
+          Closed: faint
+        default: slate
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ .ticketRows // [] }'
+  resourcesRefs:
+    items: []
+---
+{{/* "Raise a ticket" — the card header's action: the service desk's raise form, pre-filled from this
+     incident (`raiseHref`). A default button: the proposal, when there is one, holds the primary. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-raise-ticket
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Raise a ticket
+    icon: fa-plus
+    type: default
+    size: small
+    clickActionId: raise
+    actions:
+      navigate:
+        - id: raise
+          type: navigate
+          path: /service-desk/new
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "raise", type: "navigate", path: (if (.raiseHref // "") != "" then .raiseHref else "/service-desk/new" end) } ] } }'
+  resourcesRefs:
+    items: []

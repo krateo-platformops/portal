@@ -1,6 +1,7 @@
 {{/* Page root for /incidents/{namespace}/{name}, top to bottom: header (state, actions) → alert */}}
-{{/* chip + meta → analysis error → Summary → What happened → Why → How to fix (the scripts) */}}
-{{/* → tabs (Involved resources · Apply runs · Similar incidents) → prose fallback. */}}
+{{/* chip + meta → Agentiko's ticket proposal (exception-only) → analysis error → Summary → What */}}
+{{/* happened → Why (with the owner verdict) → Tickets → How to fix (the scripts) → tabs (Involved */}}
+{{/* resources · Apply runs · Similar incidents) → prose fallback. */}}
 {{/* `items` is templated off incident-detail's `sections`, so a section renders only when its */}}
 {{/* data exists; resourcesRefs hold the full pool and unreferenced children are never fetched. */}}
 kind: Flex
@@ -35,10 +36,12 @@ spec:
       expression: >-
         ${ (.sections // {}) as $s
         | [ { resourceRefId: "incident-detail-page-header" }, { resourceRefId: "incident-detail-header-block" } ]
+        + (if ($s.proposal // false) then [ { resourceRefId: "incident-ticket-proposal" } ] else [] end)
         + (if ($s.error // false) then [ { resourceRefId: "incident-error" } ] else [] end)
         + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
         + (if ($s.evidence // false) then [ { resourceRefId: "incident-sec-evidence-card" } ] else [] end)
-        + (if (($s.rootcause // false) or ($s.gaps // false) or ($s.trace // false)) then [ { resourceRefId: "incident-why-card" } ] else [] end)
+        + (if (($s.rootcause // false) or ($s.gaps // false) or ($s.trace // false) or ($s.owner // false)) then [ { resourceRefId: "incident-why-card" } ] else [] end)
+        + (if ($s.tickets // false) then [ { resourceRefId: "incident-tickets-card" } ] else [] end)
         + (if ($s.fix // false) then [ { resourceRefId: "incident-sec-remediation-card" } ] else [] end)
         + (if ($s.manifests // false) then [ { resourceRefId: "incident-detail-tabs-card" } ] else [] end)
         + (if ($s.prose // false) then [ { resourceRefId: "incident-prose" } ] else [] end) }
@@ -55,6 +58,18 @@ spec:
       name: incident-detail-header-block
       namespace: {{ $.Values.namespace }}
       resource: flexes
+      verb: GET
+    - id: incident-ticket-proposal
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-ticket-proposal
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incident-tickets-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-tickets-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
       verb: GET
     - id: incident-error
       apiVersion: widgets.templates.krateo.io/v1beta1
