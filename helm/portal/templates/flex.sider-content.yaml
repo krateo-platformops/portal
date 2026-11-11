@@ -1,7 +1,9 @@
-{{/* Declarative Sider content: brand logo → nav Menu. The tenant chip + project (= namespace) */}}
+{{/* Declarative Sider content: the nav Menu. The brand moved out to the app-shell Layout's */}}
+{{/* `sider.header` / `sider.collapsedHeader` slots (layout.app-shell.yaml), a 64px band level with */}}
+{{/* the top bar, so it no longer scrolls with the nav. The tenant chip + project (= namespace) */}}
 {{/* selector moved OUT to the app-shell HEADER (flex.header-context, mounted by the frontend */}}
 {{/* HeaderChrome) per the multitenancy screenshot — the scope control sits in the topbar, so the */}}
-{{/* sider is now just the brand + navigation. The CONSOLE / SCOPE · PROJECTS eyebrows were dropped */}}
+{{/* sider is now just the navigation. The CONSOLE / SCOPE · PROJECTS eyebrows were dropped */}}
 {{/* with the scope strip. (The user footer is still engine-injected — per-user identity, not data.) */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -15,19 +17,11 @@ spec:
     vertical: true
     gap: middle
     allowedResources:
-      - images
       - menus
     items:
-      - resourceRefId: brand
       - resourceRefId: nav
   resourcesRefs:
     items:
-      - id: brand
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: brand-logo
-        namespace: {{ .Release.Namespace }}
-        resource: images
-        verb: GET
       - id: nav
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: sidebar-nav
