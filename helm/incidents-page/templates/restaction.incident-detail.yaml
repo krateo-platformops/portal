@@ -95,6 +95,11 @@ spec:
     | ((.alert // {}) | if type == "object" and ((.metadata.name // "") != "") and (.metadata.name == $alertName) then . else null end) as $alert
     | ($st.state // "Analyzing") as $state
     | ([ ($st.conditions // [])[] | select(.type == "Reproduced" and .status == "False") ] | length > 0) as $flagged
+    # ApplyActionStale (incident-provider): howToFix.applyAction targets an apiVersion or resource this
+    # cluster no longer serves, e.g. a composition version that was removed. True until a new analysis
+    # replaces the fix; its message names the target and what IS served. The provider requests that
+    # analysis itself (status.reanalysis.cause ApplyActionStale), so nobody has to ask for it.
+    | ([ ($st.conditions // [])[] | select(.type == "ApplyActionStale" and .status == "True") ] | first) as $staleCond
     | ($st.rootCause // {}) as $rc
     | ($st.sources // []) as $sources
     | ($st.analyzedResources // []) as $analyzed
@@ -126,6 +131,9 @@ spec:
     # spec.reanalysis: a request for a new analysis, until alert-provider consumes it.
     | (($sp.reanalysis // null) != null) as $reanalysisPending
     | ($st.reanalysis // null) as $reanalysis
+    # A re-analysis the provider started because the fix went stale, not one a person asked for (cause
+    # Person, or absent).
+    | ($state == "Analyzing" and (($reanalysis // {}).cause // "") == "ApplyActionStale") as $reanalysingStale
     # Apply sends applyAction; "I applied it" stays for an incident whose fix is only a script.
     | ($state == "Open" and $aaOk and ($appliedPending | not)) as $canApplyAction
     | ($state == "Open" and ($fix.apply // "") != "" and ($appliedPending | not) and ($aaOk | not)) as $canApply
@@ -313,10 +321,17 @@ spec:
         canRunApply: $canRunApply,
         # Apply: status.howToFix.applyAction, normalized (verb as the HTTP method), for the button that sends it.
         canApplyAction: $canApplyAction,
+        # A stale applyAction keeps Apply visible but disabled, with the reason under it: a write to a
+        # version the cluster does not serve can only fail.
+        applyStale: ($aaOk and $staleCond != null),
+        applyStaleNotice: (if $aaOk and $staleCond != null then
+          (((($staleCond.message // "") | rtrimstr(".")) | if . == "" then "Apply targets an apiVersion or resource this cluster does not serve" else . end)
+           + ". A new analysis has been requested automatically.") else "" end),
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
                       (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
                       (if $reanalysisPending then { label: "Re-analysis", value: "requested, waiting to start" }
+                       elif $reanalysingStale then { label: "Re-analysing", value: "previous fix targeted an unserved version" }
                        elif $reanalysis != null then { label: "Re-analysis", value: ("#" + (($reanalysis.count // 1) | tostring) + " · " + ($reanalysis.at | stamp)
                          + (if ($reanalysis.feedback // "") != "" then (" · \"" + ($reanalysis.feedback | if length > 200 then (.[0:200] + "…") else . end) + "\"") else "" end)) }
                        else empty end),

@@ -5,7 +5,9 @@
 {{/* (.fixSteps[i].md) and decides which button shows: .canApplyAction (the incident is Open, its */}}
 {{/* howToFix.applyAction is one actionable write, and no click is waiting for the controller) shows */}}
 {{/* Apply; .canApply (the same, for a fix that is only a script) shows Run apply (while no run is */}}
-{{/* unfinished) and "I applied it". Rollback has no button. */}}
+{{/* unfinished) and "I applied it". Rollback has no button. While .applyStale (the applyAction */}}
+{{/* targets a version the cluster does not serve), Apply stays but is disabled, and the reason */}}
+{{/* (incident-rem-apply-stale) sits under it. */}}
 {{- range $i := until 4 }}
 ---
 kind: Flex
@@ -39,6 +41,7 @@ spec:
       expression: >-
         ${ [ { resourceRefId: "incident-rem-step-md-1" } ]
         + (if (.canApplyAction // false) then [ { resourceRefId: "incident-rem-apply" } ]
+             + (if (.applyStale // false) then [ { resourceRefId: "incident-rem-apply-stale" } ] else [] end)
            elif (.canApply // false) then [ { resourceRefId: "incident-rem-script-actions" } ] else [] end) }
   {{- end }}
   resourcesRefs:
@@ -61,6 +64,12 @@ spec:
       name: incident-rem-apply
       namespace: {{ $.Values.namespace }}
       resource: buttons
+      verb: GET
+    - id: incident-rem-apply-stale
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-rem-apply-stale
+      namespace: {{ $.Values.namespace }}
+      resource: markdowns
       verb: GET
     {{- end }}
 ---
@@ -87,6 +96,29 @@ spec:
   resourcesRefs:
     items: []
 {{- end }}
+---
+{{/* Why Apply is disabled: incident-detail .applyStaleNotice, the ApplyActionStale condition's */}}
+{{/* message as incident-provider wrote it. Listed only while .applyStale. */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-rem-apply-stale
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    markdown: ''
+  widgetDataTemplate:
+  - forPath: markdown
+    expression: '${ .applyStaleNotice // "" }'
+  resourcesRefs:
+    items: []
 ---
 {{/* A fix that is only a script: Run apply (incident-detail .canRunApply) beside "I applied it". */}}
 kind: Flex
@@ -290,6 +322,8 @@ spec:
           loading:
             display: true
   widgetDataTemplate:
+    - forPath: disabled
+      expression: '${ .applyStale // false }'
     - forPath: actions
       expression: >-
         ${ (.applyAction // {}) as $a
