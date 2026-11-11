@@ -57,17 +57,51 @@ spec:
        a count; the counts are under `facets`. Counts may arrive as JSON strings or numbers (num).
        Records with no user.name are counted under `(none)`, the value the user filter reads as
        "no user", so their chip filters to exactly them; an empty namespace or outcome gets no
-       chip. */}}
+       chip.
+
+       `askHref` is the header's "Ask Agentiko →" link (button.audit-ask-agentiko): /audit with
+       every current filter kept (audit.route), and a prompt about the window these counts cover.
+       The counts IGNORE the chips, so the prompt does not pretend they are the filtered table's:
+       it gives the window's numbers and then names the filters the person has chosen. A refused
+       filter, no granted namespace and a failed ClickHouse read each say what happened instead of
+       describing an empty trail. This filter is a folded scalar, so it carries no jq comments. */}}
   filter: >
-    {{ include "audit.valid" . }}
-    ({{ include "audit.access" . }}) as $a
+    {{ include "audit.valid" . }} {{ include "audit.rangeLabel" . }} {{ include "audit.route" . }}
+    . as $x
+    | ({{ include "audit.access" . }}) as $a
     | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring)} as $f
     | (($f.ns | okNsFilter) and ($f.usr | okUser) and ($f.oc | okOutcome)) as $accepted
     | ($accepted and ($a.all or ($a.acc | length) > 0)) as $queried
     | [ ((.facets | objects | .data) // [])[] | {dim: (.dim // ""), name: ((.val // "") | tostring), count: (.n | num)} | if .dim == "user" and .name == "" then .name = "(none)" else . end | select(.name != "") ] as $all
-    | { scope: (if ($a.all or ($a.acc | length) > 0) | not then "none" elif $a.all then "all" else "namespaces" end),
+    | ($queried and (.facetsError != null or (.facets | type) != "object")) as $failed
+    | (if ($a.all or ($a.acc | length) > 0) | not then "none" elif $a.all then "all" else "namespaces" end) as $scope
+    | ((.range // "24h") | tostring | rangeLabel) as $window
+    | ((.facetsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $err
+    | (if $scope == "namespaces" then " in the namespaces whose audit trail I can read" else "" end) as $where
+    | ([ $all[] | select(.dim == "outcome") | { key: .name, value: .count } ] | from_entries) as $oc
+    | ([ $all[] | select(.dim == "user") ] | .[0:8] | map((if .name == "(none)" then "records with no user name" else .name end) + " (" + (.count | tostring) + ")") | join(", ")) as $users
+    | ([ $all[] | select(.dim == "ns") ] | .[0:8] | map(.name + " (" + (.count | tostring) + ")") | join(", ")) as $nss
+    | ([ (if $f.ns != "" then "namespace \"" + $f.ns + "\"" else empty end), (if $f.usr != "" then "user \"" + $f.usr + "\"" else empty end), (if $f.oc != "" then "outcome \"" + $f.oc + "\"" else empty end) ]) as $chosen
+    | (if ($accepted | not) then
+         "This audit page refused the " + ([ (if ($f.ns | okNsFilter) then empty else "namespace" end), (if ($f.usr | okUser) then empty else "user" end), (if ($f.oc | okOutcome) then empty else "outcome" end) ] | join(" and ")) + " filter in its address, because it holds characters the page does not accept, so nothing was read. Explain which values that filter takes."
+       elif $scope == "none" then
+         "No namespace's audit trail has been shared with me, so the audit page shows me no records. Explain what access I need to read it and who can grant it."
+       elif $failed then
+         "The audit trail for " + $window + " could not be read from ClickHouse (" + (if $err == "" then "no data came back" elif ($err | length) > 300 then $err[0:299] + "…" else $err end) + "). Explain what that means and what to check."
+       elif ($all | length) == 0 then
+         "The audit trail holds no records for " + $window + $where + ". Tell me whether that is expected on this platform, or whether audit records are not being written."
+       else
+         "Summarise the audit trail for " + $window + $where + ": " + (($oc.success // 0) | tostring) + " success, " + (($oc.failure // 0) | tostring) + " failure, " + (($oc.denied // 0) | tostring) + " denied"
+         + (if $users != "" then "; the most active users are " + $users else "" end)
+         + (if $nss != "" then ", in " + $nss else "" end) + "."
+         + (if ($chosen | length) > 0 then " On the page I am looking at the records for " + (if ($chosen | length) == 1 then $chosen[0] else ($chosen[0:-1] | join(", ")) + " and " + $chosen[-1] end) + "." else "" end)
+         + " Point out anything unusual — failures, denials, one user changing far more than the rest — and what I should check."
+       end) as $prompt
+    | ($x | auditRoute({})) as $route
+    | { scope: $scope,
         namespaces: (if $a.all then [] else $a.acc end),
         facets: { namespaces: [ $all[] | select(.dim == "ns") | {name, count} ],
                   users: [ $all[] | select(.dim == "user") | {name, count} ],
                   outcomes: [ $all[] | select(.dim == "outcome") | {name, count} ] },
-        failed: ($queried and (.facetsError != null or (.facets | type) != "object")) }
+        failed: $failed,
+        askHref: ($route + (if ($route | endswith("?")) then "" else "&" end) + "ask=" + ($prompt | @uri)) }

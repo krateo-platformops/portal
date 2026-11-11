@@ -1,3 +1,5 @@
+{{/* The /reviews/runs/{name} header: the run's name, its window and duration, its phase, and
+     "Ask Agentiko →" (button.review-run-ask-agentiko), which carries its own apiRef. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,8 +14,10 @@ spec:
     namespace: {{ $.Values.namespace }}
   widgetData:
     title: Review run
-    allowedResources: []
-    items: []
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: review-run-ask-agentiko
   widgetDataTemplate:
     - forPath: title
       expression: '${ if (.found // false) then .name else (.title // "Review run") end }'
@@ -22,4 +26,10 @@ spec:
     - forPath: tags
       expression: '${ if (.found // false) then [ { label: .phase, color: .phaseColor } ] else [] end }'
   resourcesRefs:
-    items: []
+    items:
+    - id: review-run-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: review-run-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

@@ -1,5 +1,8 @@
-{{/* The /reviews header's action line: the latest run, then "Run review now" when the nightly */}}
-{{/* review's CronJob is readable (.reviewCronJob). */}}
+{{/* The /reviews header's action line: the latest run, "Ask Agentiko →", then "Run review now".
+     The latest run and "Run review now" are drawn only when the nightly review's CronJob is
+     readable (.reviewCronJob). "Ask Agentiko →" is drawn ALWAYS — outside that condition — because
+     it has the most to say exactly when the review is not installed, refused or has never run, and
+     it sits immediately left of the primary when there is one (P6: it does not take that slot). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,11 +22,12 @@ spec:
     gap: small
     align: center
     items:
-    - resourceRefId: reviews-last-run
+    - resourceRefId: reviews-ask-agentiko
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ (if (.reviewCronJob // null) != null then [ { resourceRefId: "reviews-last-run" }, { resourceRefId: "reviews-run-now" } ] else [] end) }
+        ${ if (.reviewCronJob // null) != null then [ { resourceRefId: "reviews-last-run" }, { resourceRefId: "reviews-ask-agentiko" }, { resourceRefId: "reviews-run-now" } ]
+           else [ { resourceRefId: "reviews-ask-agentiko" } ] end }
   resourcesRefs:
     items:
     - id: reviews-last-run
@@ -31,6 +35,12 @@ spec:
       name: reviews-last-run
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
+      verb: GET
+    - id: reviews-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
       verb: GET
     - id: reviews-run-now
       apiVersion: widgets.templates.krateo.io/v1beta1

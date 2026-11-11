@@ -1,4 +1,6 @@
-{{/* The /incidents page header. No counter: the per-state counts live in the chips below it. */}}
+{{/* The /incidents page header. No counter: the per-state counts live in the chips below it. Its one
+     action is "Ask Agentiko →" (button.incidents-ask-agentiko), which carries its own apiRef, so the
+     header itself reads nothing. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,5 +13,15 @@ spec:
     title: Incidents
     subtitle: >-
       One row per incident: an alert's problem from its root-cause analysis until its checks resolve it or someone closes it
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: incidents-ask-agentiko
   resourcesRefs:
-    items: []
+    items:
+    - id: incidents-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

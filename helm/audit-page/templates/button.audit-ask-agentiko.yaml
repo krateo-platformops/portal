@@ -1,0 +1,44 @@
+{{/* "Ask Agentiko →" on /audit — the assistant entry point for the audit trail in the chosen window.
+     It navigates to THIS page with every current filter kept (range, namespace, user, outcome and the
+     shell's projects) and an ?ask seed the rail consumes on mount, so the conversation starts on the
+     same view.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set.
+     The header has no primary, so it sits on its own.
+
+     The href is built server-side (audit-facets `.askHref`, @uri-encoded) from the window's outcome,
+     user and namespace counts, which the chips already read. Those counts ignore the chips and keep
+     each dimension's 12 largest, so the prompt gives the WINDOW's numbers and names the chosen
+     filters, rather than claiming them for the filtered table. Usernames and per-user counts are in
+     the prompt (product decision): they are what the page shows the same reader. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  apiRef:
+    name: audit-facets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /audit
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to the page — never a 404 — if
+         askHref is empty, which audit-facets never makes it, but a render with no data does. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/audit" end) } ] } }'
+  resourcesRefs:
+    items: []

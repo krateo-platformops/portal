@@ -1,0 +1,44 @@
+{{/* "Ask Agentiko →" on /incidents — the assistant entry point for the incidents the person is
+     looking at. It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping the
+     ?status= chip and the ?projects= scope, so the conversation starts on the same view: with a
+     chip selected the prompt is about that chip's incidents, not every incident.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not
+     set. The header has no primary, so it sits on its own.
+
+     The href is built server-side (incidents-list `.askHref`, @uri-encoded) from the counts, the
+     open incidents' titles and root causes, and the alerts firing with no incident, all of which
+     the list already read. On a failed read of the incidents it asks what the error means instead
+     of describing a quiet platform. The per-alert links in the "not yet investigated" strip are
+     separate (`awaiting[].askHref`) and unchanged. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): the prompt differs per chip, and `projects` rides the href. */}}
+  keyExtras: [projects, status]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /incidents
+  widgetDataTemplate:
+    {{/* Server-built self-page href with the ?ask seed. Falls back to the list — never a 404 —
+         if askHref is empty, which incidents-list never makes it, but a render with no data does. */}}
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/incidents" end) } ] } }'
+  resourcesRefs:
+    items: []

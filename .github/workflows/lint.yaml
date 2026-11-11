@@ -460,6 +460,11 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-platform-review.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # /incidents' "Ask Agentiko →": the prompt follows the ?status= chip, and a failed read of the
+      # incidents or of the alerts is said, never drawn as a quiet platform. Reuses the CRDs above.
+      - name: Incidents list Agentiko prompt, evaluated and validated
+        run: python3 scripts/test-incidents-list.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
   # The incident page's Apply: incident-detail's jq over status.howToFix.applyAction and the Button
   # that sends it with the mark-applied PATCH as one ops set. Resolved on incidents shaped like
   # krateo-057's (a composition patch, a Deployment patch, a delete, script-only, applied, closed);

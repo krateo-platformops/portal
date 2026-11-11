@@ -1,0 +1,37 @@
+{{/* "Ask Agentiko →" on a review run — the assistant entry point for one nightly-review run. It
+     navigates to THIS page with an ?ask seed the rail consumes on mount, so the conversation starts
+     on the run's sources, steps and proposals.
+
+     Same object as service-desk-page's button.ticket-ask-autopilot — read the comment there. The
+     label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set.
+     The header has no primary, so it sits on its own.
+
+     The href is built server-side (review-run `.askHref`, @uri-encoded). It is "" for a run that
+     does not exist or cannot be read, and the button then falls back to /reviews — never a 404. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: review-run-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: review-run
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /reviews
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/reviews" end) } ] } }'
+  resourcesRefs:
+    items: []

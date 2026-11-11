@@ -1015,6 +1015,81 @@ def check_chart_conventions(c):
     return p
 
 
+def ask(href):
+    """(the path and query the link opens with ?ask removed, the decoded prompt)."""
+    path, _, query = href.partition('?')
+    pairs = [kv.split('=', 1) for kv in query.split('&') if kv]
+    prompt = unquote(dict(pairs).get('ask', ''))
+    kept = '&'.join(f'{k}={v}' for k, v in pairs if k != 'ask')
+    return (path + ('?' + kept if kept else ''), prompt)
+
+
+ASK_TAIL = (' Point out anything unusual — failures, denials, one user changing far more than the rest — '
+            'and what I should check.')
+
+
+def check_agentiko_ask(c):
+    """"Ask Agentiko →" in the header: /audit with every current filter kept, and a prompt about the
+    window the facets count. The counts ignore the chips, so a chosen filter is NAMED, not claimed for
+    them. A refused filter, no granted namespace and a failed read each say what happened."""
+    p = []
+    _, out = facets(c, {}, ADMIN)
+    href, prompt = ask(out['askHref'])
+    expect(p, 'admin: self page, the window', href, '/audit?range=24h')
+    expect(p, 'admin: the window\'s counts, users and namespaces', prompt,
+           'Summarise the audit trail for the last 24 hours: 8 success, 2 failure, 1 denied; the most active users are '
+           'admin (4), j.doe (4), records with no user name (2), ci-bot (1), in team-a (5), team-b (2), demo-system (1), '
+           'krateo-system (1), old-team (1).' + ASK_TAIL)
+    ex = {'range': '7d', 'auditNamespace': 'team-a', 'auditOutcome': 'failure', 'auditUser': 'a+b/c=', 'projects': 'team-a'}
+    _, out = facets(c, ex, ADMIN)
+    href, prompt = ask(out['askHref'])
+    expect(p, 'filtered: every filter kept, in the chips\' order, a + / = encoded',
+           href, '/audit?range=7d&auditNamespace=team-a&auditOutcome=failure&auditUser=a%2Bb%2Fc%3D&projects=team-a')
+    expect(p, 'filtered: the window is the chosen range', prompt.startswith('Summarise the audit trail for the last 7 days: '), True)
+    expect(p, 'filtered: the chosen filters are named', prompt.endswith(
+        ' On the page I am looking at the records for namespace "team-a", user "a+b/c=" and outcome "failure".' + ASK_TAIL), True)
+    _, out = facets(c, {'range': '1h'}, TEAM_AB)
+    expect(p, 'member: says whose records', ask(out['askHref'])[1],
+           'Summarise the audit trail for the last hour in the namespaces whose audit trail I can read: 1 success, '
+           '1 failure, 0 denied; the most active users are j.doe (2), in team-a (2).' + ASK_TAIL)
+    # Empty: a window with no record in it.
+    _, out = facets(c, {}, ADMIN, FakeClickHouse(rows=[]))
+    expect(p, 'empty window', ask(out['askHref'])[1],
+           'The audit trail holds no records for the last 24 hours. Tell me whether that is expected on this platform, '
+           'or whether audit records are not being written.')
+    # A FAILED READ IS NOT AN EMPTY TRAIL.
+    responses, _ = served()
+    responses['facets'] = lambda path: None
+    _, _, out = resolve(c.get('RESTAction', 'audit-facets'), {'range': '30d'}, responses, ADMIN)
+    href, prompt = ask(out['askHref'])
+    expect(p, 'failed read: still the same page', href, '/audit?range=30d')
+    expect(p, 'failed read: says so', prompt.startswith('The audit trail for the last 30 days could not be read from ClickHouse ('), True)
+    expect(p, 'failed read: the error, and what to do', prompt.endswith('). Explain what that means and what to check.'), True)
+    expect(p, 'failed read: no claim about records', 'no records' in prompt or 'Summarise' in prompt, False)
+    _, out = facets(c, {}, NOBODY)
+    expect(p, 'no namespace', ask(out['askHref'])[1],
+           "No namespace's audit trail has been shared with me, so the audit page shows me no records. "
+           'Explain what access I need to read it and who can grant it.')
+    reqs, out = facets(c, {'auditNamespace': "x' OR 1=1", 'auditOutcome': 'failure'}, ADMIN)
+    href, prompt = ask(out['askHref'])
+    expect(p, 'refused filter: no request', reqs, [])
+    expect(p, 'refused filter: says which, never the value', prompt,
+           'This audit page refused the namespace filter in its address, because it holds characters the page does '
+           'not accept, so nothing was read. Explain which values that filter takes.')
+    expect(p, 'refused filter: the link keeps the address, encoded', href,
+           '/audit?range=24h&auditNamespace=x%27%20OR%201%3D1&auditOutcome=failure')
+    # The Button: the RA's link, or the page; and the header carries it.
+    _, out = facets(c, {}, ADMIN)
+    btn = tbi.resolved_widget(c, 'Button', 'audit-ask-agentiko', out, {}, 'ask button')['spec']['widgetData']
+    expect(p, 'button: the RA\'s link', btn['actions']['navigate'][0]['path'], out['askHref'])
+    expect(p, 'button: label and intent', (btn['label'], btn['intent']), ('Ask Agentiko →', 'agentiko'))
+    expect(p, 'button, no data: the page', tbi.widget(c, 'Button', 'audit-ask-agentiko', 'actions', {}, {})['navigate'][0]['path'], '/audit')
+    hdr = tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', out, {}, 'header with ask')['spec']['widgetData']
+    expect(p, 'header carries the button', [i['resourceRefId'] for i in hdr['items']], ['audit-ask-agentiko'])
+    expect(p, 'button keyExtras', c.get('Button', 'audit-ask-agentiko')['spec']['keyExtras'], KEY_EXTRAS)
+    return p
+
+
 def check_authored_widgets_validate(c):
     for d in c.docs:
         if d.get('apiVersion', '').startswith('widgets.templates.krateo.io/'):
@@ -1072,6 +1147,7 @@ def main():
         ('filter chips, counts and the header', lambda: check_filter_chips(c)),
         ('a record with no user reads "—", and its chip filters to exactly those', lambda: check_records_with_no_user(c)),
         ('64-bit integers read the same quoted or not', lambda: check_64bit_integers_quoted_or_not(c)),
+        ('Ask Agentiko: the window, the filters kept, and every failure said', lambda: check_agentiko_ask(c)),
         ('chart conventions: namespace, RBAC, endpoint, keyExtras, nav, values', lambda: check_chart_conventions(c)),
     ]
     if crds_dir:

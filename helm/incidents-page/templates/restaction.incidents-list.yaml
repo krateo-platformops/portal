@@ -8,6 +8,8 @@
 {{/* awaiting : firing Alerts (state ALERT) with no open incident — the "not yet investigated" */}}
 {{/*            strip, each with an /incidents?ask= Autopilot deep-link. */}}
 {{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
+{{/* failed   : the Incident list could not be read (incidentsError), and readError says why. */}}
+{{/* askHref  : the header's "Ask Agentiko →" link — a prompt about the view on screen. */}}
 {{/* An incident belongs to the alert named by its observability.krateo.io/alert label. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
@@ -63,12 +65,82 @@ spec:
              state: (.status.state // "ALERT"),
              askHref: ("/incidents?ask=" + (("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is firing but has no open incident. Run a root-cause analysis and give me the concrete next steps.") | @uri)) }
        ] | .[0:8]) as $awaiting
+    # A FAILED READ IS NOT A QUIET PLATFORM. `continueOnError` plus `// []` turns a refused or
+    # failed Incident list into zero rows, and the chips into zeros. The page's widgets have always
+    # drawn that as empty; the Agentiko prompt must not CLAIM it, so the failure is carried out.
+    # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list, each element a
+    # message string or the apiserver's Status object, so the text is read from either.
+    | ((.incidentsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $err
+    | ($err != "") as $failed
+    | ([ { key: "analyzing", noun: "incidents still being analyzed", active: true },
+         { key: "open", noun: "open incidents", active: true },
+         { key: "verifying", noun: "incidents being verified", active: true },
+         { key: "resolved", noun: "resolved incidents", active: false },
+         { key: "closed", noun: "closed incidents", active: false } ]) as $states
+    | ([ $states[] | select(.key == $sel) ] | .[0]) as $st
+    | (if $sel == "all" then $rows else [ $rows[] | select(.stateKey == $sel) ] end) as $shown
+    | ((.projects // "") | tostring) as $projects
+    | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+      def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end;
+      # One incident in a prompt: its title, its root cause when there is one, and the DAY it was
+      # triggered — not an age, which this cached string would go on repeating.
+      def item: "\"" + (.title | cap(110)) + "\""
+        + (if .cause != "" and .cause != "—" and .cause != .title then " — " + (.cause | cap(160)) else "" end)
+        + (if .triggeredAt != "" then " (triggered " + .triggeredAt[0:10] + ")" else "" end);
+      def numbered: .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | item)) | join(" ");
+      ($rows | map(.stateKey)) as $keys
+    | ([ $keys[] | select(. == "open") ] | length) as $nOpen
+    | ([ $keys[] | select(. == "verifying") ] | length) as $nVerifying
+    | ([ $keys[] | select(. == "analyzing") ] | length) as $nAnalyzing
+    | ([ $awaiting[] | .name ] | join(", ")) as $awaitingNames
+    # The alerts are a second read: when it failed, "no alert is firing" would be a claim nobody
+    # checked, so the prompt says the alerts were not read instead.
+    | (.alertsError != null) as $alertsFailed
+    | (if $alertsFailed then "an unknown number of alerts firing with no incident (the alerts could not be read)"
+       elif ($awaiting | length) == 0 then "no alert firing without an incident"
+       else n($awaiting | length; "alert"; "alerts") + " firing with no incident (" + $awaitingNames + ")" end) as $awaitingText
+    # THE PROMPT DESCRIBES THE VIEW ON SCREEN. With a ?status= chip it is about that chip's
+    # incidents, and the link keeps the chip and the shell scope. A ?status= that is no state shows
+    # no rows and no active chip, so the prompt is about every incident and the link drops it.
+    | ($st != null) as $filtered
+    | (if $failed then
+         "The incidents on this page could not be read (" + ($err | cap(300)) + "). Explain what that error means and what to check."
+       elif ($rows | length) == 0 then
+         "There are no incidents on this platform, and " + $awaitingText + "."
+         + (if ($awaiting | length) > 0 then " Tell me which alert to investigate first and why — grounded in the evidence on this page."
+            else " Tell me whether anything on this page needs attention." end)
+       elif ($filtered | not) then
+         ([ $rows[] | select(.stateKey == "open") ]) as $open
+         | "Triage my incidents: " + ($nOpen | tostring) + " open, " + ($nVerifying | tostring) + " verifying, "
+           + ($nAnalyzing | tostring) + " still being analyzed, and " + $awaitingText + "."
+           + (if ($open | length) == 0 then ""
+              elif ($open | length) == 1 then " The open one is: " + ($open | numbered) + "."
+              else " The open ones are: " + ($open | numbered) + "." end)
+           + " Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page."
+       elif ($shown | length) == 0 then
+         "I have no " + $st.noun + "; my " + n($rows | length; "incident is"; "incidents are") + " in other states, with "
+         + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
+       elif $st.active then
+         "Triage my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
+         + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
+         + " Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page."
+       else
+         "Review my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
+         + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
+         + " Tell me whether any looks " + $sel + " without its cause being fixed, and whether any is likely to come back — grounded in the evidence on this page."
+       end) as $prompt
     | {
-        rows: (if $sel == "all" then $rows else [ $rows[] | select(.stateKey == $sel) ] end),
+        rows: $shown,
         counts: ({ all: ($rows | length) }
           + ([ "analyzing", "open", "verifying", "resolved", "closed" ] | map({ key: ., value: (. as $k | [ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)),
         status: $sel,
         projects: ((.projects // "") | tostring),
         awaiting: $awaiting,
-        awaitingCount: ($awaiting | length)
+        awaitingCount: ($awaiting | length),
+        failed: $failed,
+        readError: $err,
+        askHref: ("/incidents?"
+          + ([ (if $filtered then "status=" + $sel else empty end),
+               (if $projects != "" then "projects=" + ($projects | @uri) else empty end) ] | map(. + "&") | join(""))
+          + "ask=" + ($prompt | @uri))
       }
