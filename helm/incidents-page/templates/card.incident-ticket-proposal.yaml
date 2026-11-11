@@ -1,0 +1,175 @@
+{{/* AGENTIKO'S PROPOSAL TO RAISE A TICKET — exception-only, at the top of the incident page, under
+     its header (the approved mockup's frames A and E).
+
+     COMPUTED, NOT STORED. incident-detail shows it (`sections.proposal`) when the analysis says
+     whose fix it is (status.rootCause.owner is `customer` or `krateo`), the incident is still Open
+     or Verifying, the ticket list came back holding no ticket for this incident, and nobody has
+     dismissed it. Agentiko wrote the verdict, once, in status.rootCause; it writes nothing else.
+     Nothing is raised until a person reviews the text and presses "Raise ticket".
+
+     BOTH OWNERS GO TO THIS PORTAL'S OWN SERVICE DESK FOR NOW. Sending a Krateo-owned incident to
+     Krateo support waits for the Krateo-hosted support relay, so for `krateo` the callout states the
+     verdict and offers the same internal ticket the customer case does.
+
+     MARKED AS AGENTIKO'S, twice over, like every machine-written thing in the portal: the wand on a
+     blue tile, and the word as a tag in the header. It is not an "Ask Agentiko" entry point — it
+     opens no conversation — so it is neither labelled nor styled as one; the header keeps the page's
+     one "Ask Agentiko →".
+
+     A CARD AND NOT AN ALERT, because it holds two buttons: the Alert widget has no slot for actions.
+     The blue tile is the one new colour, where the mockup tints the whole box. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-ticket-proposal
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Agentiko suggests opening a ticket for your platform team
+    variant: outlined
+    icon:
+      name: fa-wand-magic-sparkles
+      color: blue
+    extra: Agentiko
+    extraVariant: tag
+    extraStatus: blue
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: incident-ticket-proposal-actions
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .proposalTitle // "Agentiko suggests opening a ticket for your platform team" }'
+    - forPath: headerLeft
+      expression: '${ .proposalText // "" }'
+  resourcesRefs:
+    items:
+    - id: incident-ticket-proposal-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-ticket-proposal-actions
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+---
+{{/* The proposal's two answers. "Review and raise" is the callout's own primary; Dismiss backs out. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-ticket-proposal-actions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    allowedResources:
+    - buttons
+    items:
+    - resourceRefId: incident-ticket-proposal-raise
+    - resourceRefId: incident-ticket-proposal-dismiss
+  resourcesRefs:
+    items:
+    - id: incident-ticket-proposal-raise
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-ticket-proposal-raise
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+    - id: incident-ticket-proposal-dismiss
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-ticket-proposal-dismiss
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+---
+{{/* "Review and raise" — opens the service desk's own raise form, pre-filled from this incident
+     (`raiseHref`: /service-desk/new?incidentName=…&incidentNamespace=…, read there by
+     service-desk-page's ticket-raise-context). The person reads and edits the text and presses
+     "Raise ticket"; nothing is written from here. Falls back to the plain raise form, never a 404. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-ticket-proposal-raise
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Review and raise
+    type: primary
+    size: middle
+    clickActionId: raise
+    actions:
+      navigate:
+        - id: raise
+          type: navigate
+          path: /service-desk/new
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "raise", type: "navigate", path: (if (.raiseHref // "") != "" then .raiseHref else "/service-desk/new" end) } ] } }'
+  resourcesRefs:
+    items: []
+---
+{{/* Dismiss: annotates the Incident `krateo.io/ticket-proposal: dismissed` (a merge-patch with the
+     caller's token — the same `patch` on incidents that Close needs), and incident-detail stops
+     proposing. Reversible by removing the annotation, and it changes nothing about the incident's
+     state, so no confirmation. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-ticket-proposal-dismiss
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Dismiss
+    {{/* C26 (frontend 1.7.0): Dismiss backs out without deleting anything, so it is amber. */}}
+    intent: dismiss
+    size: middle
+    clickActionId: dismiss
+    actions:
+      rest:
+        - id: dismiss
+          type: rest
+          resourceRefId: dismiss-proposal
+          headers:
+            - 'Content-Type: application/merge-patch+json'
+          payload: {}
+          successMessage: Suggestion dismissed
+          loading:
+            display: true
+  widgetDataTemplate:
+    - forPath: actions.rest[0].payload
+      expression: '${ .dismissPatch // {} }'
+  resourcesRefs:
+    items: []
+  resourcesRefsTemplate:
+    - template:
+        id: dismiss-proposal
+        apiVersion: ${ .incidentGvr.apiVersion }
+        resource: ${ .incidentGvr.resource }
+        name: ${ .incidentGvr.name }
+        namespace: ${ .incidentGvr.namespace }
+        verb: PATCH

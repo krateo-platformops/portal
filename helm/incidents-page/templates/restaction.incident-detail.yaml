@@ -35,6 +35,23 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: incidentAppliesError
+    {{/* The service-desk tickets raised for this incident: service-desk-page's raise form labels a
+         ticket raised from here `krateo.io/incident-uid: <this incident's uid>` (a uid and not the
+         name, because an incident name can pass the 63 characters a label value may hold). Listed
+         AS THE CALLER, with no userAccessFilter, deliberately: listing tickets is the desk's grant
+         (service-desk-page readerGroups), and a reader without it must get the apiserver's 403 —
+         which the page turns into one line saying who can see them — rather than an empty list it
+         would read as "no ticket yet" and then propose a second one. A missing Ticket CRD (no
+         service desk on this install) is a 404, and the page then shows no Tickets card at all.
+         Gated on the uid, so the prewarm walk dials nothing. */}}
+    - name: tickets
+      dependsOn:
+        name: incident
+        iterator: '[ { uid: ((.incident.metadata.uid)? // "") } | select((.uid | type) == "string" and .uid != "") ]'
+      path: ${ "/apis/servicedesk.krateo.io/v1alpha1/namespaces/{{ $.Values.serviceDeskNamespace }}/tickets?labelSelector=krateo.io%2Fincident-uid%3D" + .uid }
+      verb: GET
+      continueOnError: true
+      errorKey: ticketsError
     - name: alert
       dependsOn:
         name: incident
@@ -218,6 +235,52 @@ spec:
               state: (.status.state // "Analyzing"),
               reason: ._why,
               when: when }) ) as $similar
+    # WHOSE FIX IT IS: status.rootCause.owner and ownerEvidence (incident-provider 0.10.0). Absent
+    # means not assessed — an older CRD, or an analysis from before it — and then nothing below
+    # renders, so the page is exactly what it was. `unknown` is assessed and undecided: the owner
+    # row says so, next to what the analysis could not see, and it never leads to a proposal. A value
+    # outside the enum is not an owner.
+    | (($rc.owner // "") | tostring | if IN("customer", "krateo", "unknown") then . else "" end) as $owner
+    | (($rc.ownerEvidence // []) | if type == "array" then . else [] end
+       | map(select(type == "object" and ((.ref // "") | type) == "string" and (.ref // "") != ""))) as $evidence
+    | ($evidence | length) as $evN
+    | (($evN | tostring) + (if $evN == 1 then " piece of evidence" else " pieces of evidence" end)) as $evCount
+    | ({ customer: "your organization", krateo: "Krateo" }[$owner] // "") as $ownerNoun
+    # THE TICKETS RAISED FOR IT, from the `tickets` step. Its errorKey is a LIST — snowplow appends
+    # one entry per failure (resolve.go accumulateErrorKey), each a message string or, for an HTTP
+    # failure, the apiserver's Status object — so each entry is read in either shape, by its `code`
+    # first and its words second. 404 = no Ticket CRD here (no service desk), 403 = not the desk.
+    | ((.ticketsError // null) | if . == null then [] elif type == "array" then . else [.] end) as $tErrs
+    | ($tErrs | map(if type == "object" then ((.message // .reason // tojson) | tostring) else tostring end) | join("; ")) as $tErrText
+    | ([ $tErrs[] | objects | (.code // empty) ]) as $tCodes
+    | ([ $tErrs[] | objects | (.reason // empty) ]) as $tReasons
+    | (((.tickets // null) | type) == "object" and (((.tickets.items // null) | type) == "array")) as $ticketsRead
+    | (if $ticketsRead then "read"
+       elif ($tErrs | length) == 0 then "none"
+       elif ($tCodes | index(404)) != null or ($tReasons | index("NotFound")) != null
+            or ($tErrText | test("could not find the requested resource"; "i")) then "absent"
+       elif ($tCodes | index(403)) != null or ($tReasons | index("Forbidden")) != null
+            or ($tErrText | test("forbidden"; "i")) then "denied"
+       else "error" end) as $ticketsState
+    | ($r.metadata.uid // "") as $uid
+    | ([ (if $ticketsRead then .tickets.items else [] end)[]
+         | select(type == "object" and (((.metadata.labels // {})["krateo.io/incident-uid"] // "") == $uid) and $uid != "") ]
+       | sort_by(.metadata.creationTimestamp // "") | reverse
+       | map({ name: (.metadata.name // ""),
+               namespace: (.metadata.namespace // "{{ $.Values.serviceDeskNamespace }}"),
+               summary: (.spec.summary // .metadata.name // ""),
+               state: (.spec.state // "Open"),
+               raised: ([ (.spec.requester // empty), ((.metadata.creationTimestamp // "") | if . != "" then stamp else empty end) ] | join(" · ")) })) as $tickets
+    # "Raise a ticket", here and in the proposal: the service desk's own raise form, pre-filled from
+    # this incident by its ticket-raise-context RESTAction, which reads these two parameters.
+    | ("/service-desk/new?incidentName=" + ($n | @uri) + "&incidentNamespace=" + ($ns | @uri)) as $raiseHref
+    | (((($r.metadata.annotations // {})["krateo.io/ticket-proposal"]) // "") == "dismissed") as $dismissed
+    # AGENTIKO'S PROPOSAL, COMPUTED, NOT STORED: an owner who must act (customer or krateo), an
+    # incident still open to action, a ticket list that came back and holds none for it, and no one
+    # having dismissed it. A list that did not come back is not "no ticket": a reader who cannot see
+    # the tickets gets no proposal, rather than one to raise a duplicate.
+    | ($exists and ($owner | IN("customer", "krateo")) and ($state | IN("Open", "Verifying"))
+       and $ticketsState == "read" and ($tickets | length) == 0 and ($dismissed | not)) as $propose
     | ([ (if ($r | length) > 0 then $r else empty end), (if $alert != null then $alert else empty end) ] | map(del(.metadata.managedFields))) as $involvedObjs
     | {
         title: $title,
@@ -319,6 +382,40 @@ spec:
           + " — the incident" + (if $alert != null then " and the alert that opened it" else "" end)
           + ". managedFields stripped; status kept."),
         errorText: $err,
+        # The owner verdict, under the root cause in "Why did it happen" (frames A, E and F of the
+        # approved mockup). Category and confidence ride with it: they are the rest of the verdict.
+        ownerItems: (if $owner == "" then [] else
+          ([ (if (($rc.category // "") | tostring) != "" then { label: "Category", value: ($rc.category | tostring) } else empty end),
+             (if (($rc.confidence // "") | tostring) != "" then { label: "Confidence", value: ($rc.confidence | tostring) } else empty end),
+             { label: "Owner", value: ({ krateo: "Krateo — the fix is in a component Krateo ships",
+                                         customer: "Your organization — the fix is in your own configuration or services",
+                                         unknown: "Not determined" }[$owner]) } ]) end),
+        ownerEvidenceTitle: (if $ownerNoun != "" and $evN > 0 then ("Why " + $ownerNoun + " · " + $evCount) else "" end),
+        # One row per piece of evidence: the agent's note as the line, the reference it rests on as a
+        # mono pill, and its kind as the tag. A piece with no note shows its reference as the line.
+        ownerEvidenceRows: (if $ownerNoun == "" then [] else ($evidence | map(
+          ((.note // "") | tostring) as $note
+          | { kind: ((.kind // "") | tostring), title: (if $note != "" then $note else .ref end), ref: (if $note != "" then .ref else "" end) })) end),
+        # Frame F: an undecided owner says so in one quiet line, with what the analysis could not see.
+        ownerUnknownText: (if $owner != "unknown" then "" else
+          ("Agentiko could not tell whose fix this is, so it does not suggest a ticket."
+           + (if ($gaps | length) > 0 then (" Missing: " + ($gaps | map(tostring) | join("; ")) + (if ($gaps | last | tostring | test("[.!?]$")) then "" else "." end)) else "" end)) end),
+        # Agentiko's proposal. Both owners go to this portal's own service desk for now: sending a
+        # Krateo-owned incident to Krateo support waits for the support relay, so the callout states
+        # the verdict and offers the same internal ticket the customer case does.
+        proposalTitle: "Agentiko suggests opening a ticket for your platform team",
+        proposalText: (if $propose then ("Owner: " + $ownerNoun + (if $evN > 0 then (", from " + $evCount) else "" end) + ". The ticket goes to this portal's service desk.") else "" end),
+        # Dismiss: one annotation on the Incident, written with the caller's token — the grant Close needs.
+        dismissPatch: { metadata: { annotations: { "krateo.io/ticket-proposal": "dismissed" } } },
+        raiseHref: $raiseHref,
+        ticketRows: $tickets,
+        # The Tickets card's one line, when it has no rows to show: none yet, not the reader's to see,
+        # or a read that failed — three different things, never drawn as one.
+        ticketsNote: (if $ticketsState == "read" then (if ($tickets | length) == 0 then "No ticket yet." else "" end)
+                      elif $ticketsState == "denied" then "The service desk can see tickets raised for this incident."
+                      elif $ticketsState == "error" then ("The tickets raised for this incident could not be read: " + $tErrText)
+                      else "" end),
+        ticketsState: $ticketsState,
         # Shown only for an incident with no structured analysis: the report text, a provider error that stands in for one, or where the analysis is.
         proseMd: (
           ($rpt | test("Bad Request|token count|exceeds the maximum|no output|^ *[0-9][0-9][0-9] ")) as $dump
@@ -343,6 +440,14 @@ spec:
           applyRuns: (($runRows | length) > 0),
           similar: (($similar | length) > 0),
           manifests: (($involvedObjs | length) > 0),
-          prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == ""))))
+          prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == "")))),
+          owner: ($owner != ""),
+          ownerEvidence: ($ownerNoun != "" and $evN > 0),
+          ownerUnknown: ($owner == "unknown"),
+          proposal: $propose,
+          # The Tickets card, wherever this install has a service desk: not on a 404 (no Ticket CRD),
+          # and not for an incident that does not exist.
+          tickets: ($exists and ($ticketsState | IN("read", "denied", "error"))),
+          ticketRows: (($tickets | length) > 0)
         }
       }

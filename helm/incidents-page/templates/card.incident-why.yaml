@@ -34,10 +34,44 @@ spec:
     {{/* Single Tabs widget: "Reasoning trace" (Steps, default/first), "Verdict" (Paragraph, when */}}
     {{/* rootcause exists), "Gaps & assumptions" (Alert, when gaps/assumptions exist). Tabs widget */}}
     {{/* itself gates each tab via its own widgetDataTemplate, so this card just passes the Tabs ref. */}}
+    {{/* ABOVE THE TABS, THE OWNER VERDICT (incident-provider 0.10.0): category, confidence and whose */}}
+    {{/* fix it is, then the evidence that verdict rests on — or, when the analysis could not decide, */}}
+    {{/* one quiet line saying so with what it could not see. Outside the tabs because it is what a */}}
+    {{/* reader acts on, and a closed tab is outside Agentiko's context. Each part renders only when */}}
+    {{/* its data exists, so an incident from an older CRD renders exactly as before. */}}
     - forPath: items
-      expression: '${ [ { resourceRefId: "incident-why-tabs" } ] }'
+      expression: >-
+        ${ (.sections // {}) as $s
+        | (if ($s.owner // false) then [ { resourceRefId: "incident-owner-desc" } ] else [] end)
+        + (if ($s.ownerUnknown // false) then [ { resourceRefId: "incident-owner-unknown" } ] else [] end)
+        + (if ($s.ownerEvidence // false) then [ { resourceRefId: "incident-owner-evidence-title" }, { resourceRefId: "incident-owner-evidence" } ] else [] end)
+        + [ { resourceRefId: "incident-why-tabs" } ] }
   resourcesRefs:
     items:
+    - id: incident-owner-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-owner-desc
+      namespace: {{ $.Values.namespace }}
+      resource: descriptions
+      verb: GET
+    - id: incident-owner-unknown
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-owner-unknown
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: incident-owner-evidence-title
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-owner-evidence-title
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: incident-owner-evidence
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-owner-evidence
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
     - id: incident-why-tabs
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-why-tabs
