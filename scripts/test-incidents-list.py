@@ -14,7 +14,11 @@ and the ?projects= scope kept, and a prompt about the view on screen. The rules 
     means, and an alerts read that failed is never "no alert is firing". snowplow accumulates an
     errorKey as a LIST whose elements are strings or the apiserver's Status object
     (resolve.go accumulateErrorKey); both shapes are fed here;
-  - the existing per-alert `awaiting[].askHref` is unchanged.
+  - the existing per-alert `awaiting[].askHref` keeps its path;
+  - the "Firing with no incident" strip says why each alert has none, off alert-provider's
+    OpensIncidents condition: a metric or value alert opens no incidents, a counting alert has not
+    opened one yet (listed first); its Agentiko prompt says when the alert never opens one; a paused
+    alert is not listed.
 The button and the header are resolved over the same output, and with --crds every resolved widget is
 validated against its CRD.
 
@@ -47,8 +51,20 @@ def incident(name, state, triggered, alert=None, cause=None, error=None):
     return {'metadata': meta, 'spec': {'triggeredAt': triggered}, 'status': st}
 
 
-def alert(name, display, state='ALERT'):
-    return {'metadata': {'name': name}, 'spec': {'displayName': display}, 'status': {'state': state}}
+def alert(name, display, state='ALERT', opens=None, typ=None, paused=False):
+    st = {'state': state}
+    if typ:
+        st['type'] = typ
+    if opens:  # (status, reason, message): alert-provider's OpensIncidents condition
+        st['conditions'] = [{'type': 'Ready', 'status': 'True', 'reason': 'Available'},
+                            {'type': 'OpensIncidents', 'status': opens[0], 'reason': opens[1], 'message': opens[2]}]
+    meta = {'name': name}
+    if paused:
+        meta['annotations'] = {'krateo.io/paused': 'true'}
+    return {'metadata': meta, 'spec': {'displayName': display}, 'status': st}
+
+
+AGG = 'It compares an aggregated value; only an alert that counts log lines or spans opens incidents.'
 
 
 INCIDENTS = [
@@ -188,7 +204,37 @@ def check_button_and_header():
     return f
 
 
-CHECKS = [check_unfiltered, check_filtered, check_empty_and_failed, check_button_and_header]
+def check_awaiting_strip():
+    f = []
+    alerts = [alert('disk-free', 'ClickHouse disk below 20% free', opens=('False', 'AggregatedValue', AGG), typ='Metric'),
+              alert('cost', 'LLM spend over budget', opens=('False', 'AggregatedValue', AGG), typ='LogValue'),
+              alert('pull', 'Image pull failing', opens=('True', 'CountsRecords', 'A firing opens an incident.'), typ='Logs'),
+              alert('muted', 'Muted alert', paused=True, opens=('False', 'Paused', 'Paused.'), typ='Logs'),
+              alert('older', 'Older provider')]  # no condition: an alert-provider before OpensIncidents
+    out = resolve(responses(incidents={'items': []}, alerts={'items': alerts}), {})
+    expect(f, 'why each has no incident, the not-yet ones first, paused left out',
+           [(a['name'], a['why']) for a in out['awaiting']],
+           [('Image pull failing', 'Incident not opened yet'), ('Older provider', ''),
+            ('ClickHouse disk below 20% free', 'Metric · opens no incidents'), ('LLM spend over budget', 'Value · opens no incidents')])
+    prompts = {a['name']: ask(a['askHref'])[1] for a in out['awaiting']}
+    expect(f, 'a metric alert\'s prompt says it never opens one', prompts['ClickHouse disk below 20% free'],
+           'Investigate the "ClickHouse disk below 20% free" observability alert — it is firing but has no open incident. '
+           'It never opens one: ' + AGG + ' Run a root-cause analysis and give me the concrete next steps.')
+    expect(f, 'a counting alert\'s prompt is unchanged', prompts['Image pull failing'],
+           'Investigate the "Image pull failing" observability alert — it is firing but has no open incident. '
+           'Run a root-cause analysis and give me the concrete next steps.')
+    strip = tbi.resolved_widget(CH, 'Listy', 'incidents-awaiting', out, {}, 'strip')['spec']['widgetData']
+    expect(f, 'strip header', strip['header'], 'Firing with no incident — select one to have Agentiko investigate it →')
+    expect(f, 'strip rows: name and why', [(r['name'], r['why']) for r in strip['dataSource']],
+           [(a['name'], a['why']) for a in out['awaiting']])
+    expect(f, 'strip tag is the why', (strip['itemTemplate']['secondaryText'], strip['itemTemplate']['secondaryTextAsTag']), ('{why}', True))
+    hdr = tbi.resolved_widget(CH, 'PageHeader', 'incidents-page-header', {}, {}, 'header')['spec']['widgetData']
+    expect(f, 'subtitle', hdr['subtitle'],
+           'Each incident tracks one problem an alert caught, from finding its cause until it is fixed or someone closes it.')
+    return f
+
+
+CHECKS = [check_unfiltered, check_filtered, check_empty_and_failed, check_button_and_header, check_awaiting_strip]
 
 
 def main():

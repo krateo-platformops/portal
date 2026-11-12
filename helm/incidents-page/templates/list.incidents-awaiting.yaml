@@ -1,6 +1,8 @@
-{{/* "Not yet investigated" strip — firing Alerts (state ALERT) with no open incident, off */}}
-{{/* incidents-list. hideWhenEmpty removes the strip when every firing alert has one. Each row */}}
-{{/* opens the Autopilot rail seeded to investigate that alert. */}}
+{{/* "Firing with no incident" strip — firing Alerts (state ALERT, not paused) with no open */}}
+{{/* incident, off incidents-list. Each row's tag says why: a metric or value Alert opens no */}}
+{{/* incidents (alert-provider's OpensIncidents condition), a counting Alert has not opened one yet. */}}
+{{/* hideWhenEmpty removes the strip when every firing alert has one. Each row opens the Autopilot */}}
+{{/* rail seeded to investigate that alert. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,7 +23,7 @@ spec:
     itemLayout: horizontal
     split: false
     hideWhenEmpty: true
-    header: Not yet investigated — firing alerts with no open incident; select one to start it in Agentiko →
+    header: Firing with no incident — select one to have Agentiko investigate it →
     itemTemplate:
       navigateTo: '{askHref}'
       iconVariant: dot
@@ -31,11 +33,11 @@ spec:
           ALERT: red
         default: gray
       primaryText: '{name}'
-      {{/* Sentence-cased server-side ("ALERT" → "Alert"); the raw state keys the colour map. */}}
-      secondaryText: '{stateLabel}'
+      {{/* Why the alert has no incident; the red dot already says it is firing. */}}
+      secondaryText: '{why}'
       secondaryTextAsTag: true
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ (.awaiting // []) | map(. + { stateLabel: ((.state // "") | ascii_downcase | if . == "" then "" else ((.[0:1] | ascii_upcase) + .[1:]) end) }) }'
+    expression: '${ .awaiting // [] }'
   resourcesRefs:
     items: []

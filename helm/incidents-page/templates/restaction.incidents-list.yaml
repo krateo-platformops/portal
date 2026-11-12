@@ -5,8 +5,10 @@
 {{/*            problem, and this tells them apart), state, age, severity dot colour; */}}
 {{/*            filtered by the ?status= chip (extras). */}}
 {{/* counts   : per-state totals over the full set, so every chip shows its live count. */}}
-{{/* awaiting : firing Alerts (state ALERT) with no open incident — the "not yet investigated" */}}
-{{/*            strip, each with an /incidents?ask= Autopilot deep-link. */}}
+{{/* awaiting : firing Alerts (state ALERT, not paused) with no open incident — the "Firing with no */}}
+{{/*            incident" strip, each with an /incidents?ask= Autopilot deep-link and `why`, read off */}}
+{{/*            alert-provider's OpensIncidents condition: a metric or value Alert never opens one, a */}}
+{{/*            counting Alert has not opened one yet. The not-yet ones come first. */}}
 {{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
 {{/* failed   : the Incident list could not be read (incidentsError), and readError says why. */}}
 {{/* askHref  : the header's "Ask Agentiko →" link — a prompt about the view on screen. */}}
@@ -61,10 +63,21 @@ spec:
          | select((.status.state // "") == "ALERT")
          | select(((.metadata.annotations // {})["krateo.io/paused"] // "") != "true")
          | select((.metadata.name // "") as $a | ($openAlerts | index($a)) == null)
+         | ([ (.status.conditions // [])[] | select(.type == "OpensIncidents") ] | .[0] // {}) as $c
+         # never: the condition says this Alert opens no incidents (a metric or a value), so the strip
+         # is the only place it is seen; otherwise its incident is not opened yet.
+         | ($c.status == "False") as $never
          | { name: (.spec.displayName // .metadata.name // ""),
              state: (.status.state // "ALERT"),
-             askHref: ("/incidents?ask=" + (("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is firing but has no open incident. Run a root-cause analysis and give me the concrete next steps.") | @uri)) }
-       ] | .[0:8]) as $awaiting
+             never: $never,
+             why: (if $never then (if $c.reason == "AggregatedValue" then (if .status.type == "Metric" then "Metric · opens no incidents" else "Value · opens no incidents" end)
+                                   else "Opens no incidents" end)
+                   elif $c.status == "True" then "Incident not opened yet"
+                   else "" end),
+             askHref: ("/incidents?ask=" + (("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is firing but has no open incident."
+               + (if $never and ($c.message // "") != "" then " It never opens one: " + $c.message else "" end)
+               + " Run a root-cause analysis and give me the concrete next steps.") | @uri)) }
+       ] | sort_by(.never) | .[0:8]) as $awaiting
     # A FAILED READ IS NOT A QUIET PLATFORM. `continueOnError` plus `// []` turns a refused or
     # failed Incident list into zero rows, and the chips into zeros. The page's widgets have always
     # drawn that as empty; the Agentiko prompt must not CLAIM it, so the failure is carried out.
