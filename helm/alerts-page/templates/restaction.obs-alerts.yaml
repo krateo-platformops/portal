@@ -3,7 +3,9 @@
 {{/* rows     : one per Alert, filtered by the ?status= chip (extras). state is the live HyperDX */}}
 {{/*            state (OK / ALERT / PENDING) the alert-provider mirrors into .status.state; stateKey */}}
 {{/*            is the chip it falls under. routeName/routeNs are the CR's own identity, for the row */}}
-{{/*            link to /alerts/{namespace}/{name}. */}}
+{{/*            link to /alerts/{namespace}/{name}. incidents is the Incidents column, read off the */}}
+{{/*            OpensIncidents condition alert-provider writes: "Yes", "No · <why>", or "—" while an */}}
+{{/*            Alert carries no condition (alert-provider older than the condition, or its first pass). */}}
 {{/* counts   : per-chip totals over the full set, so every chip shows its live count. */}}
 {{/* status   : the chip in force, for the chips' active flag. */}}
 {{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
@@ -41,8 +43,17 @@ spec:
         # An Alert with no HyperDX alert behind it is evaluated by nothing, whatever .status.state
         # last said: it was just created, HyperDX refused it, or the provider released a shared one.
         evaluated: (((.status.hyperdxAlertId) // "") != ""),
-        paused: (((.metadata.annotations // {})["krateo.io/paused"] // "") == "true")
-      } | .stateKey = (if .evaluated then (.state | ascii_downcase) else "not-evaluated" end) ]) as $rows
+        paused: (((.metadata.annotations // {})["krateo.io/paused"] // "") == "true"),
+        type: (.status.type // ""),
+        opens: ([ (.status.conditions // [])[] | select(.type == "OpensIncidents") ] | .[0] // {})
+      } | .stateKey = (if .evaluated then (.state | ascii_downcase) else "not-evaluated" end)
+        # The reason in a word: an aggregated Alert is a metric or a value read from rows.
+        | .incidents = (if .opens.status == "True" then "Yes"
+            elif .opens.status == "False" then "No" + ({ AggregatedValue: (if .type == "Metric" then " · metric" else " · value" end),
+                                                         Paused: " · paused",
+                                                         OutsideHomeNamespace: " · other namespace" }[.opens.reason // ""] // "")
+            else "—" end)
+        | del(.opens) ]) as $rows
     # A ?status= that is no chip shows no rows, as on /incidents, and the link drops it.
     | ($keys | any(. == $sel)) as $filtered
     | {
