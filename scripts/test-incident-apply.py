@@ -233,6 +233,21 @@ def check_no_button_once_applied_or_closed(chart):
     return f
 
 
+def check_no_fix_offers_no_apply(chart):
+    # A failed reanalysis returns the incident to Open with status.error and no status.howToFix
+    # (alert-provider >= 0.2.76). Nothing may set spec.applied there: there is nothing to verify.
+    f = []
+    inc = incident('nf-1', apply_script=False)
+    del inc['status']['howToFix']
+    inc['status']['error'] = 'the reanalysis failed: the agent returned no root cause'
+    out, w = resolve(chart, inc, 'no-fix')
+    expect(f, 'no fix: no Apply, no Run apply, no "I applied it"', items(w), ['incident-rem-step-md-1'])
+    expect(f, 'no fix: canApply', out['canApply'], False)
+    expect(f, 'no fix: canApplyAction', out['canApplyAction'], False)
+    expect(f, 'no fix: applyAction', out['applyAction'], None)
+    return f
+
+
 def check_run_apply_posts_an_incidentapply(chart):
     f = []
     out, w = resolve(chart, incident('scr-2'), 'run-apply', runs_list())
@@ -409,6 +424,7 @@ CHECKS = [
     check_apply_step_shows_its_last_result,
     check_stale_apply_is_disabled_with_its_reason,
     check_reanalysing_a_stale_fix_says_so,
+    check_no_fix_offers_no_apply,
 ]
 
 
