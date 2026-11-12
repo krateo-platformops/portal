@@ -1,12 +1,16 @@
-{{/* Lists the Krateo Alert CRs (observability.krateo.io) via the apiserver — same per-user path */}}
-{{/* pattern as compositions-list. Each Alert's live state lives in .status.state (OK / ALERT / */}}
-{{/* PENDING), mirrored from HyperDX by the session-driven reconciler in krateo-alert-provider. */}}
-{{/* Exposes {rows[], firing} for the status table + the "firing" headline. */}}
-{{/* Each row carries routeName/routeNs (the CR's metadata.name/namespace) — the /alerts table now */}}
-{{/* deep-links each row to /alerts/{namespace}/{name}, the per-alert detail page (item 25). It */}}
-{{/* still ALSO carries `ask` (the Autopilot seed for THIS alert, built server-side), but that seed */}}
-{{/* now rides the detail page's "Investigate with Autopilot" button rather than the row-click, so */}}
-{{/* the ask flow the row used to own isn't lost — just relocated one hop. */}}
+{{/* /alerts data source — the Krateo Alert CRs (observability.krateo.io), read through the apiserver */}}
+{{/* as the caller, shaped server-side: */}}
+{{/* rows     : one per Alert, filtered by the ?status= chip (extras). state is the live HyperDX */}}
+{{/*            state (OK / ALERT / PENDING) the alert-provider mirrors into .status.state; stateKey */}}
+{{/*            is the chip it falls under. routeName/routeNs are the CR's own identity, for the row */}}
+{{/*            link to /alerts/{namespace}/{name}. incidents is the Incidents column, read off the */}}
+{{/*            OpensIncidents condition alert-provider writes: "Yes", "No · <why>", or "—" while an */}}
+{{/*            Alert carries no condition (alert-provider older than the condition, or its first pass). */}}
+{{/* counts   : per-chip totals over the full set, so every chip shows its live count. */}}
+{{/* status   : the chip in force, for the chips' active flag. */}}
+{{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
+{{/* askHref  : the header's "Ask Agentiko →" link, seeded with the alert-authoring flow. It keeps */}}
+{{/*            the chip and the scope, so opening the rail does not reset the view. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -21,62 +25,45 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: alertsError
-    {{/* The incidents these alerts opened, read here because the table shows configuration (what */}}
-    {{/* an alert watches, its threshold) and never outcome: an analysis that failed or produced */}}
-    {{/* nothing is otherwise invisible from this page. */}}
-    - name: incidents
-      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/incidents
-      verb: GET
-      headers:
-        - 'Accept: application/json'
-      userAccessFilter:
-        verb: list
-        group: observability.krateo.io
-        resource: incidents
-        namespaceFrom: .metadata.namespace
-      continueOnError: true
-      errorKey: incidentsError
-  filter: >
-    { rows: [ ((.alerts.items) // [])[] | {
+  filter: |
+    (.status // "all" | tostring | ascii_downcase) as $sel
+    | ((.projects // "") | tostring) as $projects
+    | [ "alert", "ok", "pending", "not-evaluated" ] as $keys
+    | ([ ((.alerts.items) // [])[] | {
         name: (.spec.displayName // .metadata.name // ""),
-        # routeName/routeNs are the CR's OWN identity (metadata.name/namespace) — the row now
-        # deep-links to /alerts/{namespace}/{name} (the new detail page), and that route keys the
-        # per-name Alert GET, so it MUST be the slug, NOT the human displayName above. A
-        # namespace-scoped list omits .metadata.namespace per item (redundant with the path) and
-        # snowplow does not backfill it → fall back to the release namespace we just listed
-        # (same reasoning as incidents-list's namespace literal).
+        # A namespace-scoped list omits .metadata.namespace per item and snowplow does not
+        # backfill it, so the release namespace just listed stands in.
         routeName: (.metadata.name // ""),
         routeNs: (.metadata.namespace // "{{ $.Release.Namespace }}"),
         description: .spec.description,
         threshold: ((.spec.threshold // 0) | tostring),
         interval: (.spec.interval // ""),
         thresholdType: (.spec.thresholdType // ""),
-        phase: (.status.phase // "Pending"),
         state: (.status.state // "PENDING"),
+        # An Alert with no HyperDX alert behind it is evaluated by nothing, whatever .status.state
+        # last said: it was just created, HyperDX refused it, or the provider released a shared one.
+        evaluated: (((.status.hyperdxAlertId) // "") != ""),
         paused: (((.metadata.annotations // {})["krateo.io/paused"] // "") == "true"),
-        ask: ("Investigate the \"" + (.spec.displayName // .metadata.name // "this alert") + "\" observability alert — it is currently " + (.status.state // "PENDING") + "; explain what it watches, why it is in this state, and give me the concrete next steps.")
-      } ],
-      firing: ([ ((.alerts.items) // [])[] | select((.status.state // "") == "ALERT") ] | length),
-      # Paused alerts (krateo.io/paused: "true") open no incidents, whatever their state.
-      paused: ([ ((.alerts.items) // [])[] | select(((.metadata.annotations // {})["krateo.io/paused"] // "") == "true") ] | length),
-      total: ([ ((.alerts.items) // [])[] ] | length),
-      # Coverage: an alert with no hyperdxAlertId is not evaluated by anything. It sits in the list
-      # looking exactly like a working one — same columns, same quiet OK-ish blank — so the only
-      # place this can be seen is a count.
-      synced: ([ ((.alerts.items) // [])[] | select(((.status.hyperdxAlertId) // "") != "") ] | length),
-      # Outcome: an incident whose analysis failed (status.error, or a provider dump as its report)
-      # or finished with neither a root cause nor a report produced nothing.
-      incidentsTotal: ([ ((.incidents.items) // [])[] ] | length),
-      incidentsBarren: ([ ((.incidents.items) // [])[]
-          | select((.status.state // "Analyzing") != "Analyzing")
-          | ((.status.report // "") | if type == "string" then . else "" end) as $t
-          | select( ((.status.error // "") != "")
-                    or ($t | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum"))
-                    or (($t == "") and ((.status.rootCause.statement // "") == "")) ) ] | length),
-      incidentsReadable: ((.incidentsError // null) == null),
-      # Always-visible "author with Autopilot" CTA for listy.alerts-hint (was empty-state-only, and
-      # had no ask link — this replaces the separate "Ask Autopilot" button). askHref opens the rail
-      # seeded with the alert-authoring flow; copy reworded off "your first".
-      hint: [ { title: "Author an alert with Agentiko",
-                detail: "Describe what to watch, the trigger value and the evaluation interval in the rail — the agent drafts the alert and you confirm before it's created.",
-                askHref: ("/alerts?ask=" + (("I want to create a new observability alert. Help me define what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm.") | @uri)) } ] }
+        type: (.status.type // ""),
+        opens: ([ (.status.conditions // [])[] | select(.type == "OpensIncidents") ] | .[0] // {})
+      } | .stateKey = (if .evaluated then (.state | ascii_downcase) else "not-evaluated" end)
+        # The reason in a word: an aggregated Alert is a metric or a value read from rows.
+        | .incidents = (if .opens.status == "True" then "Yes"
+            elif .opens.status == "False" then "No" + ({ AggregatedValue: (if .type == "Metric" then " · metric" else " · value" end),
+                                                         Paused: " · paused",
+                                                         OutsideHomeNamespace: " · other namespace" }[.opens.reason // ""] // "")
+            else "—" end)
+        | del(.opens) ]) as $rows
+    # A ?status= that is no chip shows no rows, as on /incidents, and the link drops it.
+    | ($keys | any(. == $sel)) as $filtered
+    | {
+        rows: (if $sel == "all" then $rows else [ $rows[] | select(.stateKey == $sel) ] end),
+        counts: ({ all: ($rows | length) }
+          + ($keys | map({ key: ., value: (. as $k | [ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)),
+        status: $sel,
+        projects: $projects,
+        askHref: ("/alerts?"
+          + ([ (if $filtered then "status=" + $sel else empty end),
+               (if $projects != "" then "projects=" + ($projects | @uri) else empty end) ] | map(. + "&") | join(""))
+          + "ask=" + ("I want to create a new observability alert. Help me define what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm." | @uri))
+      }
