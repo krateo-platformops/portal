@@ -1,0 +1,44 @@
+{{/* The Incident and the Alert that opened it, each in its own tab of incident-detail-tabs, as */}}
+{{/* `kubectl get -o json` prints it minus managedFields. "" renders the viewer's own "No data to */}}
+{{/* display". */}}
+kind: YamlViewer
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-manifest
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    json: ""
+  widgetDataTemplate:
+    - forPath: json
+      expression: '${ .incidentManifestJson // "" }'
+  resourcesRefs:
+    items: []
+---
+kind: YamlViewer
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-alert-manifest
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    json: ""
+  widgetDataTemplate:
+    - forPath: json
+      expression: '${ .alertManifestJson // "" }'
+  resourcesRefs:
+    items: []

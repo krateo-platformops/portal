@@ -274,8 +274,8 @@ def check_run_apply_posts_an_incidentapply(chart):
            {'apiVersion': 'observability.krateo.io/v1alpha1', 'resource': 'incidentapplies', 'namespace': NS, 'verb': 'POST'})
     if not re.fullmatch(r'scr-2-apply-[0-9]+', str(r[0]['name'])):
         f.append(f'name is not <incident>-apply-<unix seconds>: {r[0]["name"]!r}')
-    if '**Run apply**' not in w['incident-rem-step-md-1']['markdown']:
-        f.append('the apply step does not mention Run apply')
+    if not w['incident-rem-step-md-1']['markdown'].startswith('**Last run:** '):
+        f.append('the apply step of a script-only fix does not open on its last run')
 
     # Another incident's unfinished run does not hide it; this incident's does, and the step says so.
     out, w = resolve(chart, incident('scr-2'), 'other run', runs_list(run('scr-9', 'scr-9-apply-1', 'Running')))
@@ -345,11 +345,11 @@ def check_apply_step_shows_its_last_result(chart):
     # A run that failed before the last recorded apply is not the step's last run.
     out, w = resolve(chart, inc, 'apply result', runs_list(run('scr-4', 'scr-4-apply-1', 'Failed', 1, '2026-10-05T08:30:00Z')))
     md = w['incident-rem-step-md-1']['markdown']
-    expect(f, 'apply last run', md.split('**Last run:** ')[1].split('\n')[0], 'exit 0 · applied · at 2026-10-05 09:00 UTC')
+    expect(f, 'apply last run', md.split('**Last run:** ')[1].split('\n')[0], 'applied · at 2026-10-05 09:00 UTC')
     md0 = tbi.resolved_widget(chart, 'Markdown', 'incident-rem-step-md-0', out, {'name': 'scr-4', 'namespace': NS},
                               'apply result: precondition')['spec']['widgetData']['markdown']
     expect(f, 'precondition last run', md0.split('**Last run:** ')[1].split('\n')[0],
-           'exit 1 · still holds · since 2026-10-05 08:32 UTC')
+           'still holds · since 2026-10-05 08:32 UTC')
     inc['status']['lastChecks']['apply'] = {'since': '2026-10-05T09:00:00Z'}
     out, w = resolve(chart, inc, 'hand-run apply')
     expect(f, 'hand-run apply', w['incident-rem-step-md-1']['markdown'].split('**Last run:** ')[1].split('\n')[0],
