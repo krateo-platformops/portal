@@ -1,6 +1,6 @@
-{{/* The incident page's reference material, one tab open at a time so the page stays short: */}}
-{{/* Involved resources (always), Apply runs (once Run apply ran) */}}
-{{/* and Similar incidents (when there are any), gated on incident-detail's sections. */}}
+{{/* The incident page's reference material, one tab open at a time so the page stays short: the */}}
+{{/* Incident, the Alert that opened it (while it exists), Apply runs (once Run apply ran) and */}}
+{{/* Similar incidents (when there are any), gated on incident-detail's sections. */}}
 kind: Tabs
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,26 +15,33 @@ spec:
     namespace: {{ $.Values.namespace }}
   widgetData:
     allowedResources:
+    - yamlviewers
     - flexes
-    - tables
     - listies
     items:
-    - label: Involved resources
-      resourceRefId: incident-detail-manifests-flex
+    - label: Incident
+      resourceRefId: incident-manifest
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
-        | [ { label: "Involved resources", resourceRefId: "incident-detail-manifests-flex" } ]
+        | [ { label: "Incident", resourceRefId: "incident-manifest" } ]
+        + (if ($s.alertManifest // false) then [ { label: "Alert", resourceRefId: "incident-alert-manifest" } ] else [] end)
         + (if ($s.applyRuns // false) then [ { label: (.applyRunsLabel // "Apply runs"), resourceRefId: "incident-apply-runs-flex" } ] else [] end)
         + (if ($s.similar // false) then [ { label: "Similar incidents", resourceRefId: "incident-similar" } ] else [] end) }
   resourcesRefs:
     items:
-    - id: incident-detail-manifests-flex
+    - id: incident-manifest
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-detail-manifests-flex
+      name: incident-manifest
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: yamlviewers
+      verb: GET
+    - id: incident-alert-manifest
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-alert-manifest
+      namespace: {{ $.Values.namespace }}
+      resource: yamlviewers
       verb: GET
     - id: incident-apply-runs-flex
       apiVersion: widgets.templates.krateo.io/v1beta1

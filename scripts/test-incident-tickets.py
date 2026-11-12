@@ -4,10 +4,9 @@ test-incident-tickets — the incident page's owner verdict, Agentiko's ticket p
 card, evaluated end to end.
 
 WHAT IT GUARDS (the approved mockup's frames A, C, E and F):
-  - status.rootCause.owner and ownerEvidence (incident-provider 0.10.0) render under "Why did it
-    happen": Category, Confidence, Owner ("Krateo" / "Your organization" / "Not determined"), the
-    evidence (kind, ref, note), and for `unknown` one quiet line with status.missingContext. ABSENT —
-    an older CRD, krateo-057 today — renders the page exactly as before.
+  - status.rootCause.owner (incident-provider 0.10.0) is the Summary's "Who fixes it" row: "Krateo",
+    "Your organization" or "Not determined". ownerEvidence, category and confidence are not on the
+    page. ABSENT — an older CRD, krateo-057 today — means no row and no proposal.
   - Agentiko's proposal shows when the owner is `customer` or `krateo`, the incident is Open or
     Verifying, the ticket list came back holding no ticket for this incident, and it is not dismissed
     (`krateo.io/ticket-proposal: dismissed`); each condition, flipped, hides it. A ticket list that did
@@ -145,9 +144,8 @@ def listing(*items):
 
 EMPTY = listing()
 
-WIDGETS = (('Flex', 'page-incident-detail'), ('Card', 'incident-why-card'), ('Descriptions', 'incident-owner-desc'),
-           ('Paragraph', 'incident-owner-unknown'), ('Paragraph', 'incident-owner-evidence-title'),
-           ('Listy', 'incident-owner-evidence'), ('Card', 'incident-ticket-proposal'),
+WIDGETS = (('Flex', 'page-incident-detail'), ('Card', 'incident-why-card'), ('Descriptions', 'incident-summary-desc'),
+           ('Card', 'incident-ticket-proposal'),
            ('Button', 'incident-ticket-proposal-raise'), ('Button', 'incident-ticket-proposal-dismiss'),
            ('Card', 'incident-tickets-card'), ('Listy', 'incident-tickets-list'), ('Button', 'incident-raise-ticket'),
            ('Flex', 'incident-detail-actions'))
@@ -167,8 +165,14 @@ def ids(items):
     return [i['resourceRefId'] for i in items]
 
 
-NEW_IDS = {'incident-ticket-proposal', 'incident-tickets-card', 'incident-owner-desc', 'incident-owner-unknown',
-           'incident-owner-evidence-title', 'incident-owner-evidence'}
+NEW_IDS = {'incident-ticket-proposal', 'incident-tickets-card'}
+OWNER_LABEL = 'Who fixes it'
+
+
+def owner_row(w):
+    """The Summary's "Who fixes it" value, or None when the row is absent."""
+    rows = [i['value'] for i in w['incident-summary-desc']['items'] if i['label'] == OWNER_LABEL]
+    return rows[0] if rows else None
 
 
 def base_chart():
@@ -194,8 +198,7 @@ def check_owner_absent_is_todays_page(chart, base):
     root = ids(w['page-incident-detail']['items'])
     expect(f, 'no owner, no desk: nothing new on the page', sorted(NEW_IDS & set(root)), [])
     expect(f, 'no owner: the why card holds only its tabs', ids(w['incident-why-card']['items']), ['incident-why-tabs'])
-    expect(f, 'no owner: nothing to show', (out['ownerItems'], out['ownerEvidenceRows'], out['ownerUnknownText'], out['sections']['proposal']),
-           ([], [], '', False))
+    expect(f, 'no owner: no Summary row, no proposal', (owner_row(w), out['sections']['proposal']), (None, False))
     # With a service desk, the only addition is the Tickets card, right after "Why did it happen".
     out, _, w = page(chart, incident(), EMPTY, 'absent, desk')
     with_desk = ids(w['page-incident-detail']['items'])
@@ -218,48 +221,31 @@ def check_owner_absent_is_todays_page(chart, base):
 
 def check_owner_krateo_and_customer(chart):
     f = []
-    for owner, line, noun in (('krateo', 'Krateo — the fix is in a component Krateo ships', 'Krateo'),
-                              ('customer', 'Your organization — the fix is in your own configuration or services', 'your organization')):
+    for owner, line in (('krateo', 'Krateo: the fix belongs in a component Krateo ships'),
+                        ('customer', 'Your organization: the fix belongs in your own configuration or services')):
         out, _, w = page(chart, incident(owner=owner, evidence=EVIDENCE), EMPTY, owner)
-        expect(f, f'{owner}: category, confidence, owner', w['incident-owner-desc']['items'],
-               [{'label': 'Category', 'value': 'config'}, {'label': 'Confidence', 'value': '0.6'}, {'label': 'Owner', 'value': line}])
-        expect(f, f'{owner}: the why card', ids(w['incident-why-card']['items']),
-               ['incident-owner-desc', 'incident-owner-evidence-title', 'incident-owner-evidence', 'incident-why-tabs'])
-        expect(f, f'{owner}: evidence caption', w['incident-owner-evidence-title']['text'], f'Why {noun} · 2 pieces of evidence')
-        expect(f, f'{owner}: evidence rows', w['incident-owner-evidence']['dataSource'],
-               [{'kind': 'component', 'title': 'The CRD generator is the only writer of the rejected field.',
-                 'ref': 'apps/Deployment/krateo-system/core-provider'},
-                {'kind': 'log', 'title': '/Pod/krateo-system/core-provider-6c9d', 'ref': ''}])
-        expect(f, f'{owner}: no unknown line', 'incident-owner-unknown' in ids(w['incident-why-card']['items']), False)
-    out, _, w = page(chart, incident(owner='krateo', evidence=EVIDENCE[:1]), EMPTY, 'one')
-    expect(f, 'one piece: singular', w['incident-owner-evidence-title']['text'], 'Why Krateo · 1 piece of evidence')
-    out, _, w = page(chart, incident(owner='krateo'), EMPTY, 'no evidence')
-    expect(f, 'owner without evidence: no caption, no list', ids(w['incident-why-card']['items']), ['incident-owner-desc', 'incident-why-tabs'])
+        expect(f, f'{owner}: the Summary rows', [i['label'] for i in w['incident-summary-desc']['items']], ['Why', 'Fix', OWNER_LABEL])
+        expect(f, f'{owner}: who fixes it', owner_row(w), line)
+        expect(f, f'{owner}: the why card holds only its tabs', ids(w['incident-why-card']['items']), ['incident-why-tabs'])
+        expect(f, f'{owner}: no category, confidence or evidence notes on the page',
+               [x for x in ('0.6', 'The CRD generator is the only writer') if x in str(w)], [])
     # A value outside the enum (a newer writer, a typo) is not an owner.
     out, _, w = page(chart, incident(owner='vendor', evidence=EVIDENCE), EMPTY, 'vendor')
-    expect(f, 'out of enum: nothing', (out['sections']['owner'], out['sections']['proposal']), (False, False))
-    # The Why card renders for an owner even when the statement is missing.
+    expect(f, 'out of enum: nothing', (owner_row(w), out['sections']['proposal']), (None, False))
+    # The owner shows even when the analysis left nothing else structured.
     out, _, w = page(chart, incident(owner='krateo', evidence=EVIDENCE, statement=False, missing=[]), EMPTY, 'no statement')
-    expect(f, 'no statement: the why card still renders for the owner', 'incident-why-card' in ids(w['page-incident-detail']['items']), True)
+    expect(f, 'no statement: the Summary still renders for the owner', 'incident-summary-card' in ids(w['page-incident-detail']['items']), True)
+    expect(f, 'no statement, analysis done: Why says so', w['incident-summary-desc']['items'][0], {'label': 'Why', 'value': 'Not determined.'})
     return f
 
 
 def check_owner_unknown(chart):
     f = []
     out, _, w = page(chart, incident(owner='unknown', missing=['gateway access logs for 11:14 to 11:20 UTC']), EMPTY, 'unknown')
-    expect(f, 'unknown: Not determined', w['incident-owner-desc']['items'][-1], {'label': 'Owner', 'value': 'Not determined'})
-    expect(f, 'unknown: the quiet line, with what was missing', w['incident-owner-unknown']['text'],
-           'Agentiko could not tell whose fix this is, so it does not suggest a ticket. Missing: gateway access logs for 11:14 to 11:20 UTC.')
-    expect(f, 'unknown: muted', w['incident-owner-unknown']['type'], 'secondary')
-    expect(f, 'unknown: the why card', ids(w['incident-why-card']['items']), ['incident-owner-desc', 'incident-owner-unknown', 'incident-why-tabs'])
+    expect(f, 'unknown: Not determined', owner_row(w), 'Not determined')
+    expect(f, 'unknown: the why card holds only its tabs', ids(w['incident-why-card']['items']), ['incident-why-tabs'])
     expect(f, 'unknown: never a proposal', out['sections']['proposal'], False)
     expect(f, 'unknown: the manual raise stays', ('incident-tickets-card' in ids(w['page-incident-detail']['items'])), True)
-    out, _, w = page(chart, incident(owner='unknown', missing=[]), EMPTY, 'unknown, nothing missing')
-    expect(f, 'unknown, nothing listed missing', w['incident-owner-unknown']['text'],
-           'Agentiko could not tell whose fix this is, so it does not suggest a ticket.')
-    # Evidence given with unknown is not presented as evidence FOR an owner.
-    out, _, w = page(chart, incident(owner='unknown', evidence=EVIDENCE), EMPTY, 'unknown with evidence')
-    expect(f, 'unknown: no "Why …" list', 'incident-owner-evidence' in ids(w['incident-why-card']['items']), False)
     return f
 
 
@@ -273,7 +259,7 @@ def check_proposal_conditions(chart):
     card = w['incident-ticket-proposal']
     expect(f, 'shown: title and text', (card['title'], card['headerLeft']),
            ('Agentiko suggests opening a ticket for your platform team',
-            'Owner: your organization, from 2 pieces of evidence. The ticket goes to this portal\'s service desk.'))
+            'Owner: your organization. The ticket goes to this portal\'s service desk.'))
     expect(f, 'shown: marked as Agentiko\'s', (card['icon'], card['extra'], card['extraVariant']),
            ({'name': 'fa-wand-magic-sparkles', 'color': 'blue'}, 'Agentiko', 'tag'))
     out, _, w = page(chart, incident(state='Verifying', **base), EMPTY, 'verifying')
@@ -281,7 +267,7 @@ def check_proposal_conditions(chart):
     # Krateo-owned: the same internal ticket, for now — the send to Krateo waits for the relay.
     out, _, w = page(chart, incident(owner='krateo', evidence=EVIDENCE), EMPTY, 'krateo')
     expect(f, 'krateo: shown, to the portal\'s own desk', (out['sections']['proposal'], w['incident-ticket-proposal']['headerLeft']),
-           (True, 'Owner: Krateo, from 2 pieces of evidence. The ticket goes to this portal\'s service desk.'))
+           (True, 'Owner: Krateo. The ticket goes to this portal\'s service desk.'))
     expect(f, 'krateo: nothing about sending to Krateo', 'Krateo support' in str(w['incident-ticket-proposal']), False)
     flips = (
         ('owner unknown', incident(owner='unknown'), EMPTY),
