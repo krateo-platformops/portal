@@ -12,7 +12,9 @@ set. The rules a reader would notice:
   - every chip route, and the header's "Ask Agentiko →" link, keep the ?projects= scope; the link
     also keeps the chip, so opening the rail does not reset the view;
   - the page is the header, the chips and the table: the summary band is gone;
-  - the alert page's state pill says "Not evaluated" too, in gray.
+  - the alert page's state pill says "Not evaluated" too, in gray;
+  - the Incidents column says whether a firing opens an incident, off alert-provider's
+    OpensIncidents condition: "Yes", or "No" with the reason in a word, in gray; "—" without one.
 Every resolved widget is validated against its CRD with --crds.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it.
@@ -31,13 +33,18 @@ _spec.loader.exec_module(tbi)
 CHART = os.path.join(HERE, '..', 'helm', 'alerts-page')
 
 
-def alert(name, state, synced=True, paused=False):
+def alert(name, state, synced=True, paused=False, opens=None, typ=None):
     meta = {'name': name}
     if paused:
         meta['annotations'] = {'krateo.io/paused': 'true'}
     st = {} if state is None else {'state': state}
     if synced:
         st['hyperdxAlertId'] = 'hdx-' + name
+    if typ:
+        st['type'] = typ
+    if opens:  # (status, reason): the OpensIncidents condition, after provider-runtime's Ready
+        st['conditions'] = [{'type': 'Ready', 'status': 'True', 'reason': 'Available'},
+                            {'type': 'OpensIncidents', 'status': opens[0], 'reason': opens[1]}]
     return {'metadata': meta, 'spec': {'displayName': name.title(), 'description': 'watches ' + name,
                                        'threshold': 1, 'thresholdType': 'above', 'interval': '5m'},
             'status': st}
@@ -129,6 +136,29 @@ def check_table():
     return f
 
 
+def check_incidents_column():
+    f = []
+    items = [alert('logs', 'OK', opens=('True', 'CountsRecords'), typ='Logs'),
+             alert('spans', 'ALERT', opens=('True', 'CountsRecords'), typ='Traces'),
+             alert('disk', 'ALERT', opens=('False', 'AggregatedValue'), typ='Metric'),
+             alert('cost', 'OK', opens=('False', 'AggregatedValue'), typ='LogValue'),
+             alert('latency', 'OK', opens=('False', 'AggregatedValue'), typ='TraceValue'),
+             alert('muted', 'ALERT', paused=True, opens=('False', 'Paused'), typ='Logs'),
+             alert('tenant', 'OK', opens=('False', 'OutsideHomeNamespace'), typ='Logs'),
+             alert('unknown', 'OK', opens=('False', 'SomeNewReason'), typ='Logs'),
+             alert('older', 'OK')]  # an alert-provider that writes no condition yet
+    rows = {r['name'][0]: r['incidents'] for r in table(resolve({}, items), {})}
+    gray = 'var(--gray-color)'
+    expect(f, 'incidents column', rows, {
+        'Logs': ('Yes', None), 'Spans': ('Yes', None),
+        'Disk': ('No · metric', gray), 'Cost': ('No · value', gray), 'Latency': ('No · value', gray),
+        'Muted': ('No · paused', gray), 'Tenant': ('No · other namespace', gray),
+        'Unknown': ('No', gray), 'Older': ('—', gray)})
+    cols = [c['valueKey'] for c in CH.get('Table', 'obs-alerts')['spec']['widgetData']['columns']]
+    expect(f, 'Incidents is the last column', cols[-2:], ['state', 'incidents'])
+    return f
+
+
 def check_button_and_page():
     f = []
     for ex, want in (({}, '/alerts'), ({'status': 'OK', 'projects': 'team-a'}, '/alerts?status=ok&projects=team-a'),
@@ -168,7 +198,7 @@ def check_detail_pill():
     return f
 
 
-CHECKS = [check_counts_and_rows, check_chips, check_table, check_button_and_page, check_detail_pill]
+CHECKS = [check_counts_and_rows, check_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill]
 
 
 def main():
