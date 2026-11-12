@@ -500,6 +500,18 @@ def check_topology_follows_parent_span_ids(c):
     return p
 
 
+def check_topology_is_top_to_bottom_and_compact(c):
+    # frontend #644: in the ~415px right column, LR at the regular card size shows only the first
+    # node of a 3-service trace (980px); TB compact draws it 180px wide. The fields need
+    # frontend-crds >= 1.8.35 (`--pinned` / `--crds` validate that the CRD admits them).
+    p = []
+    wd = c.get('FlowChart', 'trace-detail-topology')['spec']['widgetData']
+    expect(p, 'variant', wd.get('variant'), 'architecture')
+    expect(p, 'direction', wd.get('direction'), 'TB')
+    expect(p, 'density', wd.get('density'), 'compact')
+    return p
+
+
 def check_filter_chips_keep_the_tab_and_the_other_filters(c):
     p = []
     ex = {'range': '6h', 'traceUser': 'admin', 'projects': 'team-a'}
@@ -1161,6 +1173,7 @@ def main():
         ('a quote or SQL fragment in any input makes no request', lambda: check_injection_is_refused(c)),
         ('the trace page lists spans in start order', lambda: check_trace_page_lists_spans_in_start_order(c)),
         ('the service diagram follows ParentSpanId', lambda: check_topology_follows_parent_span_ids(c)),
+        ('the service diagram is top to bottom, with compact cards', lambda: check_topology_is_top_to_bottom_and_compact(c)),
         ('filter chips keep the tab and the other filters', lambda: check_filter_chips_keep_the_tab_and_the_other_filters(c)),
         ('the HyperDX link exists only when configured', lambda: check_hyperdx_link_only_when_configured(c, with_console)),
         ('the tab and the trace route are wired', lambda: check_tab_and_route_are_wired(c)),
