@@ -189,7 +189,8 @@ def check_rbac_is_exactly_what_the_roots_reach(chart):
     for (grp, res, _, name) in chart.by_key:
         if (grp, res, name) not in reach:
             f.append(f'{res}/{name} is rendered but no root reaches it')
-    print(f'        reached from the roots = granted = {sorted("/".join(x[1:]) for x in reach)}')
+    print(f'        reached from the roots: {sorted("/".join(x[1:]) for x in reach)}')
+    print(f'        granted by the Role:    {sorted("/".join(x[1:]) for x in grant)}')
     return f
 
 

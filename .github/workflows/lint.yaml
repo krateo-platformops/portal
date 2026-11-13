@@ -879,3 +879,32 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           jq --version
           python3 scripts/test-controller-render-draft.py
+
+  # The public pages (helm/public-pages) are served to visitors who are not signed in, as the user
+  # krateo:public (snowplow#1334), and that user's one Role IS the definition of what is public. The
+  # test walks every ref from both page roots and fails unless the Role grants `get` on exactly that
+  # set, bound to the user and never the group system:unauthenticated; each run also proves the
+  # comparison can fail (one name removed, one added). Widgets are validated against the LATEST
+  # frontend-crds here; lint-pinned-crds checks them against the pinned one.
+  public-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Public pages grant exactly what they show, validated against the CRDs
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          python3 scripts/test-public-pages.py --crds "$RUNNER_TEMP/crds/frontend-crds"
