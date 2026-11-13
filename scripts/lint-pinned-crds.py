@@ -55,7 +55,13 @@ NS = 'krateo-system'
 CHARTS = tuple(sorted(os.path.basename(os.path.dirname(p))
                       for p in glob.glob(os.path.join(REPO, 'helm', '*', 'Chart.yaml'))
                       if os.path.basename(os.path.dirname(p)) != 'builder-publish'))
-EXTRA_VALUES = {'portal': ['observability.snowplowSli=true']}
+# Values that switch ON widgets a default render leaves out, so the gate sees them. A widget behind an
+# off-by-default flag is still shipped: the day an install sets the flag, the apiserver must admit it.
+# observability-page reads these two flags; `portal` no longer does (the page split, #261), yet this
+# map still set one of them on `portal` — so the ~70 widgets they gate (the Performance section and
+# the snowplow SLI tab) were never checked against the pinned CRDs. Both flags, on the chart that reads them.
+EXTRA_VALUES = {'observability-page': ['observability.snowplowSli=true',
+                                       'observability.reconcileTracing=true']}
 INSTALLER_GIT = 'https://github.com/krateo-platformops/installer'
 PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/{ref}/'
             'chart/files/component-pins.yaml')

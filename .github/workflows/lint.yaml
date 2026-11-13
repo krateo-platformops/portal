@@ -738,6 +738,7 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-agents-page.py
 
+
   # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
   # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
   # logged 601 GETs of `…/builderpublishes/review-`, 358 of `/apis/none.krateo.io/v1/none` and 67 of
@@ -788,6 +789,40 @@ jobs:
   # edges, an Error span shown as an error, a quote in a TraceId or filter making no request — and
   # validates every widget, as rendered and as resolved, against the frontend-crds version the
   # installer PINS (not the latest), which is what the cluster serves.
+  # Every duration statistic reads "830 ms" / "1.2 s", never antd's "1,189 ms" (a decimal comma to an
+  # Italian reader). One formatter, _duration.tpl, byte-identical in compositions-page,
+  # observability-page and portal-agents; this runs each widget's own jq. Its own job because the
+  # time-to-first-token query is rendered by snowplow's own path renderer (needs Go) and executed
+  # against fixture spans in sqlite.
+  duration-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Duration labels, over the charts' own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-duration-labels.py
+
   observability-traces:
     runs-on: ubuntu-latest
     steps:
