@@ -349,6 +349,10 @@ def _():
         ('Waiting for a decision', '5', 'review proposals', None)])
     check('present: one Needs you panel, red, counting its cards', got['panel'],
           {'key': 'needs-you', 'label': 'Needs you', 'count': 5, 'status': 'error'})
+    check('present: the panel has no footer (the Dashboard has no table view to link to)',
+          [k for k in ('footer', 'footerNavigateTo', 'cap') if k in resolved('dashboard-needs-you', 'Collapse', out)['items'][0]], [])
+    check('present: each card opens its own page', [c['navigateTo'] for c in got['cards']],
+          ['/incidents?status=open', '/alerts?status=alert', '/agents', '/reviews', '/compositions'])
     check('present: faults first, then work, in source order', got['titles'], [
         '5 open incidents', '1 alert firing', '1 agent not reachable through the gateway',
         '5 proposals waiting for a decision', '1 composition paused'])
