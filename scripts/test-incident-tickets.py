@@ -66,7 +66,7 @@ ORG_NS = 'acme-retail'
 NAME = 'krateo-composition-reconcile-error-20261002-194519'
 UID = 'b20776b4-8c3c-4940-b981-7597e916f219'
 EX = {'name': NAME, 'namespace': NS}
-ZR_PATH = '/apis/zendesk.ogen.krateo.io/v2/zendeskrequests'
+ZR_PATH = '/apis/zendesk.ogen.krateo.io/v2/zendeskrequests'  # re-read from the charts in main()
 
 
 class Err:
@@ -148,7 +148,7 @@ def zrequest(name, updated, uid=UID, ns=ORG_NS, zid=None, zstatus=None, conditio
 
 
 def listing(*items):
-    return {'kind': 'ZendeskRequestList', 'apiVersion': 'zendesk.ogen.krateo.io/v2', 'items': list(items)}
+    return {'kind': 'ZendeskRequestList', 'apiVersion': tsd.ZAPI, 'items': list(items)}
 
 
 EMPTY = listing()
@@ -335,7 +335,7 @@ def check_proposal_actions(chart, desk_chart):
     form_w = tbi.resolved_widget(desk_chart, 'Form', 'request-new', ctx, raise_ex, 'round trip: Form request-new')['spec']['widgetData']
     body = tsd.frontend_body(form_w, dict(form_w['initialValues'], priority='high'))
     expect(f, 'the request carries this incident\'s uid', body['metadata']['labels'].get('krateo.io/incident-uid'), UID)
-    expect(f, 'pre-filled from it', (body['spec']['kind'], body['spec']['description'].endswith(f'In the portal: /incidents/{NS}/{NAME}.')), ('Bug', True))
+    expect(f, 'pre-filled from it', (body['spec']['kind'], body['spec']['description'].startswith(f'Incident: {NS}/{NAME}. ')), ('Bug', True))
     expect(f, 'into the organisation\'s namespace, which this page lists across', body['metadata']['namespace'], ORG_NS)
     body['metadata']['creationTimestamp'] = '2026-10-02T20:00:00Z'
     body['status'] = {}
@@ -372,7 +372,7 @@ def check_tickets_card(chart):
     expect(f, 'lists ZendeskRequests across namespaces', [d for d in dialled if d[0] == 'zendeskRequests'], [('zendeskRequests', ZR_PATH)])
     step = [st for st in chart.get('RESTAction', 'incident-detail')['spec']['api'] if st['name'] == 'zendeskRequests'][0]
     expect(f, 'refiltered as the caller', step.get('userAccessFilter'),
-           {'verb': 'list', 'group': 'zendesk.ogen.krateo.io', 'resource': 'zendeskrequests', 'namespaceFrom': '.metadata.namespace'})
+           {'verb': 'list', 'group': tsd.ZAPI.split('/')[0], 'resource': 'zendeskrequests', 'namespaceFrom': '.metadata.namespace'})
     rows = w['incident-tickets-list']['dataSource']
     expect(f, 'most recently updated first, this incident\'s only', [r['name'] for r in rows], ['zr-luca-bianchi-2', 'zr-maria-rossi-1'])
     expect(f, 'a filed row', rows[1], {'name': 'zr-maria-rossi-1', 'namespace': ORG_NS, 'subject': 'Subject of zr-maria-rossi-1',
@@ -460,6 +460,14 @@ def main():
         print(f'validating against the pinned frontend-crds {version}')
     chart = tbi.Chart(tbi.render(INCIDENTS_DIR))
     desk_chart = tbi.Chart(tbi.render(DESK_DIR))
+    # The served apiVersion, from service-desk-page's one define; the copy in incidents-page must
+    # dial the same (state mapping check), so the expectations follow the chart, not this file.
+    global ZR_PATH
+    try:
+        tsd.ZAPI = tsd.chart_zapi(desk_chart)
+        ZR_PATH = f'/apis/{tsd.ZAPI}/zendeskrequests'
+    except (LookupError, KeyError, IndexError):
+        pass
     runs = [(check_owner_absent_is_todays_page, (chart, base_chart())), (check_owner_krateo_and_customer, (chart,)),
             (check_owner_unknown, (chart,)), (check_proposal_conditions, (chart,)),
             (check_proposal_actions, (chart, desk_chart)), (check_tickets_card, (chart,)),

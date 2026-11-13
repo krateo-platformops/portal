@@ -43,10 +43,10 @@
      not be read. snowplow splices each value as ONE path segment (snowplow#1123), so neither can
      walk the path somewhere else. Without the two parameters nothing is dialled.
      When it comes back, the form is pre-filled — Subject from the root cause's first sentence (or
-     "Incident <name>"), Description from the incident's summary (when it opened, the root cause
-     with its confidence and category, the owner, the evidence) and its page in the portal, Kind
-     Bug — and the request carries the label `krateo.io/incident-uid`, which the incident page lists
-     its requests by. The organisation is chosen exactly as on the plain form.
+     "Incident <name>"), Description as plain text: "Incident: <namespace>/<name>.", when it
+     started, and its summary (the root cause with its confidence and category, the owner, the
+     evidence); Kind Bug — and the request carries the label `krateo.io/incident-uid`, which the
+     incident page lists its requests by. The organisation is chosen exactly as on the plain form.
 
      THE LABEL IS THE INCIDENT'S UID, NOT ITS NAME: an Incident is named `<alert>-<yyyymmdd-hhmmss>`
      and an alert name may be 63 characters, so an incident name reaches 79, past the 63 a label
@@ -54,8 +54,8 @@
      one that reuses the name. The Ticket form wrote this one label and no incident name or namespace
      label, so there are none to carry over.
 
-     THE PORTAL LINK IS A PATH (/incidents/<ns>/<name>), not an address: nothing on the server knows
-     the host the portal is served from. An agent reading it in Zendesk sees where it is, not a link.
+     NO PORTAL LINK IN THE DESCRIPTION: Zendesk's agents cannot open a customer's portal, so a link
+     would be useless to the people who read it. The incident is named in plain text instead.
 
      The output carries no `username` key, deliberately: the form declares identityContext and
      reads the injected `.username` itself, and a `username` here would shadow it. */}}
@@ -69,11 +69,11 @@ metadata:
 spec:
   api:
     - name: configs
-      path: /apis/zendesk.ogen.krateo.io/v2/zendeskrequestconfigurations
+      path: /apis/{{ include "servicedesk.zendeskAPIVersion" . }}/zendeskrequestconfigurations
       verb: GET
       userAccessFilter:
         verb: list
-        group: zendesk.ogen.krateo.io
+        group: {{ include "servicedesk.zendeskGroup" . }}
         resource: zendeskrequestconfigurations
         namespaceFrom: .metadata.namespace
       continueOnError: true
@@ -138,7 +138,7 @@ spec:
     # known (verify then).
     | (if $statement != "" then ($statement | (capture("^(?<s>.*?[.!?])(\\s|$)").s // .) | sub("[.]$"; ""))
        else ("Incident " + $in) end | cap(150)) as $subject
-    | ("Incident " + $in + " in " + $ins + (if $opened != "" then (", opened " + ($opened | stamp)) else "" end) + "."
+    | ("Incident: " + $ins + "/" + $in + "." + (if $opened != "" then (" Started " + ($opened | stamp) + ".") else "" end)
        + (if $statement != "" then
             (" Root cause (Agentiko"
              + (if (($rc.confidence // "") | tostring) != "" then (", confidence " + ($rc.confidence | tostring)) else "" end)
@@ -149,7 +149,6 @@ spec:
        + (if ($evidence | length) > 0 then
             (" Evidence: " + ($evidence | map(((.kind // "") | str | if . == "" then "" else . + ": " end) + (.ref | oneline)) | join("; ")) + ".")
           else "" end)
-       + " In the portal: " + $incidentPath + "."
        | cap(8000)) as $description
     | (if $absent then "absent" elif $failed and $count == 0 then "failed"
        elif $count == 0 then "none" elif $count == 1 then "one" else "several" end) as $state
@@ -210,7 +209,7 @@ spec:
           { name: "spec.priority", value: "${ .json.priority // \"normal\" }" } ]),
         unavailable: (if $state == "absent" then
                         { status: "info", title: "Zendesk requests aren’t served on this cluster",
-                          subTitle: "The portal can’t find the Zendesk provider’s kinds (zendesk.ogen.krateo.io/v2), so nothing can be raised here. An administrator installs the Zendesk provider." }
+                          subTitle: "The portal can’t find the Zendesk provider’s kinds ({{ include "servicedesk.zendeskAPIVersion" . }}), so nothing can be raised here. An administrator installs the Zendesk provider." }
                       elif $state == "failed" then
                         { status: "warning", title: "Your organisation’s Zendesk configuration could not be read",
                           subTitle: ("So the portal can’t tell where a request would go. " + ($err | cap(300))) }

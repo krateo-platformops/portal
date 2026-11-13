@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The service desk on Zendesk, over the chart's OWN jq.
 
-The page files ZendeskRequests (zendesk-kog 0.2.1, zendesk.ogen.krateo.io/v2) and tracks them. It
+The page files ZendeskRequests (zendesk-kog 0.2.1) and tracks them. It
 renders the chart and runs the real programs (the three RESTActions and every widgetDataTemplate)
 rather than keeping copies here: a test holding its own copy of the jq passes while the chart drifts.
 
@@ -57,6 +57,13 @@ def _load(mod, file):
 tbi = _load('tbi', 'test-builder-install.py')
 CHART_DIR = os.environ.get('SERVICE_DESK_CHART') or os.path.join(REPO, 'helm', 'service-desk-page')
 GROUP = 'zendesk.ogen.krateo.io'
+# The served apiVersion is read FROM THE CHART (servicedesk.zendeskAPIVersion, set in main()), so the
+# day the served CRD settles v2 against v1alpha1 the chart's one define is the only edit.
+ZAPI = GROUP + '/v2'
+
+
+def chart_zapi(chart):
+    return chart.get('Form', 'request-new')['spec']['widgetData']['actions']['rest'][0]['payload']['apiVersion']
 
 
 class Err:
@@ -148,7 +155,7 @@ def zr(name, ns='acme-retail', conditions=None, zid=None, zstatus=None, subject=
         st['updated_at'] = updated
     if html_url:
         st['html_url'] = html_url
-    return {'apiVersion': f'{GROUP}/v2', 'kind': 'ZendeskRequest', 'metadata': md,
+    return {'apiVersion': ZAPI, 'kind': 'ZendeskRequest', 'metadata': md,
             'spec': {'configurationRef': {'name': cfg, 'namespace': ns}, 'subject': subject or f'Subject of {name}',
                      'description': description, 'priority': priority, 'kind': kind, 'krateo_reference': name},
             'status': st}
@@ -373,7 +380,7 @@ def check_empty_queue(chart):
 
 
 def configs(*pairs):
-    return {'items': [{'apiVersion': f'{GROUP}/v2', 'kind': 'ZendeskRequestConfiguration',
+    return {'items': [{'apiVersion': ZAPI, 'kind': 'ZendeskRequestConfiguration',
                        'metadata': {'name': n, 'namespace': ns}, 'spec': {'secretRef': {'name': 'zd-token', 'namespace': ns, 'key': 'token'}}}
                       for ns, n in pairs]}
 
@@ -435,7 +442,7 @@ def frontend_body(form, values):
     no omitempty) — which is why name and namespace must be overrides."""
     action = form['actions']['rest'][0]
     body = copy.deepcopy(action.get('payload') or {})
-    served = {'apiVersion': f'{GROUP}/v2', 'kind': 'ZendeskRequest', 'metadata': {'name': '', 'namespace': ''}}
+    served = {'apiVersion': ZAPI, 'kind': 'ZendeskRequest', 'metadata': {'name': '', 'namespace': ''}}
 
     def merge(a, b):
         for k, v in b.items():
@@ -479,9 +486,9 @@ def check_form_submit(chart):
     expect(f, 'raised-by label (a slug) and annotation (verbatim)',
            (body['metadata'].get('labels'), body['metadata'].get('annotations')),
            ({'krateo.io/raised-by': 'claude-user1-krateo.io'}, {'krateo.io/raised-by': 'claude-user1@krateo.io'}))
-    expect(f, 'the kind', (body.get('apiVersion'), body.get('kind')), (f'{GROUP}/v2', 'ZendeskRequest'))
+    expect(f, 'the kind', (body.get('apiVersion'), body.get('kind')), (ZAPI, 'ZendeskRequest'))
     ref = chart.get('Form', 'request-new')['spec']['resourcesRefs']['items'][0]
-    expect(f, 'the POST collection', (ref['apiVersion'], ref['resource'], ref['verb'], 'namespace' in ref), (f'{GROUP}/v2', 'zendeskrequests', 'POST', False))
+    expect(f, 'the POST collection', (ref['apiVersion'], ref['resource'], ref['verb'], 'namespace' in ref), (ZAPI, 'zendeskrequests', 'POST', False))
     action = form['actions']['rest'][0]
     expect(f, 'on success, the new request\'s page',
            tbi.jq(expr(action['onSuccessNavigateTo']), {'json': body, 'response': {}}), f'/service-desk/acme-retail/{name}')
@@ -586,14 +593,14 @@ def check_request_read_is_gated_and_as_the_caller(chart):
     _, _, dialled = detail(chart, obj=None, name='', ns='')
     expect(f, 'no route params, nothing dialled (prewarm)', dialled, [])
     _, _, dialled = detail(chart, obj=zr('zr-a'))
-    expect(f, 'the one read', dialled, [f'/apis/{GROUP}/v2/namespaces/acme-retail/zendeskrequests/zr-a'])
+    expect(f, 'the one read', dialled, [f'/apis/{ZAPI}/namespaces/acme-retail/zendeskrequests/zr-a'])
     step = chart.get('RESTAction', 'zendesk-request')['spec']['api'][0]
     expect(f, 'a request is read with the caller\'s own credential', ('userAccessFilter' in step, 'endpointRef' in step), (False, False))
     for ra, res in [('zendesk-requests', 'zendeskrequests'), ('request-raise-context', 'zendeskrequestconfigurations')]:
         s = chart.get('RESTAction', ra)['spec']['api'][0]
         expect(f, f'{ra}: listed across namespaces, refiltered as the caller',
-               (s['path'], s.get('userAccessFilter')), (f'/apis/{GROUP}/v2/{res}',
-                                                       {'verb': 'list', 'group': GROUP, 'resource': res, 'namespaceFrom': '.metadata.namespace'}))
+               (s['path'], s.get('userAccessFilter')), (f'/apis/{ZAPI}/{res}',
+                                                       {'verb': 'list', 'group': ZAPI.split('/')[0], 'resource': res, 'namespaceFrom': '.metadata.namespace'}))
         expect(f, f'{ra}: no endpointRef', 'endpointRef' in s, False)
     return f
 
@@ -609,6 +616,8 @@ def check_ticket_desk_is_gone(chart):
     expect(f, 'one namespace, still kept (it holds the orphaned Tickets)',
            [(d['metadata']['name'], d['metadata'].get('annotations', {}).get('helm.sh/resource-policy')) for d in nss],
            [('krateo-service-desk', 'keep')])
+    seen = set(re.findall(GROUP.replace('.', r'\.') + r'/[a-z0-9]+', text))
+    expect(f, 'one Zendesk apiVersion across the chart (servicedesk.zendeskAPIVersion)', seen, {ZAPI})
     rules = [r for d in chart.docs if d['kind'] == 'Role' for r in d['rules']]
     expect(f, 'the page grant reads widgets and RESTActions only', sorted({g for r in rules for g in r['apiGroups']}),
            ['templates.krateo.io', 'widgets.templates.krateo.io'])
@@ -653,8 +662,9 @@ def check_raised_from_an_incident(chart):
     iv = form['initialValues']
     expect(f, 'Subject: the root cause\'s first sentence', iv.get('subject'),
            'Alert krateo-composition-reconcile-error omits incident-controller from its ServiceName NOT IN filter')
-    expect(f, 'Description: the incident summary', iv.get('description', '').startswith(f'Incident {INC_NAME} in {INC_NS}, opened 2026-10-02 19:45 UTC. Root cause (Agentiko, confidence 0.6, category config): '), True)
-    expect(f, 'Description: its page in the portal', iv.get('description', '').endswith(f' In the portal: /incidents/{INC_NS}/{INC_NAME}.'), True)
+    expect(f, 'Description: the incident in plain text, when it started, its summary', iv.get('description', '').startswith(
+        f'Incident: {INC_NS}/{INC_NAME}. Started 2026-10-02 19:45 UTC. Root cause (Agentiko, confidence 0.6, category config): '), True)
+    expect(f, 'Description: no portal link (Zendesk agents cannot open a customer\'s portal)', '/incidents/' in iv.get('description', ''), False)
     expect(f, 'Kind: Bug', iv.get('kind'), 'Bug')
     expect(f, 'one line above the standing notice', form['notice'].startswith(f'From incident {INC_NAME} in {INC_NS}. '), True)
     expect(f, 'Cancel goes back to the incident', form['buttonConfig']['secondary']['navigateTo'], f'/incidents/{INC_NS}/{INC_NAME}')
@@ -744,6 +754,11 @@ def main():
         crds_dir = pinned.unpack(version)
         print(f'validating against the pinned frontend-crds {version}')
     chart = tbi.Chart(tbi.render(CHART_DIR))
+    global ZAPI
+    try:
+        ZAPI = chart_zapi(chart)
+    except (LookupError, KeyError, IndexError):
+        pass
     failed = 0
     for check in CHECKS:
         try:
