@@ -506,9 +506,9 @@ jobs:
   # tabs), then its owner row (incident-provider 0.10.0), Agentiko's ticket proposal and the
   # Tickets card: owner present, absent (nothing new renders) and unknown;
   # each proposal condition flipped; the ticket list by label, refused, missing and failed in both
-  # errorKey shapes; Dismiss's target; and the raise link followed into service-desk-page's form and
-  # back through this page's own ticket list. Resolved widgets validated against the newest released
-  # CRDs and the ones the installer pins.
+  # errorKey shapes; Dismiss's target; and the raise link landing on a route service-desk-page
+  # serves. Resolved widgets validated against the newest released CRDs and the ones the installer
+  # pins.
   incident-tickets:
     runs-on: ubuntu-latest
     steps:
@@ -555,34 +555,6 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-reanalyze.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-
-  # A ticket raised from an incident (service-desk-page): the raise form pre-filled from the Incident
-  # it was opened for, the Ticket it POSTs (kind, objectRef, the `krateo.io/incident-uid` label the
-  # incident page selects on), and the ticket page's Incident card and DERIVED resolve proposal —
-  # each condition flipped, failed reads in both errorKey shapes, both deskActions modes. Resolved
-  # widgets are validated against the newest released CRDs and against the ones the installer pins.
-  ticket-from-incident:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Install Helm
-        uses: azure/setup-helm@v5.0.0
-        with:
-          version: v3.19.0
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Ticket from an incident, evaluated and validated
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          jq --version
-          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
-          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
-          python3 scripts/test-ticket-from-incident.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-          python3 scripts/test-ticket-from-incident.py --pinned
 
   # A composition's topology on its detail page is one builder-publish template, one RESTAction of
   # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's
@@ -677,13 +649,20 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-events-routes.py
 
-      # A refused read must not render as a quiet desk. Same job for the same reason as the steps
-      # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
-      - name: Service desk queue, over the chart's own jq
+      # The service desk on Zendesk: a request's state from condition status and reason (an unknown
+      # reason never drawn as progress), the chips, the one unreachable-organisation warning, a
+      # cluster without the kind / a denied / a failed read never rendered as an empty queue, the
+      # raise form's body, and a request's page. Same job for the same reason as the steps around
+      # it: it needs helm and jq, and runs the chart's own jq rather than a copy. Resolved widgets
+      # validated against the newest released CRDs and the ones the installer pins.
+      - name: Service desk on Zendesk, over the chart's own jq, evaluated and validated
         run: |
           set -euo pipefail
-          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
-          python3 scripts/test-service-desk.py
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/sd-crds"
+          grep '^version:' "$RUNNER_TEMP/sd-crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-service-desk.py --crds "$RUNNER_TEMP/sd-crds/frontend-crds"
+          python3 scripts/test-service-desk.py --pinned
 
       # Ready=Unknown must not render as progress. Same job for the same reason as its neighbours:
       # it needs helm and jq, and runs the chart's own jq rather than a copy.

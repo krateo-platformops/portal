@@ -11,9 +11,10 @@ WHAT IT GUARDS (the approved mockup's frames A, C, E and F):
     Verifying, the ticket list came back holding no ticket for this incident, and it is not dismissed
     (`krateo.io/ticket-proposal: dismissed`); each condition, flipped, hides it. A ticket list that did
     not come back is never "no ticket".
-  - "Review and raise" and "Raise a ticket" open service-desk-page's raise form with the incident in
-    the query string, under the parameter names that form keys its cell on; Dismiss merge-patches the
-    annotation onto this Incident, the target Close writes to.
+  - "Review and raise" and "Raise a ticket" open service-desk-page's raise form (a route it serves)
+    with the incident in the query string; that form no longer reads them (service-desk-page files
+    Zendesk requests now). Dismiss merge-patches the annotation onto this Incident, the target Close
+    writes to.
   - the Tickets card lists the tickets labelled `krateo.io/incident-uid: <uid>`, newest first; says
     "No ticket yet."; tells a reader who is not the desk (403) who can see them; says a failed read
     failed; and does not render on an install with no service desk (404). errorKey is a LIST, each
@@ -24,7 +25,7 @@ WHAT IT GUARDS (the approved mockup's frames A, C, E and F):
 HOW. As test-incident-reanalyze: the chart is rendered, incident-detail is resolved over fixtures
 shaped like krateo-057's Incidents by the model in test-platform-review.py — extended so a failed
 step's errorKey entry can be a Status object as well as a string — and the widgets are evaluated over
-its output. service-desk-page is rendered too, for the raise link's contract with its form.
+its output. service-desk-page is rendered too, to check the raise link lands on a route it serves.
 
 With --crds DIR or --pinned, every widget resolved here is validated against its CRD.
 Usage: test-incident-tickets.py [--crds DIR | --pinned]. Exit code = failed checks.
@@ -305,41 +306,18 @@ def check_proposal_actions(chart, desk_chart):
     expect(f, 'opens the service desk\'s raise form', path, '/service-desk/new')
     expect(f, 'with this incident', params, {'incidentName': [NAME], 'incidentNamespace': [NS]})
     expect(f, 'never a ?ask= (not an Agentiko entry point)', 'ask=' in href, False)
-    # THE CONTRACT: the raise form must read these parameters, and key its cell on them. It lives in
-    # service-desk-page, which has to ship first (the incident page links into it).
-    try:
-        desk_chart.get('RESTAction', 'ticket-raise-context')
-    except LookupError:
-        f.append('service-desk-page has no ticket-raise-context: its raise form does not read the incident yet '
-                 '(the service-desk half of this feature ships first)')
-        return f
-    form = desk_chart.get('Form', 'ticket-new')
-    expect(f, 'service-desk-page\'s form keys on the raise link\'s parameters',
-           sorted(form['spec'].get('keyExtras') or []), sorted(params))
-    ctx = desk_chart.get('RESTAction', 'ticket-raise-context')
-    expect(f, 'and its context RESTAction reads them', all(f'.{p}' in ctx['spec']['api'][0]['dependsOn']['iterator'] for p in params), True)
     expect(f, 'Raise a ticket opens the same form', w['incident-raise-ticket']['actions']['navigate'][0]['path'], href)
-    # THE ROUND TRIP: follow the link into the form, raise the ticket it builds, and read it back
-    # through this page's own ticket list. The label the form writes must be the one this page
-    # selects on, or a raised ticket never shows here and the proposal never goes away.
-    raise_ex = {k: v[0] for k, v in params.items()}
-    inc = incident(owner='customer', evidence=EVIDENCE)
-    ra = desk_chart.get('RESTAction', 'ticket-raise-context')
-    it = tbi.jq(ra['spec']['api'][0]['dependsOn']['iterator'], raise_ex)
-    expect(f, 'the form reads exactly this incident', [tbi.jq(expr(ra['spec']['api'][0]['path']), i) for i in it],
-           [f'/apis/observability.krateo.io/v1alpha1/namespaces/{NS}/incidents/{NAME}'])
-    ctx = tbi.jq(ra['spec']['filter'], dict(raise_ex, incident=inc))
-    form_w = tbi.resolved_widget(desk_chart, 'Form', 'ticket-new', ctx, dict(raise_ex, username='maria.rossi'),
-                                 'round trip: Form ticket-new')['spec']['widgetData']
-    act = [a for a in form_w['actions']['rest'] if a['id'] == form_w['submitActionId']][0]
-    body = tpr.apply_overrides(act['payload'], act.get('payloadToOverride'), form_w['initialValues'])
-    body['metadata']['creationTimestamp'] = '2026-10-02T20:00:00Z'
-    expect(f, 'the raised ticket points at this incident', body['spec']['objectRef'],
-           {'apiVersion': 'observability.krateo.io/v1alpha1', 'kind': 'Incident', 'name': NAME, 'namespace': NS})
-    expect(f, 'into the namespace this page lists', body['metadata']['namespace'], DESK_NS)
-    out, _, w = page(chart, inc, listing(body), 'round trip')
-    expect(f, 'read back: listed here', [r['name'] for r in w['incident-tickets-list']['dataSource']], [body['metadata']['name']])
-    expect(f, 'read back: the proposal is gone', out['sections']['proposal'], False)
+    # WHERE THE LINK LANDS. service-desk-page used to read these parameters (ticket-raise-context),
+    # pre-fill a Ticket from the Incident and label it `krateo.io/incident-uid`, and this check
+    # followed that round trip back into the Tickets card. The service desk now files Zendesk
+    # requests (service-desk-page, "Replace with Zendesk") and that incident linking is gone with the
+    # Ticket kind: the link opens the plain raise form, the parameters are ignored, and nothing the
+    # form raises carries the label this page lists by. What is still checked is that the link lands
+    # on a route the service desk serves. Whether this page's proposal and Tickets card move to
+    # Zendesk or go is an open decision, not something this test can settle.
+    roots = [d for d in desk_chart.docs if d.get('kind') == 'Flex'
+             and ((d.get('metadata') or {}).get('annotations') or {}).get('krateo.io/nav-path') == path]
+    expect(f, 'the link lands on a route service-desk-page serves', len(roots), 1)
     dismiss = w['incident-ticket-proposal-dismiss']
     act = dismiss['actions']['rest'][0]
     expect(f, 'Dismiss is amber, not destructive', (dismiss['label'], dismiss.get('intent'), dismiss.get('danger')), ('Dismiss', 'dismiss', None))

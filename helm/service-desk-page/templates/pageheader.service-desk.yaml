@@ -8,7 +8,9 @@
      ITEMS ARE TEMPLATED for one case only: a cluster that does not serve the ZendeskRequest kind has
      nothing to raise, so the header keeps "Ask Agentiko →" and drops "Raise a request". Without a
      configuration the button stays, and the raise page says why (the decided design: the person
-     lands there and reads the reason instead of finding the button missing).
+     lands there and reads the reason instead of finding the button missing). `.showRaise == false`
+     and not `.showRaise // true`: jq's `//` replaces false as well as null, so the default would
+     have kept the button on exactly the cluster it is meant to leave.
 
      The failure states are said in the content area (result.service-desk-unavailable), not with a
      red tag here as the Ticket page did: one sentence where the queue would be, said once. */}}
@@ -38,7 +40,7 @@ spec:
     - resourceRefId: service-desk-raise
   widgetDataTemplate:
     - forPath: items
-      expression: '${ [ { resourceRefId: "service-desk-ask-agentiko" } ] + (if (.showRaise // true) then [ { resourceRefId: "service-desk-raise" } ] else [] end) }'
+      expression: '${ [ { resourceRefId: "service-desk-ask-agentiko" } ] + (if .showRaise == false then [] else [ { resourceRefId: "service-desk-raise" } ] end) }'
   resourcesRefs:
     items:
     - id: service-desk-ask-agentiko
