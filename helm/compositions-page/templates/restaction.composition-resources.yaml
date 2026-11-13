@@ -155,21 +155,23 @@ spec:
           {{/* A CRD HAS NO Ready. Its readiness conditions are `Established` and `NamesAccepted`, so it
                used to have conditions (not "conditionless → healthy") and no $rc, and fell through
                every branch to "pending" — forever, whatever its real state (krateo-057's authn-crd).
-               The arms follow the composition's own rule for a CRD child (core-provider#473,
-               crdReady), so the portal and the composition's Ready never disagree:
-                 Established=True     → healthy
-                 NamesAccepted=False  → failed (a name conflict is terminal), its reason verbatim
-                 anything else        → converging: Established False/Unknown, no conditions yet
-                                        (a just-created CRD carries none for a moment), or
-                                        Terminating=True. The cdc reports this as Ready=False
-                                        reason `Creating`; a fresh install must not flash "failed". */}}
+               The arms are the composition's own rule for a CRD child, in ITS evaluation order
+               (core-provider#473, crdReady in childhealth.go), so the portal and the composition's
+               Ready never disagree:
+                 1. NamesAccepted=False                     → failed, its reason verbatim. Checked
+                    FIRST: a name conflict is terminal, even while Established or terminating.
+                 2. Established=True and Terminating≠True   → healthy
+                 3. anything else                           → converging: Established False/Unknown,
+                    no conditions yet (a just-created CRD carries none for a moment), or
+                    Terminating=True (still Established). The cdc reports it as Ready=False reason
+                    `Creating`; a fresh install must not flash "failed". */}}
           | ($m._kind == "customresourcedefinitions") as $isCrd
           | ([ $c[]? | select(.type == "Established") ][0]) as $established
           | ([ $c[]? | select(.type == "NamesAccepted") ][0]) as $namesAccepted
           | ([ $c[]? | select(.type == "Terminating") ][0]) as $terminating
-          | ($isCrd and $established.status == "True") as $crdReady
-          | ($isCrd and ($crdReady | not) and $namesAccepted.status == "False") as $crdNameConflict
-          | ($isCrd and ($crdReady | not) and ($crdNameConflict | not)) as $crdConverging
+          | ($isCrd and $namesAccepted.status == "False") as $crdNameConflict
+          | ($isCrd and ($crdNameConflict | not) and $established.status == "True" and $terminating.status != "True") as $crdReady
+          | ($isCrd and ($crdNameConflict | not) and ($crdReady | not)) as $crdConverging
           | ($rc.status == "True") as $ready
           | ($rc.status == "False") as $notready
           {{/* THE THIRD STATE. A Ready condition is True, False or Unknown, and Unknown used to
@@ -218,8 +220,8 @@ spec:
               # it neither shows a green tag nor counts toward convergence.
               state: (if ($readable | not) then "unread"
                       elif ($found | not) then "pending"
-                      elif $crdReady then "healthy"
                       elif $crdNameConflict then "failed"
+                      elif $crdReady then "healthy"
                       elif $crdConverging then "converging"
                       elif $noconds then "healthy"
                       elif $ready and ($unsynced | not) then "healthy"
@@ -248,8 +250,8 @@ spec:
                    possible, and `NotObserved` / `ReadyNotSetAfterObserve` / `Unknown` all are. */}}
               stateLabel: (if ($readable | not) then "Unread"
                            elif ($found | not) then "Pending"
-                           elif $crdReady then "Healthy"
                            elif $crdNameConflict then ($namesAccepted.reason // "NamesNotAccepted")
+                           elif $crdReady then "Healthy"
                            elif $crdConverging then (if $terminating.status == "True" then "Terminating" else "Creating" end)
                            elif $noconds or ($ready and ($unsynced | not)) then "Healthy"
                            elif $ready and $unsynced then "Drift"
@@ -272,8 +274,8 @@ spec:
                    observe is a weaker claim than one we can see has drifted. */}}
               healthPercent: (if ($readable | not) then 0
                               elif ($found | not) then 50
-                              elif $crdReady then 100
                               elif $crdNameConflict then 20
+                              elif $crdReady then 100
                               elif $crdConverging then 50
                               elif $noconds or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70

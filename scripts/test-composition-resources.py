@@ -132,7 +132,10 @@ CRD_CASES = [
     ('CRD Established=False', conds(('NamesAccepted', 'True', 'NoConflicts'), ('Established', 'False', 'Installing')), 'converging', 'Creating'),
     ('CRD Established=Unknown', conds(('Established', 'Unknown', ''),), 'converging', 'Creating'),
     ('CRD with no conditions yet', [], 'converging', 'Creating'),
-    ('CRD Terminating', conds(('Established', 'True', 'InitialNamesAccepted'), ('Terminating', 'True', 'InstanceDeletionInProgress'))[1:], 'converging', 'Terminating'),
+    # crdReady's order: NamesAccepted=False first (even while Established), and Established counts
+    # only while not Terminating.
+    ('CRD established but terminating', conds(('Established', 'True', 'InitialNamesAccepted'), ('Terminating', 'True', 'InstanceDeletionInProgress')), 'converging', 'Terminating'),
+    ('CRD name conflict while Established', conds(('NamesAccepted', 'False', 'ListKindConflict'), ('Established', 'True', 'InitialNamesAccepted')), 'failed', 'ListKindConflict'),
 ]
 
 failures = []
