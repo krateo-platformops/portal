@@ -359,6 +359,8 @@ def check_every_intake_answer_is_mapped(chart):
     lim = by.get('200:limit', {})
     if (lim.get('validateStatus'), lim.get('message')) != ('warning', CHECK_LIMIT):
         f.append(f'check limit {(lim.get("validateStatus"), lim.get("message"))}, want warning / {CHECK_LIMIT!r}')
+    if conf.get('validationMessages') != [{'name': 'username', 'requiredMessage': 'Choose a username.'}]:
+        f.append(f'empty-username copy {conf.get("validationMessages")}, want "Choose a username."')
     by = {whens([e])[0]: e for e in req['submitPost']['responses']}
     alert = by.get('429', {}).get('alert') or {}
     if (alert.get('description'), alert.get('retryAfterDescription')) != SCREEN1_429:
