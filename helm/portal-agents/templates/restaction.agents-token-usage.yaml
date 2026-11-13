@@ -35,7 +35,10 @@ spec:
       errorKey: usageError
   {{/* ClickHouse FORMAT JSON => {meta, data:[...], rows}. Rows are pre-formatted for display and */}}
   {{/* the raw sums are kept alongside, so a later chart does not have to re-parse a string. */}}
+  {{/* Average time to first token: read as SECONDS, as this filter always has, so ×1000 into */}}
+  {{/* duration.label ("450 ms", "1.2 s"), the one duration format every portal stat uses. */}}
   filter: |
+    {{ include "duration.label" . }}
     def commas: tostring
       | if (length <= 3) then .
         else ((.[0:(length%3)]) as $h
@@ -58,7 +61,7 @@ spec:
             cachePct: (if (.cache_pct // null) == null then "—" else ((.cache_pct | tostring) + "%") end),
             outputTokens: (.output_tokens | num | commas),
             reasoningTokens: (.reasoning_tokens | num | commas),
-            ttft: (if (.avg_ttft_s // null) == null then "—" else ((.avg_ttft_s | tostring) + "s") end),
+            ttft: ((.avg_ttft_s | tonumber? // null) | if . == null then null else . * 1000 end | durationLabel),
             errors: (.errors | num | commas),
             rawInput: $in, rawOutput: (.output_tokens | num)
           } ],

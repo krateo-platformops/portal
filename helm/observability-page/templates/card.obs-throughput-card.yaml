@@ -28,7 +28,7 @@ spec:
   {{/* healthy measurement). Otherwise the live p95 + failure count + rate. */}}
   widgetDataTemplate:
   - forPath: extra
-    expression: '${ (.current // {}) as $c | (.failures // 0) as $f | (.successes // 0) as $ok | ($f + $ok) as $tot | (if $tot == 0 then "no reconcile-trace data" else ("p95 " + (($c.p95_ms // 0)|tostring) + "ms · " + ($f|tostring) + " fail (" + (($f * 100 / $tot)|floor|tostring) + "%)") end) }'
+    expression: '${ {{ include "duration.label" . }} (.current // {}) as $c | (.failures // 0) as $f | (.successes // 0) as $ok | ($f + $ok) as $tot | (if $tot == 0 then "no reconcile-trace data" else ("p95 " + (($c.p95_ms // 0) | durationLabel) + " · " + ($f|tostring) + " fail (" + (($f * 100 / $tot)|floor|tostring) + "%)") end) }'
   apiRef:
     name: obs-reconcile-metrics
     namespace: {{ $.Values.namespace }}

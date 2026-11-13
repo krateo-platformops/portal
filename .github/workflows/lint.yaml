@@ -738,6 +738,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-agents-page.py
 
+      # Every duration statistic reads "830 ms" / "1.2 s", never antd's "1,189 ms" (a decimal comma
+      # to an Italian reader). One formatter, _duration.tpl, byte-identical in compositions-page,
+      # observability-page and portal-agents; this runs each widget's own jq. Same job: helm and jq.
+      - name: Duration labels, over the charts' own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-duration-labels.py
+
   # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
   # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
   # logged 601 GETs of `…/builderpublishes/review-`, 358 of `/apis/none.krateo.io/v1/none` and 67 of
