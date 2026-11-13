@@ -330,7 +330,8 @@ GATES = {
                 ('spans', '/?query=' + quote(
                     "SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, "
                     "ParentSpanId AS parent_id, ServiceName AS svc, SpanName AS span, Duration AS dur_ns, "
-                    "StatusCode AS status, coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), "
+                    "StatusCode AS status, StatusMessage AS msg, "
+                    "coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), "
                     "nullIf(SpanAttributes['http.status_code'], ''), SpanAttributes['http.status']) AS http, "
                     "SpanAttributes['jwt.sub'] AS sub FROM otel_traces "
                     "WHERE TraceId = '4f1c9e2a7b3d4c5e8f9a0b1c2d3ea07e' AND Timestamp > now() - INTERVAL 7 DAY "
