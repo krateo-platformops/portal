@@ -1,18 +1,43 @@
-{{/* /incidents data source — one row per Incident (incidents.observability.krateo.io, owned by */}}
-{{/* incident-controller), shaped server-side: */}}
-{{/* rows     : title (the alert's display name, else its name, else the root cause), */}}
-{{/*            cause (the root cause: an alert can have several incidents open at once, one per */}}
-{{/*            problem, and this tells them apart), state, age, severity dot colour; */}}
-{{/*            filtered by the ?status= chip (extras). */}}
-{{/* counts   : per-state totals over the full set, so every chip shows its live count. */}}
-{{/* awaiting : firing Alerts (state ALERT, not paused) with no open incident — the "Firing alerts */}}
-{{/*            with no incident" table, each with an /incidents?ask= Autopilot deep-link and `why`, off */}}
-{{/*            alert-provider's OpensIncidents condition: a metric or value Alert never opens one, a */}}
-{{/*            counting Alert has not opened one yet. The not-yet ones come first. */}}
-{{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
-{{/* failed   : the Incident list could not be read (incidentsError), and readError says why. */}}
-{{/* askHref  : the header's "Ask Agentiko →" link — a prompt about the view on screen. */}}
-{{/* An incident belongs to the alert named by its observability.krateo.io/alert label. */}}
+{{/* /incidents data source (root-pages UX, build plan §3.2; mockup screen 06): one row per Incident
+     (incidents.observability.krateo.io, owned by incident-controller), filtered by the page's
+     facets and shaped server-side. An incident belongs to the alert named by its
+     observability.krateo.io/alert label.
+
+     THE FILTERS (portal.facets, _facets.tpl). One URL param per facet, values comma-joined:
+       status  State: analyzing, open, verifying, resolved, closed. The old chip param, so
+               /incidents?status=open still lands filtered; it is read case-insensitively and
+               `all` means no filter, as the chips wrote it;
+       alert   the alert's name (labelled with its display name);
+       age     24h, 7d, 30d, older: how long ago the incident was triggered;
+       owner   krateo (the Alert carries krateo.io/composition-name: Krateo shipped it), yours (the
+               Alert exists without it), deleted (the Alert no longer exists). With the alerts read
+               failed, no incident has an owner and the facet hides: an unread alert is not a
+               deleted one;
+       q       search: title and root cause, case-insensitive.
+     Not filters: group (alert, the default, or age: how the open cards are grouped) and view
+     (`table`: today's table instead of the cards).
+
+     OUTPUT.
+       rows      the filtered incidents, newest first (today's table, ?view=table);
+       facets    the filter bar; counts apply every OTHER filter, visibility is over all incidents;
+       counts    the strip, over the filtered set: open (and the alerts behind them), opened in
+                 the last 7 days, open longer than 7 days (and the oldest), analyzing, verifying,
+                 resolved, closed;
+       panels    the active states (Open, Analyzing, Verifying) that have incidents in view, each
+                 its incidents grouped by alert (largest first) or by age (newest first): count,
+                 first and newest trigger, the newest incident and its root cause, the alert's
+                 state now, and seeAll, the table view filtered to that group;
+       chips     the applied filters, each removing itself, then Clear all (keeps ?projects);
+       tableHref / cardsHref   the same filters in the table view and back; stateTableHrefs, the
+                 table view filtered to one state (Resolved and Closed's "See all N →");
+       groupHrefs  the same view grouped by alert or by age;
+       awaiting  firing Alerts (state ALERT, not paused) with no open incident, each with an
+                 /incidents?ask= Autopilot deep-link and `why`, off alert-provider's OpensIncidents
+                 condition: a metric or value Alert never opens one, a counting Alert has not
+                 opened one yet. The not-yet ones come first. NOT filtered: it is about alerts;
+       failed    the Incident list could not be read (incidentsError), and readError says why;
+       askHref   the header's "Ask Agentiko →": a prompt about the view on screen, keeping every
+                 filter param (the rail now carries every URL param). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -33,31 +58,78 @@ spec:
       continueOnError: true
       errorKey: alertsError
   filter: |
+    {{- include "portal.facets" . | nindent 4 }}
     def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
-    (.status // "all" | tostring | ascii_downcase) as $sel
+    # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list, each element a
+    # message string or the apiserver's Status object, so the text is read from either.
+    def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
+    def epoch: ((tostring | .[0:19] + "Z") | fromdateiso8601?) // null;
+    . as $in
+    | ["projects", "status", "alert", "age", "owner", "q", "group", "view"] as $keys
+    | ($in | fx_filters(["alert", "status", "age", "owner"])) as $flt0
+    # ?status= back-compat: the chips wrote one lower-case state, or `all`; any case is read.
+    | ([ $flt0.status[] | ascii_downcase | select(. != "all") ] | unique) as $statusSel
+    | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "")) as $qraw
+    | ($qraw | ascii_downcase) as $q
+    # Search is one more filter on each row's `f` (f.q is "1" on a match), so the facet counts
+    # follow it and facet visibility stays over every incident.
+    | ($flt0 + { status: $statusSel, q: (if $q == "" then [] else ["1"] end) }) as $flt
+    | fx_set(($in | fx_params($keys)); "status"; ($statusSel | join(","))) as $p
+    | (if ($in.group // "") == "age" then "age" else "alert" end) as $group
+    | ((($in.view // "") | tostring) == "table") as $tableView
     | ((.incidents.items) // []) as $items
     | ((.alerts.items) // []) as $alerts
-    | ($alerts | map({ key: (.metadata.name // ""), value: (.spec.displayName // "") }) | from_entries) as $display
+    | (.alertsError != null) as $alertsFailed
+    | ($alerts | map({ key: (.metadata.name // ""), value: {
+          display: ((.spec.displayName // "") | gsub("[^ -~]"; "") | sub("^ +"; "") | sub(" +$"; "")),
+          krateo: ((((.metadata.labels // {})["krateo.io/composition-name"]) // "") != ""),
+          state: (.status.state // "") } }) | from_entries) as $alertBy
+    | now as $now
     | ($items | map(
         (.status.state // "Analyzing") as $state
         | alertlabel as $alert
-        | (($display[$alert] // "") | gsub("[^ -~]"; "") | sub("^ +"; "") | sub(" +$"; "")) as $dn
+        | ($alertBy[$alert] // null) as $a
+        | ($a.display // "") as $dn
+        | (.spec.triggeredAt // .metadata.creationTimestamp // "") as $at
+        | (($at | epoch) as $e
+           | if $e == null then ""
+             else (($now - $e) / 3600) as $h
+             | if $h < 24 then "24h" elif $h < 168 then "7d" elif $h < 720 then "30d" else "older" end end) as $age
+        | (.status.rootCause.statement // "") as $rc
         | {
             name: (.metadata.name // ""),
             # A namespaced list omits .metadata.namespace per item; these incidents are in the namespace just listed.
             namespace: "{{ $.Release.Namespace }}",
-            title: (if $dn != "" then $dn elif $alert != "" then $alert elif (.status.rootCause.statement // "") != "" then .status.rootCause.statement else (.metadata.name // "") end),
-            cause: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement
+            title: (if $dn != "" then $dn elif $alert != "" then $alert elif $rc != "" then $rc else (.metadata.name // "") end),
+            cause: (if $rc != "" then $rc
                     elif (.status.error // "") != "" then "analysis failed"
                     elif $state == "Analyzing" then "analyzing"
                     else "—" end),
             state: $state,
             stateKey: ($state | ascii_downcase),
             age: (.metadata.creationTimestamp // .spec.triggeredAt // ""),
-            triggeredAt: (.spec.triggeredAt // .metadata.creationTimestamp // ""),
-            sevColor: ({ Open: "var(--red-color)", Verifying: "var(--orange-color)", Resolved: "var(--green-color)" }[$state] // "var(--gray-color)")
+            triggeredAt: $at,
+            sevColor: ({ Open: "var(--red-color)", Verifying: "var(--orange-color)", Resolved: "var(--green-color)" }[$state] // "var(--gray-color)"),
+            alert: $alert,
+            alertLabel: (if $dn != "" then $dn elif $alert != "" then $alert else "(no alert)" end),
+            alertState: ($a.state // ""),
+            ageBucket: $age,
+            f: { status: ($state | ascii_downcase),
+                 # A comma would split the value in the URL (one param, comma-joined values).
+                 alert: ($alert | gsub(","; "")),
+                 age: $age,
+                 owner: (if $alertsFailed or $alert == "" then "" elif $a == null then "deleted" elif $a.krateo then "krateo" else "yours" end) }
           }
+        | .f.q = (if $q == "" then "" elif ((.title + " " + .cause) | ascii_downcase | contains($q)) then "1" else "0" end)
       ) | sort_by(.triggeredAt) | reverse) as $rows
+    | ($rows | fx_apply($flt)) as $shown
+    | ([ $rows[] | select(.f.alert != "") | { key: .f.alert, value: .alertLabel } ] | unique_by(.key) | from_entries) as $alertNames
+    | { analyzing: "Analyzing", open: "Open", verifying: "Verifying", resolved: "Resolved", closed: "Closed" } as $stateNames
+    | { "24h": "Last 24 hours", "7d": "1–7 days", "30d": "7–30 days", older: "Over 30 days" } as $ageNames
+    | [ fx_facet($rows; $flt; "alert"; "Alert"; $alertNames),
+        fx_facet($rows; $flt; "status"; "State"; $stateNames),
+        fx_facet($rows; $flt; "age"; "Age"; $ageNames),
+        fx_facet($rows; $flt; "owner"; "Owner"; { krateo: "Krateo", yours: "Yours", deleted: "Alert deleted" }) ] as $facets
     | ([ $items[] | select((.status.state // "Analyzing") as $s | ($s != "Resolved" and $s != "Closed")) | alertlabel ] | unique) as $openAlerts
     | ([ $alerts[]
          | select((.status.state // "") == "ALERT")
@@ -79,19 +151,43 @@ spec:
                + " Run a root-cause analysis and give me the concrete next steps.") | @uri)) }
        ] | sort_by(.never) | .[0:8]) as $awaiting
     # A FAILED READ IS NOT A QUIET PLATFORM. `continueOnError` plus `// []` turns a refused or
-    # failed Incident list into zero rows, and the chips into zeros. The page's widgets have always
-    # drawn that as empty; the Agentiko prompt must not CLAIM it, so the failure is carried out.
-    # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list, each element a
-    # message string or the apiserver's Status object, so the text is read from either.
-    | ((.incidentsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $err
+    # failed Incident list into zero rows. The page says so (the strip and the calm line), and the
+    # Agentiko prompt must not claim a quiet platform, so the failure is carried out.
+    | ((.incidentsError // null) | errtext) as $err
     | ($err != "") as $failed
-    | ([ { key: "analyzing", noun: "incidents still being analyzed", active: true },
-         { key: "open", noun: "open incidents", active: true },
-         { key: "verifying", noun: "incidents being verified", active: true },
-         { key: "resolved", noun: "resolved incidents", active: false },
-         { key: "closed", noun: "closed incidents", active: false } ]) as $states
-    | ([ $states[] | select(.key == $sel) ] | .[0]) as $st
-    | (if $sel == "all" then $rows else [ $rows[] | select(.stateKey == $sel) ] end) as $shown
+    # THE STRIP, over the filtered set.
+    | ([ $shown[] | select(.stateKey == "open") ]) as $open
+    | def nstate($k): [ $shown[] | select(.stateKey == $k) ] | length;
+      { open: ($open | length),
+        openAlerts: ([ $open[] | .alert ] | unique | length),
+        openLast7d: ([ $open[] | select(.ageBucket == "24h" or .ageBucket == "7d") ] | length),
+        openOver7d: ([ $open[] | select(.ageBucket == "30d" or .ageBucket == "older") ] | length),
+        oldestOpenAt: ([ $open[] | .triggeredAt | select(. != "") ] | min // ""),
+        analyzing: nstate("analyzing"), verifying: nstate("verifying"),
+        resolved: nstate("resolved"), closed: nstate("closed") } as $counts
+    # THE GROUPS. An active state's incidents, by alert (largest first) or by age (newest first).
+    # seeAll is the table view filtered to the group AND its state, so "See all N" lists those N.
+    | def groups($members; $state):
+        (if $group == "age" then
+           [ { key: "24h" }, { key: "7d" }, { key: "30d" }, { key: "older" } ]
+           | map(.key as $b | { key: $b, label: $ageNames[$b], members: [ $members[] | select(.ageBucket == $b) ] })
+           | map(select((.members | length) > 0))
+         else
+           $members | group_by(.alert) | map({ key: .[0].alert, label: .[0].alertLabel, members: . })
+           | sort_by(-(.members | length), .label)
+         end)
+        | map((.members | sort_by(.triggeredAt)) as $s
+              | { key, label, count: (.members | length),
+                  alert: (if $group == "alert" then .key else "" end),
+                  since: ($s[0].triggeredAt // ""), newest: ($s[-1].triggeredAt // ""),
+                  newestName: ($s[-1].name // ""), namespace: ($s[-1].namespace // ""),
+                  latestCause: ($s[-1].cause // ""), alertState: ($s[-1].alertState // ""),
+                  seeAll: fx_href("/incidents"; fx_set(fx_set(if .key == "" then $p else fx_set($p; $group; .key) end; "status"; $state); "view"; "table")) });
+      ([ { key: "open", label: "Open" }, { key: "analyzing", label: "Analyzing" }, { key: "verifying", label: "Verifying" } ]
+       | map(.key as $k | [ $shown[] | select(.stateKey == $k) ] as $m
+             | select(($m | length) > 0)
+             | . + { count: ($m | length), by: $group, groups: groups($m; $k), tableHref: fx_seeall("/incidents"; $p; "status"; $k) })) as $panels
+    | ([ $rows[] | select(.stateKey == "open") ] | length) as $nOpenAll
     | ((.projects // "") | tostring) as $projects
     | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
       def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end;
@@ -101,59 +197,94 @@ spec:
         + (if .cause != "" and .cause != "—" and .cause != .title then " — " + (.cause | cap(160)) else "" end)
         + (if .triggeredAt != "" then " (triggered " + .triggeredAt[0:10] + ")" else "" end);
       def numbered: .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | item)) | join(" ");
-      ($rows | map(.stateKey)) as $keys
-    | ([ $keys[] | select(. == "open") ] | length) as $nOpen
-    | ([ $keys[] | select(. == "verifying") ] | length) as $nVerifying
-    | ([ $keys[] | select(. == "analyzing") ] | length) as $nAnalyzing
+      def tally: [ ("open", "verifying", "analyzing", "resolved", "closed") as $k
+                   | ([ .[] | select(.stateKey == $k) ] | length) as $c | select($c > 0)
+                   | ($c | tostring) + " " + (if $k == "analyzing" then "still being analyzed" else $k end) ] | join(", ");
+      ($rows | map(.stateKey)) as $stateKeys
+    | ([ $stateKeys[] | select(. == "verifying") ] | length) as $nVerifying
+    | ([ $stateKeys[] | select(. == "analyzing") ] | length) as $nAnalyzing
     | ([ $awaiting[] | .name ] | join(", ")) as $awaitingNames
     # The alerts are a second read: when it failed, "no alert is firing" would be a claim nobody
     # checked, so the prompt says the alerts were not read instead.
-    | (.alertsError != null) as $alertsFailed
     | (if $alertsFailed then "an unknown number of alerts firing with no incident (the alerts could not be read)"
        elif ($awaiting | length) == 0 then "no alert firing without an incident"
        else n($awaiting | length; "alert"; "alerts") + " firing with no incident (" + $awaitingNames + ")" end) as $awaitingText
-    # THE PROMPT DESCRIBES THE VIEW ON SCREEN. With a ?status= chip it is about that chip's
-    # incidents, and the link keeps the chip and the shell scope. A ?status= that is no state shows
-    # no rows and no active chip, so the prompt is about every incident and the link drops it.
-    | ($st != null) as $filtered
+    # THE PROMPT DESCRIBES THE VIEW ON SCREEN, and the link keeps every filter param. With one
+    # state picked and nothing else, it is that state's prompt, as the chip's was; any other
+    # filter names the view ("State: Open; Alert: Probe failing; search \"cpu\"").
+    | ([ $facets[] | select((.active | length) > 0) | .label + ": " + ([ .values[] | select(.active) | .label ] | join(", ")) ]
+       + (if $q != "" then [ "search \"" + ($qraw | cap(80)) + "\"" ] else [] end) | join("; ")) as $desc
+    | ([ { key: "analyzing", noun: "incidents still being analyzed", active: true },
+         { key: "open", noun: "open incidents", active: true },
+         { key: "verifying", noun: "incidents being verified", active: true },
+         { key: "resolved", noun: "resolved incidents", active: false },
+         { key: "closed", noun: "closed incidents", active: false } ]) as $states
+    | (if ($statusSel | length) == 1 and all($flt | to_entries[]; .key == "status" or (.value | length) == 0)
+       then ([ $states[] | select(.key == $statusSel[0]) ][0]) else null end) as $st
+    | ([ $shown[] | select(.stateKey == "analyzing" or .stateKey == "open" or .stateKey == "verifying") ]) as $active
     | (if $failed then
          "The incidents on this page could not be read (" + ($err | cap(300)) + "). Explain what that error means and what to check."
        elif ($rows | length) == 0 then
          "There are no incidents on this platform, and " + $awaitingText + "."
          + (if ($awaiting | length) > 0 then " Tell me which alert to investigate first and why — grounded in the evidence on this page."
             else " Tell me whether anything on this page needs attention." end)
-       elif ($filtered | not) then
-         ([ $rows[] | select(.stateKey == "open") ]) as $open
-         | "Triage my incidents: " + ($nOpen | tostring) + " open, " + ($nVerifying | tostring) + " verifying, "
+       elif $desc == "" then
+         ([ $rows[] | select(.stateKey == "open") ]) as $openAll
+         | "Triage my incidents: " + ($nOpenAll | tostring) + " open, " + ($nVerifying | tostring) + " verifying, "
            + ($nAnalyzing | tostring) + " still being analyzed, and " + $awaitingText + "."
-           + (if ($open | length) == 0 then ""
-              elif ($open | length) == 1 then " The open one is: " + ($open | numbered) + "."
-              else " The open ones are: " + ($open | numbered) + "." end)
+           + (if ($openAll | length) == 0 then ""
+              elif ($openAll | length) == 1 then " The open one is: " + ($openAll | numbered) + "."
+              else " The open ones are: " + ($openAll | numbered) + "." end)
            + " Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page."
+       elif $st != null then
+         (if ($shown | length) == 0 then
+            "I have no " + $st.noun + "; my " + n($rows | length; "incident is"; "incidents are") + " in other states, with "
+            + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
+          elif $st.active then
+            "Triage my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
+            + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
+            + " Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page."
+          else
+            "Review my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
+            + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
+            + " Tell me whether any looks " + $st.key + " without its cause being fixed, and whether any is likely to come back — grounded in the evidence on this page."
+          end)
        elif ($shown | length) == 0 then
-         "I have no " + $st.noun + "; my " + n($rows | length; "incident is"; "incidents are") + " in other states, with "
-         + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
-       elif $st.active then
-         "Triage my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
-         + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
+         "No incident matches the view on screen (" + $desc + "); my " + n($rows | length; "incident is"; "incidents are")
+         + " outside it, with " + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
+       elif ($active | length) > 0 then
+         "Triage the incidents in the view on screen (" + $desc + "): " + ($shown | length | tostring) + " of "
+         + n($rows | length; "incident"; "incidents") + " (" + ($shown | tally) + "). "
+         + (if ($active | length) == 1 then "The active one is: " else "The active ones are: " end) + ($active | numbered) + "."
          + " Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page."
        else
-         "Review my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
+         "Review the incidents in the view on screen (" + $desc + "): " + ($shown | length | tostring) + " of "
+         + n($rows | length; "incident"; "incidents") + " (" + ($shown | tally) + "). "
          + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
-         + " Tell me whether any looks " + $sel + " without its cause being fixed, and whether any is likely to come back — grounded in the evidence on this page."
+         + " Tell me whether any looks fixed without its cause being fixed, and whether any is likely to come back — grounded in the evidence on this page."
        end) as $prompt
     | {
         rows: $shown,
-        counts: ({ all: ($rows | length) }
-          + ([ "analyzing", "open", "verifying", "resolved", "closed" ] | map({ key: ., value: (. as $k | [ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)),
-        status: $sel,
-        projects: ((.projects // "") | tostring),
+        matched: ($shown | length),
+        total: ($rows | length),
+        counts: $counts,
+        facets: $facets,
+        filtered: ($desc != ""),
+        group: $group,
+        view: (if $tableView then "table" else "" end),
+        panels: $panels,
+        chips: fx_chips("/incidents"; $p; $facets),
+        tableHref: fx_href("/incidents"; fx_set($p; "view"; "table")),
+        cardsHref: fx_href("/incidents"; fx_set($p; "view"; "")),
+        groupHrefs: { alert: fx_href("/incidents"; fx_set($p; "group"; "")), age: fx_href("/incidents"; fx_set($p; "group"; "age")) },
+        stateTableHrefs: ([ "analyzing", "open", "verifying", "resolved", "closed" ] | map({ key: ., value: fx_seeall("/incidents"; $p; "status"; .) }) | from_entries),
+        projects: $projects,
         awaiting: $awaiting,
         awaitingCount: ($awaiting | length),
+        alertsFailed: $alertsFailed,
+        alertsTotal: ($alerts | length),
+        alertsFiring: ([ $alerts[] | select((.status.state // "") == "ALERT") ] | length),
         failed: $failed,
         readError: $err,
-        askHref: ("/incidents?"
-          + ([ (if $filtered then "status=" + $sel else empty end),
-               (if $projects != "" then "projects=" + ($projects | @uri) else empty end) ] | map(. + "&") | join(""))
-          + "ask=" + ($prompt | @uri))
+        askHref: fx_href("/incidents"; $p + [["ask", $prompt]])
       }

@@ -1,0 +1,30 @@
+{{/* The Alert facet: which alerts' incidents to show, written to ?alert= (comma-joined alert names).
+     Each option is labelled with the alert's display name and counts its incidents under the other
+     filters (portal.facets); the largest comes first, at most 12 plus any picked. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-alert
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: alert
+    label: Alert
+    queryParam: alert
+    mode: multiple
+    prefix: Alert
+    placeholder: All
+    size: small
+    panelFooter: Counted in incidents, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "alert") | .values[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

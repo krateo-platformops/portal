@@ -1,0 +1,31 @@
+{{/* The Owner facet, written to ?owner=: Krateo (the alert carries krateo.io/composition-name, so
+     Krateo shipped it), Yours (the alert exists without it) or Alert deleted (the alert no longer
+     exists). When the alerts could not be read no incident has an owner, so the facet has no value
+     and is left out of the bar. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-owner
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: owner
+    label: Owner
+    queryParam: owner
+    mode: multiple
+    prefix: Owner
+    placeholder: All
+    size: small
+    panelFooter: Counted in incidents, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "owner") | .values[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

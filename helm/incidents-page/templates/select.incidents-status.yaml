@@ -1,0 +1,31 @@
+{{/* The State facet, written to ?status= (comma-joined, lower case): the param the state chips
+     wrote, so /incidents?status=open still lands filtered. The options keep the lifecycle order
+     (Analyzing, Open, Verifying, Resolved, Closed), not the count order: a state is read in its
+     place. Only the states some incident is in are offered. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: status
+    label: State
+    queryParam: status
+    mode: multiple
+    prefix: State
+    placeholder: All
+    size: small
+    panelFooter: Counted in incidents, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "status") | .values | sort_by({analyzing: 0, open: 1, verifying: 2, resolved: 3, closed: 4}[.value] // 5)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []
