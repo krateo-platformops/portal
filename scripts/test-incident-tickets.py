@@ -464,7 +464,7 @@ def main():
     # dial the same (state mapping check), so the expectations follow the chart, not this file.
     global ZR_PATH
     try:
-        tsd.ZAPI = tsd.chart_zapi(desk_chart)
+        tsd.ZAPI, tsd.ZCFG = tsd.chart_zapi(desk_chart), tsd.chart_zcfg(desk_chart)
         ZR_PATH = f'/apis/{tsd.ZAPI}/zendeskrequests'
     except (LookupError, KeyError, IndexError):
         pass

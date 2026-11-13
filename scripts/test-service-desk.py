@@ -57,13 +57,20 @@ def _load(mod, file):
 tbi = _load('tbi', 'test-builder-install.py')
 CHART_DIR = os.environ.get('SERVICE_DESK_CHART') or os.path.join(REPO, 'helm', 'service-desk-page')
 GROUP = 'zendesk.ogen.krateo.io'
-# The served apiVersion is read FROM THE CHART (servicedesk.zendeskAPIVersion, set in main()), so the
-# day the served CRD settles v2 against v1alpha1 the chart's one define is the only edit.
+# The served apiVersions are read FROM THE CHART (servicedesk.zendeskRequestAPIVersion and
+# servicedesk.zendeskConfigurationAPIVersion, set in main()), so a change to either is one edit there.
+# Two versions on purpose: ZendeskRequest is v2 (its OAS info.version), its Configuration v1alpha1.
 ZAPI = GROUP + '/v2'
+ZCFG = GROUP + '/v1alpha1'
 
 
 def chart_zapi(chart):
     return chart.get('Form', 'request-new')['spec']['widgetData']['actions']['rest'][0]['payload']['apiVersion']
+
+
+def chart_zcfg(chart):
+    path = chart.get('RESTAction', 'request-raise-context')['spec']['api'][0]['path']
+    return '/'.join(path.split('/')[2:4])
 
 
 class Err:
@@ -380,7 +387,7 @@ def check_empty_queue(chart):
 
 
 def configs(*pairs):
-    return {'items': [{'apiVersion': ZAPI, 'kind': 'ZendeskRequestConfiguration',
+    return {'items': [{'apiVersion': ZCFG, 'kind': 'ZendeskRequestConfiguration',
                        'metadata': {'name': n, 'namespace': ns}, 'spec': {'secretRef': {'name': 'zd-token', 'namespace': ns, 'key': 'token'}}}
                       for ns, n in pairs]}
 
@@ -596,10 +603,10 @@ def check_request_read_is_gated_and_as_the_caller(chart):
     expect(f, 'the one read', dialled, [f'/apis/{ZAPI}/namespaces/acme-retail/zendeskrequests/zr-a'])
     step = chart.get('RESTAction', 'zendesk-request')['spec']['api'][0]
     expect(f, 'a request is read with the caller\'s own credential', ('userAccessFilter' in step, 'endpointRef' in step), (False, False))
-    for ra, res in [('zendesk-requests', 'zendeskrequests'), ('request-raise-context', 'zendeskrequestconfigurations')]:
+    for ra, res, ver in [('zendesk-requests', 'zendeskrequests', ZAPI), ('request-raise-context', 'zendeskrequestconfigurations', ZCFG)]:
         s = chart.get('RESTAction', ra)['spec']['api'][0]
         expect(f, f'{ra}: listed across namespaces, refiltered as the caller',
-               (s['path'], s.get('userAccessFilter')), (f'/apis/{ZAPI}/{res}',
+               (s['path'], s.get('userAccessFilter')), (f'/apis/{ver}/{res}',
                                                        {'verb': 'list', 'group': ZAPI.split('/')[0], 'resource': res, 'namespaceFrom': '.metadata.namespace'}))
         expect(f, f'{ra}: no endpointRef', 'endpointRef' in s, False)
     return f
@@ -617,7 +624,11 @@ def check_ticket_desk_is_gone(chart):
            [(d['metadata']['name'], d['metadata'].get('annotations', {}).get('helm.sh/resource-policy')) for d in nss],
            [('krateo-service-desk', 'keep')])
     seen = set(re.findall(GROUP.replace('.', r'\.') + r'/[a-z0-9]+', text))
-    expect(f, 'one Zendesk apiVersion across the chart (servicedesk.zendeskAPIVersion)', seen, {ZAPI})
+    expect(f, 'the Zendesk apiVersions across the chart are the defines\' two', seen, {ZAPI, ZCFG})
+    expect(f, 'the configuration is read at its own version, never the request\'s',
+           [x for x in re.findall(r'/apis/[^"\' ]*zendeskrequestconfigurations', text)], [f'/apis/{ZCFG}/zendeskrequestconfigurations'])
+    expect(f, 'ZendeskRequest is v2 and its Configuration v1alpha1 (zendesk-kog 0.2.1 assets; confirm on the served CRDs)',
+           (ZAPI, ZCFG), (GROUP + '/v2', GROUP + '/v1alpha1'))
     rules = [r for d in chart.docs if d['kind'] == 'Role' for r in d['rules']]
     expect(f, 'the page grant reads widgets and RESTActions only', sorted({g for r in rules for g in r['apiGroups']}),
            ['templates.krateo.io', 'widgets.templates.krateo.io'])
@@ -754,9 +765,9 @@ def main():
         crds_dir = pinned.unpack(version)
         print(f'validating against the pinned frontend-crds {version}')
     chart = tbi.Chart(tbi.render(CHART_DIR))
-    global ZAPI
+    global ZAPI, ZCFG
     try:
-        ZAPI = chart_zapi(chart)
+        ZAPI, ZCFG = chart_zapi(chart), chart_zcfg(chart)
     except (LookupError, KeyError, IndexError):
         pass
     failed = 0

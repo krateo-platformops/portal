@@ -69,7 +69,7 @@ metadata:
 spec:
   api:
     - name: configs
-      path: /apis/{{ include "servicedesk.zendeskAPIVersion" . }}/zendeskrequestconfigurations
+      path: /apis/{{ include "servicedesk.zendeskConfigurationAPIVersion" . }}/zendeskrequestconfigurations
       verb: GET
       userAccessFilter:
         verb: list
@@ -209,7 +209,7 @@ spec:
           { name: "spec.priority", value: "${ .json.priority // \"normal\" }" } ]),
         unavailable: (if $state == "absent" then
                         { status: "info", title: "Zendesk requests aren’t served on this cluster",
-                          subTitle: "The portal can’t find the Zendesk provider’s kinds ({{ include "servicedesk.zendeskAPIVersion" . }}), so nothing can be raised here. An administrator installs the Zendesk provider." }
+                          subTitle: "The portal can’t find the ZendeskRequestConfiguration kind ({{ include "servicedesk.zendeskConfigurationAPIVersion" . }}), so nothing can be raised here. An administrator installs the Zendesk provider." }
                       elif $state == "failed" then
                         { status: "warning", title: "Your organisation’s Zendesk configuration could not be read",
                           subTitle: ("So the portal can’t tell where a request would go. " + ($err | cap(300))) }

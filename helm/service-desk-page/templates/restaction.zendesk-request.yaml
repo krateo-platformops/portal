@@ -38,7 +38,7 @@ spec:
       dependsOn:
         name: ""
         iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select((.name | type) == "string" and (.namespace | type) == "string" and .name != "" and .namespace != "") ]'
-      path: ${ "/apis/{{ include "servicedesk.zendeskAPIVersion" . }}/namespaces/" + .namespace + "/zendeskrequests/" + .name }
+      path: ${ "/apis/{{ include "servicedesk.zendeskRequestAPIVersion" . }}/namespaces/" + .namespace + "/zendeskrequests/" + .name }
       verb: GET
       continueOnError: true
       errorKey: requestError
@@ -142,7 +142,7 @@ spec:
         showReplies: $found,
         unavailable: (if $found then { status: "info", title: "", subTitle: "" }
                       elif $absent then { status: "info", title: "Zendesk requests aren’t served on this cluster",
-                                          subTitle: "The portal can’t find the ZendeskRequest kind ({{ include "servicedesk.zendeskAPIVersion" . }}). An administrator installs the Zendesk provider." }
+                                          subTitle: "The portal can’t find the ZendeskRequest kind ({{ include "servicedesk.zendeskRequestAPIVersion" . }}). An administrator installs the Zendesk provider." }
                       elif $denied then { status: "warning", title: "You can’t read this request",
                                           subTitle: ("Your access to Zendesk requests in " + $ns + " could not be confirmed. Ask an administrator.") }
                       elif $missing then { status: "info", title: "This request isn’t here",

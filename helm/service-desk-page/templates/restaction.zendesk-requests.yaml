@@ -47,7 +47,7 @@ spec:
          the kind answers 404 here, which the filter turns into "Zendesk requests aren't served on
          this cluster" rather than an empty queue. */}}
     - name: requests
-      path: /apis/{{ include "servicedesk.zendeskAPIVersion" . }}/zendeskrequests
+      path: /apis/{{ include "servicedesk.zendeskRequestAPIVersion" . }}/zendeskrequests
       verb: GET
       userAccessFilter:
         verb: list
@@ -139,7 +139,7 @@ spec:
         showRaise: ($absent | not),
         unavailable: (if $absent then
                         { status: "info", title: "Zendesk requests aren’t served on this cluster",
-                          subTitle: "The portal can’t find the ZendeskRequest kind ({{ include "servicedesk.zendeskAPIVersion" . }}), so it can’t list requests or raise new ones. This isn’t an empty queue. An administrator installs the Zendesk provider." }
+                          subTitle: "The portal can’t find the ZendeskRequest kind ({{ include "servicedesk.zendeskRequestAPIVersion" . }}), so it can’t list requests or raise new ones. This isn’t an empty queue. An administrator installs the Zendesk provider." }
                       elif $denied then
                         { status: "warning", title: "Your access to Zendesk requests could not be confirmed",
                           subTitle: "So this is not your organisation’s list of requests: it is nothing at all. Tell an administrator." }
