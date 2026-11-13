@@ -1,0 +1,138 @@
+{{/* Raise a request — POSTs one ZendeskRequest, AS THE CALLER, into the chosen organisation's
+     namespace. The Zendesk provider files it with Zendesk from there.
+
+     WHERE IT GOES comes from request-raise-context: with one configuration the namespace and
+     configurationRef are literals fixed at resolve and the form has no organisation field; with
+     several they are read from the Organisation the person chose. The page root draws this form
+     only when there is at least one configuration (flex.page-request-new.yaml).
+
+     THE NAME IS FIXED WHEN THE WIDGET RESOLVES: `zr-<user-slug>-<unix seconds>`. snowplow's /call
+     needs a name on a namespaced POST and writes it into the body's metadata.name, so
+     `generateName` would be overridden — the same constraint reviews-run-now and
+     incident-rem-run-apply document. The user slug is in the name because this form is resolved on
+     page load and submitted minutes later, so a bare timestamp would collide between two people who
+     opened the page in the same second. With the slug, a collision needs ONE person with two tabs
+     opened in the same second; they get AlreadyExists and nothing is created.
+     `spec.krateo_reference` is that same name, computed in the SAME expression, so the two cannot
+     straddle a second.
+
+     NAME AND NAMESPACE GO THROUGH payloadToOverride, NOT the action payload. The Form builds the
+     body as action payload < the served ref payload < overrides (frontend buildPayload), and snowplow
+     serves a create ref's payload with `metadata: {name: "", namespace: ""}` (its Reference has no
+     omitempty), which would blank a name or namespace written in the action payload. A literal
+     override value (one not starting with `${`) is sent as it is.
+
+     WHO RAISED IT is recorded, never asked. The form declares `identityContext: [username]`, so
+     snowplow folds the authenticated principal into the resolve input (injection WINS over any
+     extras a client sends), and the templates below write it as the `krateo.io/raised-by` label
+     (a slug: a label value cannot hold `@`, and stops at 63 characters) and annotation (verbatim).
+     The queue's "Raised by" column and "Mine" chip read them. THEY ARE INFORMATIONAL, NOT A
+     BOUNDARY: anyone who may create a ZendeskRequest can set them to anything with kubectl, and
+     Zendesk itself records every request as coming from the organisation's support account — which
+     is what the notice above the form says.
+
+     NO EDIT, NO DELETE ANYWHERE. Every spec field but krateo_reference is create-only, and deleting
+     a ZendeskRequest never touches Zendesk. */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-new
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The server-trusted principal, folded into the resolve input (and into this widget's cache
+       cell, so two people on this page never share one name or one label). */}}
+  identityContext:
+    - username
+  {{/* The incident a request is raised from, when the incident page sent the person here. Declared so
+       each incident's pre-filled form is its own cache cell: a widget served extras it does not
+       declare is never cached, and one that shared a cell across incidents would pre-fill one
+       incident's text into another's request. */}}
+  keyExtras: [incidentName, incidentNamespace]
+  apiRef:
+    name: request-raise-context
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    layout: vertical
+    submitActionId: submit
+    notice: Zendesk records this request as coming from your organisation’s support account, not from you by name. Agents answer it in Zendesk.
+    {{/* The real schema is request-raise-context's `stringSchema`, built per caller. This is only
+         the CR's shape: the page root never draws the form without a context. */}}
+    stringSchema: '{"type":"object","properties":{}}'
+    {{/* Description is multi-line. A widgetData list keyed by field name, as `checkboxes` is
+         (frontend#716), not a schema `format`: a format is what a value means, not which control
+         draws it. Drawn once the frontend's Form presentation change ships; until then Description
+         is a one-line input, and frontend-crds must declare `textareas` before this chart can
+         apply (lint-pinned-crds says so). */}}
+    textareas:
+      - name: description
+        rows: 6
+    buttonConfig:
+      primary:
+        label: Raise request
+        icon: fa-paper-plane
+      secondary:
+        label: Cancel
+        navigateTo: /service-desk
+    actions:
+      rest:
+        - id: submit
+          type: rest
+          resourceRefId: create-request
+          headers:
+            - 'Content-Type: application/json'
+          successMessage: '${ "Request " + (.json.metadata.name // "") + " saved. The Zendesk provider files it next." }'
+          {{/* A 403 here means the caller can read this organisation's configuration but not create
+               requests beside it (rare), or a grant changed after the page loaded. The Form keeps what
+               was typed. The title of the notification is the Status's "<code> - <reason>". */}}
+          errorMessage: '${ if ((.response.code // 0) == 403 or (.response.reason // "") == "Forbidden") then "You don’t have permission to raise requests for this organisation. Nothing was filed, and what you typed is still in the form." elif ((.response.code // 0) == 409 or (.response.reason // "") == "AlreadyExists") then "A request with this name already exists, so nothing new was filed. Reload the page and raise it again." else ("Nothing was filed. " + (.response.message // "")) end }'
+          onSuccessNavigateTo: '${ "/service-desk/" + (.json.metadata.namespace // "") + "/" + (.json.metadata.name // "") }'
+          loading:
+            display: true
+          {{/* What is not an override: the kind, and the raised-by label and annotation (templated
+               below; an empty one is pruned). The served ref payload carries only metadata.name and
+               metadata.namespace, so these survive the merge. */}}
+          payload:
+            apiVersion: {{ include "servicedesk.zendeskRequestAPIVersion" . }}
+            kind: ZendeskRequest
+            metadata:
+              labels: {}
+              annotations: {}
+          {{/* Replaced whole by the template below, which adds metadata.name and
+               spec.krateo_reference to request-raise-context's `overrides`. LEAF paths only: an
+               override SETS its path, so `spec` alone would replace the whole spec. */}}
+          payloadToOverride:
+            - name: spec.subject
+              value: '${ .json.subject // "" }'
+  widgetDataTemplate:
+    - forPath: stringSchema
+      expression: '${ .stringSchema // "{\"type\":\"object\",\"properties\":{}}" }'
+    - forPath: actions.rest[0].payloadToOverride
+      expression: '${ ((.username // "") | ascii_downcase | gsub("[^a-z0-9-]"; "-") | .[0:40]) as $u | ("zr-" + (if $u == "" then "anon" else $u end) + "-" + (now | floor | tostring)) as $n | [ { name: "metadata.name", value: $n }, { name: "spec.krateo_reference", value: $n } ] + (.overrides // []) }'
+    {{/* The same slug zendesk-requests compares "Mine" against (_zendesk.tpl labelslug): lowercased,
+         everything outside [a-z0-9._-] to `-`, cut to 63, ends trimmed to alphanumerics. Change
+         both together, or nobody's requests are theirs. */}}
+    {{/* …and, raised from an incident, `krateo.io/incident-uid`: the incident page lists the
+         requests carrying it ("Zendesk requests for this incident"). */}}
+    - forPath: actions.rest[0].payload.metadata.labels
+      expression: '${ ((.username // "") | ascii_downcase | gsub("[^a-z0-9._-]"; "-") | .[0:63] | sub("^[^a-z0-9]+"; "") | sub("[^a-z0-9]+$"; "")) as $s | (if $s == "" then {} else { "krateo.io/raised-by": $s } end) + (if ((.incidentUid // "") | type) == "string" and (.incidentUid // "") != "" then { "krateo.io/incident-uid": .incidentUid } else {} end) }'
+    {{/* Raised from an incident: pre-filled from it (request-raise-context), with one line above the
+         standing notice; back to the incident on Cancel. A plain visit resolves to the plain form. */}}
+    - forPath: initialValues
+      expression: '${ .initialValues // {} }'
+    - forPath: notice
+      expression: '${ (if (.incidentNotice // "") != "" then .incidentNotice + " " else "" end) + "Zendesk records this request as coming from your organisation’s support account, not from you by name. Agents answer it in Zendesk." }'
+    - forPath: buttonConfig.secondary.navigateTo
+      expression: '${ .cancelTo // "/service-desk" }'
+    - forPath: actions.rest[0].payload.metadata.annotations
+      expression: '${ if ((.username // "") | type) == "string" and (.username // "") != "" then { "krateo.io/raised-by": .username } else {} end }'
+  resourcesRefs:
+    {{/* The POST collection. No `name` and no `namespace`: the frontend puts both into the /call
+         path from the built payload's metadata, as every create form in this repo does, so the
+         target namespace is said once, in the overrides. */}}
+    items:
+      - id: create-request
+        apiVersion: {{ include "servicedesk.zendeskRequestAPIVersion" . }}
+        resource: zendeskrequests
+        verb: POST

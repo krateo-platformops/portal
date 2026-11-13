@@ -1,47 +1,13 @@
 # @schema
-# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary the whole chart exists for — a group with no RoleBinding here cannot `list` the page roots, so the portal's sidebar never shows them and the page body 403s on a deep link. The release itself stays wherever the composition is created; only the page objects and the tickets live here. Changing it after install orphans the previous namespace's objects, which Helm will not prune because it no longer renders them — and for this chart that would orphan the TICKETS too, which is worse than orphaning a page.
+# description: The namespace this chart CREATES and installs its page objects into. It is the RBAC boundary for the PAGES: a group with no RoleBinding here cannot `list` the page roots, so the portal's sidebar never shows "Service desk" to them and a deep link 403s. It holds no Zendesk request: those live in each organisation's own namespace, beside its ZendeskRequestConfiguration, and who sees which is that namespace's RBAC. It still holds every Ticket filed before the page moved to Zendesk, which is why it stays kept on uninstall (see namespace.yaml). Changing it after install orphans the previous namespace's objects, which Helm will not prune because it no longer renders them.
 # type: string
 # default: "krateo-service-desk"
 # @schema
 namespace: krateo-service-desk
 
 # @schema
-# description: The namespace this chart CREATES and installs the RAISE-A-TICKET screen into — the page root at /service-desk/new, its header and its form. A SECOND namespace because the namespace IS the RBAC boundary in this design, and the two audiences of a service desk are different people: the requesters who raise tickets are not the desk that works them. One namespace cannot express that. `resourceNames` does not apply to `list`, so a group granted `list` on the page roots of a namespace sees EVERY root in it — give requesters read of the queue's namespace so they can open the create screen and the portal also offers them "Service desk", whose body then 403s. Splitting the screen off is the only way to give requesters the create page without giving them the queue. NO TICKETS LIVE HERE: the form posts into `namespace`, with the queue (see form.ticket-new.yaml), because `create` does not require read — which is the whole point of the split and the first thing a tidy-up would break. Changing this after install orphans the previous namespace's three widgets, which Helm will not prune because it no longer renders them; unlike `namespace` that costs nobody their data.
-# type: string
-# default: "krateo-service-desk-raise"
-# @schema
-raiseNamespace: krateo-service-desk-raise
-
-# @schema
-# description: Groups granted read of these pages and of every ticket in `namespace`. A group listed here sees /service-desk in the sidebar, can open it, and sees the whole queue — this is the DESK, not the requesters. Keep it small for the same reason the page-split exists.
+# description: Groups granted read of these pages. A group listed here sees /service-desk in the sidebar and can open the queue, the raise form and a request's page. It does NOT decide whose requests anyone sees: the queue lists the ZendeskRequests the CALLER may list, namespace by namespace, so a tenant sees its own organisation's requests and an admin sees every organisation's. A group missing from here sees no page at all, whatever it may read.
 # type: array
 # @schema
 readerGroups:
   - admins
-
-# @schema
-# description: Groups granted CREATE on tickets in `namespace`, without read of the queue. This is what makes a service desk different from every other page in this repo: the people who raise tickets are not the people who work them, so the two grants are separate. A group here can raise a ticket and cannot list anyone else's. Deliberately NOT defaulted to a broad group — who may raise a ticket is a policy decision for whoever installs this, not a default worth inheriting silently.
-# type: array
-# @schema
-requesterGroups: []
-
-# @schema
-# description: Whether the ticket page offers the DESK's own write actions — "Assign to me" and "Resolve". True for a desk whose readers work the queue in this portal. Set FALSE where the tickets are worked somewhere else and the portal is a window onto them: in the CMP, assignment and state come from Zendesk, so a tenant clicking "Assign to me" would write a field the Zendesk side owns and then watch it be overwritten. The buttons also hide per TICKET (already assigned, already resolved) via the page's own canAssign/canResolve; this flag is the per-INSTALL answer, and the two are independent. It does not affect "Ask Agentiko", which reads and reasons but writes nothing.
-# type: boolean
-# default: true
-# @schema
-deskActions: true
-
-# @schema
-# description: Namespace of a RESTAction that supplies the raise form's "service" choices, or empty for a free-text field. Set it together with `servicePickerName`; the picker renders only when BOTH are set, so a half-configured install gets free text rather than a broken closed picker. The RESTAction's filter must emit a top-level array at `.status` of `[{value, label}]` (`description` optional, a muted second line); anything that is not an array reads as a FAILED LOAD rather than "no options", which is what lets the field fall back to typed input instead of presenting an empty picker nobody can satisfy. The read happens AS THE CALLER, so whoever raises a ticket needs `get` on that RESTAction in this namespace — a separate grant from any ConfigMap behind it, and the thing most likely to work for an admin and 403 for a tenant. A cross-namespace reference is deliberate and supported: one source in one place beats a copy per tenant namespace, which is one more thing to drift.
-# type: string
-# default: ""
-# @schema
-servicePickerNamespace: ""
-
-# @schema
-# description: Name of the RESTAction supplying the raise form's "service" choices. See `servicePickerNamespace` for the output contract and the RBAC it needs. Empty (with the namespace empty) means the service field takes free text, which is the right default: the valid set of services is deployment-specific, and the API does not enforce it either — a deployment that needs the value constrained does it in admission, where it cannot be bypassed by a direct create.
-# type: string
-# default: ""
-# @schema
-servicePickerName: ""

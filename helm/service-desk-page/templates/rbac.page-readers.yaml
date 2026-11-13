@@ -1,45 +1,27 @@
-{{/* WHO SEES /service-desk, AND WHO CAN RAISE A TICKET — two different grants, which is what makes
-     this page unlike every other one in this repo.
+{{/* WHO SEES /service-desk. One grant: read of the pages in this chart's namespace.
 
-     Every other page chart has one audience: a group either sees the page or does not. A service
-     desk has two. The people who RAISE tickets are not the people who WORK them, and the whole
-     point of a desk is that a requester sees their own request and not the queue. So:
-
-       readerGroups     the DESK. Reads the page roots, reads every ticket, writes any ticket.
-       requesterGroups  REQUESTERS. Creates a ticket. Cannot list the queue.
-
-     The sidebar mechanism is the same as incidents-page (#261): the portal discovers the namespaces
-     where the CALLER may `list` page roots and lists them as that caller, so a group with no
-     RoleBinding here never sees the entry. A deep link still routes — routes are deliberately not
+     The sidebar mechanism is the same as every page chart (#261): the portal discovers the
+     namespaces where the CALLER may `list` page roots and lists them as that caller, so a group with
+     no RoleBinding here never sees the entry. A deep link still routes — routes are deliberately not
      RBAC-filtered — and the page's content /call returns 403, which is where the defence belongs.
 
-     `list` is granted and cannot be narrowed: `resourceNames` does not apply to `list`. That is why
-     the namespace is the boundary rather than a names list in one shared namespace, and it is why
-     these pages are their own chart.
+     THIS GRANTS NOTHING ON ZENDESK REQUESTS, deliberately. The page reads and writes them AS THE
+     CALLER, so what a person sees and may raise is their own RBAC in their own organisation's
+     namespace, granted where that namespace is made. krateo-selfservice-blueprint 0.2.63 grants a
+     tenant get/list/watch on zendeskrequests in its own namespace; the raise form also needs `list`
+     on zendeskrequestconfigurations and `create` on zendeskrequests there, and without them the
+     form says so (no configuration) or the submit says so (403). Granting any of it here would mean
+     deciding, in a page chart, which organisation's requests a group may read — a decision this
+     chart has no business making.
 
-     THE TWO AUDIENCES GET TWO NAMESPACES, and that is why this chart creates two. A requester
-     needs to READ the create screen's widgets to open it at all — the page root, its header, its
-     form — and `resourceNames` does not apply to `list`, so granting that in the queue's namespace
-     would let them list EVERY page root there and the portal would offer them "Service desk", whose
-     body then 403s. One namespace cannot express "this screen yes, that one no". So the create
-     screen lives in `raiseNamespace` and requesters read only that.
-
-     The tickets stay in `namespace`, with the queue, and the form posts across the boundary.
-     `create` does not require read, so a requester can raise a ticket into a namespace whose
-     contents they cannot list. That asymmetry is the whole mechanism.
-
-     A REQUESTER STILL CANNOT SEE THEIR OWN TICKET, and that is an honest gap rather than an
-     oversight. `resourceNames` does not apply to `list`, so "list only the tickets whose requester
-     is me" is not expressible in Kubernetes RBAC — snowplow confirmed they will not provide it
-     either: `userAccessFilter` filters per item by RBAC decisions only, and "requester is me" is
-     not an RBAC fact. The only way to build it today is a stage dialling with a non-user credential
-     plus a jq filter, which makes a jq expression the security boundary; they declined to endorse
-     that and so do I. Until they come back with options, a requester raises a ticket and is told
-     the number; following it requires the desk. Granting requesters `list` on tickets would show
-     them EVERYONE's, which is worse than the gap.
+     The Ticket desk's grants are gone with the Ticket kind: the desk's get/list/create/patch/delete
+     on tickets, and `requesterGroups` with its create-only Role and its read of the raise screen's
+     namespace. Existing RoleBindings that named those Roles are removed with them on upgrade.
 
      No ClusterRole anywhere here, deliberately: `scripts/lint-caller-cluster-reads.py` enforces it,
-     and a page that needs cluster-scoped reads to work is a page whose RBAC boundary has escaped. */}}
+     and a page that needs cluster-scoped reads to work is a page whose RBAC boundary has escaped.
+     The queue's cross-namespace list is snowplow's own (userAccessFilter, see
+     restaction.zendesk-requests.yaml), refiltered per object as the caller. */}}
 {{- range $g := .Values.readerGroups }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -62,19 +44,6 @@ rules:
   verbs:
   - get
   - list
-{{/* The desk works the queue, so it reads and writes tickets. `patch` rather than `update`: the
-     page edits one field at a time (assign, change state, append an activity entry) and a
-     merge-patch cannot clobber a concurrent edit to a different field the way a full update can. */}}
-- apiGroups:
-  - servicedesk.krateo.io
-  resources:
-  - tickets
-  verbs:
-  - get
-  - list
-  - create
-  - patch
-  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -85,83 +54,6 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ $g }}-read-service-desk-pages
-subjects:
-- apiGroup: rbac.authorization.k8s.io
-  kind: Group
-  name: {{ $g }}
-{{- end }}
-{{- range $g := .Values.requesterGroups }}
----
-{{/* A requester CREATES a ticket in the queue's namespace and reads nothing there.
-
-     No `list` on tickets: it would show them every ticket in the namespace, because `resourceNames`
-     does not apply to `list`. No `get` either — a get needs a name, and the only names a requester
-     knows are their own, but RBAC cannot express "the ones you created", so a names-free `get` is as
-     broad as `list` on anything whose name can be guessed. */}}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ $g }}-raise-service-desk-tickets
-  namespace: {{ $.Values.namespace }}
-rules:
-- apiGroups:
-  - servicedesk.krateo.io
-  resources:
-  - tickets
-  verbs:
-  - create
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ $g }}-raise-service-desk-tickets
-  namespace: {{ $.Values.namespace }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ $g }}-raise-service-desk-tickets
-subjects:
-- apiGroup: rbac.authorization.k8s.io
-  kind: Group
-  name: {{ $g }}
----
-{{/* AND READS THE CREATE SCREEN, in its own namespace and nowhere else.
-
-     Without this the split is pointless and the screen 403s for exactly the people it exists for: a
-     Form is a widget CR, so opening the page means LISTING widgets, and a requester who cannot list
-     them sees nothing. Granting it here rather than in the queue's namespace is what keeps "Service
-     desk" out of their sidebar — the portal lists the page roots a caller may list, per namespace,
-     and the only root here is the create screen. */}}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ $g }}-read-service-desk-raise
-  namespace: {{ $.Values.raiseNamespace }}
-rules:
-- apiGroups:
-  - widgets.templates.krateo.io
-  resources:
-  - '*'
-  verbs:
-  - get
-  - list
-- apiGroups:
-  - templates.krateo.io
-  resources:
-  - restactions
-  verbs:
-  - get
-  - list
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ $g }}-read-service-desk-raise
-  namespace: {{ $.Values.raiseNamespace }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ $g }}-read-service-desk-raise
 subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: Group

@@ -1,15 +1,17 @@
-{{/* AGENTIKO'S PROPOSAL TO RAISE A TICKET — exception-only, at the top of the incident page, under
+{{/* AGENTIKO'S PROPOSAL TO RAISE A ZENDESK REQUEST — exception-only, at the top of the incident page, under
      its header (the approved mockup's frames A and E).
 
      COMPUTED, NOT STORED. incident-detail shows it (`sections.proposal`) when the analysis says
      whose fix it is (status.rootCause.owner is `customer` or `krateo`), the incident is still Open
-     or Verifying, the ticket list came back holding no ticket for this incident, and nobody has
-     dismissed it. Agentiko wrote the verdict, once, in status.rootCause; it writes nothing else.
-     Nothing is raised until a person reviews the text and presses "Raise ticket".
+     or Verifying, the request list came back holding no ZendeskRequest for this incident, and
+     nobody has dismissed it. Agentiko wrote the verdict, once, in status.rootCause; it writes
+     nothing else. Nothing is filed until a person reviews the pre-filled service-desk form and
+     presses "Raise request"; that form files the ZendeskRequest, with the same organisation choice,
+     name and labels as any other.
 
-     BOTH OWNERS GO TO THIS PORTAL'S OWN SERVICE DESK FOR NOW. Sending a Krateo-owned incident to
-     Krateo support waits for the Krateo-hosted support relay, so for `krateo` the callout states the
-     verdict and offers the same internal ticket the customer case does.
+     BOTH OWNERS GO TO THE ORGANISATION'S ZENDESK FOR NOW. Sending a Krateo-owned incident to Krateo
+     support waits for the Krateo-hosted support relay, so for `krateo` the callout states the verdict
+     and offers the same request the customer case does.
 
      MARKED AS AGENTIKO'S, twice over, like every machine-written thing in the portal: the wand on a
      blue tile, and the word as a tag in the header. It is not an "Ask Agentiko" entry point — it
@@ -32,7 +34,7 @@ spec:
     name: incident-detail
     namespace: {{ $.Values.namespace }}
   widgetData:
-    title: Agentiko suggests opening a ticket for your platform team
+    title: Agentiko suggests raising a Zendesk request for this incident
     variant: outlined
     icon:
       name: fa-wand-magic-sparkles
@@ -46,7 +48,7 @@ spec:
     - resourceRefId: incident-ticket-proposal-actions
   widgetDataTemplate:
     - forPath: title
-      expression: '${ .proposalTitle // "Agentiko suggests opening a ticket for your platform team" }'
+      expression: '${ .proposalTitle // "Agentiko suggests raising a Zendesk request for this incident" }'
     - forPath: headerLeft
       expression: '${ .proposalText // "" }'
   resourcesRefs:
@@ -94,9 +96,10 @@ spec:
       verb: GET
 ---
 {{/* "Review and raise" — opens the service desk's own raise form, pre-filled from this incident
-     (`raiseHref`: /service-desk/new?incidentName=…&incidentNamespace=…, read there by
-     service-desk-page's ticket-raise-context). The person reads and edits the text and presses
-     "Raise ticket"; nothing is written from here. Falls back to the plain raise form, never a 404. */}}
+     (`raiseHref`: /service-desk/new?incidentName=…&incidentNamespace=…, read there AS THE CALLER by
+     service-desk-page's request-raise-context). The person reads and edits the text and presses
+     "Raise request", which files the ZendeskRequest; nothing is written from here. Falls back to the
+     plain raise form, never a 404. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
