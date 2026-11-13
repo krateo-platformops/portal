@@ -1,0 +1,40 @@
+{{/* The inbox strip: one antd Statistic tile per source in view (Listy rowVariant statistic,
+     frontend 1.8.43), in the mockup's order. Colour is exception-only: a tile is red only when its
+     count of things that need someone is above zero, orange when its read failed, and neutral
+     otherwise. "Waiting for a decision" is never red: a proposal waiting is work, not a fault. Each
+     caption carries the meaning too, so colour is never the only signal.
+
+     A failed read is an empty value (drawn as a muted "—") captioned "could not be read", never a 0.
+     An unchecked gateway (portal.agentsGateway) is the same: "—", "not checked". A tile opens its
+     page. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-strip
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    hideWhenEmpty: true
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ . as $r | ([ (.sources // [])[] | select(.inView) | { key: .key, value: . } ] | from_entries) as $v | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); def unread($t; $s): { title: $t, value: "", caption: "could not be read", tone: "warn", href: $s.href }; [ (if $v.incidents == null then empty elif $v.incidents.failed then unread("Open incidents"; $v.incidents) else { title: "Open incidents", value: ($r.incidents.open | tostring), caption: (if $r.incidents.open > 0 then n($r.incidents.alerts; "alert"; "alerts") else "" end), tone: (if $r.incidents.open > 0 then "bad" else "" end), href: $v.incidents.href } end), (if $v.alerts == null then empty elif $v.alerts.failed then unread("Alerts firing"; $v.alerts) else { title: "Alerts firing", value: ($r.alerts.firing | tostring), caption: ("of " + ($r.alerts.total | tostring)), tone: (if $r.alerts.firing > 0 then "bad" else "" end), href: $v.alerts.href } end), (if $v.compositions == null then empty elif $v.compositions.failed then unread("Compositions not Ready"; $v.compositions) else { title: "Compositions not Ready", value: ($r.compositions.notReady | tostring), caption: ("of " + ($r.compositions.total | tostring)), tone: (if $r.compositions.notReady > 0 then "bad" else "" end), href: $v.compositions.href } end), (if $v.agents == null then empty elif $v.agents.failed then unread("Agent gateway gaps"; $v.agents) elif ($r.agents.gatewayKnown | not) then { title: "Agent gateway gaps", value: "", caption: "not checked", tone: "warn", href: $v.agents.href } else { title: "Agent gateway gaps", value: ($r.agents.gaps | length | tostring), caption: ("of " + n($r.agents.total; "agent"; "agents")), tone: (if ($r.agents.gaps | length) > 0 then "bad" else "" end), href: $v.agents.href } end), (if $v.reviews == null then empty elif $v.reviews.failed then unread("Waiting for a decision"; $v.reviews) else { title: "Waiting for a decision", value: ($r.reviews.waiting | tostring), caption: "review proposals", tone: "", href: $v.reviews.href } end) ] }'
+  resourcesRefs:
+    items: []

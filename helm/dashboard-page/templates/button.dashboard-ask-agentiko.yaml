@@ -1,16 +1,14 @@
-{{/* "Ask Agentiko →" on /dashboard — "brief me on my platform". It navigates to THIS page with an
-     ?ask seed the rail consumes on mount, keeping ?range and ?projects.
+{{/* "Ask Agentiko →" on /dashboard: "brief me on what needs me". It navigates to THIS page with an
+     ?ask seed the rail consumes on mount, keeping ?source and ?projects.
 
-     Same object as service-desk-page's button.request-ask-agentiko — read the comment there. The
-     label and `intent: agentiko` are fixed (A4); "Create composition" keeps the header's one
-     primary (P6), and this sits immediately left of it.
+     Same object as service-desk-page's button.request-ask-agentiko; read the comment there. The
+     label and `intent: agentiko` are fixed (A4); "New composition" keeps the header's one primary
+     (P6), and this sits immediately left of it.
 
-     IT READS compositions-list, NOT dashboard-data. dashboard-data holds only the compositions
-     CREATED INSIDE the selected range, so a prompt built from it would leave out an older
-     composition that is failing now. compositions-list's `.list` is every composition the
-     namespace scope admits — the set the dashboard's stat cards count — and it builds the prompt
-     as `.dashboardAskHref`, @uri-encoded: the counts, the compositions that need attention, or the
-     read error when nothing could be read. The click is a plain literal navigate. */}}
+     IT READS dashboard-inbox, whose `askHref` describes the inbox on screen: the sources in view
+     (only the picked ones under ?source=), what each has waiting, and first of all any read that
+     failed. A failed read is asked about, never described as nothing waiting, and a source whose
+     page the caller cannot open is not mentioned. The click is a plain literal navigate. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -19,12 +17,10 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* The extras keys that partition this widget's cache cell: the set every other dashboard
-       reader of compositions-list declares, plus `range`, which the link carries. */}}
-  keyExtras: [projects, q, scope, status, range]
+  keyExtras: [projects, source]
   apiRef:
-    name: compositions-list
-    namespace: {{ .Release.Namespace }}
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
   widgetData:
     label: Ask Agentiko →
     intent: agentiko
@@ -38,6 +34,6 @@ spec:
   widgetDataTemplate:
     {{/* Server-built self-page href with the ?ask seed; falls back to the dashboard, never a 404. */}}
     - forPath: actions
-      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.dashboardAskHref // "") != "" then .dashboardAskHref else "/dashboard" end) } ] } }'
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/dashboard" end) } ] } }'
   resourcesRefs:
     items: []
