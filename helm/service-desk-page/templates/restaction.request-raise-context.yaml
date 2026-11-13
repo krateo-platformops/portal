@@ -134,10 +134,10 @@ spec:
        | map(select(type == "object" and ((.ref // "") | str) != ""))) as $evidence
     | (($inc.spec.triggeredAt // $inc.metadata.creationTimestamp // "") | str) as $opened
     | ("/incidents/" + $ins + "/" + $in) as $incidentPath
-    # Subject: the root cause's first sentence, capped at 150 until the served schema's maxLength is
-    # known (verify then).
+    # Subject: the root cause's first sentence. Not capped: the served ZendeskRequest schema sets no
+    # maxLength on subject (krateo-057, zendesk-kog 0.2.2), so a number here would be invented.
     | (if $statement != "" then ($statement | (capture("^(?<s>.*?[.!?])(\\s|$)").s // .) | sub("[.]$"; ""))
-       else ("Incident " + $in) end | cap(150)) as $subject
+       else ("Incident " + $in) end) as $subject
     | ("Incident: " + $ins + "/" + $in + "." + (if $opened != "" then (" Started " + ($opened | stamp) + ".") else "" end)
        + (if $statement != "" then
             (" Root cause (Agentiko"

@@ -388,7 +388,9 @@ def check_empty_queue(chart):
 
 def configs(*pairs):
     return {'items': [{'apiVersion': ZCFG, 'kind': 'ZendeskRequestConfiguration',
-                       'metadata': {'name': n, 'namespace': ns}, 'spec': {'secretRef': {'name': 'zd-token', 'namespace': ns, 'key': 'token'}}}
+                       'metadata': {'name': n, 'namespace': ns},
+                       # The served v1alpha1 spec (krateo-057, zendesk-kog 0.2.2): authentication.bearer.tokenRef only.
+                       'spec': {'authentication': {'bearer': {'tokenRef': {'name': 'zendesk-request-token', 'namespace': ns, 'key': 'token'}}}}}
                       for ns, n in pairs]}
 
 
@@ -738,7 +740,7 @@ def check_raised_from_an_incident(chart):
     long_inc = copy.deepcopy(base)
     long_inc['status']['rootCause']['statement'] = 'x' * 400
     iv = ctx_for(long_inc)['initialValues']
-    expect(f, 'within bounds', (len(iv['subject']) <= 150, len(iv['description']) <= 8000), (True, True))
+    expect(f, 'Subject is not capped: the served schema sets no maxLength', (len(iv['subject']), len(iv['description']) <= 8000), (400, True))
     out, _ = resolve(chart, 'request-raise-context', {'configs': cfg, 'incident': base}, ex)
     form = widget(chart, 'Form', 'request-new', out, ex, 'form (edits win)')
     body = frontend_body(form, {'subject': 'Mine', 'description': 'My words', 'kind': 'FeatureRequest', 'priority': 'low'})
@@ -746,9 +748,58 @@ def check_raised_from_an_incident(chart):
     return f
 
 
+SERVED = os.path.join(HERE, 'fixtures', 'zendesk-crds-served-057.json')
+
+
+def check_against_the_served_crds(chart):
+    """What the page writes and reads, against the CRDs krateo-057 serves (zendesk-kog 0.2.2, captured
+    verbatim in fixtures/zendesk-crds-served-057.json). A request body the served schema refuses, a
+    status field it does not declare, or a version it does not serve is a finding here, not on the
+    cluster."""
+    import jsonschema
+    f = []
+    served = json.load(open(SERVED, encoding='utf-8'))
+    zr_crd = served['zendeskrequests.zendesk.ogen.krateo.io']
+    zrc_crd = served['zendeskrequestconfigurations.zendesk.ogen.krateo.io']
+    expect(f, 'the chart\'s versions are the served ones', (ZAPI, ZCFG), (f'{GROUP}/{zr_crd["version"]}', f'{GROUP}/{zrc_crd["version"]}'))
+    spec_schema = zr_crd['openAPIV3Schema']['properties']['spec']
+    status_props = set(zr_crd['openAPIV3Schema']['properties']['status']['properties'])
+    values = {'subject': 'x' * 300, 'description': 'd', 'kind': 'FeatureRequest', 'priority': 'urgent'}
+    bodies = []
+    out, ex = raise_ctx(chart, configs(('acme-retail', 'zendesk-acme')))
+    bodies.append(('one configuration', frontend_body(widget(chart, 'Form', 'request-new', out, ex, 'form (served one)'), values)))
+    out, ex = raise_ctx(chart, configs(('a', 'za'), ('b', 'zb')))
+    bodies.append(('several', frontend_body(widget(chart, 'Form', 'request-new', out, ex, 'form (served several)'), dict(values, organisation='b/zb'))))
+    ex2 = {'username': 'maria.rossi@acme.example', 'incidentName': INC_NAME, 'incidentNamespace': INC_NS}
+    out, _ = resolve(chart, 'request-raise-context', {'configs': configs(('acme-retail', 'zendesk-acme')), 'incident': incident_obj()}, ex2)
+    form = widget(chart, 'Form', 'request-new', out, ex2, 'form (served incident)')
+    bodies.append(('from an incident, as pre-filled', frontend_body(form, dict(form['initialValues'], priority='normal'))))
+    for label, body in bodies:
+        errs = [e.message for e in jsonschema.Draft7Validator(spec_schema).iter_errors(body['spec'])]
+        expect(f, f'{label}: the served schema admits the spec', errs, [])
+        expect(f, f'{label}: no spec field the served schema does not declare', sorted(set(body['spec']) - set(spec_schema['properties'])), [])
+        expect(f, f'{label}: the apiVersion served', body['apiVersion'], f'{GROUP}/{zr_crd["version"]}')
+    # The form's choices are exactly the served enums.
+    schema = json.loads(raise_ctx(chart, configs(('a', 'za')))[0]['stringSchema'])
+    for fld in ('kind', 'priority'):
+        expect(f, f'{fld}: the form\'s values are the served enum', sorted(schema['properties'][fld]['enum']), sorted(spec_schema['properties'][fld]['enum']))
+    expect(f, 'every field the served schema requires, the form requires', sorted(set(spec_schema['required']) - {'configurationRef'} - set(schema['required'])), [])
+    expect(f, 'Subject: the served schema sets no maxLength, and neither does the form',
+           ('maxLength' in spec_schema['properties']['subject'], 'maxLength' in schema['properties']['subject']), (False, False))
+    # Every status field the page reads is one the served schema declares.
+    read = ['id', 'status', 'priority', 'created_at', 'updated_at', 'conditions']
+    expect(f, 'every status field read is served', sorted(set(read) - status_props), [])
+    cond_req = set(zr_crd['openAPIV3Schema']['properties']['status']['properties']['conditions']['items']['required'])
+    expect(f, 'a condition always carries the type, status and reason the state is read from', sorted({'type', 'status', 'reason'} - cond_req), [])
+    # The configuration fixture is the served shape.
+    cfg_errs = [e.message for e in jsonschema.Draft7Validator(zrc_crd['openAPIV3Schema']['properties']['spec']).iter_errors(configs(('a', 'za'))['items'][0]['spec'])]
+    expect(f, 'the configuration fixture is the served shape', cfg_errs, [])
+    return f
+
+
 CHECKS = [check_state_mapping, check_chips, check_unreachable_warning, check_failures_are_not_an_empty_queue,
           check_empty_queue, check_raise_context, check_form_submit, check_raised_from_an_incident, check_request_page,
-          check_request_read_is_gated_and_as_the_caller, check_ticket_desk_is_gone]
+          check_request_read_is_gated_and_as_the_caller, check_against_the_served_crds, check_ticket_desk_is_gone]
 
 
 def main():
