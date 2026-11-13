@@ -5,6 +5,10 @@
 {{/* timestamp the metadata card's Created row uses; a relative "1m 42s" would be a client computation */}}
 {{/* and stale the moment it rendered. There is no "typical duration": nothing measures one. */}}
 {{/* A node this person could not read is named with the reason, never listed as merely pending. */}}
+{{/* "Waiting on" names every pending resource by its full name, as the diagram draws it (one node */}}
+{{/* each): the kind, then the names that share a reason, then the reason — "LocalResource a-000, */}}
+{{/* a-001 (not created yet)". Never "LocalResource ×8", which named none of them. Groups are */}}
+{{/* separated by "; ", because the names inside a group are separated by ", ". */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -25,4 +29,4 @@ spec:
     items: []
   widgetDataTemplate:
     - forPath: items
-      expression: '${ . as $r | if $r.readable != true then [] else [ {label: "State", value: ("S" + ((($r.level // 0) + 1) | tostring) + " · " + ($r.state // ""))} ] + (if $r.allReady == true then [] else ([ {label: "Since", value: ($r.since // "")} ] | map(select(.value != ""))) + [ {label: "Waiting on", value: ([ $r.waitingOn[] | .kind + (if .pending > 1 then " ×" + (.pending | tostring) else "" end) + (if .phase == "unreadable" then " (not readable with your access)" elif .phase == "unavailable" then " (could not be read)" elif .gateOpen == true then (if $r.compositionNotSynced != null then " (not created — the composition is not synced)" else " (not created yet)" end) else "" end) ] | join(", "))} ] + ([ {label: "Next", value: ([ $r.next[] as $id | $r.nodes[] | select(.id == $id) | .kind ] | join(", "))} ] | map(select(.value != ""))) end) end }'
+      expression: '${ . as $r | if $r.readable != true then [] else [ {label: "State", value: ("S" + ((($r.level // 0) + 1) | tostring) + " · " + ($r.state // ""))} ] + (if $r.allReady == true then [] else ([ {label: "Since", value: ($r.since // "")} ] | map(select(.value != ""))) + [ {label: "Waiting on", value: ([ $r.waitingOn[] | . as $w | [ .instances[] | { name, why: (if .phase == "unreadable" then " (not readable with your access)" elif .phase == "unavailable" then " (could not be read)" elif .phase == "withheld" and $w.gateOpen == true then (if $r.compositionNotSynced != null then " (not created — the composition is not synced)" else " (not created yet)" end) else "" end) } ] as $pending | (reduce $pending[].why as $y ([]; if any(.[]; . == $y) then . else . + [$y] end))[] as $y | $w.kind + " " + ([ $pending[] | select(.why == $y) | .name ] | join(", ")) + $y ] | join("; "))} ] + ([ {label: "Next", value: ([ $r.next[] as $id | $r.nodes[] | select(.id == $id) | .kind ] | join(", "))} ] | map(select(.value != ""))) end) end }'
