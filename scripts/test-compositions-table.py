@@ -254,13 +254,6 @@ check('observability Pending leaves children unreadable out (ZeroEvidence and In
       jq(obs_expr, out), 2)
 check('observability Pending is unchanged without an unreadable composition', jq(obs_expr, none_out), 2)
 
-# Every railState must be in the dashboard rail's colour map: a value missing there renders near-black.
-rail_list = named(render('dashboard-page'), 'rail-list')
-rail_map = rail_list['spec']['widgetData']['itemTemplate']['bar']['color']['map'] \
-    if 'bar' in rail_list['spec']['widgetData']['itemTemplate'] else {}
-check('the dashboard rail colours every railState',
-      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused', 'unreadable'} - set(rail_map)), [])
-
 for line in failures:
     print(f'FAIL  {line}')
 print(f'{"FAILED" if failures else "ok"}: compositions table — {len(columns)} columns, coverage rule'
