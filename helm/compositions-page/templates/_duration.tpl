@@ -18,8 +18,10 @@
       1050 -> "1.1 s", 59950 -> "60.0 s".
     - no minutes: 61234 -> "61.2 s", 1234567 -> "1234.6 s". The label is built here as text, so
       nothing groups it.
-    - a number or a numeric string is read; null, "" or anything else is "—". A caller with its own
-      no-data rule (a zero sample count) applies it before calling this.
+    - a number or a numeric string is read; null, "", NaN, an infinity or anything else is "—"
+      (ClickHouse writes NaN for an average over no rows, and jq reads "-nan" as NaN where gojq
+      refuses it — so it is caught here, not left to the engine). A caller with its own no-data
+      rule (a zero sample count) applies it before calling this.
 
   A STATISTIC TAKES THE WHOLE LABEL AS ITS VALUE, with no suffix. antd re-groups a value that looks
   like a number ("1234.6" renders "1,234.6"), and a value carrying its unit never looks like one.
@@ -31,5 +33,5 @@
   single-quoted `${ … }` expression or a RESTAction filter.
 */}}
 {{- define "duration.label" -}}
-def durationLabel: (if type == "number" then . elif type == "string" then (tonumber? // null) else null end) as $ms | if $ms == null then "—" else ($ms | round) as $r | if $r < 1000 then ($r | tostring) + " ms" else (($ms / 100) | round) as $d | (($d / 10) | floor | tostring) + "." + (($d % 10) | tostring) + " s" end end;
+def durationLabel: (if type == "number" then . elif type == "string" then (tonumber? // null) else null end) as $ms | if $ms == null or ($ms | isnan) or ($ms | isinfinite) then "—" else ($ms | round) as $r | if $r < 1000 then ($r | tostring) + " ms" else (($ms / 100) | round) as $d | (($d / 10) | floor | tostring) + "." + (($d % 10) | tostring) + " s" end end;
 {{- end }}

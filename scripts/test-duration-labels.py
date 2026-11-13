@@ -21,14 +21,28 @@ chart cannot ship a snowplow jq module. So this checks:
     number by hand (the trace view's own format is the one exception, and it is checked to be
     unchanged: span durations keep microseconds and two decimals on purpose).
 
-Uses the `jq` binary; JQ=gojq runs the same checks on the engine snowplow uses. Needs `helm`.
+THE TIME-TO-FIRST-TOKEN AVERAGE is over the spans that carry one. agents-token-usage's SQL, rendered
+by snowplow's own path renderer (snowplow-path.py) and decoded once, must aggregate it with
+avgIfOrNull(…, has(mapKeys(SpanAttributes), 'agw.ai.time_to_first_token')): a plain avg() over
+toFloat64OrZero counted every span without the attribute as 0 and halved the figure on krateo-057
+(4.88 s against 9.81 s). OrNull because avgIf over no rows is NaN, which FORMAT JSON writes as null
+or "-nan" by a server setting; and NaN reaching durationLabel any other way is "—" too. The query
+is also EXECUTED, test-audit-page's way: decoded once, its ClickHouse spellings rewritten for sqlite,
+run over fixture spans where half of one consumer's lack the attribute, and its rows fed to the RA's
+own filter. Its effect on real data was measured on krateo-057 (see the PR).
+
+Uses the `jq` binary; JQ=gojq runs the same checks on the engine snowplow uses. Needs `helm`, and
+`go` + `git` for snowplow's path renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
 Exit code = number of failed checks (capped at 125).
 """
+import importlib.util
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import tempfile
+from urllib.parse import unquote
 
 import yaml
 
@@ -174,6 +188,8 @@ for chart, (kind, name, path) in LIFT_FROM.items():
         if not m:
             raise AssertionError(f'{kind}/{name} does not carry durationLabel')
         got = jq(m.group(0) + ' map(durationLabel)', [i for i, _ in TABLE])
+        check(f'{chart}: durationLabel of NaN and infinities',
+              jq(m.group(0) + ' [nan, infinite, -infinite] | map(durationLabel)', None), ['—', '—', '—'])
         for (i, want), g in zip(TABLE, got):
             check(f'{chart}: durationLabel({i!r})', g, want)
             check(f'{chart}: durationLabel({i!r}) has no thousands separator', ',' in g, False)
@@ -275,9 +291,139 @@ def ttft():
         # the magnitudes krateo-057 stores (7 days, 892 spans): min 0.99, median 4.21, max 156.18
         {'consumer': 'e', 'avg_ttft_s': 0.99}, {'consumer': 'f', 'avg_ttft_s': 4.21},
         {'consumer': 'g', 'avg_ttft_s': 156.18},
+        # no span in the group carried the attribute: avgIfOrNull is null; a bare avgIf's NaN with
+        # output_format_json_quote_denormals=1 arrives as "-nan" (jq reads it as NaN, gojq refuses)
+        {'consumer': 'h', 'avg_ttft_s': '-nan'},
     ]}})
     check('agents-token-usage ttft (agentgateway writes seconds: as_secs_f64)', [r['ttft'] for r in out['rows']],
-          ['450 ms', '1.2 s', '—', '12.3 s', '990 ms', '4.2 s', '156.2 s'])
+          ['450 ms', '1.2 s', '—', '12.3 s', '990 ms', '4.2 s', '156.2 s', '—'])
+
+
+TTFT_AGG = ("round(avgIfOrNull(toFloat64OrZero(SpanAttributes['agw.ai.time_to_first_token']), "
+            "has(mapKeys(SpanAttributes), 'agw.ai.time_to_first_token')), 2) AS avg_ttft_s")
+
+# A stand-in ClickHouse for this one query, test-audit-page's way: the SQL snowplow dials, decoded
+# once, with the handful of ClickHouse spellings it uses rewritten for sqlite and executed against
+# fixture spans. Anything left untranslated is sent as written, so sqlite refuses it rather than
+# this passing on a guess. A Map read of a missing key is '' (ClickHouse's default for a String map).
+NOW_MS = 1794218652000
+HOUR_MS = 3600 * 1000
+
+
+def _balanced(text, start):
+    depth, i = 0, start
+    while i < len(text):
+        if text[i] == "'":
+            i = text.index("'", i + 1)
+        elif text[i] == '(':
+            depth += 1
+        elif text[i] == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    raise ValueError(f'unbalanced: {text[start:]}')
+
+
+def _rewrite_call(text, name, build):
+    while name + '(' in text:
+        i = text.index(name + '(')
+        j = _balanced(text, i + len(name))
+        args, depth, cur = [], 0, ''
+        for ch in text[i + len(name) + 1:j]:
+            if ch == ',' and depth == 0:
+                args.append(cur.strip())
+                cur = ''
+                continue
+            depth += ch == '('
+            depth -= ch == ')'
+            cur += ch
+        args.append(cur.strip())
+        text = text[:i] + build(*args) + text[j + 1:]
+    return text
+
+
+def to_sqlite(sql):
+    assert sql.endswith(' FORMAT JSON'), sql
+    q = sql[:-len(' FORMAT JSON')]
+    q = re.sub(r"has\(mapKeys\(SpanAttributes\), '([^']*)'\)", r"hasKey(SpanAttributes, '\1')", q)
+    q = re.sub(r"SpanAttributes\['([^']*)'\]", r"attr(SpanAttributes, '\1')", q)
+    q = re.sub(r'now\(\) - INTERVAL (\d+) (HOUR|DAY)',
+               lambda m: f'({NOW_MS} - {int(m.group(1)) * (HOUR_MS if m.group(2) == "HOUR" else 24 * HOUR_MS)})', q)
+    q = q.replace('count()', 'count(*)').replace(' / ', ' * 1.0 / ')      # ClickHouse `/` is never integer
+    q = _rewrite_call(q, 'countIf', lambda c: f'sum(CASE WHEN {c} THEN 1 ELSE 0 END)')
+    # avgIfOrNull: the mean over the rows matching the condition, NULL when none does — sqlite's avg
+    # over all-NULL is NULL, which is exactly OrNull.
+    q = _rewrite_call(q, 'avgIfOrNull', lambda x, c: f'avg(CASE WHEN {c} THEN {x} END)')
+    return q
+
+
+def _num(conv):
+    def f(v):
+        try:
+            return conv(v)
+        except (TypeError, ValueError):
+            return conv(0)
+    return f
+
+
+def fake_clickhouse(spans, path):
+    db = sqlite3.connect(':memory:')
+    db.create_function('attr', 2, lambda js, k: json.loads(js).get(k, ''))
+    db.create_function('hasKey', 2, lambda js, k: int(k in json.loads(js)))
+    db.create_function('toUInt64OrZero', 1, _num(int))
+    db.create_function('toFloat64OrZero', 1, _num(float))
+    db.execute('CREATE TABLE otel_traces (Timestamp INTEGER, SpanAttributes TEXT)')
+    for ago_ms, attrs in spans:
+        db.execute('INSERT INTO otel_traces VALUES (?, ?)', (NOW_MS - ago_ms, json.dumps(attrs)))
+    assert path.startswith('/?query='), path
+    cur = db.execute(to_sqlite(unquote(path[len('/?query='):])))
+    cols = [c[0] for c in cur.description]
+    # FORMAT JSON quotes UInt64 (calls, token sums, errors): the filter's `num` coerces them back
+    data = [{c: (str(v) if isinstance(v, int) else v) for c, v in zip(cols, row)} for row in cur.fetchall()]
+    return {'meta': [{'name': c} for c in cols], 'data': data, 'rows': len(data)}
+
+
+def llm_span(ago_min, consumer, ttft=None, tokens=100):
+    attrs = {'gen_ai.usage.input_tokens': str(tokens), 'gen_ai.usage.output_tokens': '10',
+             'gen_ai.request.model': 'm', 'gen_ai.provider.name': 'p', 'http.status': '200'}
+    if consumer:
+        attrs['jwt.sub'] = consumer
+    if ttft is not None:
+        attrs['agw.ai.time_to_first_token'] = repr(ttft)      # the exporter writes the f64 as text
+    return (ago_min * 60 * 1000, attrs)
+
+
+# krateo-057's shape in miniature: half of one consumer's spans carry no TTFT (non-streamed calls),
+# and the unattributed caller's carry none at all.
+TTFT_SPANS = [
+    llm_span(5, 'alice', 9.0), llm_span(6, 'alice', 10.62), llm_span(7, 'alice'), llm_span(8, 'alice'),
+    llm_span(9, '', tokens=50), llm_span(10, '', tokens=50),
+    llm_span(60 * 30, 'alice', 1.0),                          # outside 24h: not averaged in
+]
+
+
+def ttft_sql():
+    spec = importlib.util.spec_from_file_location('spath', os.path.join(HERE, 'snowplow-path.py'))
+    spath = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(spath)
+    ra = named(agents, 'RESTAction', 'agents-token-usage')
+    path = [st for st in ra['spec']['api'] if st.get('name') == 'usage'][0]['path']
+    for rng in ('1h', '6h', '24h', '7d', None):
+        dialled = spath.render(path, {} if rng is None else {'range': rng})
+        sql = unquote(dialled.partition('?query=')[2])
+        label = f'agents-token-usage SQL (range={rng})'
+        check(f'{label}: TTFT averaged over the spans that carry it', TTFT_AGG in sql, True)
+        check(f'{label}: no plain avg() over a zero-filled attribute', 'avg(toFloat64OrZero(' in sql, False)
+        check(f'{label}: encoded exactly once', unquote(sql) == sql and '%' not in sql, True)
+    # Executed: the dialled 24h query over the fixture spans, then the RA's own filter.
+    usage = fake_clickhouse(TTFT_SPANS, spath.render(path, {'range': '24h'}))
+    rows = {r['consumer']: r for r in jq(ra['spec']['filter'], {'usage': usage})['rows']}
+    check('agents-token-usage executed: the mean over the two spans that carry a TTFT, not all four',
+          rows.get('alice', {}).get('ttft'), '9.8 s')
+    check('agents-token-usage executed: calls still count every span', rows.get('alice', {}).get('calls'), '4')
+    check('agents-token-usage executed: a group with no TTFT at all is "—", never "0 ms"',
+          rows.get('unattributed', {}).get('ttft'), '—')
 
 
 run('obs-phases-card', phases_card)
@@ -286,6 +432,7 @@ run('obs-reconcile-phases', phases_list)
 run('obs-reconcile-by-composition', by_composition)
 run('sp-http-p95', http_p95)
 run('agents-token-usage', ttft)
+run('agents-token-usage SQL', ttft_sql)
 
 # --- 4. nothing glues a unit on by hand any more ------------------------------------------------
 TRACE_FORMAT_RE = re.compile(r'def traceDuration: .*?;\s*def traceUtc', re.S)

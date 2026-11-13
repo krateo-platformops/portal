@@ -14,6 +14,15 @@
 {{/* */}}
 {{/* Numbers are formatted HERE, not in the widget: these run to nine figures and an unseparated */}}
 {{/* 288095391 cannot be read at a glance. Server-side derivation is also the house rule. */}}
+{{/* */}}
+{{/* AVERAGE TIME TO FIRST TOKEN IS OVER THE SPANS THAT CARRY ONE. Not every LLM span does (on */}}
+{{/* krateo-057, 236 of 474 in a day), and toFloat64OrZero reads a missing attribute as 0, so a */}}
+{{/* plain avg() counted each of those as an instant first token: across that day's spans it read */}}
+{{/* 4.88 s against 9.81 s, and a caller with no TTFT at all showed "0s" (2026-11-13). The */}}
+{{/* aggregate is avgIfOrNull(…, has(mapKeys(SpanAttributes), 'agw.ai.time_to_first_token')). */}}
+{{/* OrNull, not a bare avgIf: with no matching span avgIf is NaN, which FORMAT JSON writes as null */}}
+{{/* or as "-nan" depending on output_format_json_quote_denormals — OrNull is null either way, */}}
+{{/* and null reaches durationLabel as "—", never "0 ms". */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -27,7 +36,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20consumer%2C%20SpanAttributes%5B%27team%27%5D%20AS%20team%2C%20SpanAttributes%5B%27gen_ai.request.model%27%5D%20AS%20model%2C%20SpanAttributes%5B%27gen_ai.provider.name%27%5D%20AS%20provider%2C%20count%28%29%20AS%20calls%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%20AS%20input_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%20AS%20output_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.reasoning_tokens%27%5D%29%29%20AS%20reasoning_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20AS%20cached_input_tokens%2C%20round%28100%20%2A%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20%2F%20nullIf%28sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%2C%200%29%2C%201%29%20AS%20cache_pct%2C%20round%28avg%28toFloat64OrZero%28SpanAttributes%5B%27agw.ai.time_to_first_token%27%5D%29%29%2C%202%29%20AS%20avg_ttft_s%2C%20countIf%28SpanAttributes%5B%27http.status%27%5D%20%21%3D%20%27200%27%29%20AS%20errors%20FROM%20otel_traces%20WHERE%20has%28mapKeys%28SpanAttributes%29%2C%20%27gen_ai.usage.input_tokens%27%29%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20consumer%2C%20team%2C%20model%2C%20provider%20ORDER%20BY%20input_tokens%20DESC%20LIMIT%2050%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20consumer%2C%20SpanAttributes%5B%27team%27%5D%20AS%20team%2C%20SpanAttributes%5B%27gen_ai.request.model%27%5D%20AS%20model%2C%20SpanAttributes%5B%27gen_ai.provider.name%27%5D%20AS%20provider%2C%20count%28%29%20AS%20calls%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%20AS%20input_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.output_tokens%27%5D%29%29%20AS%20output_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.reasoning_tokens%27%5D%29%29%20AS%20reasoning_tokens%2C%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20AS%20cached_input_tokens%2C%20round%28100%20%2A%20sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.cache_read.input_tokens%27%5D%29%29%20%2F%20nullIf%28sum%28toUInt64OrZero%28SpanAttributes%5B%27gen_ai.usage.input_tokens%27%5D%29%29%2C%200%29%2C%201%29%20AS%20cache_pct%2C%20round%28avgIfOrNull%28toFloat64OrZero%28SpanAttributes%5B%27agw.ai.time_to_first_token%27%5D%29%2C%20has%28mapKeys%28SpanAttributes%29%2C%20%27agw.ai.time_to_first_token%27%29%29%2C%202%29%20AS%20avg_ttft_s%2C%20countIf%28SpanAttributes%5B%27http.status%27%5D%20%21%3D%20%27200%27%29%20AS%20errors%20FROM%20otel_traces%20WHERE%20has%28mapKeys%28SpanAttributes%29%2C%20%27gen_ai.usage.input_tokens%27%29%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20consumer%2C%20team%2C%20model%2C%20provider%20ORDER%20BY%20input_tokens%20DESC%20LIMIT%2050%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
