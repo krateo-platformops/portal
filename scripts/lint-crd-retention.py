@@ -65,9 +65,9 @@ DATA_NAMESPACES = {
     # moved to Zendesk, so this gate no longer examines it. Its namespace still carries `keep` by the
     # chart's own choice (namespace.yaml), because the Tickets filed before the move are still in it;
     # test-service-desk.py asserts that, since this table can only speak for CRD-owning charts.
-    # AuditRecords are written into the release namespace (settings-page's audit-log RESTAction
-    # reads /namespaces/{{ .Release.Namespace }}/auditrecords). `demo-system`, the only namespace
-    # this chart creates, is an RBAC sandbox for the demo application kinds.
+    # AuditRecords land in namespaces this chart does not create (on krateo-057, 2026-11-13:
+    # krateo-system, krateo-preview, krateo-service-desk and default). `demo-system`, the only
+    # namespace this chart creates, is an RBAC sandbox for the demo application kinds.
     'portal': (),
 }
 
