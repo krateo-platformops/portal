@@ -1,0 +1,35 @@
+{{/* SCREEN 2 — /public/request-access-confirm: the link in the confirmation email opens it.
+
+     identity-lifecycle emails `<confirmation.linkBaseUrl>#s=<submission>&t=<token>`, so its
+     linkBaseUrl must be this page's address, <portal origin>/public/request-access-confirm. The
+     submission id and the 256-bit token travel in the URL FRAGMENT: no server, access log or
+     Referer ever sees them. `krateo.io/fragment-keys: "s,t"` declares the two keys this root reads
+     (frontend context/pageFragment.ts); the frontend clears them from the address bar and hands
+     them only to the form's `bodyExtras`, which put them in POST BODIES — never in a URL, never in
+     a field.
+
+     NO `krateo.io/nav-*` annotation, for the reason page-request-access gives. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-request-access-confirm
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/fragment-keys": "s,t"
+spec:
+  widgetData:
+    allowedResources:
+      - cards
+    vertical: true
+    gap: middle
+    items:
+      - resourceRefId: request-access-confirm-card
+  resourcesRefs:
+    items:
+      - id: request-access-confirm-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: request-access-confirm-card
+        namespace: {{ .Values.namespace }}
+        resource: cards
+        verb: GET

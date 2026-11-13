@@ -1,0 +1,163 @@
+{{/* SCREEN 2's form: choose a username, and file the request.
+
+     PORTED FROM frontend ui/src/widgets/Form/checkPostFixtures.ts (CONFIRM_FORM), with every
+     intake answer mapped, plus the #721 presentation options. Renders only with a frontend that
+     carries #719 and #721 (1.8.42 and later).
+
+     TWO ROUTES, so that nothing can file a request by mistake (identity-lifecycle README):
+       - `fieldChecks` POSTs {username, submission, token} to /request-access/api/v1/username-checks
+         after typing pauses and on blur, and maps the answer to the field's status;
+       - `submitPost` POSTs the same to /request-access/api/v1/confirmations, which files it.
+     Both answer 200 {status: available|unavailable|limit|expired|retry|filed (+username)}, 400
+     {fields: [username], rule} for a name that breaks the rules, 429 with Retry-After. `retry`
+     (Keycloak or authn not answering, or no answer within the intake's hold) matches no entry on
+     purpose: it is `otherwise`, which says "couldn't check" / "couldn't send" and never
+     "available". Both go same-origin with NO credential, through the frontend's
+     PUBLIC_POST_PATHS allow-list.
+
+     `bodyExtras` maps body keys to the page's fragment keys (page-request-access-confirm declares
+     `s,t`): the link's submission id and token go in the BODY, never in a URL, never in a field.
+
+     The two budgets are the link's, not the page's: 10 name checks (`limit` on a check is a
+     warning, because submitting still works), 3 taken-name submits (`limit` on a submit ends the
+     link). */}}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-access-confirm
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* Goes with the form when a Result (filed, expired, out of tries) replaces it. */}}
+    title: "Confirm your email"
+    {{/* The one line under the title saying what the button does (mockup 2.1). `notice` because
+         it is the only text a Form draws above its fields, so it goes with the form when a Result
+         replaces it — a separate Paragraph would stay above "This link has expired". The Form
+         draws a notice as an info Alert, not as the mockup's muted line. */}}
+    notice: "Choose the username you’ll sign in with. When you confirm, your request goes to an administrator."
+    layout: vertical
+    size: large
+    {{/* One field, required: the mockup draws no mark at all (antd requiredMark={false}). */}}
+    requiredMark: hidden
+    buttonConfig:
+      primary:
+        label: "Confirm and send request"
+        block: true
+        size: large
+      secondary:
+        hidden: true
+    fieldHelp:
+      - name: username
+        text: "Lowercase letters, digits and dashes, 3–56 characters. You’ll sign in with it."
+    stringSchema: |-
+      {
+        "type": "object",
+        "required": ["username"],
+        "properties": {
+          "username": { "type": "string", "title": "Username" }
+        }
+      }
+    fieldChecks:
+      - name: username
+        path: /request-access/api/v1/username-checks
+        bodyExtras:
+          submission: s
+          token: t
+        answers:
+          - when: { status: [200], bodyField: status, equals: [available] }
+            validateStatus: success
+            message: "{value} is available."
+          {{/* The API never says why a name is taken, and neither does the page (F3). */}}
+          - when: { status: [200], bodyField: status, equals: [unavailable] }
+            validateStatus: error
+            message: "That username is taken. Try another."
+          {{/* This link's own 10 checks are spent. A warning: submitting still works (F8). */}}
+          - when: { status: [200], bodyField: status, equals: [limit] }
+            validateStatus: warning
+            message: "You’ve used up this link’s availability checks. You can still submit; if the name is taken we’ll tell you."
+          {{/* Expired, invalid or already used: one message for all three, so the page does not
+               reveal which (2.5). The same Result as the submit's `expired` below. */}}
+          - when: { status: [200], bodyField: status, equals: [expired] }
+            result:
+              status: warning
+              title: "This link has expired or was already used."
+              extra:
+                - { kind: button, label: "Request access again", href: /public/request-access }
+          {{/* 400 {rule}: the rules live only in the intake; the page maps each to its copy (F4–F7). */}}
+          - when: { status: [400] }
+            validateStatus: error
+            message: "Check this username."
+            ruleFrom: rule
+            ruleMessages:
+              length: "Use 3 to 56 characters."
+              charset: "Use only lowercase letters, digits and dashes."
+              dns-label: "Start and end with a letter or a digit."
+              reserved: "That name is reserved."
+          {{/* The intake throttling everyone, not this link's budget. Never shown as available,
+               and submitting still works (F10, F11). */}}
+          - when: { status: [429] }
+            validateStatus: warning
+            message: "Too many requests right now. Wait a moment and try again."
+            retryAfterMessage: "Too many requests right now. Try again in {retryAfter}."
+        {{/* `retry`, a 5xx, no answer: a warning, never available (F9). */}}
+        otherwise:
+          validateStatus: warning
+          message: "We couldn’t check that name right now."
+    submitPost:
+      path: /request-access/api/v1/confirmations
+      bodyExtras:
+        submission: s
+        token: t
+      responses:
+        - when: { status: [200], bodyField: status, equals: [filed] }
+          result:
+            status: success
+            title: "Thanks — your request is with an administrator."
+            subtitle: "Your username will be {body.username}. We’ll email you when it’s approved."
+        {{/* Taken between the check and the submit: a field error, the link still works (2.3). */}}
+        - when: { status: [200], bodyField: status, equals: [unavailable] }
+          fieldErrors:
+            names: [username]
+            message: "That username is taken. Try another."
+        - when: { status: [200], bodyField: status, equals: [expired] }
+          result:
+            status: warning
+            title: "This link has expired or was already used."
+            extra:
+              - { kind: button, label: "Request access again", href: /public/request-access }
+        {{/* Three taken names: the link is spent. No request-again button — the address can ask
+             again only once this link has expired. */}}
+        - when: { status: [200], bodyField: status, equals: [limit] }
+          result:
+            status: warning
+            title: "This link has used up its tries"
+            subtitle: "You tried 3 usernames that were already taken. You can request access again tomorrow, once this link has expired."
+            extra:
+              - { kind: link, text: "Already have an account?", label: "Sign in", href: /login }
+        - when: { status: [400] }
+          fieldErrors:
+            namesFrom: fields
+            message: "Check this username."
+            ruleFrom: rule
+            ruleMessages:
+              length: "Use 3 to 56 characters."
+              charset: "Use only lowercase letters, digits and dashes."
+              dns-label: "Start and end with a letter or a digit."
+              reserved: "That name is reserved."
+        {{/* The copy blames nobody, and the username stays in the field (2.6, 2.7). */}}
+        - when: { status: [429] }
+          alert:
+            type: warning
+            title: "Too many requests right now"
+            description: "Wait a moment and try again. Your username is still here."
+            retryAfterDescription: "Try again in {retryAfter}. Your username is still here."
+      {{/* `retry` (its try is given back), a 5xx, no answer: about SENDING, not checking (2.8). */}}
+      otherwise:
+        alert:
+          type: warning
+          title: "We couldn’t send your request just now"
+          description: "Your username is still here. Try again in a moment."
+  resourcesRefs:
+    items: []
