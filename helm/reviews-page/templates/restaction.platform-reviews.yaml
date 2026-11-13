@@ -1,5 +1,6 @@
-{{/* /reviews — the nightly review's Proposals and ReviewRuns (review.krateo.io), shaped for both tabs. */}}
-{{/* Every join, sort and derivation is here; the widgets only place values. */}}
+{{/* /reviews (root-pages UX, build plan §3.3; mockup screen 08): the nightly review's Proposals and */}}
+{{/* ReviewRuns (review.krateo.io), filtered by the page's facets. Every join, sort and derivation is */}}
+{{/* here; the widgets only place values. */}}
 {{/* */}}
 {{/* GROUPED BY FINDING, NEWEST FIRST. spec.subject (0.1.21) names what a finding is about; a later */}}
 {{/* run's proposal for the same subject supersedes the earlier one (status.supersededBy). A superseded */}}
@@ -7,8 +8,21 @@
 {{/* Rows sharing a subject sit together; a legacy proposal without one stands alone. */}}
 {{/* */}}
 {{/* NO CONFIDENCE, NO OBSERVED COUNT. Both are model-authored and unverified (the Proposal CRD says */}}
-{{/* so), so neither is a column nor a sort key. They appear on the detail page, labelled as the */}}
-{{/* model's own claim. Refused is historical (no longer written) and is excluded from both tabs. */}}
+{{/* so), so neither is a column, a sort key, a facet nor a statistic (decision Q3, 2026-11-13). They */}}
+{{/* appear on the detail page, labelled as the model's own claim. Refused is historical (no longer */}}
+{{/* written) and is excluded everywhere. */}}
+{{/* */}}
+{{/* THE FILTERS (portal.facets, _facets.tpl), one URL param per facet, values comma-joined: */}}
+{{/*   kind   spec.kind; */}}
+{{/*   repo   spec.target.repo, "(no target repo)" when it names none; */}}
+{{/*   today  1 for a proposal created on the server's today (UTC), 0 otherwise: the "New today" */}}
+{{/*          toggle writes ?today=1. Day-granular: a cached resolve keeps its day (plan risk 4); */}}
+{{/*   q      search: title and subject, case-insensitive. */}}
+{{/* Not filters: group (kind or repo; absent, kind, and repo when exactly one kind is picked, */}}
+{{/* because a single-kind group would only repeat the filter) and view (`table`). */}}
+{{/* The facets are counted over the OPEN proposals (Proposed, PrOpen). The same filters narrow the */}}
+{{/* decided proposals and the superseded count; the runs are every kind's (the review runs once */}}
+{{/* for all of them). */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -56,7 +70,24 @@ spec:
     {{- include "portal.reviewDiscoverySteps" (dict "source" "proposals") | nindent 4 }}
   filter: |
     {{- include "portal.reviewDefs" . | nindent 4 }}
-    rv_served_gvs as $served
+    {{- include "portal.facets" . | nindent 4 }}
+    . as $in
+    | ["projects", "kind", "repo", "today", "q", "group", "view"] as $keys
+    | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "")) as $qraw
+    | ($qraw | ascii_downcase) as $q
+    # Search is one more filter on each row's `f` (f.q is "1" on a match), so the facet counts
+    # follow it and facet visibility stays over every open proposal.
+    | (($in | fx_filters(["kind", "repo", "today"])) + { q: (if $q == "" then [] else ["1"] end) }) as $flt
+    | ($in | fx_params($keys)) as $p
+    | ((($in.view // "") | tostring) == "table") as $tableView
+    | (now | todate | .[0:10]) as $today
+    # A proposal's facet values. A comma would split a value in the URL, so it is dropped.
+    | def rowf:
+        { kind: ((.spec.kind // "—") | tostring | gsub(","; "")),
+          repo: ((.spec.target.repo // "") | tostring | gsub(","; "") | if . == "" then "(no target repo)" else . end),
+          today: (if ((.metadata.creationTimestamp // "") | .[0:10]) == $today then "1" else "0" end),
+          q: (if $q == "" then "" elif (((.spec.title // .metadata.name // "") + " " + (.spec.subject // "")) | ascii_downcase | contains($q)) then "1" else "0" end) };
+      rv_served_gvs as $served
     | rv_kinds_by_gv as $kinds
     | ((.proposalsError // null) | if . == null then "" else tostring end) as $perr
     | ([ ((.proposals.items) // [])[] | select((.status.phase // "Proposed") != "Refused") ]) as $all
@@ -84,13 +115,32 @@ spec:
             decidedBy: (if $d.by == "" then "—" else $d.by end),
             decidedAt: $d.at,
             outcome: (if (.status.pullRequest.url // "") != "" then .status.pullRequest.url
-                      elif $d.reason != "" then $d.reason else (.status.error // "—") end) };
+                      elif $d.reason != "" then $d.reason else (.status.error // "—") end),
+            f: rowf };
       def grouped:
         group_by(.spec.subject // ("~" + .metadata.name))
         | map(sort_by(.metadata.creationTimestamp // "") | reverse)
         | sort_by(.[0].metadata.creationTimestamp // "") | reverse | add // [];
       ([ $visible[] | select(rv_phase as $p | $p == "Proposed" or $p == "PrOpen") ] | grouped | map(row)) as $open
-    | ([ $visible[] | select(rv_phase as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed") ] | grouped | map(row)) as $decided
+    | ([ $visible[] | select(rv_phase as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed") ] | grouped | map(row)) as $decidedAll
+    | ($open | fx_apply($flt)) as $shown
+    | ($decidedAll | fx_apply($flt)) as $decided
+    | ([ $all[] | select((.status.phase // "") == "Superseded") | { f: rowf } ] | fx_apply($flt) | length) as $supersededInView
+    | [ fx_facet($open; $flt; "kind"; "Kind"; {}),
+        fx_facet($open; $flt; "repo"; "Target repo"; {}),
+        fx_facet($open; $flt; "today"; "New today"; { "1": "yes", "0": "no" }) ] as $facets
+    # The grouping axis: ?group= when it names one, else kind, and repo when exactly one kind is
+    # picked (a single-kind group would only repeat the filter).
+    | (($in.group // "") | tostring) as $g0
+    | (if $g0 == "kind" or $g0 == "repo" then $g0 elif ($flt.kind | length) == 1 then "repo" else "kind" end) as $group
+    # Each group: its proposals newest first (subject chains kept together, as `grouped` left them),
+    # how many are new today, and seeAll, the table view filtered to that group (decision Q1).
+    | ($shown | group_by(.f[$group]) | map({ key: .[0].f[$group], count: length,
+          newToday: ([ .[] | select(.f.today == "1") ] | length),
+          prOpen: ([ .[] | select(.phase == "PrOpen") ] | length),
+          seeAll: fx_seeall("/reviews"; $p; $group; .[0].f[$group]),
+          items: [ .[] | { name, title, kind, phase, phaseColor, created, target, superseded } ] })
+       | sort_by(-.count, .key)) as $groups
     | ([ ((.runs.items) // [])[] ] | sort_by(.status.startedAt // .metadata.creationTimestamp // "") | reverse) as $runs
     | ($runs[0] // null) as $last
     | ((.cronjob // {}) | if type == "object" and (.kind // "") == "CronJob" and ((.metadata.name // "") != "") and (.spec.jobTemplate.spec != null) then . else null end) as $cron
@@ -112,35 +162,57 @@ spec:
          (if $rerr != "" then " The review runs could not be read (" + ($rerr | cap(300)) + ")."
           elif $last == null then " No review run is recorded."
           else " The last review run is " + $last.metadata.name + " (" + ($last.status.phase // "Pending") + ", started " + ($last.status.startedAt | rv_when) + ")." end) as $lastLine
+         | ([ $facets[] | select((.active | length) > 0)
+              | if .key == "today" then (if any(.active[]; . == "1") then "new today" else "not new today" end)
+                else .label + ": " + (.active | join(", ")) end ]
+            + (if $q != "" then [ "search \"" + ($qraw | cap(80)) + "\"" ] else [] end) | join("; ")) as $desc
          | if ($open | length) == 0 then
              "The nightly review has no open proposals." + $lastLine
              + (if $last == null and $rerr == "" then " Explain what the nightly review reads, and when its first proposals will appear."
                 else " Check the platform's telemetry and tell me whether that matches what you see, or whether the review missed something." end)
-           else
+           elif $desc == "" then
              "Help me work through the open nightly-review proposals: " + (($open | length) | tostring) + (if ($open | length) == 1 then " is" else " are" end)
              + " open — " + ($open | numbered) + "." + $lastLine
              + " Check each against the platform's telemetry, and say which I should act on first, which to reject, and why."
+           elif ($shown | length) == 0 then
+             "None of the " + (($open | length) | tostring) + " open nightly-review proposals is in the view on screen (" + $desc + ")." + $lastLine
+             + " Tell me whether that filter hides anything I should look at."
+           else
+             "Help me work through the open nightly-review proposals in the view on screen (" + $desc + "): "
+             + (($shown | length) | tostring) + " of " + (($open | length) | tostring) + " open — " + ($shown | numbered) + "." + $lastLine
+             + " Check each against the platform's telemetry, and say which I should act on first, which to reject, and why."
            end
        end) as $prompt
-    | { askHref: ("/reviews?ask=" + ($prompt | @uri)),
+    | { askHref: fx_href("/reviews"; $p + [["ask", $prompt]]),
         installed: ($perr | test("404|not found|could not find"; "i") | not),
         denied: ($perr | test("403|forbidden"; "i")),
         readError: $perr,
         open: ($open | length),
-        rows: $open,
+        {{/* The open proposals the filters match: today's table (?view=table) and the groups. */}}
+        rows: $shown,
+        matched: ($shown | length),
+        facets: $facets,
+        filtered: ([ $flt[] | select(length > 0) ] | length > 0),
+        group: $group,
+        view: (if $tableView then "table" else "" end),
+        groups: $groups,
+        {{/* The strip, over the filtered set. */}}
+        counts: { waiting: ($shown | length), newToday: ([ $shown[] | select(.f.today == "1") ] | length),
+                  prOpen: ([ $shown[] | select(.phase == "PrOpen") ] | length) },
+        chips: fx_chips("/reviews"; $p; $facets),
+        todayToggle: ([ $facets[] | select(.key == "today") ][0] as $t
+                      | { show: $t.show, active: any($t.active[]; . == "1"),
+                          count: ([ $t.values[] | select(.value == "1") | .count ][0] // 0),
+                          href: (if any($t.active[]; . == "1") then fx_href("/reviews"; fx_without($p; "today"; "1"))
+                                 else fx_href("/reviews"; fx_set($p; "today"; "1")) end) }),
+        groupHrefs: { kind: fx_href("/reviews"; fx_set($p; "group"; "kind")), repo: fx_href("/reviews"; fx_set($p; "group"; "repo")) },
+        tableHref: fx_href("/reviews"; fx_set($p; "view"; "table")),
+        cardsHref: fx_href("/reviews"; fx_set($p; "view"; "")),
         decided: $decided,
         decidedCount: ($decided | length),
         refused: $refused,
         supersededHidden: ([ $under[] ] | add // 0),
-        openCaption: (
-          ([ (($open | length) | tostring) + " open"
-           , (if ([ $under[] ] | add // 0) > 0 then (([ $under[] ] | add | tostring) + " superseded, counted on the proposal that replaced them") else empty end)
-           , "newest first"
-           , (if $refused > 0 then ($refused | tostring) + " historical Refused records not listed" else empty end) ]
-           | join(" · "))
-          + (if $last == null then "" else
-              " · last review " + $last.metadata.name + " on " + ($last.status.startedAt | rv_when)
-              + " (" + ($last.status.phase // "Pending") + ")" end)),
+        supersededInView: $supersededInView,
         decidedCaption: ([ ([ $decided[] | select(.phase == "Merged") ] | length | tostring) + " merged"
                          , ([ $decided[] | select(.phase == "Rejected") ] | length | tostring) + " rejected"
                          , ([ $decided[] | select(.phase == "Failed") ] | length | tostring) + " failed" ] | join(" · ")),
@@ -160,11 +232,12 @@ spec:
                      + (if ($runs | length) > 0 then " · since " + ($runs[-1].status.startedAt | rv_when) else "" end)),
         runCount: ($runs | length),
         lastRun: (if $last == null then null else { name: $last.metadata.name, phase: ($last.status.phase // "Pending"), started: ($last.status.startedAt | rv_when) } end),
+        runsFailed: ($rerr != ""),
         {{/* What a manual run instantiates: the CronJob's identity and its jobTemplate, verbatim. */}}
         reviewCronJob: (if $cron == null then null else
           { name: $cron.metadata.name, namespace: ($cron.metadata.namespace // "{{ $.Release.Namespace }}"), uid: ($cron.metadata.uid // ""),
             jobTemplate: { metadata: ($cron.spec.jobTemplate.metadata // {}), spec: $cron.spec.jobTemplate.spec } } end),
-        {{/* The one line above the tabs, when the latest run is not a clean Completed. */}}
+        {{/* The one line under the header, when the latest run is not a clean Completed. */}}
         banner: (
           if ($perr | test("404|not found|could not find"; "i")) then
             { type: "info", title: "The nightly review is not installed on this cluster",

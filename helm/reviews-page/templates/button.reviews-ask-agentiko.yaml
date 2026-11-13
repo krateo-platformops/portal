@@ -1,7 +1,8 @@
 {{/* "Ask Agentiko →" on /reviews — the assistant entry point for the open nightly-review proposals.
-     It navigates to THIS page with an ?ask seed the rail consumes on mount. /reviews has no filter
-     in its address (the Proposals/Runs tabs are the widget's own state), so the href carries the
-     seed alone.
+     It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping every filter
+     param (?kind, ?repo, ?today, ?q), ?group, ?view and the ?projects= scope, so the conversation
+     starts on the same view: with a filter applied the prompt names it and is about the proposals
+     it matches.
 
      Same object as service-desk-page's button.request-ask-agentiko — read the comment there. The
      label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set.
@@ -9,7 +10,7 @@
      header's one primary (P6).
 
      The href is built server-side (platform-reviews `.askHref`, @uri-encoded) from the open
-     proposals and the last run the page already read. When the proposals could not be read — the
+     proposals in view and the last run the page already read. When the proposals could not be read — the
      review is not installed, the caller is refused, or the read failed — the prompt says which, and
      never "no open proposals". */}}
 kind: Button
@@ -20,6 +21,9 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* Every widget on /reviews receives the page's filter params (krateo.io/filter-keys on
+       page-reviews); one it does not declare makes snowplow decline to cache it (F6). */}}
+  keyExtras: [projects, kind, repo, today, q, group, view]
   apiRef:
     name: platform-reviews
     namespace: {{ $.Values.namespace }}

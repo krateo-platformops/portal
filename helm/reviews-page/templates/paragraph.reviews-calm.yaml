@@ -1,0 +1,21 @@
+{{/* Said when no open proposal is in view: none matches the filters, or none is waiting at all. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-calm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ if (.matched // 0) > 0 then "" elif .filtered then "No open proposal matches these filters, of " + ((.open // 0) | tostring) + " open." else "No proposal is waiting for a decision." end }'
+  resourcesRefs:
+    items: []
