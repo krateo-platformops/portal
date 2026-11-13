@@ -532,8 +532,47 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-tickets.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-incident-tickets.py --pinned
+      # Its own step, run even when the one above fails: incident-tickets follows the raise link into
+      # service-desk-page's form, which is red by design until frontend-crds declares `textareas`,
+      # and that must not hide the incident page's own layout checks.
+      - name: Incident page layout, evaluated and validated
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
           python3 scripts/test-incident-page.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-incident-page.py --pinned
+
+  # The service desk on Zendesk: a request's state from condition status and reason (an unknown
+  # reason never drawn as progress), the chips, the one unreachable-organisation warning, a cluster
+  # without the kind / a denied / a failed read never rendered as an empty queue, the raise form's
+  # body (plain and raised from an incident), and a request's page. Resolved widgets validated
+  # against the newest released CRDs and the ones the installer pins.
+  # ITS OWN JOB, not a step of composition-architecture: a red step skips every step after it, and
+  # this one is red by design while the chart waits on a frontend-crds release (merge order in
+  # service-desk-page), which would hide six unrelated checks behind it.
+  service-desk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Service desk on Zendesk, over the chart's own jq, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-service-desk.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-service-desk.py --pinned
 
   incident-reanalyze:
     runs-on: ubuntu-latest
@@ -649,21 +688,6 @@ jobs:
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-events-routes.py
-
-      # The service desk on Zendesk: a request's state from condition status and reason (an unknown
-      # reason never drawn as progress), the chips, the one unreachable-organisation warning, a
-      # cluster without the kind / a denied / a failed read never rendered as an empty queue, the
-      # raise form's body (plain and raised from an incident), and a request's page. Same job for the same reason as the steps around
-      # it: it needs helm and jq, and runs the chart's own jq rather than a copy. Resolved widgets
-      # validated against the newest released CRDs and the ones the installer pins.
-      - name: Service desk on Zendesk, over the chart's own jq, evaluated and validated
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/sd-crds"
-          grep '^version:' "$RUNNER_TEMP/sd-crds/frontend-crds/Chart.yaml"
-          python3 scripts/test-service-desk.py --crds "$RUNNER_TEMP/sd-crds/frontend-crds"
-          python3 scripts/test-service-desk.py --pinned
 
       # Ready=Unknown must not render as progress. Same job for the same reason as its neighbours:
       # it needs helm and jq, and runs the chart's own jq rather than a copy.
