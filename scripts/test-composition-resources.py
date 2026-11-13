@@ -74,9 +74,9 @@ def conds(*triples):
 
 # One managed child, fetched, with these conditions. The shapes mirror what the upstream stages
 # project: `found[]` carries the managed entry, `resources` the fetched object.
-def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c'):
+def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps'):
     return {
-        'found': [{'_cn': 'comp', '_cns': 'ns', '_name': 'c', '_kind': 'configmaps',
+        'found': [{'_cn': 'comp', '_cns': 'ns', '_name': 'c', '_kind': kind,
                    '_grp': '', '_ver': 'v1', '_cluster': False, '_getpath': getpath,
                    '_wh': True, '_whMsg': ''}],
         'resources': [{'rname': 'c', 'rns': 'ns', 'rkind': 'ConfigMap', 'conditions': conditions}],
@@ -117,6 +117,22 @@ CASES = [
     # become progress. That direction is the safe one and it is asserted, not assumed.
     ('Ready=False/SomeNewReason',
      conds(('Ready', 'False', 'SomeNewReason2028'),), 'failed', 'NotReady'),
+    # Conditions, but none that says ready for a kind with no readiness model: honest, not pending.
+    ('no Ready/Available among conditions',
+     conds(('Complete', 'True', ''),), 'noReadiness', 'NoReadyCondition'),
+]
+
+# A CRD child: readiness is Established/NamesAccepted, never Ready (krateo-057 authn-crd showed
+# "pending" forever). The arms are core-provider#473's crdReady, so portal and composition agree.
+CRD = '/apis/apiextensions.k8s.io/v1/customresourcedefinitions/c'
+CRD_CASES = [
+    ('CRD Established=True', conds(('NamesAccepted', 'True', 'NoConflicts'), ('Established', 'True', 'InitialNamesAccepted')), 'healthy', 'Healthy'),
+    ('CRD NamesAccepted=False', conds(('NamesAccepted', 'False', 'KindConflict'), ('Established', 'False', 'NotAccepted')), 'failed', 'KindConflict'),
+    # A fresh CRD is briefly Established=False: progress, never a failure flash on install.
+    ('CRD Established=False', conds(('NamesAccepted', 'True', 'NoConflicts'), ('Established', 'False', 'Installing')), 'converging', 'Creating'),
+    ('CRD Established=Unknown', conds(('Established', 'Unknown', ''),), 'converging', 'Creating'),
+    ('CRD with no conditions yet', [], 'converging', 'Creating'),
+    ('CRD Terminating', conds(('Established', 'True', 'InitialNamesAccepted'), ('Terminating', 'True', 'InstanceDeletionInProgress'))[1:], 'converging', 'Terminating'),
 ]
 
 failures = []
@@ -130,8 +146,11 @@ def check(label, got, want):
 docs = render()
 prog = named(docs, 'composition-resources')['spec']['filter']
 
-for label, conditions, want_state, want_label in CASES:
-    out = jq(prog, payload(conditions))
+ALL = [(l, c, s, lb, 'configmaps', '/api/v1/namespaces/ns/configmaps/c') for l, c, s, lb in CASES] + \
+      [(l, c, s, lb, 'customresourcedefinitions', CRD) for l, c, s, lb in CRD_CASES]
+
+for label, conditions, want_state, want_label, kind, getpath in ALL:
+    out = jq(prog, payload(conditions, getpath=getpath, kind=kind))
     rows = out['resources']
     check(f'{label}: one row', len(rows), 1)
     if not rows:
@@ -142,15 +161,15 @@ for label, conditions, want_state, want_label in CASES:
     # must not land in an existing one silently, which is how Ready=Unknown became "pending".
     buckets = ['healthyCount', 'driftCount', 'failedCount', 'pendingCount',
                'notObservedCount', 'readyNotSetCount', 'unknownCount',
-               'terminalCount', 'convergingCount']
+               'terminalCount', 'convergingCount', 'noReadinessCount']
     summed = sum(out.get(b, 0) for b in buckets)
     check(f'{label}: counts sum to total', summed, out['total'])
 
 # A state the chain can emit but nothing counts would pass every case above and still be wrong, so
 # the set of emitted states is compared against the colour map rather than enumerated by hand.
 emitted = set()
-for _, conditions, _, _ in CASES:
-    emitted.add(jq(prog, payload(conditions))['resources'][0]['state'])
+for _, conditions, _, _, kind, getpath in ALL:
+    emitted.add(jq(prog, payload(conditions, getpath=getpath, kind=kind))['resources'][0]['state'])
 # `unread` (a Secret, refused by fetchablePath) and `pending` (managed but not fetched) are reachable
 # through inputs these fixtures do not build; they are in the map and in the chain, so they are
 # listed here rather than silently excluded.
@@ -173,6 +192,6 @@ check('stateLabel is passed through, not re-cased', 'ascii_upcase' in expr, Fals
 
 for f in failures:
     print(f'FAIL  {f}')
-print(f'{"FAILED" if failures else "ok"}: composition resources, {len(CASES)} condition shapes'
+print(f'{"FAILED" if failures else "ok"}: composition resources, {len(ALL)} condition shapes'
       f' ({len(failures)} failure(s))')
 raise SystemExit(1 if failures else 0)
