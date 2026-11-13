@@ -64,6 +64,12 @@ spec:
     # message string or the apiserver's Status object, so the text is read from either.
     def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
     def epoch: ((tostring | .[0:19] + "Z") | fromdateiso8601?) // null;
+    # An alert's display name, as a title. It may open with a decorative emoji (7f414fb stripped it
+    # from the page title): drop emoji (symbols, skin tones, the joiner and the emoji variation
+    # selector) and keep everything else. The old filter kept printable ASCII only, which also
+    # dropped the em dash of "Krateo — composition reconcile errors" (leaving two spaces) and every
+    # accented letter. Then whitespace runs become one space, trimmed. Same regex on jq and gojq.
+    def dispname: gsub("[\\p{So}\\x{1F3FB}-\\x{1F3FF}\\x{200D}\\x{FE0F}]"; "") | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "");
     . as $in
     | ["projects", "status", "alert", "age", "owner", "q", "group", "view"] as $keys
     | ($in | fx_filters(["alert", "status", "age", "owner"])) as $flt0
@@ -81,7 +87,7 @@ spec:
     | ((.alerts.items) // []) as $alerts
     | (.alertsError != null) as $alertsFailed
     | ($alerts | map({ key: (.metadata.name // ""), value: {
-          display: ((.spec.displayName // "") | gsub("[^ -~]"; "") | sub("^ +"; "") | sub(" +$"; "")),
+          display: ((.spec.displayName // "") | dispname),
           krateo: ((((.metadata.labels // {})["krateo.io/composition-name"]) // "") != ""),
           state: (.status.state // "") } }) | from_entries) as $alertBy
     | now as $now

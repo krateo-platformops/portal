@@ -19,7 +19,9 @@ THE OVERVIEW (root-pages UX, build plan §3.2, mockup screen 06; decisions of 20
     that alert (or age) and state, "See all N" (Q1); six cards, then the state's table;
   - Resolved and Closed are folded, their six newest, then "See all N →" to that state's table;
   - ?view=table swaps the overview for today's table, filtered, and the toggle keeps every filter
-    both ways.
+    both ways;
+  - an alert's display name loses a decorative emoji but keeps its punctuation (an em dash), with
+    whitespace runs collapsed: it is a card title, a facet label and the table's Incident.
 THE PROMPT. incidents-list builds the header button's `askHref`: /incidents with every filter param
 and the ?projects= scope kept, and a prompt about the view on screen. The rules a reader would notice:
   - unfiltered, the prompt gives the per-state counts, the alerts firing with no incident, and the
@@ -572,6 +574,30 @@ def check_ask_keeps_the_view():
     return f
 
 
+# Display names as alert authors write them. The sanitizer exists to drop a decorative emoji
+# (7f414fb, "strip the leading emoji"); punctuation such as the em dash is part of the name.
+NAMES = [('Krateo — composition reconcile errors', 'Krateo — composition reconcile errors'),
+         ('🚨 Pod crash-looping', 'Pod crash-looping'),
+         ('⚠️  Disk  full ', 'Disk full'),
+         ('👩🏽‍💻 Dev box', 'Dev box'),
+         ('Café · ünïcode – ok', 'Café · ünïcode – ok')]
+
+
+def check_display_names():
+    f = []
+    alerts = [alert(f'a{i}', shown, 'OK') for i, (shown, _) in enumerate(NAMES)]
+    incs = [incident(f'i{i}', 'Open', ago(10 + i), alert=f'a{i}', cause='c') for i in range(len(NAMES))]
+    out = overview(incidents={'items': incs}, alerts={'items': alerts})
+    got = {r['alert']: r['title'] for r in out['rows']}
+    for i, (shown, want) in enumerate(NAMES):
+        expect(f, f'display name {shown!r}: the emoji dropped, the punctuation kept, one space, trimmed', got.get(f'a{i}'), want)
+    labels = {v['value']: v['label'] for v in facet(out, 'alert')['values']}
+    expect(f, 'the Alert facet labels them the same way', labels.get('a0'), NAMES[0][1])
+    titles = [c['title'] for c in widget_data('Collapse', 'incidents-groups', out)['items'][0]['dataSource']]
+    expect(f, 'and so does the card title', NAMES[0][1] in titles, True)
+    return f
+
+
 def check_filter_keys():
     f = []
     for d in CH.docs:
@@ -583,7 +609,7 @@ def check_filter_keys():
 
 CHECKS = [check_unfiltered, check_filtered, check_empty_and_failed, check_button_and_header, check_awaiting_section,
           check_facets, check_hidden_facets, check_status_back_compat, check_strip, check_groups, check_caps,
-          check_table_view, check_ask_keeps_the_view, check_filter_keys]
+          check_table_view, check_ask_keeps_the_view, check_display_names, check_filter_keys]
 
 
 def main():

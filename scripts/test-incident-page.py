@@ -3,6 +3,8 @@
 test-incident-page — the incident page's layout, evaluated end to end.
 
 WHAT IT GUARDS:
+  - the title: the alert's display name with a decorative emoji dropped and its punctuation (an em
+    dash) kept, one space between words.
   - the chips under the title: the alert link, its state, "since", and "Nth incident from this
     alert" (counting earlier incidents only); no composition chip.
   - the Summary: Why, Fix and Who fixes it, as label/value rows.
@@ -148,6 +150,19 @@ def check_chips(chart):
     for k in ('ref', 'refRoute'):
         if k in out:
             f.append(f'incident-detail still emits {k}')
+    return f
+
+
+def check_display_name(chart):
+    """The title is the alert's display name: a decorative emoji dropped (why the sanitizer exists),
+    punctuation such as the em dash kept, whitespace runs collapsed, trimmed."""
+    f = []
+    for shown, want in (('Krateo — provider cannot reach its target', 'Krateo — provider cannot reach its target'),
+                        ('🚨  Telemetry pipeline stalled ', 'Telemetry pipeline stalled')):
+        a = alert()
+        a['spec']['displayName'] = shown
+        out, _ = page(incident(), f'name {shown}', alert_obj=a, chart=chart)
+        expect(f, f'title from {shown!r}', (out['title'], out['alertName']), (want, want))
     return f
 
 
@@ -307,7 +322,7 @@ def main():
         crds_dir = pinned.unpack(version)
         print(f'validating against the pinned frontend-crds {version}')
     chart = tbi.Chart(tbi.render(os.path.join(REPO, 'helm', 'incidents-page')))
-    runs = [check_chips, check_ordinal_suffixes, check_summary, check_reasoning, check_evidence, check_object_refs,
+    runs = [check_chips, check_display_name, check_ordinal_suffixes, check_summary, check_reasoning, check_evidence, check_object_refs,
             check_how_to_fix, check_bottom_tabs]
     failed = 0
     for check in runs:
