@@ -152,6 +152,26 @@ spec:
           | ($obj != null) as $found
           | (($obj.conditions) // []) as $c
           | ([ $c[]? | select(.type == "Ready" or .type == "Available") ][0]) as $rc
+          {{/* A CRD HAS NO Ready. Its readiness conditions are `Established` and `NamesAccepted`, so it
+               used to have conditions (not "conditionless → healthy") and no $rc, and fell through
+               every branch to "pending" — forever, whatever its real state (krateo-057's authn-crd).
+               The arms are the composition's own rule for a CRD child, in ITS evaluation order
+               (core-provider#473, crdReady in childhealth.go), so the portal and the composition's
+               Ready never disagree:
+                 1. NamesAccepted=False                     → failed, its reason verbatim. Checked
+                    FIRST: a name conflict is terminal, even while Established or terminating.
+                 2. Established=True and Terminating≠True   → healthy
+                 3. anything else                           → converging: Established False/Unknown,
+                    no conditions yet (a just-created CRD carries none for a moment), or
+                    Terminating=True (still Established). The cdc reports it as Ready=False reason
+                    `Creating`; a fresh install must not flash "failed". */}}
+          | ($m._kind == "customresourcedefinitions") as $isCrd
+          | ([ $c[]? | select(.type == "Established") ][0]) as $established
+          | ([ $c[]? | select(.type == "NamesAccepted") ][0]) as $namesAccepted
+          | ([ $c[]? | select(.type == "Terminating") ][0]) as $terminating
+          | ($isCrd and $namesAccepted.status == "False") as $crdNameConflict
+          | ($isCrd and ($crdNameConflict | not) and $established.status == "True" and $terminating.status != "True") as $crdReady
+          | ($isCrd and ($crdNameConflict | not) and ($crdReady | not)) as $crdConverging
           | ($rc.status == "True") as $ready
           | ($rc.status == "False") as $notready
           {{/* THE THIRD STATE. A Ready condition is True, False or Unknown, and Unknown used to
@@ -200,6 +220,9 @@ spec:
               # it neither shows a green tag nor counts toward convergence.
               state: (if ($readable | not) then "unread"
                       elif ($found | not) then "pending"
+                      elif $crdNameConflict then "failed"
+                      elif $crdReady then "healthy"
+                      elif $crdConverging then "converging"
                       elif $noconds then "healthy"
                       elif $ready and ($unsynced | not) then "healthy"
                       elif $ready and $unsynced then "drift"
@@ -209,7 +232,10 @@ spec:
                       elif $unknownReady and $observeFailed and $unsynced then "notObserved"
                       elif $unknownReady and $observeFailed then "readyNotSet"
                       elif $unknownReady then "unknown"
-                      else "pending" end),
+                      {{/* Conditions, but none that says ready for this kind (no Ready/Available, and
+                           not a CRD): say so, rather than "pending", which reads as progress. */}}
+                      elif $rc == null then "noReadiness"
+                      else "unknown" end),
               {{/* LABEL AND COLOUR ARE COMPUTED HERE, not derived from `state` by the widget.
                    The list used to bind `color: value: '{state}'` through a `map:` of five entries
                    and build the label by upper-casing the state's first letter. Both work only for
@@ -224,6 +250,9 @@ spec:
                    possible, and `NotObserved` / `ReadyNotSetAfterObserve` / `Unknown` all are. */}}
               stateLabel: (if ($readable | not) then "Unread"
                            elif ($found | not) then "Pending"
+                           elif $crdNameConflict then ($namesAccepted.reason // "NamesNotAccepted")
+                           elif $crdReady then "Healthy"
+                           elif $crdConverging then (if $terminating.status == "True" then "Terminating" else "Creating" end)
                            elif $noconds or ($ready and ($unsynced | not)) then "Healthy"
                            elif $ready and $unsynced then "Drift"
                            {{/* Verbatim from the object for every reason the runtimes define, so
@@ -239,11 +268,15 @@ spec:
                                 it means the pill matches the event an operator will find. */}}
                            elif $unknownReady and $observeFailed then "ReadyNotSetAfterObserve"
                            elif $unknownReady then "Unknown"
-                           else "Pending" end),
+                           elif $rc == null then "NoReadyCondition"
+                           else "Unknown" end),
               {{/* notObserved is scored BELOW drift, per provider-runtime: a child we cannot
                    observe is a weaker claim than one we can see has drifted. */}}
               healthPercent: (if ($readable | not) then 0
                               elif ($found | not) then 50
+                              elif $crdNameConflict then 20
+                              elif $crdReady then 100
+                              elif $crdConverging then 50
                               elif $noconds or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70
                               elif $notready and $converging then 50
@@ -297,6 +330,7 @@ spec:
         convergingCount: ($rows | map(select(.state == "converging")) | length),
         readyNotSetCount: ($rows | map(select(.state == "readyNotSet")) | length),
         unknownCount: ($rows | map(select(.state == "unknown")) | length),
+        noReadinessCount: ($rows | map(select(.state == "noReadiness")) | length),
         convergencePercent: (if $total > 0 then (($healthy * 100 / $total) | floor) else 0 end),
         converged: (($rows | length) > 0 and $healthy == $total and ($whBad | not)),
         workloadUnhealthy: $whBad,
