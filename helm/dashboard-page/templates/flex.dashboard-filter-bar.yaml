@@ -1,0 +1,29 @@
+{{/* The inbox's filter bar: a named search landmark (Flex role/ariaLabel, frontend 1.8.43) holding the
+     Source facet. Project is not repeated here: the shell's project switcher is the scope and rides
+     every route (decision Q8). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-filter-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  widgetData:
+    allowedResources:
+    - selects
+    role: search
+    ariaLabel: Filter the inbox
+    wrap: true
+    gap: small
+    items:
+    - resourceRefId: dashboard-source
+  resourcesRefs:
+    items:
+    - id: dashboard-source
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-source
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET

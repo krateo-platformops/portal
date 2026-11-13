@@ -640,45 +640,24 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-compositions-table.py
 
-      # "Ask Agentiko →" on /compositions, /dashboard, /blueprints, /marketplace and the blueprint and
-      # marketplace detail pages: the prompt describes the view on screen and the link keeps its
-      # filters, a failed read is never described as an empty one, and a detail link is empty when
-      # the object was not read. Over the RESTActions' own jq.
-      - name: Ask Agentiko on compositions, dashboard, blueprints and marketplace, over the charts' own jq
+      # "Ask Agentiko →" on /compositions, /blueprints, /marketplace and the blueprint and marketplace
+      # detail pages: the prompt describes the view on screen and the link keeps its filters, a
+      # failed read is never described as an empty one, and a detail link is empty when the object
+      # was not read. Over the RESTActions' own jq. (The Dashboard's is in the dashboard-inbox job.)
+      - name: Ask Agentiko on compositions, blueprints and marketplace, over the charts' own jq
         run: |
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-agentiko-compositions-blueprints.py
 
-      # A composition that cannot be judged (Ready=Unknown, reason ZeroEvidence, or ChildrenForbidden
-      # which the rail labels as the RBAC defect it is) is set aside on the Dashboard, and an Unknown
-      # with any other reason is not. Runs the RA's and the widgets' own
-      # jq over krateo-057's compositions; same job because it needs helm, jq and the CRDs pulled above.
-      - name: Dashboard not-assessable bucket, over the chart's own jq
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          python3 scripts/test-dashboard-assessable.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-
-      # The Dashboard's card rows stack on smaller screens instead of squeezing their cards: the stat
-      # cards (4 across, 2 x 2 below 768 px, one per row below 576 px), the charts row (16 / 8, one per
-      # row below 992 px) and the lists row (12 / 12, one per row below 768 px). Resolves the rendered
-      # spans the way antd's grid does, and validates each Row against the CRDs pulled above, so a
-      # span key the CRD lacks fails here.
-      - name: Dashboard rows per line, at phone, tablet and desktop widths
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          python3 scripts/test-dashboard-rows.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-
-      # The activity feed links a row from the event alone: the composition sse-proxy (>= 1.5.0) names
-      # on it, or a blueprint's own page; an id-only event stays unlinked. The events RA lists no
-      # compositions, which this asserts too. Same job: it needs helm and jq, and runs the chart's own jq.
-      - name: Dashboard activity feed routes, over the chart's own jq
+      # A composition that cannot be judged (Ready=Unknown, reason ZeroEvidence, or ChildrenForbidden,
+      # which is labelled as the RBAC defect it is) is set aside by compositions-list, and an Unknown
+      # with any other reason is not. Runs the RA's own jq over krateo-057's compositions.
+      - name: compositions-list not-assessable bucket, over the chart's own jq
         run: |
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
-          python3 scripts/test-dashboard-events-routes.py
+          python3 scripts/test-compositions-assessable.py
 
       # The composition detail page's events feed: each row's deep-link survives every shape the
       # per-group discovery stage can hand the filter (flat, nested, empty, null, garbage). A jq error
@@ -822,6 +801,53 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           jq --version
           python3 scripts/test-duration-labels.py
+
+  # The Dashboard "needs you" inbox (root-pages UX slice 1) and the filter helper every filtered
+  # overview page shares. portal.facets: the copies of _facets.tpl are byte-identical and its counts,
+  # visibility and hrefs follow decisions Q1 and Q2. The inbox: a source whose page the caller cannot
+  # open is absent, a failed read is never quiet, ZeroEvidence is not "not Ready", ?source= drives
+  # the strip, cards and prompt, and the copies of _agents-gateway.tpl and _audit.tpl match their
+  # owners. Its widgets are validated against the NEWEST RELEASED frontend-crds, so this job is red
+  # until a frontend release carries Collapse, Listy `statistic`, Select counts/prefix/panelFooter
+  # and Flex role/ariaLabel (frontend 1.8.43): the data-before-consumer order, not a flake.
+  dashboard-inbox:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Recent changes' ClickHouse request is rendered by snowplow's own path renderer
+      # (scripts/snowplow-path.py builds it from the snowplow tag the installer pins).
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Facets helper, over the charts' own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-facets.py
+
+      - name: Dashboard inbox, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-dashboard-inbox.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   observability-traces:
     runs-on: ubuntu-latest

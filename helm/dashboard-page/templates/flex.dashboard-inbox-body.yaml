@@ -1,0 +1,67 @@
+{{/* The inbox body, from dashboard-inbox. Each section is placed only when it has something to say:
+       - the filter bar, when the source facet shows (two or more sources have items, or a source is
+         picked; decision Q2) - otherwise one Select with one value would be a control that does
+         nothing;
+       - the active-filter chips, when a filter is applied;
+       - the strip, when any source is in view (one tile per source);
+       - "Needs you", when any card exists;
+       - the calm line, when something in view is fine (the same clauses paragraph.dashboard-quiet
+         words), or to say that no source is in view (a caller who can open none of the five pages,
+         or a filter naming only sources they cannot see). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-inbox-body
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - flexes
+    - listies
+    - collapses
+    - paragraphs
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: dashboard-strip
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ . as $r | ([ (.sources // [])[] | select(.inView) ]) as $v | (if ((.facets // [])[0].show // false) then [ { resourceRefId: "dashboard-filter-bar" } ] else [] end) + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "dashboard-active-filters" } ] else [] end) + (if ($v | length) > 0 then [ { resourceRefId: "dashboard-strip" } ] else [] end) + (if any($v[]; .failed or .items > 0) then [ { resourceRefId: "dashboard-needs-you" } ] else [] end) + (if ($v | length) == 0 or any($v[]; (.failed | not) and ((.key == "compositions") or (.key == "alerts" and ($r.alerts.total // 0) > 0) or (.key == "agents" and ($r.agents.gatewayKnown // false) and ($r.agents.total // 0) > 0) or (.key == "incidents" and ($r.incidents.open // 0) == 0) or (.key == "reviews" and ($r.reviews.waiting // 0) == 0))) then [ { resourceRefId: "dashboard-quiet" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: dashboard-filter-bar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-filter-bar
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: dashboard-active-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-active-filters
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: dashboard-strip
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-strip
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: dashboard-needs-you
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-needs-you
+      namespace: {{ $.Values.namespace }}
+      resource: collapses
+      verb: GET
+    - id: dashboard-quiet
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-quiet
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

@@ -1,0 +1,77 @@
+{{/* The Dashboard's "Recent changes": the latest changes of the last 7 days, read from the audit trail
+     in ClickHouse (krateo_audit), the same records the /audit page lists (decision Q5, 2026-11-13).
+
+     WHO SEES WHICH ROWS is the /audit page's rule, unchanged: _audit.tpl is a byte-for-byte copy of
+     audit-page's (scripts/test-dashboard-inbox.py fails when the two differ), and its two access
+     stages decide the namespaces (audit.accessStages, audit.access). Reading a namespace's audit
+     records is a grant an administrator makes on purpose (`list` auditrecords.audit.krateo.io); a
+     caller with none gets NO ClickHouse call, because the iterator yields nothing, and the panel says
+     the trail is not shared with them instead of showing an empty week.
+
+     ITS OWN RESTAction, not a stage of dashboard-inbox. The ClickHouse read goes through an
+     endpointRef, an external touch, and snowplow declines every L1 Put of a RESTAction that makes one
+     and of each widget that reads it (resolve.go, cache/put_verdict.go). As a stage of the inbox it
+     would make the strip, the cards and the calm line uncacheable too.
+
+     THE QUERY, decoded (<access> as in audit-records):
+       SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope,
+         LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act,
+         LogAttributes['http.request.method'] AS method, LogAttributes['k8s.resource.resource'] AS res,
+         LogAttributes['k8s.resource.kind'] AS kind, LogAttributes['k8s.resource.group'] AS grp,
+         LogAttributes['k8s.resource.name'] AS name, LogAttributes['k8s.namespace.name'] AS ns,
+         LogAttributes['outcome'] AS outcome, LogAttributes['server.address'] AS server,
+         count() OVER () AS matched
+       FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL 7 DAY
+         AND NOT <dryRun><access> ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON
+     `matched` counts the whole window (a window function runs before LIMIT), so the panel can say
+     how many changes the week holds while it shows five. Previews (dry runs) are not changes and are
+     left out, as the /audit table leaves them out. */}}
+{{- $window := include "audit.window" . -}}
+{{- $filters := include "audit.sql.filters" . -}}
+{{- $pop := include "audit.sql.population" . -}}
+{{- $dry := include "audit.sql.dryRun" . -}}
+{{- $select := "SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope, LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act, LogAttributes['http.request.method'] AS method, LogAttributes['k8s.resource.resource'] AS res, LogAttributes['k8s.resource.kind'] AS kind, LogAttributes['k8s.resource.group'] AS grp, LogAttributes['k8s.resource.name'] AS name, LogAttributes['k8s.namespace.name'] AS ns, LogAttributes['outcome'] AS outcome, LogAttributes['server.address'] AS server, count() OVER () AS matched FROM krateo_audit WHERE " -}}
+{{- /* The /audit iterator reads ?range and the three chip filters; the Dashboard has none of them, so
+       this one fixes the window at 7 days and the filters empty, and keeps the access rule. */ -}}
+{{- $iterator := printf "%s [ ({r: \"7d\", ns: \"\", usr: \"\", oc: \"\"} + (%s)) | select(.all or (.acc | length) > 0) ]" (include "audit.valid" .) (include "audit.access" .) -}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: dashboard-recent-changes
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{- include "audit.accessStages" . | nindent 4 }}
+    - name: recent
+      dependsOn:
+        name: allNamespaces
+        iterator: '{{ $iterator }}'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $select }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: recentError
+  {{/* ClickHouse FORMAT JSON => {meta, data: [...], rows}. 64-bit integers arrive as JSON strings on a
+       default server and as numbers on krateo-057, so `num` reads both. The rows are named with
+       _audit.tpl's own formats, so a change reads here as it does on /audit. */}}
+  filter: >
+    {{ include "audit.valid" . }} {{ include "audit.format" . }}
+    ({{ include "audit.access" . }}) as $a
+    | ($a.all or ($a.acc | length) > 0) as $queried
+    | [ ((.recent | objects | .data) // [])[]
+        | { tsMs: (.ts_ms | num), scope: (.scope // ""), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
+            resource: (.res // ""), kind: (.kind // ""), group: (.grp // ""), name: (.name // ""),
+            namespace: (.ns // ""), outcome: (.outcome // ""), code: "", server: (.server // ""),
+            matched: (.matched | num) }
+        | . + { verb: auditAction, target: auditResource, at: (.tsMs | tostring | auditUtc) } ] as $rows
+    | { scope: (if ($queried | not) then "none" elif $a.all then "all" else "namespaces" end),
+        failed: ($queried and .recentError != null),
+        total: (($rows[0].matched) // 0),
+        rows: $rows,
+        auditHref: "/audit?range=7d" }
