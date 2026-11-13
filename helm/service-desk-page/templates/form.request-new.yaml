@@ -45,6 +45,11 @@ spec:
        cell, so two people on this page never share one name or one label). */}}
   identityContext:
     - username
+  {{/* The incident a request is raised from, when the incident page sent the person here. Declared so
+       each incident's pre-filled form is its own cache cell: a widget served extras it does not
+       declare is never cached, and one that shared a cell across incidents would pre-fill one
+       incident's text into another's request. */}}
+  keyExtras: [incidentName, incidentNamespace]
   apiRef:
     name: request-raise-context
     namespace: {{ $.Values.namespace }}
@@ -55,6 +60,14 @@ spec:
     {{/* The real schema is request-raise-context's `stringSchema`, built per caller. This is only
          the CR's shape: the page root never draws the form without a context. */}}
     stringSchema: '{"type":"object","properties":{}}'
+    {{/* Description is multi-line. A widgetData list keyed by field name, as `checkboxes` is
+         (frontend#716), not a schema `format`: a format is what a value means, not which control
+         draws it. Drawn once the frontend's Form presentation change ships; until then Description
+         is a one-line input, and frontend-crds must declare `textareas` before this chart can
+         apply (lint-pinned-crds says so). */}}
+    textareas:
+      - name: description
+        rows: 6
     buttonConfig:
       primary:
         label: Raise request
@@ -100,8 +113,18 @@ spec:
     {{/* The same slug zendesk-requests compares "Mine" against (_zendesk.tpl labelslug): lowercased,
          everything outside [a-z0-9._-] to `-`, cut to 63, ends trimmed to alphanumerics. Change
          both together, or nobody's requests are theirs. */}}
+    {{/* …and, raised from an incident, `krateo.io/incident-uid`: the incident page lists the
+         requests carrying it ("Zendesk requests for this incident"). */}}
     - forPath: actions.rest[0].payload.metadata.labels
-      expression: '${ ((.username // "") | ascii_downcase | gsub("[^a-z0-9._-]"; "-") | .[0:63] | sub("^[^a-z0-9]+"; "") | sub("[^a-z0-9]+$"; "")) as $s | if $s == "" then {} else { "krateo.io/raised-by": $s } end }'
+      expression: '${ ((.username // "") | ascii_downcase | gsub("[^a-z0-9._-]"; "-") | .[0:63] | sub("^[^a-z0-9]+"; "") | sub("[^a-z0-9]+$"; "")) as $s | (if $s == "" then {} else { "krateo.io/raised-by": $s } end) + (if ((.incidentUid // "") | type) == "string" and (.incidentUid // "") != "" then { "krateo.io/incident-uid": .incidentUid } else {} end) }'
+    {{/* Raised from an incident: pre-filled from it (request-raise-context), with one line above the
+         standing notice; back to the incident on Cancel. A plain visit resolves to the plain form. */}}
+    - forPath: initialValues
+      expression: '${ .initialValues // {} }'
+    - forPath: notice
+      expression: '${ (if (.incidentNotice // "") != "" then .incidentNotice + " " else "" end) + "Zendesk records this request as coming from your organisation’s support account, not from you by name. Agents answer it in Zendesk." }'
+    - forPath: buttonConfig.secondary.navigateTo
+      expression: '${ .cancelTo // "/service-desk" }'
     - forPath: actions.rest[0].payload.metadata.annotations
       expression: '${ if ((.username // "") | type) == "string" and (.username // "") != "" then { "krateo.io/raised-by": .username } else {} end }'
   resourcesRefs:

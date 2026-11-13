@@ -19,8 +19,11 @@ WHAT IT PINS, because each is a way the page could lie:
     as a sentence; the name `zr-<user>-<seconds>` equals krateo_reference; the body the frontend
     would POST lands in the configuration's namespace with configurationRef naming it; a 403 says
     the person may not raise requests for that organisation.
-  - A request's page: the facts in the decided order, "Open in Zendesk ↗" only from an https
-    html_url, and status.url never anywhere.
+  - A request's page: the facts in the decided order, the line saying replies come later, and NO
+    link to Zendesk: status.url and status.html_url are never read (the requester Zendesk records is
+    the organisation's support account, so nobody could open it).
+  - Raised from an incident: the form reads the Incident AS THE CALLER, pre-fills from it and labels
+    the request `krateo.io/incident-uid`; an unreadable incident leaves the form empty with one line.
   - Nothing of the Ticket desk is left in the chart, and its namespace stays kept.
 
 WHAT THIS CANNOT TEST: the userAccessFilter itself. Whether snowplow drops the requests a caller may
@@ -152,12 +155,38 @@ def zr(name, ns='acme-retail', conditions=None, zid=None, zstatus=None, subject=
 
 
 FILED = [cond('Ready', 'True', 'Available'), cond('Synced', 'True', 'ReconcileSuccess')]
-UNREACHABLE = [cond('Ready', 'Unknown', 'ObserveFailed', 'get request 48190: 401 Unauthorized'),
+UNREACHABLE = [cond('Ready', 'Unknown', 'ObserveFailed', 'get requests: 401 Unauthorized'),
                cond('Synced', 'False', 'ReconcileError', 'observe failed')]
 
-# (label, conditions, id, want state, want pill label, want pill colour, want detail alert type)
-STATES = [
-    ('filed, open', FILED, 48213, 'filed', 'Open', 'slate', None),
+# THE DOCUMENTED REASON TABLE, one case per row: krateo-blueprints/krateo-zendesk-kog docs/api.md,
+# "Conditions a reader can key on" (PR #11, measured in the zendesk-kog 0.2.0 end-to-end run). The
+# reasons are not zendesk-kog's own: Available, Creating, ObserveFailed and ReconcileError are
+# provider-runtime's, set by rest-dynamic-controller; CorrelationTokenMissing is oasgen-provider's
+# `dispatch` verb. A reason that changes with a rest-dynamic-controller or oasgen-provider release is
+# changed HERE first, and the page (_zendesk.tpl, in both charts) follows.
+#   (doc row, owner of the reasons, conditions, status.id, want state, pill label, pill colour, alert)
+DOCUMENTED_REASONS = [
+    ('filed and observed', 'rest-dynamic-controller',
+     [cond('Ready', 'True', 'Available'), cond('Synced', 'True', 'ReconcileSuccess')], 48213,
+     'filed', 'Open', 'slate', None),
+    ('token expired or revoked (401), after filing', 'rest-dynamic-controller',
+     [cond('Ready', 'Unknown', 'ObserveFailed', 'get requests: 401 Unauthorized'), cond('Synced', 'False', 'ReconcileError', 'observe failed')], 48190,
+     'unreachable', 'Open', 'slate', 'warning'),
+    ('token expired or revoked (401), before filing', 'rest-dynamic-controller',
+     [cond('Ready', 'Unknown', 'ObserveFailed', 'get requests: 401 Unauthorized'), cond('Synced', 'False', 'ReconcileError', 'observe failed')], None,
+     'unreachable', 'Not filed', 'gray', 'warning'),
+    ('Zendesk refuses the filing (e.g. 422)', 'rest-dynamic-controller',
+     [cond('Ready', 'False', 'Creating'), cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
+     'refused', 'Refused by Zendesk', 'red', 'error'),
+    ('held: empty krateo_reference', 'oasgen-provider dispatch',
+     [cond('Ready', 'False', 'CorrelationTokenMissing', 'krateo_reference is empty'), cond('Synced', 'True', 'ReconcileSuccess')], None,
+     'held', 'Held', 'orange', 'warning'),
+]
+
+# The PORTAL'S OWN cases, which the documented table does not list: a request the provider has not
+# looked at yet, and a reason nobody documented. An unknown reason is shown verbatim and never as
+# progress — the safe direction when a provider release adds one.
+PORTAL_CASES = [
     ('no conditions yet', [], None, 'filing', 'Filing…', 'gold', 'info'),
     ('no status at all', None, None, 'filing', 'Filing…', 'gold', 'info'),
     ('Ready=False/Creating, Synced=True', [cond('Ready', 'False', 'Creating'), cond('Synced', 'True', 'ReconcileSuccess')],
@@ -166,18 +195,22 @@ STATES = [
     # "refused" is still filing.
     ('Ready=False/Creating whose message says ObserveFailed',
      [cond('Ready', 'False', 'Creating', 'ObserveFailed: refused, token expired')], None, 'filing', 'Filing…', 'gold', 'info'),
-    ('Ready=False/Creating, Synced=False/ReconcileError',
-     [cond('Ready', 'False', 'Creating'), cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')],
-     None, 'refused', 'Refused by Zendesk', 'red', 'error'),
-    ('Ready=Unknown/ObserveFailed with a number', UNREACHABLE, 48190, 'unreachable', 'Open', 'slate', 'warning'),
-    ('Ready=Unknown/ObserveFailed, never filed', UNREACHABLE, None, 'unreachable', 'Not filed', 'gray', 'warning'),
-    ('Ready=False/CorrelationTokenMissing', [cond('Ready', 'False', 'CorrelationTokenMissing', 'no krateo_reference on the Zendesk request')],
-     None, 'held', 'Held', 'orange', 'warning'),
-    # An unrecognised reason: verbatim, gray, and NEVER progress.
     ('Ready=False/QuotaExceeded2028', [cond('Ready', 'False', 'QuotaExceeded2028', 'quota')], None, 'other', 'QuotaExceeded2028', 'gray', 'warning'),
     ('Ready=True/SomethingElse', [cond('Ready', 'True', 'SomethingElse')], 48001, 'other', 'SomethingElse', 'gray', 'warning'),
     ('Ready=Unknown/Unexpected', [cond('Ready', 'Unknown', 'Unexpected')], None, 'other', 'Unexpected', 'gray', 'warning'),
 ]
+
+STATES = [(row, conds, zid, st, pill, colour, alert) for row, _owner, conds, zid, st, pill, colour, alert in DOCUMENTED_REASONS] + PORTAL_CASES
+
+
+def state_fixture(conds, zid):
+    """A request in one of the STATES, with a Zendesk status of `open` once it has a number."""
+    obj = zr('zr-a', conditions=conds, zid=zid, zstatus='open' if zid else None,
+             html_url=f'https://acme-retail.zendesk.com/hc/requests/{zid}' if zid else None)
+    if conds is None:
+        obj['status'] = {}
+    return obj
+
 
 ZD_WORDS = [('new', 'New', 'slate'), ('open', 'Open', 'slate'), ('pending', 'Pending', 'gold'),
             ('hold', 'On-hold', 'gold'), ('solved', 'Solved', 'faint'), ('closed', 'Closed', 'faint')]
@@ -202,10 +235,7 @@ def detail(chart, obj=None, err=None, name='zr-a', ns='acme-retail'):
 def check_state_mapping(chart):
     f = []
     for label, conds, zid, state, pill, colour, alert in STATES:
-        obj = zr('zr-a', conditions=conds, zid=zid, zstatus='open' if zid else None,
-                 html_url=f'https://acme-retail.zendesk.com/hc/requests/{zid}' if zid else None)
-        if conds is None:
-            obj['status'] = {}
+        obj = state_fixture(conds, zid)
         out, ex = queue(chart, [obj], state='all')
         rows = out.get('rows') or []
         expect(f, f'{label}: one row', len(rows), 1)
@@ -382,7 +412,13 @@ def check_raise_context(chart):
         expect(f, f'{label}: priority', ([o['title'] for o in prio['oneOf']], prio['enum'], prio['default']),
                (['Low', 'Normal', 'High', 'Urgent'], ['low', 'normal', 'high', 'urgent'], 'normal'))
         expect(f, f'{label}: every priority has a hint', all(o.get('description') for o in prio['oneOf']), True)
-        expect(f, f'{label}: description is multi-line', schema['properties']['description'].get('format'), 'textarea')
+        expect(f, f'{label}: no schema `format` on Description (a format is meaning, not a control)',
+               'format' in schema['properties']['description'], False)
+        # The presentation change refuses a field whose oneOf consts differ from its enum.
+        for fld in [k for k in ('organisation', 'kind', 'priority') if k in schema['properties']]:
+            node = schema['properties'][fld]
+            expect(f, f'{label}: {fld} enum == the set of oneOf consts',
+                   (sorted(node['enum']), len(node['enum']) == len(set(node['enum']))), (sorted(o['const'] for o in node['oneOf']), True))
         if label == 'several':
             org = schema['properties']['organisation']
             expect(f, 'several: options are namespace with the configuration under it, sorted',
@@ -430,6 +466,9 @@ def check_form_submit(chart):
     form = widget(chart, 'Form', 'request-new', out, ex, 'form (one)')
     expect(f, 'the notice says how Zendesk records the requester',
            form.get('notice'), 'Zendesk records this request as coming from your organisation’s support account, not from you by name. Agents answer it in Zendesk.')
+    expect(f, 'Description is multi-line through the textareas list', form.get('textareas'), [{'name': 'description', 'rows': 6}])
+    expect(f, 'a plain visit: nothing pre-filled, no incident label, Cancel to the queue',
+           (form.get('initialValues'), form['buttonConfig']['secondary']['navigateTo']), ({}, '/service-desk'))
     body = frontend_body(form, values)
     name = body['metadata'].get('name', '')
     expect(f, 'name scheme', bool(re.fullmatch(r'zr-claude-user1-krateo-io-[0-9]{9,}', name)), True)
@@ -488,29 +527,24 @@ def check_request_page(chart):
         ('Status', 'Open'), ('Priority', 'High'), ('Kind', 'Bug'), ('Zendesk #', '#48213'),
         ('Created', '2026-11-13 09:32 UTC'), ('Updated', '2026-11-13 11:20 UTC'), ('Organisation', 'acme-retail'),
         ('Raised by', 'claude-user1@krateo.io'), ('Portal reference', 'zr-a')])
-    acts = widget(chart, 'Flex', 'request-detail-actions', d, ex, 'detail actions (filed)')
-    expect(f, 'actions', ids(acts['items']), ['request-ask-agentiko', 'request-open-zendesk'])
-    btn = widget(chart, 'Button', 'request-open-zendesk', d, ex, 'open in zendesk')
-    expect(f, 'Open in Zendesk ↗ goes to html_url', (btn['label'], btn['type'], btn['actions']['navigate'][0]['path']), ('Open in Zendesk ↗', 'primary', html))
+    expect(f, 'the header\'s only action is Ask Agentiko', ids(head['items']), ['request-ask-agentiko'])
+    replies = chart.get('Paragraph', 'request-replies-text')['spec']['widgetData']['text']
+    expect(f, 'replies are a later version, said once', replies, 'Replies from Zendesk will appear here in a later version.')
     txt = widget(chart, 'Paragraph', 'request-asked-text', d, ex, 'asked text')
     expect(f, 'the request text verbatim', txt['text'], obj['spec']['description'])
-    expect(f, 'status.url is never used', 'api/v2/requests' in json.dumps(d), False)
+    expect(f, 'status.url and status.html_url are never read', ('api/v2/requests' in json.dumps(d), 'hc/requests' in json.dumps(d)), (False, False))
+    expect(f, 'no Zendesk link anywhere in the chart', [x for x in ('html_url', 'Open in Zendesk')
+                                                        if x in json.dumps([dd for dd in chart.docs if dd['kind'] != 'RESTAction'])], [])
     expect(f, 'the pill', widget(chart, 'Tag', 'request-status', d, ex, 'status tag')['label'], 'Open')
-    widget(chart, 'Flex', 'request-replies-row', d, ex, 'replies row')
-    # An http:// (or javascript:) html_url is not a link.
-    for bad in ['http://acme-retail.zendesk.com/hc/requests/1', 'javascript:alert(1)']:
-        d2, ex2, _ = detail(chart, zr('zr-a', conditions=FILED, zid=1, zstatus='open', html_url=bad))
-        expect(f, f'{bad[:10]}: no link', ids(widget(chart, 'Flex', 'request-detail-actions', d2, ex2, 'actions (bad url)')['items']), ['request-ask-agentiko'])
     # Just filed.
     d, ex, _ = detail(chart, zr('zr-a', conditions=[]))
     root = widget(chart, 'Flex', 'page-request-detail', d, ex, 'detail root (filing)')
-    expect(f, 'filing: alert, no replies', ids(root['items']),
-           ['request-detail-header', 'request-detail-pills', 'request-detail-alert', 'request-detail-facts', 'request-asked-card'])
+    expect(f, 'filing: the alert, then the rest', ids(root['items']),
+           ['request-detail-header', 'request-detail-pills', 'request-detail-alert', 'request-detail-facts', 'request-asked-card', 'request-replies-card'])
     al = widget(chart, 'Alert', 'request-detail-alert', d, ex, 'alert (filing)')
     expect(f, 'filing: says reload', (al['type'], al['title'], 'Reload in a moment.' in al['description']), ('info', 'Filing with Zendesk…', True))
     head = widget(chart, 'PageHeader', 'request-detail-header', d, ex, 'header (filing)')
     expect(f, 'filing: no number yet', head['subtitle'], 'Raised 2026-11-13 09:00 UTC. No Zendesk number yet.')
-    expect(f, 'filing: no Zendesk button', ids(widget(chart, 'Flex', 'request-detail-actions', d, ex, 'actions (filing)')['items']), ['request-ask-agentiko'])
     facts = {i['label']: i['value'] for i in widget(chart, 'Descriptions', 'request-detail-facts', d, ex, 'facts (filing)')['items']}
     expect(f, 'filing: facts', (facts['Status'], facts['Zendesk #'], facts['Updated']), ('Not filed yet', '—', '—'))
     # Token expired, with a number: last known.
@@ -524,8 +558,6 @@ def check_request_page(chart):
            al['description'], 'Your organisation’s Zendesk token may have expired. Ask an administrator. The portal last read this request at 2026-11-13 06:00 UTC, so the status shown may be out of date.')
     facts = {i['label']: i['value'] for i in widget(chart, 'Descriptions', 'request-detail-facts', d, ex, 'facts (expired)')['items']}
     expect(f, 'expired: marked in the facts', (facts['Status'], facts['Updated']), ('Pending (last known)', '2026-11-12 16:00 UTC (last known)'))
-    expect(f, 'expired: the link stays', ids(widget(chart, 'Flex', 'request-detail-actions', d, ex, 'actions (expired)')['items']),
-           ['request-ask-agentiko', 'request-open-zendesk'])
     d, ex, _ = detail(chart, zr('zr-a', conditions=UNREACHABLE))
     expect(f, 'expired before filing', d['alert']['description'].endswith('Nothing has reached Zendesk yet.'), True)
     expect(f, 'expired before filing: no Last known', d['lastKnown'], False)
@@ -570,7 +602,7 @@ def check_ticket_desk_is_gone(chart):
     f = []
     text = json.dumps(chart.docs)
     for gone in ['servicedesk.krateo.io', 'raiseNamespace', 'deskActions', 'assign-to-me', 'keep-open', 'ticket-reply',
-                 'ticket-activity', 'incidentName']:
+                 'ticket-activity', 'objectRef']:
         expect(f, f'no {gone} left', gone in text, False)
     expect(f, 'no CRD rendered', [d['metadata']['name'] for d in chart.docs if d['kind'] == 'CustomResourceDefinition'], [])
     nss = [d for d in chart.docs if d['kind'] == 'Namespace']
@@ -592,8 +624,109 @@ def check_ticket_desk_is_gone(chart):
     return f
 
 
+INC_NS, INC_NAME, INC_UID = 'krateo-system', 'krateo-composition-reconcile-error-20261002-194519', 'b20776b4-8c3c-4940-b981-7597e916f219'
+
+
+def incident_obj(statement=True):
+    """Shaped like krateo-057's krateo-composition-reconcile-error-20261002-194519, with the owner
+    fields incident-provider 0.10.0 adds."""
+    rc = {'category': 'config', 'confidence': '0.6', 'owner': 'customer',
+          'ownerEvidence': [{'kind': 'component', 'ref': 'apps/Deployment/krateo-system/core-provider'}]}
+    if statement:
+        rc['statement'] = ('Alert krateo-composition-reconcile-error omits incident-controller from its ServiceName '
+                           'NOT IN filter. So its own conflict logs count as composition failures.')
+    return {'apiVersion': 'observability.krateo.io/v1alpha1', 'kind': 'Incident',
+            'metadata': {'name': INC_NAME, 'namespace': INC_NS, 'uid': INC_UID, 'creationTimestamp': '2026-10-02T19:45:19Z'},
+            'spec': {'triggeredAt': '2026-10-02T19:45:19Z'}, 'status': {'state': 'Open', 'rootCause': rc}}
+
+
+def check_raised_from_an_incident(chart):
+    f = []
+    ex = {'username': 'maria.rossi@acme.example', 'incidentName': INC_NAME, 'incidentNamespace': INC_NS}
+    cfg = configs(('acme-retail', 'zendesk-acme'))
+    out, dialled = resolve(chart, 'request-raise-context', {'configs': cfg, 'incident': incident_obj()}, ex)
+    expect(f, 'reads exactly this incident', [p for p in dialled if 'incidents' in p],
+           [f'/apis/observability.krateo.io/v1alpha1/namespaces/{INC_NS}/incidents/{INC_NAME}'])
+    step = [st for st in chart.get('RESTAction', 'request-raise-context')['spec']['api'] if st['name'] == 'incident'][0]
+    expect(f, 'as the caller', ('userAccessFilter' in step, 'endpointRef' in step), (False, False))
+    form = widget(chart, 'Form', 'request-new', out, ex, 'form (from incident)')
+    iv = form['initialValues']
+    expect(f, 'Subject: the root cause\'s first sentence', iv.get('subject'),
+           'Alert krateo-composition-reconcile-error omits incident-controller from its ServiceName NOT IN filter')
+    expect(f, 'Description: the incident summary', iv.get('description', '').startswith(f'Incident {INC_NAME} in {INC_NS}, opened 2026-10-02 19:45 UTC. Root cause (Agentiko, confidence 0.6, category config): '), True)
+    expect(f, 'Description: its page in the portal', iv.get('description', '').endswith(f' In the portal: /incidents/{INC_NS}/{INC_NAME}.'), True)
+    expect(f, 'Kind: Bug', iv.get('kind'), 'Bug')
+    expect(f, 'one line above the standing notice', form['notice'].startswith(f'From incident {INC_NAME} in {INC_NS}. '), True)
+    expect(f, 'Cancel goes back to the incident', form['buttonConfig']['secondary']['navigateTo'], f'/incidents/{INC_NS}/{INC_NAME}')
+    body = frontend_body(form, dict(iv, priority='high'))
+    expect(f, 'the request carries the incident\'s uid', body['metadata']['labels'],
+           {'krateo.io/raised-by': 'maria.rossi-acme.example', 'krateo.io/incident-uid': INC_UID})
+    expect(f, 'filed through the organisation, as on the plain form', (body['metadata']['namespace'], body['spec']['configurationRef']),
+           ('acme-retail', {'name': 'zendesk-acme', 'namespace': 'acme-retail'}))
+    expect(f, 'every label value fits', all(len(v) <= 63 for v in body['metadata']['labels'].values()), True)
+    keyed = chart.get('Form', 'request-new')['spec'].get('keyExtras')
+    expect(f, 'each incident\'s form is its own cache cell', sorted(keyed or []), ['incidentName', 'incidentNamespace'])
+    # Several configurations: the select, as on the plain form.
+    out, _ = resolve(chart, 'request-raise-context', {'configs': configs(('a', 'za'), ('b', 'zb')), 'incident': incident_obj()}, ex)
+    expect(f, 'several: the Organisation select comes first', list(json.loads(out['stringSchema'])['properties'])[0], 'organisation')
+    # None: the ask-an-administrator page, even from an incident.
+    out, _ = resolve(chart, 'request-raise-context', {'configs': configs(), 'incident': incident_obj()}, ex)
+    expect(f, 'none: no form', out['hasForm'], False)
+    # The incident cannot be read: the form opens empty, with one line.
+    for label, inc in [('403', Err(status(403, 'Forbidden', 'incidents "x" is forbidden'))),
+                       ('another incident came back', dict(incident_obj(), metadata=dict(incident_obj()['metadata'], name='other')))]:
+        out, _ = resolve(chart, 'request-raise-context', {'configs': cfg, 'incident': inc}, ex)
+        form = widget(chart, 'Form', 'request-new', out, ex, f'form (incident {label})')
+        expect(f, f'{label}: empty form', form['initialValues'], {})
+        expect(f, f'{label}: one line says why', form['notice'].startswith(f'Incident {INC_NAME} in {INC_NS} could not be read'), True)
+        expect(f, f'{label}: no incident label', 'krateo.io/incident-uid' in (frontend_body(form, {'subject': 's', 'description': 'd', 'kind': 'Bug', 'priority': 'low'})['metadata'].get('labels') or {}), False)
+        root = widget(chart, 'Flex', 'page-request-new', out, ex, f'raise root (incident {label})')
+        expect(f, f'{label}: the form still opens', ids(root['items']), ['request-new-header', 'request-new-form'])
+    # No statement yet: Subject names the incident.
+    out, _ = resolve(chart, 'request-raise-context', {'configs': cfg, 'incident': incident_obj(statement=False)}, ex)
+    expect(f, 'no statement: Subject', out['initialValues']['subject'], f'Incident {INC_NAME}')
+    # No parameters (prewarm, a plain visit), or a name without a namespace: nothing dialled.
+    _, dialled = resolve(chart, 'request-raise-context', {'configs': cfg}, {'username': 'x'})
+    expect(f, 'no parameters: no incident read', [p for p in dialled if 'incidents' in p], [])
+    _, dialled = resolve(chart, 'request-raise-context', {'configs': cfg}, {'username': 'x', 'incidentName': INC_NAME})
+    expect(f, 'a name without a namespace: no incident read', [p for p in dialled if 'incidents' in p], [])
+    # Carried over from test-ticket-from-incident.py, whose subject (pre-fill from an incident) is
+    # still here: the owner sentence, one line, no agent note text, the person's edits win, a
+    # returned incident with no uid is not used, and the bounds.
+    def ctx_for(inc):
+        return resolve(chart, 'request-raise-context', {'configs': cfg, 'incident': inc}, ex)[0]
+    base = incident_obj()
+    desc = ctx_for(base)['initialValues']['description']
+    expect(f, 'customer owner', ' Owner: your organization.' in desc, True)
+    expect(f, 'evidence, by kind and ref', ' Evidence: component: apps/Deployment/krateo-system/core-provider.' in desc, True)
+    expect(f, 'one line until the textarea ships', '\n' in desc, False)
+    noted = copy.deepcopy(base)
+    noted['status']['rootCause']['ownerEvidence'][0]['note'] = 'conflict logs are the lines that matter'
+    expect(f, 'no agent note text', 'conflict logs are the lines' in ctx_for(noted)['initialValues']['description'], False)
+    for owner, want in (('unknown', ' Owner: not determined.'), ('vendor', None), (None, None)):
+        inc = copy.deepcopy(base)
+        if owner is None:
+            del inc['status']['rootCause']['owner']
+        else:
+            inc['status']['rootCause']['owner'] = owner
+        d2 = ctx_for(inc)['initialValues']['description']
+        expect(f, f'owner {owner}', (want in d2) if want else ('Owner' in d2), bool(want))
+    nouid = copy.deepcopy(base)
+    del nouid['metadata']['uid']
+    expect(f, 'no uid, no label to write: not from the incident', ctx_for(nouid)['fromIncident'], False)
+    long_inc = copy.deepcopy(base)
+    long_inc['status']['rootCause']['statement'] = 'x' * 400
+    iv = ctx_for(long_inc)['initialValues']
+    expect(f, 'within bounds', (len(iv['subject']) <= 150, len(iv['description']) <= 8000), (True, True))
+    out, _ = resolve(chart, 'request-raise-context', {'configs': cfg, 'incident': base}, ex)
+    form = widget(chart, 'Form', 'request-new', out, ex, 'form (edits win)')
+    body = frontend_body(form, {'subject': 'Mine', 'description': 'My words', 'kind': 'FeatureRequest', 'priority': 'low'})
+    expect(f, 'the person\'s edits win', (body['spec']['subject'], body['spec']['description'], body['spec']['kind']), ('Mine', 'My words', 'FeatureRequest'))
+    return f
+
+
 CHECKS = [check_state_mapping, check_chips, check_unreachable_warning, check_failures_are_not_an_empty_queue,
-          check_empty_queue, check_raise_context, check_form_submit, check_request_page,
+          check_empty_queue, check_raise_context, check_form_submit, check_raised_from_an_incident, check_request_page,
           check_request_read_is_gated_and_as_the_caller, check_ticket_desk_is_gone]
 
 

@@ -24,12 +24,38 @@
      insertion order survives; the string below is joined from one fragment per field, in the order
      the person reads them. Each fragment's own keys may come out sorted — their order means nothing.
 
-     THE LABELLED OPTIONS ARE `oneOf` const + title, WITH `enum` BESIDE THEM. The released Form
-     draws a string with only `oneOf` as a free-text input, which would let anyone type a kind the
-     provider refuses. With `enum` beside it, today's Form draws a select of the raw values (Bug,
-     FeatureRequest, low…) and submits exactly them. The labels ("Something is broken"), the
-     per-priority hints and the multi-line Description arrive with the frontend's Form presentation
+     THE LABELLED OPTIONS ARE `oneOf` const + title, WITH `enum` BESIDE THEM, and the two sets are
+     identical (test-service-desk.py asserts it): the Form presentation change prefers the oneOf
+     titles when both are present, and refuses to draw a field whose consts differ from its enum.
+     The released Form draws a string with only `oneOf` as a free-text input, which would let anyone
+     type a kind the provider refuses; with `enum` beside it, today's Form draws a select of the raw
+     values (Bug, FeatureRequest, low…) and submits exactly them. The labels ("Something is
+     broken"), the per-priority hints and the multi-line Description (the form's `textareas` list,
+     not a schema `format`: a format is what a value means, not its control) arrive with that
      change, which is queued and not released; until then this form still submits correct values.
+
+     RAISED FROM AN INCIDENT, THE SAME FORM. The incident page links here as
+     `/service-desk/new?incidentName=<name>&incidentNamespace=<ns>` ("Raise a Zendesk request", and
+     Agentiko's "Review and raise"), and the frontend forwards every query parameter into the
+     request extras. The `incident` step reads that Incident AS THE CALLER — no userAccessFilter, no
+     endpointRef — so the apiserver decides whether they may read it: a URL edited to name someone
+     else's incident gets a 403, and the form opens empty with one line saying the incident could
+     not be read. snowplow splices each value as ONE path segment (snowplow#1123), so neither can
+     walk the path somewhere else. Without the two parameters nothing is dialled.
+     When it comes back, the form is pre-filled — Subject from the root cause's first sentence (or
+     "Incident <name>"), Description from the incident's summary (when it opened, the root cause
+     with its confidence and category, the owner, the evidence) and its page in the portal, Kind
+     Bug — and the request carries the label `krateo.io/incident-uid`, which the incident page lists
+     its requests by. The organisation is chosen exactly as on the plain form.
+
+     THE LABEL IS THE INCIDENT'S UID, NOT ITS NAME: an Incident is named `<alert>-<yyyymmdd-hhmmss>`
+     and an alert name may be 63 characters, so an incident name reaches 79, past the 63 a label
+     value may hold. The uid is 36, unique across namespaces, and names this incident and not a later
+     one that reuses the name. The Ticket form wrote this one label and no incident name or namespace
+     label, so there are none to carry over.
+
+     THE PORTAL LINK IS A PATH (/incidents/<ns>/<name>), not an address: nothing on the server knows
+     the host the portal is served from. An agent reading it in Zendesk sees where it is, not a link.
 
      The output carries no `username` key, deliberately: the form declares identityContext and
      reads the injected `.username` itself, and a `username` here would shadow it. */}}
@@ -52,6 +78,16 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: configsError
+    {{/* Gated on both parameters (scripts/lint-ra-paths.py): on snowplow's prewarm walk, and on every
+         plain visit to /service-desk/new, the iterator is empty and nothing is dialled. */}}
+    - name: incident
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.incidentNamespace // ""), name: (.incidentName // "") } | select((.name | type) == "string" and (.namespace | type) == "string" and .name != "" and .namespace != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/incidents/" + .name }
+      verb: GET
+      continueOnError: true
+      errorKey: incidentError
   {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into one
        line and so comment out the rest of the program. */}}
   filter: |
@@ -63,6 +99,15 @@ spec:
       else tostring end;
     # One schema property as a JSON fragment: "key":{…}.
     def field($k; $v): ($k | tojson) + ":" + ($v | tojson);
+    # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
+    def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    # An absolute time: the form is cached until its inputs change.
+    def stamp: (. // "") as $s | ($s | epoch) as $t
+      | if $t == null then ($s | tostring | .[0:10]) else ($t | strftime("%Y-%m-%d %H:%M UTC")) end;
+    # One line, until the Description textarea ships: today's Description is an <input>, which drops
+    # line breaks without replacing them and would glue two sentences together.
+    def oneline: gsub("[\\r\\n\\t]+"; " ") | gsub("  +"; " ") | sub("^ +"; "") | sub(" +$"; "");
+    def sentence: if test("[.!?]$") then . else . + "." end;
     ((.configs // {}) | if type == "object" then (.items // []) else [] end | if type == "array" then . else [] end) as $items
     | ((.configsError // null) | errtext) as $err
     | ([ (.configsError // null) | if type == "array" then .[] else . end | objects | .code // empty ]) as $codes
@@ -71,6 +116,41 @@ spec:
     | ([ $items[] | select(type == "object") | { namespace: (.metadata.namespace | str), name: (.metadata.name | str) }
          | select(.namespace != "" and .name != "") ] | unique_by([.namespace, .name])) as $configs
     | ($configs | length) as $count
+    # THE INCIDENT, only when the read came back AND is the one asked for, with the uid the label needs.
+    | (.incidentName | str) as $askedName
+    | (.incidentNamespace | str) as $askedNs
+    | ((.incident // null) | if type == "array" then (.[0] // null) else . end
+       | if type == "object" and ((.metadata.name // "") == $askedName) and $askedName != ""
+            and ((.metadata.uid // "") | str) != "" then . else null end) as $inc
+    | ($inc != null) as $fromIncident
+    | ($askedName != "" and ($fromIncident | not)) as $incidentUnread
+    | (if $fromIncident then ($inc.metadata.namespace // $askedNs) else "" end) as $ins
+    | (if $fromIncident then $inc.metadata.name else "" end) as $in
+    | (if $fromIncident then (($inc.status // {}) | if type == "object" then . else {} end) else {} end) as $ist
+    | (($ist.rootCause // {}) | if type == "object" then . else {} end) as $rc
+    | (($rc.statement // "") | str | oneline) as $statement
+    | (($rc.owner // "") | str | if IN("customer", "krateo", "unknown") then . else "" end) as $owner
+    | (($rc.ownerEvidence // []) | if type == "array" then . else [] end
+       | map(select(type == "object" and ((.ref // "") | str) != ""))) as $evidence
+    | (($inc.spec.triggeredAt // $inc.metadata.creationTimestamp // "") | str) as $opened
+    | ("/incidents/" + $ins + "/" + $in) as $incidentPath
+    # Subject: the root cause's first sentence, capped at 150 until the served schema's maxLength is
+    # known (verify then).
+    | (if $statement != "" then ($statement | (capture("^(?<s>.*?[.!?])(\\s|$)").s // .) | sub("[.]$"; ""))
+       else ("Incident " + $in) end | cap(150)) as $subject
+    | ("Incident " + $in + " in " + $ins + (if $opened != "" then (", opened " + ($opened | stamp)) else "" end) + "."
+       + (if $statement != "" then
+            (" Root cause (Agentiko"
+             + (if (($rc.confidence // "") | tostring) != "" then (", confidence " + ($rc.confidence | tostring)) else "" end)
+             + (if (($rc.category // "") | str) != "" then (", category " + $rc.category) else "" end)
+             + "): " + ($statement | sentence))
+          else " Root cause: not determined yet." end)
+       + ({ customer: " Owner: your organization.", krateo: " Owner: Krateo.", unknown: " Owner: not determined." }[$owner] // "")
+       + (if ($evidence | length) > 0 then
+            (" Evidence: " + ($evidence | map(((.kind // "") | str | if . == "" then "" else . + ": " end) + (.ref | oneline)) | join("; ")) + ".")
+          else "" end)
+       + " In the portal: " + $incidentPath + "."
+       | cap(8000)) as $description
     | (if $absent then "absent" elif $failed and $count == 0 then "failed"
        elif $count == 0 then "none" elif $count == 1 then "one" else "several" end) as $state
     | ([ (if $state == "several" then
@@ -80,7 +160,7 @@ spec:
           else empty end),
          field("subject"; { type: "string", title: "Subject", minLength: 1,
                             description: "One line. The queue and Zendesk show it, so say the thing rather than the category." }),
-         field("description"; { type: "string", title: "Description", minLength: 1, format: "textarea",
+         field("description"; { type: "string", title: "Description", minLength: 1,
                                 description: "What happened, or what you need. Include names, namespaces and any error text." }),
          field("kind"; { type: "string", title: "What kind of request is this?",
                          enum: ["Bug", "FeatureRequest"],
@@ -112,6 +192,15 @@ spec:
     | {
         state: $state,
         configs: $configs,
+        fromIncident: $fromIncident,
+        # The incident decides these; the person reads and may edit them before raising.
+        initialValues: (if $fromIncident then { subject: $subject, description: $description, kind: "Bug" } else {} end),
+        incidentUid: (if $fromIncident then ($inc.metadata.uid | str) else "" end),
+        # One line above the form's standing notice, only when raised from an incident.
+        incidentNotice: (if $fromIncident then ("From incident " + $in + " in " + $ins + ". The request goes to your organisation’s Zendesk.")
+                         elif $incidentUnread then ("Incident " + $askedName + (if $askedNs != "" then (" in " + $askedNs) else "" end) + " could not be read, so this form is not filled in from it. It may be gone, or you may not have access to it.")
+                         else "" end),
+        cancelTo: (if $fromIncident then $incidentPath else "/service-desk" end),
         hasForm: ($state == "one" or $state == "several"),
         stringSchema: $schema,
         overrides: ($where + [

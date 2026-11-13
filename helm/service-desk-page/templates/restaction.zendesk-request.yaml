@@ -11,7 +11,9 @@
      dialled.
 
      WHAT IT SAYS, from _zendesk.tpl's state (condition status and reason, never the message text):
-       filed        the header pill is Zendesk's status; "Open in Zendesk ↗" links status.html_url.
+       filed        the header pill is Zendesk's status, with its Zendesk number. There is no
+                    "Open in Zendesk" link: the requester Zendesk records is the organisation's
+                    support account, so a person could not open that page. The portal is the window.
        filing       an info alert: saved, not filed yet, reload in a moment. The page does not
                     refresh by itself: the portal's data widgets don't live-refresh today.
        unreachable  a warning: the organisation's token may have expired, ask an administrator.
@@ -135,10 +137,9 @@ spec:
         items: $items,
         # The request text, verbatim: what the person typed, from the object's own spec.
         askedText: (if $found then (if ($v.description // "") != "" then $v.description else "No description was given." end) else " " end),
-        # The end-user page, https only (_zendesk.tpl). Absent until the provider has filed the request.
-        url: (if $found then $v.url else "" end),
-        # Replies are stated as a later step once there is a Zendesk request to have replies.
-        showReplies: ($found and $hasId),
+        # The line about replies is on every request's page: replies are a later version, not a
+        # state of this request.
+        showReplies: $found,
         unavailable: (if $found then { status: "info", title: "", subTitle: "" }
                       elif $absent then { status: "info", title: "Zendesk requests aren’t served on this cluster",
                                           subTitle: "The portal can’t find the ZendeskRequest kind (zendesk.ogen.krateo.io/v2). An administrator installs the Zendesk provider." }
