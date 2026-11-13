@@ -139,6 +139,7 @@ spec:
                  else tostring end ]
              | map(select(. != "")) | unique | join("; ") )
       end;
+    {{- include "portal.agentsGateway" . | nindent 4 }}
     ( errText(.agentsError) )  as $agErr
     | ( errText(.modelsError) )  as $mcErr
     | ( errText(.serversError) ) as $srvErr
@@ -148,31 +149,13 @@ spec:
           (if $mcErr  != "" then ("ModelConfigs (" + $mcErr + ")") else empty end),
           (if $srvErr != "" then ("RemoteMCPServers (" + $srvErr + ")") else empty end) ] ) as $failed
     # ── gateway registration ────────────────────────────────────────────────────────────────────
-    # The set of x-kagent-host values the gateway actually routes. Header matches are EXACT string
-    # equality in Gateway API (type defaults to Exact and these rules set no other type), so the
-    # membership test below is the whole of the routing question — no path semantics are involved.
-    # Header NAMES are case-insensitive per HTTP, hence the ascii_downcase; values are not.
-    | ( [ (.routes.items // [])[] | (.spec.rules // [])[] | (.matches // [])[] | (.headers // [])[]
-          | select( ((.name // "") | ascii_downcase) == "x-kagent-host" ) | (.value // "") ]
-        | unique ) as $routedHosts
-    # Allow-action authorization policies ONLY. A Require or Deny policy carrying the same host is
-    # not an allowance, and reading its expressions as one would report a locked-down agent as open.
-    | ( [ (.policies.items // [])[]
-          | select( (((.spec.traffic // {}).authorization) // null) != null )
-          | select( ((.spec.traffic.authorization.action) // "Allow") == "Allow" ) ] ) as $allowPols
-    | ( [ $allowPols[] | ((.spec.traffic.authorization.policy.matchExpressions // [])[]) ] ) as $allowExprs
-    # READABLE, not merely error-free. An empty list is snowplow's silent userAccessFilter refilter
-    # (a caller without the grant gets [], never a 403), so with nothing visible we can prove
-    # nothing and must flag nobody — see the header.
-    | ( ($rtErr  == "") and (((.routes.items // []) | length) > 0) ) as $routesKnown
-    | ( ($polErr == "") and (($allowPols | length) > 0) ) as $authzKnown
-    | ( $routesKnown and $authzKnown ) as $gatewayKnown
-    | ( [ (if $rtErr != "" then ("the HTTPRoute read failed — " + $rtErr)
-           elif ((.routes.items // []) | length) == 0 then "no HTTPRoute is visible to you"
-           else empty end),
-          (if $polErr != "" then ("the AgentgatewayPolicy read failed — " + $polErr)
-           elif ($allowPols | length) == 0 then "no gateway Allow policy is visible to you"
-           else empty end) ] | join("; ") ) as $gatewayUnknownWhy
+    # portal.agentsGateway (_agents-gateway.tpl, shared byte-for-byte with dashboard-page) decides
+    # it: which hosts the gateway routes, which Allow clauses name them, and whether either read
+    # gave enough to judge by. An unchecked fleet flags nobody; the subtitle says why instead.
+    | agw_hosts as $routedHosts
+    | agw_allow_exprs as $allowExprs
+    | agw_known($rtErr; $polErr) as $gatewayKnown
+    | agw_unknown_why($rtErr; $polErr) as $gatewayUnknownWhy
     | ( reduce ((.models.items // [])[]) as $m ({}; .[$m.metadata.name] = ($m.spec.model // "")) ) as $modelOf
     | ( if $srvErr != "" then null
         else ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) end ) as $toolsDiscovered
@@ -190,32 +173,10 @@ spec:
                            else (.type + "Unknown") end ),
                   bad:   ( .status == "False" ) } ] ) as $exc
         | ( $d.modelConfig // "default-model-config" ) as $mc
-        # The gateway addresses an agent by `<name>.<namespace>`, carried in x-kagent-host. This is
-        # the join key for both halves of the registration check.
+        # The gateway addresses an agent by `<name>.<namespace>`, carried in x-kagent-host. The cell
+        # names the MISSING ARTEFACT (agw_gap), not a verdict, because each one is fixed elsewhere.
         | ( ($a.metadata.name // "") + "." + ($a.metadata.namespace // "") ) as $host
-        | ( ($routedHosts | index($host)) != null ) as $routed
-        # The two Allow clauses are told apart by the path they gate, because they fail differently
-        # and a reader has to know WHICH one is missing. The agent-card clause carries
-        # `request.path.endsWith('/.well-known/agent-card.json')`; the call clause is the bare
-        # x-kagent-host match. Missing the call clause leaves only the anonymous card GET, so nothing
-        # can actually USE the agent. Missing only the agent-card clause means calls would pass but
-        # A2A discovery 403s first — the agent is reachable and never reached, which is precisely
-        # how krateo-blueprint-agent failed, so it is reported as its own state rather than folded
-        # into "not allowed".
-        | ( ("'" + $host + "'") as $q
-            | ( [ $allowExprs[] | select(contains($q)) ] ) as $mine
-            | { card: ( ( [ $mine[] | select(contains("agent-card")) ] | length ) > 0 ),
-                call: ( ( [ $mine[] | select(contains("agent-card") | not) ] | length ) > 0 ) } ) as $allow
-        # The cell names the MISSING ARTEFACT, not a verdict, because each one is fixed somewhere
-        # else. "no Allow rule" is reserved for an agent the policy does not mention at all;
-        # "calls not allowed" is the narrower case where only the agent-card clause survives.
-        | ( if ($gatewayKnown | not) then ""
-            elif ($routed | not) and (($allow.card or $allow.call) | not) then "not routed · no Allow rule"
-            elif ($routed | not) then "not routed"
-            elif (($allow.card or $allow.call) | not) then "no Allow rule"
-            elif ($allow.call | not) then "calls not allowed"
-            elif ($allow.card | not) then "agent card refused"
-            else "" end ) as $gw
+        | agw_gap($host; $routedHosts; $allowExprs; $gatewayKnown) as $gw
         | {
             name:        $a.metadata.name,
             namespace:   $a.metadata.namespace,
