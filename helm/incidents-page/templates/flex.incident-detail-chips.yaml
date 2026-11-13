@@ -3,8 +3,7 @@
 {{/*   or inert text when the Alert no longer exists; */}}
 {{/* · its live state (OK / ALERT / PENDING, or "not found"); */}}
 {{/* · how long it has been OK (Alert.status.okSince), only while OK; */}}
-{{/* · which incident of that alert this is ("#3 of this alert"). */}}
-{{/* Then the affected composition as a link, when the analysis isolated one. */}}
+{{/* · which incident of that alert this is ("3rd incident from this alert"). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -35,8 +34,7 @@ spec:
             else [ { resourceRefId: "incident-alert-text" } ] end)
         + (if (.alertStateLabel // "") != "" then [ { resourceRefId: "incident-alert-state" } ] else [] end)
         + (if (.alertOkFor // "") != "" then [ { resourceRefId: "incident-alert-oksince" } ] else [] end)
-        + (if (.ordinalLabel // "") != "" then [ { resourceRefId: "incident-alert-ordinal" } ] else [] end)
-        + (if (.refRoute // "") != "" then [ { resourceRefId: "incident-ref-link" } ] else [] end) }
+        + (if (.ordinalLabel // "") != "" then [ { resourceRefId: "incident-alert-ordinal" } ] else [] end) }
   resourcesRefs:
     items:
     - id: incident-alert-link
@@ -68,10 +66,4 @@ spec:
       name: incident-alert-ordinal
       namespace: {{ $.Values.namespace }}
       resource: tags
-      verb: GET
-    - id: incident-ref-link
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-ref-link
-      namespace: {{ $.Values.namespace }}
-      resource: buttons
       verb: GET

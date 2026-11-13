@@ -1,34 +1,33 @@
-{{/* The "Involved resources" tab: a one-line caption, then the incident and the alert that opened */}}
-{{/* it as manifests. */}}
+{{/* The second section of /incidents: its title and the firing-alerts-with-no-incident table. The */}}
+{{/* page Flex includes it only while incidents-list has such alerts. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: incident-detail-manifests-flex
+  name: incidents-awaiting-section
   namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [name, namespace]
   widgetData:
     allowedResources:
     - paragraphs
-    - yamlviewers
+    - tables
     vertical: true
     gap: small
     items:
-    - resourceRefId: incident-detail-manifests-legend
-    - resourceRefId: incident-detail-manifests
+    - resourceRefId: incidents-awaiting-title
+    - resourceRefId: incidents-awaiting
   resourcesRefs:
     items:
-    - id: incident-detail-manifests-legend
+    - id: incidents-awaiting-title
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-detail-manifests-legend
+      name: incidents-awaiting-title
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
       verb: GET
-    - id: incident-detail-manifests
+    - id: incidents-awaiting
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-detail-manifests
+      name: incidents-awaiting
       namespace: {{ $.Values.namespace }}
-      resource: yamlviewers
+      resource: tables
       verb: GET

@@ -23,7 +23,11 @@ snowplow /call as the signed-in user, then marks the incident applied (spec.appl
     Event and shows its message;
   - the Apply runs tab lists this incident's runs (and no other's), newest first, with each output;
   - the apply step shows the latest apply result's exit when it has one, and "applied by hand" when
-    not, at an absolute time.
+    not, at an absolute time;
+  - while incident-provider marks the applyAction stale (condition ApplyActionStale True: it targets
+    an apiVersion or resource the cluster does not serve), Apply stays visible but disabled, with the
+    condition's message and "A new analysis has been requested automatically." under it; and while
+    the re-analysis the provider requested for it runs, the header says so instead of "Re-analysis".
 
 HOW. helm/portal is rendered, incident-detail is resolved over fixtures shaped like krateo-057's
 Incidents by test-platform-review's model of snowplow's resolver, and the remediation widgets are
@@ -54,7 +58,7 @@ tbi = tpr.tbi
 NS = tbi.NS
 expr, expect = tpr.expr, tpr.expect
 WIDGETS = (('Flex', 'incident-rem-step-1'), ('Markdown', 'incident-rem-step-md-1'),
-           ('Button', 'incident-rem-apply'), ('Button', 'incident-rem-applied'),
+           ('Button', 'incident-rem-apply'), ('Markdown', 'incident-rem-apply-stale'), ('Button', 'incident-rem-applied'),
            ('Flex', 'incident-rem-script-actions'), ('Button', 'incident-rem-run-apply'),
            ('Tabs', 'incident-detail-tabs'),
            ('Table', 'incident-apply-runs'), ('Markdown', 'incident-apply-runs-output'))
@@ -229,6 +233,21 @@ def check_no_button_once_applied_or_closed(chart):
     return f
 
 
+def check_no_fix_offers_no_apply(chart):
+    # A failed reanalysis returns the incident to Open with status.error and no status.howToFix
+    # (alert-provider >= 0.2.76). Nothing may set spec.applied there: there is nothing to verify.
+    f = []
+    inc = incident('nf-1', apply_script=False)
+    del inc['status']['howToFix']
+    inc['status']['error'] = 'the reanalysis failed: the agent returned no root cause'
+    out, w = resolve(chart, inc, 'no-fix')
+    expect(f, 'no fix: no Apply, no Run apply, no "I applied it"', items(w), ['incident-rem-step-md-1'])
+    expect(f, 'no fix: canApply', out['canApply'], False)
+    expect(f, 'no fix: canApplyAction', out['canApplyAction'], False)
+    expect(f, 'no fix: applyAction', out['applyAction'], None)
+    return f
+
+
 def check_run_apply_posts_an_incidentapply(chart):
     f = []
     out, w = resolve(chart, incident('scr-2'), 'run-apply', runs_list())
@@ -255,8 +274,8 @@ def check_run_apply_posts_an_incidentapply(chart):
            {'apiVersion': 'observability.krateo.io/v1alpha1', 'resource': 'incidentapplies', 'namespace': NS, 'verb': 'POST'})
     if not re.fullmatch(r'scr-2-apply-[0-9]+', str(r[0]['name'])):
         f.append(f'name is not <incident>-apply-<unix seconds>: {r[0]["name"]!r}')
-    if '**Run apply**' not in w['incident-rem-step-md-1']['markdown']:
-        f.append('the apply step does not mention Run apply')
+    if not w['incident-rem-step-md-1']['markdown'].startswith('**Last run:** '):
+        f.append('the apply step of a script-only fix does not open on its last run')
 
     # Another incident's unfinished run does not hide it; this incident's does, and the step says so.
     out, w = resolve(chart, incident('scr-2'), 'other run', runs_list(run('scr-9', 'scr-9-apply-1', 'Running')))
@@ -326,11 +345,11 @@ def check_apply_step_shows_its_last_result(chart):
     # A run that failed before the last recorded apply is not the step's last run.
     out, w = resolve(chart, inc, 'apply result', runs_list(run('scr-4', 'scr-4-apply-1', 'Failed', 1, '2026-10-05T08:30:00Z')))
     md = w['incident-rem-step-md-1']['markdown']
-    expect(f, 'apply last run', md.split('**Last run:** ')[1].split('\n')[0], 'exit 0 · applied · at 2026-10-05 09:00 UTC')
+    expect(f, 'apply last run', md.split('**Last run:** ')[1].split('\n')[0], 'applied · at 2026-10-05 09:00 UTC')
     md0 = tbi.resolved_widget(chart, 'Markdown', 'incident-rem-step-md-0', out, {'name': 'scr-4', 'namespace': NS},
                               'apply result: precondition')['spec']['widgetData']['markdown']
     expect(f, 'precondition last run', md0.split('**Last run:** ')[1].split('\n')[0],
-           'exit 1 · still holds · since 2026-10-05 08:32 UTC')
+           'still holds · since 2026-10-05 08:32 UTC')
     inc['status']['lastChecks']['apply'] = {'since': '2026-10-05T09:00:00Z'}
     out, w = resolve(chart, inc, 'hand-run apply')
     expect(f, 'hand-run apply', w['incident-rem-step-md-1']['markdown'].split('**Last run:** ')[1].split('\n')[0],
@@ -340,6 +359,59 @@ def check_apply_step_shows_its_last_result(chart):
     if 'incident-checks' in tabs:
         f.append(f'the Check history tab is still offered: {tabs}')
     return f
+STALE_MESSAGE = ('applyAction targets composition.krateo.io/v1-2-0 githubscaffoldingwithcompositionpages, '
+                 'which this cluster does not serve; served: v1-3-0, v1-4-0')
+
+
+def stale(inc, status='True', reason='VersionNotServed', message=STALE_MESSAGE):
+    inc['status']['conditions'].append({'type': 'ApplyActionStale', 'status': status, 'reason': reason,
+                                        'message': message, 'lastTransitionTime': '2026-10-05T08:40:00Z'})
+    return inc
+
+
+def check_stale_apply_is_disabled_with_its_reason(chart):
+    f = []
+    out, w = resolve(chart, incident('fresh-1', apply_action=COMPOSITION), 'fresh')
+    expect(f, 'fresh: Apply alone', items(w), ['incident-rem-step-md-1', 'incident-rem-apply'])
+    expect(f, 'fresh: enabled', w['incident-rem-apply'].get('disabled'), False)
+    out, w = resolve(chart, stale(incident('cleared-1', apply_action=COMPOSITION), status='False', reason='Served',
+                                  message=''), 'cleared')
+    expect(f, 'cleared (False): enabled', w['incident-rem-apply'].get('disabled'), False)
+    expect(f, 'cleared (False): no reason', items(w), ['incident-rem-step-md-1', 'incident-rem-apply'])
+    out, w = resolve(chart, stale(incident('stale-1', apply_action=COMPOSITION)), 'stale')
+    expect(f, 'stale: Apply stays, the reason under it', items(w),
+           ['incident-rem-step-md-1', 'incident-rem-apply', 'incident-rem-apply-stale'])
+    expect(f, 'stale: disabled', w['incident-rem-apply'].get('disabled'), True)
+    expect(f, 'stale: the message, then the automatic re-analysis', w['incident-rem-apply-stale']['markdown'],
+           STALE_MESSAGE + '. A new analysis has been requested automatically.')
+    out, w = resolve(chart, stale(incident('stale-2', apply_action=COMPOSITION), reason='ResourceNotFound',
+                                  message=STALE_MESSAGE + '.'), 'trailing period')
+    expect(f, 'a trailing period is not doubled', w['incident-rem-apply-stale']['markdown'],
+           STALE_MESSAGE + '. A new analysis has been requested automatically.')
+    # The condition is about applyAction: a fix that is only a script keeps its buttons.
+    out, w = resolve(chart, stale(incident('stale-scr', apply_action=None)), 'stale, script only')
+    expect(f, 'script only: script buttons, no reason', items(w), ['incident-rem-step-md-1', 'incident-rem-script-actions'])
+    expect(f, 'script only: not stale', out['applyStale'], False)
+    return f
+
+
+def check_reanalysing_a_stale_fix_says_so(chart):
+    f = []
+    def reanalysing(name, cause):
+        inc = stale(incident(name, state='Analyzing', apply_action=COMPOSITION))
+        inc['status']['reanalysis'] = {'count': 1, 'at': '2026-10-05T08:40:05Z'}
+        if cause is not None:
+            inc['status']['reanalysis']['cause'] = cause
+        return inc
+    out, w = resolve(chart, reanalysing('ra-stale', 'ApplyActionStale'), 'provider re-analysis')
+    expect(f, 'provider re-analysis', out['metaItems'][-1],
+           {'label': 'Re-analysing', 'value': 'previous fix targeted an unserved version'})
+    expect(f, 'Analyzing: no Apply', items(w), ['incident-rem-step-md-1'])
+    for cause in ('Person', None):
+        out, w = resolve(chart, reanalysing(f'ra-{cause}', cause), f'cause {cause}')
+        expect(f, f'cause {cause}: the usual item', out['metaItems'][-1]['label'], 'Re-analysis')
+    return f
+
 
 CHECKS = [
     check_apply_patches_a_composition,
@@ -350,6 +422,9 @@ CHECKS = [
     check_run_apply_posts_an_incidentapply,
     check_apply_runs_tab,
     check_apply_step_shows_its_last_result,
+    check_stale_apply_is_disabled_with_its_reason,
+    check_reanalysing_a_stale_fix_says_so,
+    check_no_fix_offers_no_apply,
 ]
 
 

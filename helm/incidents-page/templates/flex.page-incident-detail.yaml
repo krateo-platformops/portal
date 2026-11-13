@@ -1,7 +1,7 @@
 {{/* Page root for /incidents/{namespace}/{name}, top to bottom: header (state, actions) → alert */}}
-{{/* chip + meta → Agentiko's ticket proposal (exception-only) → analysis error → Summary → What */}}
-{{/* happened → Why (with the owner verdict) → Tickets → How to fix (the scripts) → tabs (Involved */}}
-{{/* resources · Apply runs · Similar incidents) → prose fallback. */}}
+{{/* chips + meta → Agentiko's ticket proposal (exception-only) → analysis error → Summary (why, */}}
+{{/* fix, who fixes it) → Reasoning (trace · evidence · resources · gaps) → Tickets → How to fix */}}
+{{/* (the scripts) → tabs (Incident · Alert · Apply runs · Similar incidents) → prose fallback. */}}
 {{/* `items` is templated off incident-detail's `sections`, so a section renders only when its */}}
 {{/* data exists; resourcesRefs hold the full pool and unreferenced children are never fetched. */}}
 kind: Flex
@@ -39,8 +39,7 @@ spec:
         + (if ($s.proposal // false) then [ { resourceRefId: "incident-ticket-proposal" } ] else [] end)
         + (if ($s.error // false) then [ { resourceRefId: "incident-error" } ] else [] end)
         + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
-        + (if ($s.evidence // false) then [ { resourceRefId: "incident-sec-evidence-card" } ] else [] end)
-        + (if (($s.rootcause // false) or ($s.gaps // false) or ($s.trace // false) or ($s.owner // false)) then [ { resourceRefId: "incident-why-card" } ] else [] end)
+        + (if ($s.reasoning // false) then [ { resourceRefId: "incident-why-card" } ] else [] end)
         + (if ($s.tickets // false) then [ { resourceRefId: "incident-tickets-card" } ] else [] end)
         + (if ($s.fix // false) then [ { resourceRefId: "incident-sec-remediation-card" } ] else [] end)
         + (if ($s.manifests // false) then [ { resourceRefId: "incident-detail-tabs-card" } ] else [] end)
@@ -80,12 +79,6 @@ spec:
     - id: incident-summary-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incident-summary-card
-      namespace: {{ $.Values.namespace }}
-      resource: cards
-      verb: GET
-    - id: incident-sec-evidence-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-sec-evidence-card
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET

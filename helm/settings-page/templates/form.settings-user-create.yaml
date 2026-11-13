@@ -41,8 +41,12 @@ spec:
         username:
           type: string
           title: Username
-          description: "Lower-case, dashes. Becomes the login name, the User resource name, and the <username>-password Secret."
+          description: "Lower-case letters, digits and dashes, at most 63 characters. Becomes the login name, the User resource name, and the <username>-password Secret."
+          {{/* A DNS-1123 label: authn's User CRD refuses any other name (authn#142). maxLength */}}
+          {{/* matters as much as the pattern: without it a 64-character name passes here, the */}}
+          {{/* <username>-password Secret is created, the User is refused, and a retry gets 409. */}}
           pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+          maxLength: 63
         displayName:
           type: string
           title: Display name

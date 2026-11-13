@@ -465,6 +465,11 @@ jobs:
       - name: Incidents list Agentiko prompt, evaluated and validated
         run: python3 scripts/test-incidents-list.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # /alerts' state chips: counts over the full set, "Not evaluated" for an alert with no HyperDX
+      # alert, and the ?projects= scope kept by every chip and the Ask link. Reuses the CRDs above.
+      - name: Alerts state filter, evaluated and validated
+        run: python3 scripts/test-alerts-filter.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
   # The incident page's Apply: incident-detail's jq over status.howToFix.applyAction and the Button
   # that sends it with the mark-applied PATCH as one ops set. Resolved on incidents shaped like
   # krateo-057's (a composition patch, a Deployment patch, a delete, script-only, applied, closed);
@@ -497,7 +502,8 @@ jobs:
   # merge-PATCHes spec.reanalysis {feedback} on the incident, and an unknown check result shows what
   # the run printed. Evaluated over krateo-057-shaped Incidents, every widget validated against the
   # newest released frontend CRDs.
-  # The incident page's owner verdict (incident-provider 0.10.0), Agentiko's ticket proposal and the
+  # The incident page's layout (chips, Summary, the Reasoning tabs, How to fix, the Incident and Alert
+  # tabs), then its owner row (incident-provider 0.10.0), Agentiko's ticket proposal and the
   # Tickets card: owner present, absent (nothing new renders) and unknown;
   # each proposal condition flipped; the ticket list by label, refused, missing and failed in both
   # errorKey shapes; Dismiss's target; and the raise link followed into service-desk-page's form and
@@ -516,7 +522,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Incident owner, proposal and tickets, evaluated and validated
+      - name: Incident page, owner, proposal and tickets, evaluated and validated
         run: |
           set -euo pipefail
           python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
@@ -525,6 +531,8 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-tickets.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-incident-tickets.py --pinned
+          python3 scripts/test-incident-page.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-incident-page.py --pinned
 
   incident-reanalyze:
     runs-on: ubuntu-latest

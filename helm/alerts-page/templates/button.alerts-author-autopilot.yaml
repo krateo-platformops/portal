@@ -17,6 +17,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* F6 (snowplow#130): the link keeps the chip and the scope, so the same keys as the table. */}}
+  keyExtras: [projects, status]
   apiRef:
     name: obs-alerts
     namespace: {{ $.Values.namespace }}
@@ -44,7 +46,6 @@ spec:
     {{/* VERBATIM as a navigate path — a Button path is not re-encoded, so it must arrive pre-encoded. */}}
     - forPath: actions
       expression: >-
-        ${ (((.hint // [])[0]) // {}) as $h
-        | { navigate: [ { id: "author-alert", type: "navigate", path: ($h.askHref // "/alerts") } ] } }
+        ${ { navigate: [ { id: "author-alert", type: "navigate", path: (.askHref // "/alerts") } ] } }
   resourcesRefs:
     items: []

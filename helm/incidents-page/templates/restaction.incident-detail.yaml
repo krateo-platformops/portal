@@ -81,6 +81,28 @@ spec:
         elif $x == 1 then "still holds"
         else "unknown" end;
     def fence: (if test("```") then "````" else "```" end);
+    # 1 → "1st", 12 → "12th", 23 → "23rd".
+    def ordinal: (. % 100) as $h | (. % 10) as $u
+      | tostring + (if $h >= 11 and $h <= 13 then "th" elif $u == 1 then "st" elif $u == 2 then "nd" elif $u == 3 then "rd" else "th" end);
+    # A source ref naming one object as <gvr>/<namespace>/<name> (the RCA prompt's format; namespace
+    # empty for a cluster-scoped object) → {gvr, namespace, name}; anything else → null. A leading
+    # "k8s:", a "core/" group and a cluster-scoped object written without the empty namespace are
+    # read too, since analyses written before the format used them.
+    def objref:
+      def gvrok: test("^([a-z0-9]([-a-z0-9.]*[a-z0-9])?/)?v[0-9][a-z0-9-]*/[a-z0-9]+$");
+      def nameok: test("^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$");
+      (if type == "string" then (sub("^k8s:"; "") | sub("^core/"; "") | split("/")) else [] end) as $p
+      | if ($p | length) < 3 or (($p[-1] | nameok) | not) then null
+        elif ($p[:-2] | join("/") | gvrok) and ($p[-2] == "" or ($p[-2] | nameok)) then { gvr: ($p[:-2] | join("/")), namespace: $p[-2], name: $p[-1] }
+        elif ($p[:-1] | join("/") | gvrok) then { gvr: ($p[:-1] | join("/")), namespace: "", name: $p[-1] }
+        else null end;
+    # An object's page: its composition page for a composition.krateo.io kind, else /resources.
+    def objroute: (.gvr | split("/")) as $g
+      | (if ($g | length) >= 3 then $g[0] else "core" end) as $grp
+      | (if ($g | length) >= 3 then $g[1] else $g[0] end) as $ver
+      | if (.name // "") == "" or ($g | length) < 2 then ""
+        elif $grp == "composition.krateo.io" and (.namespace // "") != "" then ("/compositions/" + .namespace + "/" + .name)
+        else ("/resources/" + (if (.namespace // "") != "" then .namespace else "cluster" end) + "/" + $grp + "/" + $ver + "/" + $g[-1] + "/" + .name) end;
     # One payload leaf as Markdown: a merge patch's `null` removes the key; long values are cut.
     def leafval: if . == null then "removed" else (if type == "string" then . else tojson end) | gsub("`"; "'") | (if length > 80 then (.[0:80] + "…") else . end) | ("`" + . + "`") end;
     def leaves($p): if type == "object" and length > 0 then to_entries[] | .key as $k | .value | leaves($p + [$k]) else { path: ($p | map(tostring) | join(".")), value: . } end;
@@ -95,6 +117,11 @@ spec:
     | ((.alert // {}) | if type == "object" and ((.metadata.name // "") != "") and (.metadata.name == $alertName) then . else null end) as $alert
     | ($st.state // "Analyzing") as $state
     | ([ ($st.conditions // [])[] | select(.type == "Reproduced" and .status == "False") ] | length > 0) as $flagged
+    # ApplyActionStale (incident-provider): howToFix.applyAction targets an apiVersion or resource this
+    # cluster no longer serves, e.g. a composition version that was removed. True until a new analysis
+    # replaces the fix; its message names the target and what IS served. The provider requests that
+    # analysis itself (status.reanalysis.cause ApplyActionStale), so nobody has to ask for it.
+    | ([ ($st.conditions // [])[] | select(.type == "ApplyActionStale" and .status == "True") ] | first) as $staleCond
     | ($st.rootCause // {}) as $rc
     | ($st.sources // []) as $sources
     | ($st.analyzedResources // []) as $analyzed
@@ -116,7 +143,6 @@ spec:
        and ($aaVerb == "DELETE" or (($aa.payload // null) | type) == "object")) as $aaOk
     | ([ ($fix.precondition // ""), ($fix.apply // ""), ($fix.verify // "") ] | any(. != "") or $aaOk) as $hasFix
     | ((($analyzed | length) > 0) or (($sources | length) > 0) or (($trace | length) > 0) or (($rc.statement // "") != "") or $hasFix) as $structured
-    | ([ $analyzed[] | select((.gvr // "") | contains("composition")) ] | first) as $comp
     | ((if $alert then ($alert.spec.displayName // "") else "" end) | clean) as $alertDisplay
     | (if $alertDisplay != "" then $alertDisplay elif ($rc.statement // "") != "" then $rc.statement elif $alertName != "" then $alertName else $n end) as $title
     | ((.incidents.items) // [] | map(. + { metadata: (.metadata + { namespace: (.metadata.namespace // $ns) }) })) as $all
@@ -126,6 +152,9 @@ spec:
     # spec.reanalysis: a request for a new analysis, until alert-provider consumes it.
     | (($sp.reanalysis // null) != null) as $reanalysisPending
     | ($st.reanalysis // null) as $reanalysis
+    # A re-analysis the provider started because the fix went stale, not one a person asked for (cause
+    # Person, or absent).
+    | ($state == "Analyzing" and (($reanalysis // {}).cause // "") == "ApplyActionStale") as $reanalysingStale
     # Apply sends applyAction; "I applied it" stays for an incident whose fix is only a script.
     | ($state == "Open" and $aaOk and ($appliedPending | not)) as $canApplyAction
     | ($state == "Open" and ($fix.apply // "") != "" and ($appliedPending | not) and ($aaOk | not)) as $canApply
@@ -162,14 +191,14 @@ spec:
        elif ($lastVerify.exit // null) == 0 then "finish"
        elif ($lastVerify.exit // null) == 1 then "error" else "wait" end) as $verifyStatus
     | (if $state == "Verifying" or $state == "Resolved" then 2 elif $state == "Open" then 1 else 0 end) as $fixCurrent
-    # "exit 1 · still holds · since 2026-10-09 09:47 UTC": a check that keeps giving the same result keeps
-    # its since. An apply result is one run, so it reads "at".
+    # "still holds · since 2026-10-09 09:47 UTC": a check that keeps giving the same result keeps its
+    # since. An apply result is one run, so it reads "at".
     | ($lastResults | map(if . == null then null else
-        ((if (.exit // null) | isnum then ("exit " + (.exit | tostring) + " · ") else "" end) + outcome
-         + (if .script == "apply" then " · at " else " · since " end) + (.since | stamp)) end)) as $lastLines
-    | ([ { key: "precondition", title: "Precondition", status: $preStatus, last: $lastLines[0],
-           lead: "Does the incident still hold? The controller runs this every minute in a read-only sandbox while the incident is Open: exit **1** means it holds, **0** that it is gone.",
-           note: (if $flagged then "\n\n**Flagged.** Its first run exited 0: this script cannot see the problem, so a 0 from it is no evidence of a fix. It no longer runs. Apply the fix, re-run the analysis, or close the incident." else "" end) },
+        (outcome + (if .script == "apply" then " · at " else " · since " end) + (.since | stamp)) end)) as $lastLines
+    # Each step is its last run and its script. The one sentence kept says what Apply writes, which
+    # the page shows nowhere else before the click.
+    | ([ { key: "precondition", title: "Precondition", status: $preStatus, last: $lastLines[0], lead: "",
+           note: (if $flagged then "\n\n**Flagged:** its first run already passed, so it cannot see the problem and no longer runs. Apply the fix, re-run the analysis, or close the incident." else "" end) },
          { key: "apply", title: "Review & apply", status: $applyStatus,
            last: (if $appliedPending then "applied, waiting for the controller to verify"
                   elif $runActive != null then ("Run apply in progress, as " + ($runActive.spec.requestedBy.username // "you") + " · " + ($runActive._when | stamp))
@@ -177,18 +206,12 @@ spec:
                     + (if ($runMissed.status.exitCode // null) | isnum then (" · exit " + ($runMissed.status.exitCode | tostring)) else "" end)
                     + " · " + ($runMissed._when | stamp) + " · see Apply runs")
                   else $lastLines[1] end),
-           lead: (if $aaOk then ("The fix is one Kubernetes API write: " + $applyWrite + ". **Apply** sends it as you, after a confirmation that shows the exact request, then marks this incident applied: the controller then runs the verify script.")
-                  elif $runsOk then "The fix. Read it, then click **Run apply**: the controller runs it with your Kubernetes permissions and, when it exits 0, runs the verify script. Its output is under **Apply runs**. Or run it in your own terminal and click **I applied it**."
-                  else "The fix. Read it, run it in your own terminal, then click **I applied it**: the controller then runs the verify script." end),
+           lead: (if $aaOk then ("Apply will " + $applyWrite + ".") else "" end),
            note: "" },
-         { key: "verify", title: "Verify", status: $verifyStatus, last: $lastLines[2],
-           lead: "Did the fix work? The controller runs this in the read-only sandbox once the precondition exits 0 or the fix is marked applied, retrying for about 5 minutes: exit **0** means fixed, **1** that it still holds.",
-           note: "" } ]
+         { key: "verify", title: "Verify", status: $verifyStatus, last: $lastLines[2], lead: "", note: "" } ]
        # Rollback, only when the analysis wrote one: a human runs it to revert an applied fix. No check records it and it moves no state, so it has no last run.
        + (if ($fix.rollback // "") != "" then [
-         { key: "rollback", title: "Rollback", status: "wait", last: null,
-           lead: "Undoes apply. Run it only to revert an applied fix, in your own terminal. The controller never runs it, and running it leaves this incident's state as it is.",
-           note: "" } ] else [] end)
+         { key: "rollback", title: "Rollback", status: "wait", last: null, lead: "", note: "" } ] else [] end)
        | to_entries | map(.key as $i | .value as $s
          | (($fix[$s.key] // "") | rtrimstr("\n")) as $script
          # What an unknown precondition or verify run printed: why it gave no verdict.
@@ -196,11 +219,13 @@ spec:
          | $s + {
              i: $i,
              eyebrow: (if $s.key == "rollback" then "optional" else ("step " + (($i + 1) | tostring)) end),
-             md: ($s.lead
-               + (if $s.key == "rollback" then "" else ("\n\n**Last run:** " + ($s.last // (if $s.key == "apply" then "not applied yet" else "never" end))) end)
+             md: (([ (if $s.lead != "" then $s.lead else empty end),
+                     (if $s.key == "rollback" then empty else ("**Last run:** " + ($s.last // (if $s.key == "apply" then "not applied yet" else "never" end))) end) ]
+                   | join("\n\n"))
                + (if $printed != "" and $s.key != "apply" then ("\n\nIt printed:\n\n" + ($printed | fence) + "text\n" + $printed + "\n" + ($printed | fence)) else "" end)
                + $s.note
-               + (if $script != "" then ("\n\n" + ($script | fence) + "bash\n" + $script + "\n" + ($script | fence)) else "\n\n_No " + $s.key + " script._" end)) })) as $fixSteps
+               + (if $script != "" then ("\n\n" + ($script | fence) + "bash\n" + $script + "\n" + ($script | fence)) else "\n\n_No " + $s.key + " script._" end)
+               | ltrimstr("\n\n")) })) as $fixSteps
     # Apply runs: a row per Run apply click, then each run's message, output and, when it is not the apply step's, script.
     | ($runs | map({
         when: ._when,
@@ -235,16 +260,11 @@ spec:
               state: (.status.state // "Analyzing"),
               reason: ._why,
               when: when }) ) as $similar
-    # WHOSE FIX IT IS: status.rootCause.owner and ownerEvidence (incident-provider 0.10.0). Absent
-    # means not assessed — an older CRD, or an analysis from before it — and then nothing below
-    # renders, so the page is exactly what it was. `unknown` is assessed and undecided: the owner
-    # row says so, next to what the analysis could not see, and it never leads to a proposal. A value
-    # outside the enum is not an owner.
+    # WHOSE FIX IT IS: status.rootCause.owner (incident-provider 0.10.0), one Summary row. Absent
+    # means not assessed (an older CRD, or an analysis from before it), and then there is no row.
+    # `unknown` is assessed and undecided, and never leads to a proposal. A value outside the enum is
+    # not an owner.
     | (($rc.owner // "") | tostring | if IN("customer", "krateo", "unknown") then . else "" end) as $owner
-    | (($rc.ownerEvidence // []) | if type == "array" then . else [] end
-       | map(select(type == "object" and ((.ref // "") | type) == "string" and (.ref // "") != ""))) as $evidence
-    | ($evidence | length) as $evN
-    | (($evN | tostring) + (if $evN == 1 then " piece of evidence" else " pieces of evidence" end)) as $evCount
     | ({ customer: "your organization", krateo: "Krateo" }[$owner] // "") as $ownerNoun
     # THE TICKETS RAISED FOR IT, from the `tickets` step. Its errorKey is a LIST — snowplow appends
     # one entry per failure (resolve.go accumulateErrorKey), each a message string or, for an HTTP
@@ -281,7 +301,33 @@ spec:
     # the tickets gets no proposal, rather than one to raise a duplicate.
     | ($exists and ($owner | IN("customer", "krateo")) and ($state | IN("Open", "Verifying"))
        and $ticketsState == "read" and ($tickets | length) == 0 and ($dismissed | not)) as $propose
-    | ([ (if ($r | length) > 0 then $r else empty end), (if $alert != null then $alert else empty end) ] | map(del(.metadata.managedFields))) as $involvedObjs
+    # THE EVIDENCE TAB, one numbering shared with the reasoning trace. A source of type object whose
+    # ref reads as one object (objref) is a Resources row; every other source is a "Log lines &
+    # metrics" row, its ref and excerpt as written. Log rows take the first numbers. $num maps a
+    # 0-based evidenceRefs index (into status.sources) to the number shown.
+    | ($sources | to_entries | map(.value as $v
+        | { i: .key, src: $v,
+            obj: (if (($v.type // "") | tostring | ascii_downcase) == "object" then (($v.ref // "") | objref) else null end) })) as $srcs
+    | ([ $srcs[] | select(.obj == null) ] + [ $srcs[] | select(.obj != null) ]) as $ordered
+    | ($ordered | to_entries | map({ key: (.value.i | tostring), value: (.key + 1) }) | from_entries) as $num
+    | ([ $ordered[] | select(.obj == null)
+         | ((.src.type // "") | tostring | ascii_downcase) as $tl
+         | { title: (($num[.i | tostring] | tostring) + ". " + (if (.src.ref // "") != "" then .src.ref else "(no reference)" end)),
+             excerpt: (.src.excerpt // ""),
+             kind: ({ logs: "Logs", log: "Logs", events: "Events", event: "Events", metrics: "Metrics", metric: "Metrics", object: "Resource" }[$tl]
+                    // (if $tl == "" then "Resource" else ($tl[0:1] | ascii_upcase) + $tl[1:] end)) } ]) as $logRows
+    # A Resources row per cited object, then each object in status.analyzedResources that no source
+    # names (read, not relied on), numbered on after the last source.
+    | ([ $ordered[] | select(.obj != null) | .obj + { num: ($num[.i | tostring] | tostring) } ]) as $citedRows
+    | ($citedRows | map([.gvr, .namespace, .name])) as $citedKeys
+    | ($citedRows
+       + ([ $analyzed[] | { gvr: ((.gvr // "") | sub("^core/"; "")), namespace: (.namespace // ""), name: (.name // "") }
+            | select(.gvr != "" and .name != "")
+            | select([.gvr, .namespace, .name] as $k | any($citedKeys[]; . == $k) | not) ]
+          | to_entries | map(.value + { num: (($sources | length) + .key + 1 | tostring) }))
+       | map(. + { type: (.gvr | split("/") | last), route: objroute })) as $resourceRows
+    | ($r | if length > 0 then del(.metadata.managedFields) else null end) as $incidentObj
+    | ($alert | if . != null then del(.metadata.managedFields) else null end) as $alertObj
     | {
         title: $title,
         state: $state,
@@ -294,9 +340,8 @@ spec:
         alertStateLabel: (if $alert == null then (if $alertName != "" then "not found" else "" end) else ($alert.status.state // "PENDING") end),
         alertStateColor: (if $alert == null then "gray" else ({ OK: "green", ALERT: "red", PENDING: "orange" }[$alert.status.state // "PENDING"] // "gray") end),
         alertOkFor: (if $alert != null and ($alert.status.state // "") == "OK" and ($alert.status.okSince // "") != "" then ("since " + ($alert.status.okSince | stamp)) else "" end),
-        ordinalLabel: (if $ordinal != null then ("#" + (($ordinal + 1) | tostring) + " of this alert") else "" end),
-        ref: (if $comp then ((($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "") + " · " + ($comp.namespace // "")) else "—" end),
-        refRoute: (if $comp then ("/compositions/" + ($comp.namespace // "") + "/" + ($comp.name // "")) else "" end),
+        # Only earlier incidents count, so the number never changes once the page is cached.
+        ordinalLabel: (if $ordinal == null then "" elif $ordinal == 0 then "First incident from this alert" else ((($ordinal + 1) | ordinal) + " incident from this alert") end),
         diagnoseHref: ("/incidents/" + $ns + "/" + $n + "?ask="
           + (("Diagnose this incident (\"" + $n + "\" in namespace \"" + $ns
              + "\"). Explain what it contains, what happened, the most likely root cause,"
@@ -313,10 +358,17 @@ spec:
         canRunApply: $canRunApply,
         # Apply: status.howToFix.applyAction, normalized (verb as the HTTP method), for the button that sends it.
         canApplyAction: $canApplyAction,
+        # A stale applyAction keeps Apply visible but disabled, with the reason under it: a write to a
+        # version the cluster does not serve can only fail.
+        applyStale: ($aaOk and $staleCond != null),
+        applyStaleNotice: (if $aaOk and $staleCond != null then
+          (((($staleCond.message // "") | rtrimstr(".")) | if . == "" then "Apply targets an apiVersion or resource this cluster does not serve" else . end)
+           + ". A new analysis has been requested automatically.") else "" end),
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
                       (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
                       (if $reanalysisPending then { label: "Re-analysis", value: "requested, waiting to start" }
+                       elif $reanalysingStale then { label: "Re-analysing", value: "previous fix targeted an unserved version" }
                        elif $reanalysis != null then { label: "Re-analysis", value: ("#" + (($reanalysis.count // 1) | tostring) + " · " + ($reanalysis.at | stamp)
                          + (if ($reanalysis.feedback // "") != "" then (" · \"" + ($reanalysis.feedback | if length > 200 then (.[0:200] + "…") else . end) + "\"") else "" end)) }
                        else empty end),
@@ -324,50 +376,37 @@ spec:
                       # "alert-gone" (incident-provider 0.8.0) and "analysis-failed" (alert-provider) are automated closes, not a person.
                       # A value this map does not know yet reads as itself in parentheses rather than being attributed to anyone.
                       (if ($st.resolution.at // "") != "" then { label: (if $st.resolution.by == "verify" then "Resolved" else "Closed" end), value: (($st.resolution.at | stamp) + ({ verify: " by the verify script", user: " by a person", "alert-gone": " automatically: its Alert was deleted", "analysis-failed": " automatically: the analysis failed" }[$st.resolution.by // "" | tostring] // (" (" + (if ($st.resolution.by // "") == "" then "unknown" else ($st.resolution.by | tostring) end) + ")"))) } else empty end) ]),
-        summary: {
-          whatHappened: ($title + (if $comp then (" — affecting " + (($comp.gvr // "") | split("/") | last) + "/" + ($comp.name // "")) else "" end)),
-          why: (if ($rc.statement // "") != "" then $rc.statement
-                elif $err != "" then "Not determined: the analysis failed."
-                else "Not determined yet: the analysis may still be running." end),
-          howToFix: (if ($fix.apply // "") != "" then
-                       ((($fix.apply | split("\n") | map(select(test("^\\s*#") and (test("^#!") | not))) | first) // null) as $c
-                        | if $c != null then ($c | sub("^\\s*#+\\s*"; "")) else "Review the apply script below and run it." end)
-                     elif $err != "" then "No fix: the analysis failed."
-                     else "No fix proposed yet." end)
-        },
-        analyzedRows: ($analyzed | map(
-            ((.gvr // "") | split("/")) as $parts
-            | (if ($parts | length) >= 3 then ($parts[0] // "") else "core" end) as $grp
-            | (if ($parts | length) >= 3 then ($parts[1] // "v1") else ($parts[0] // "v1") end) as $ver
-            | ($parts[-1] // "") as $plural
-            | (.name // "") as $nm
-            | (.namespace // "") as $ans
-            | (($nm != "") and ($plural != "")) as $ok
-            | { gvr: (.gvr // ""), name: $nm, namespace: $ans, what: (.whatWasRead // ""),
-                aNs: (if $ok then (if $ans != "" then $ans else "cluster" end) else "" end),
-                aGrp: (if $ok then $grp else "" end),
-                aVer: (if $ok then $ver else "" end),
-                aPlural: (if $ok then $plural else "" end),
-                aName: (if $ok then $nm else "" end) })),
-        evidenceLeadIn: ("After evaluating " + (($analyzed | length) | tostring) + " resource" + (if ($analyzed | length) == 1 then "" else "s" end) + " across " + (($sources | length) | tostring) + " source" + (if ($sources | length) == 1 then "" else "s" end) + ", the agent found the following:"),
-        # Each source row opens Autopilot with an ask whose verb matches the source type.
-        sourcesRows: ($sources | map(
-          (.ref // "") as $ref
-          | ((.type // "object") | ascii_downcase) as $tl
-          | (if ($tl | test("log")) then ("Retrieve the logs from " + (if $ref != "" then ("\"" + $ref + "\"") else "the source cited in this incident" end) + " and summarise what they show about this incident.")
-             elif ($tl | test("event")) then ("Show the Kubernetes events for " + (if $ref != "" then ("\"" + $ref + "\"") else "the object cited in this incident" end) + " that are relevant to this incident.")
-             elif ($tl | test("object|resource|manifest|spec|status|pod|deploy")) then ("Get the full details of " + (if $ref != "" then ("\"" + $ref + "\"") else "the object cited in this incident" end) + " and explain its current state in the context of this incident.")
-             else ("Show me what the source " + (if $ref != "" then ("\"" + $ref + "\"") else "cited in this incident" end) + " contains and why it is relevant to this incident.") end) as $srcAsk
-          | { type: ((.type // "object") | ascii_upcase), ref: $ref, excerpt: (.excerpt // ""),
-              route: ("/incidents/" + $ns + "/" + $n + "?ask=" + ($srcAsk | @uri)) })),
-        gapsText: (($gaps | join("  •  ")) + (if ($assump | length) > 0 then ((if ($gaps | length) > 0 then "   —   " else "" end) + "Assumed: " + ($assump | join("  •  "))) else "" end)),
-        traceItems: ($trace | to_entries | map({
-          eyebrow: ("step " + ((.value.step // (.key + 1)) | tostring)),
-          title: (.value.statement // ""),
-          description: (if ((.value.evidenceRefs // []) | length) > 0 then ("→ evidence " + ((.value.evidenceRefs // []) | map("#" + ((. + 1) | tostring)) | join(", "))) else "" end),
-          status: "finish" })),
+        # The Summary card: the root cause, the fix in one line, and whose fix it is.
+        summaryItems: ([
+          { label: "Why",
+            value: (if ($rc.statement // "") != "" then $rc.statement
+                    elif $err != "" then "Not determined: the analysis failed."
+                    elif ($st.completedAt // "") != "" then "Not determined."
+                    else "Not determined yet: the analysis may still be running." end) },
+          { label: "Fix",
+            value: (if ($fix.apply // "") != "" then
+                      ((($fix.apply | split("\n") | map(select(test("^\\s*#") and (test("^#!") | not))) | first) // null) as $c
+                       | if $c != null then ($c | sub("^\\s*#+\\s*"; "")) else "See the apply script under How to fix." end)
+                    elif $err != "" then "None: the analysis failed."
+                    else "None proposed yet." end) } ]
+          + (if $owner == "" then [] else [ { label: "Who fixes it",
+              value: ({ krateo: "Krateo: the fix belongs in a component Krateo ships",
+                        customer: "Your organization: the fix belongs in your own configuration or services",
+                        unknown: "Not determined" }[$owner]) } ] end)),
+        evidenceLabel: ("Evidence · " + (($logRows | length) + ($resourceRows | length) | tostring)),
+        logRows: $logRows,
+        resourceRows: $resourceRows,
+        gapsMd: ([ (if ($gaps | length) > 0 then ("**Could not see**\n\n" + ($gaps | map("- " + tostring) | join("\n"))) else empty end),
+                   (if ($assump | length) > 0 then ("**Assumed**\n\n" + ($assump | map("- " + tostring) | join("\n"))) else empty end) ]
+                 | join("\n\n")),
+        # A step's evidenceRefs as the numbers the Evidence tab shows; an index outside status.sources is dropped.
+        traceItems: ($trace | to_entries | map(
+          ([ (.value.evidenceRefs // [])[] | select(isnum and . >= 0 and . < ($sources | length)) | $num[tostring] ] | unique | map(tostring)) as $cited
+          | { eyebrow: ("step " + ((.value.step // (.key + 1)) | tostring)),
+              title: (.value.statement // ""),
+              description: (if ($cited | length) > 0 then ("Evidence " + ($cited | join(", "))) else "" end),
+              status: "finish" })),
         traceCurrent: (if ($trace | length) > 0 then (($trace | length) - 1) else 0 end),
-        rootCauseStatement: ($rc.statement // ""),
         fixSteps: $fixSteps,
         fixCurrent: $fixCurrent,
         fixStepsForWidget: ($fixSteps | map({ eyebrow, title, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
@@ -375,36 +414,16 @@ spec:
         applyRunsMd: $runsMd,
         applyRunsLabel: ("Apply runs · " + ($runRows | length | tostring)),
         similar: $similar,
-        # The incident and its alert as a v1 List, the shape `kubectl get -o json` prints. A JSON string, which is what the YamlViewer `json` field takes.
-        involvedManifestsJson: (if ($involvedObjs | length) > 0 then ({ apiVersion: "v1", kind: "List", items: $involvedObjs } | tojson) else "" end),
-        involvedManifestsDesc: (($involvedObjs | length | tostring)
-          + (if ($involvedObjs | length) == 1 then " object" else " objects" end)
-          + " — the incident" + (if $alert != null then " and the alert that opened it" else "" end)
-          + ". managedFields stripped; status kept."),
+        # The incident and its alert, each as the object `kubectl get -o json` prints, minus
+        # managedFields. JSON strings, which is what the YamlViewer `json` field takes.
+        incidentManifestJson: (if $incidentObj != null then ($incidentObj | tojson) else "" end),
+        alertManifestJson: (if $alertObj != null then ($alertObj | tojson) else "" end),
         errorText: $err,
-        # The owner verdict, under the root cause in "Why did it happen" (frames A, E and F of the
-        # approved mockup). Category and confidence ride with it: they are the rest of the verdict.
-        ownerItems: (if $owner == "" then [] else
-          ([ (if (($rc.category // "") | tostring) != "" then { label: "Category", value: ($rc.category | tostring) } else empty end),
-             (if (($rc.confidence // "") | tostring) != "" then { label: "Confidence", value: ($rc.confidence | tostring) } else empty end),
-             { label: "Owner", value: ({ krateo: "Krateo — the fix is in a component Krateo ships",
-                                         customer: "Your organization — the fix is in your own configuration or services",
-                                         unknown: "Not determined" }[$owner]) } ]) end),
-        ownerEvidenceTitle: (if $ownerNoun != "" and $evN > 0 then ("Why " + $ownerNoun + " · " + $evCount) else "" end),
-        # One row per piece of evidence: the agent's note as the line, the reference it rests on as a
-        # mono pill, and its kind as the tag. A piece with no note shows its reference as the line.
-        ownerEvidenceRows: (if $ownerNoun == "" then [] else ($evidence | map(
-          ((.note // "") | tostring) as $note
-          | { kind: ((.kind // "") | tostring), title: (if $note != "" then $note else .ref end), ref: (if $note != "" then .ref else "" end) })) end),
-        # Frame F: an undecided owner says so in one quiet line, with what the analysis could not see.
-        ownerUnknownText: (if $owner != "unknown" then "" else
-          ("Agentiko could not tell whose fix this is, so it does not suggest a ticket."
-           + (if ($gaps | length) > 0 then (" Missing: " + ($gaps | map(tostring) | join("; ")) + (if ($gaps | last | tostring | test("[.!?]$")) then "" else "." end)) else "" end)) end),
         # Agentiko's proposal. Both owners go to this portal's own service desk for now: sending a
         # Krateo-owned incident to Krateo support waits for the support relay, so the callout states
         # the verdict and offers the same internal ticket the customer case does.
         proposalTitle: "Agentiko suggests opening a ticket for your platform team",
-        proposalText: (if $propose then ("Owner: " + $ownerNoun + (if $evN > 0 then (", from " + $evCount) else "" end) + ". The ticket goes to this portal's service desk.") else "" end),
+        proposalText: (if $propose then ("Owner: " + $ownerNoun + ". The ticket goes to this portal's service desk.") else "" end),
         # Dismiss: one annotation on the Incident, written with the caller's token — the grant Close needs.
         dismissPatch: { metadata: { annotations: { "krateo.io/ticket-proposal": "dismissed" } } },
         raiseHref: $raiseHref,
@@ -428,22 +447,22 @@ spec:
             elif $state == "Analyzing" then "_Analysis in progress — the root cause will appear here when it completes._"
             else "The analysis produced no report and recorded no error." end),
         sections: {
-          summary: $structured,
-          evidence: ((($analyzed | length) > 0) or (($sources | length) > 0)),
-          analyzed: (($analyzed | length) > 0),
-          sources: (($sources | length) > 0),
+          # An assessed owner is a Summary row even when the analysis left nothing else structured.
+          summary: ($structured or $owner != ""),
+          evidence: ((($logRows | length) > 0) or (($resourceRows | length) > 0)),
+          evidenceLogs: (($logRows | length) > 0),
+          evidenceResources: (($resourceRows | length) > 0),
           gaps: ((($gaps | length) > 0) or (($assump | length) > 0)),
           trace: (($trace | length) > 0),
-          rootcause: (($rc.statement // "") != ""),
+          # The Reasoning card: any of its three tabs has data.
+          reasoning: ((($trace | length) > 0) or (($logRows | length) > 0) or (($resourceRows | length) > 0) or (($gaps | length) > 0) or (($assump | length) > 0)),
           fix: $hasFix,
           error: ($err != ""),
           applyRuns: (($runRows | length) > 0),
           similar: (($similar | length) > 0),
-          manifests: (($involvedObjs | length) > 0),
+          manifests: ($incidentObj != null or $alertObj != null),
+          alertManifest: ($alertObj != null),
           prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == "")))),
-          owner: ($owner != ""),
-          ownerEvidence: ($ownerNoun != "" and $evN > 0),
-          ownerUnknown: ($owner == "unknown"),
           proposal: $propose,
           # The Tickets card, wherever this install has a service desk: not on a 404 (no Ticket CRD),
           # and not for an incident that does not exist.

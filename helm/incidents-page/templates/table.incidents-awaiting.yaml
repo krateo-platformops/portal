@@ -1,0 +1,43 @@
+{{/* Firing alerts with no incident — firing Alerts (state ALERT, not paused) with no open incident, */}}
+{{/* off incidents-list's `awaiting`, laid out like the incident table above it: dot, alert, why it */}}
+{{/* has no incident (where the root cause sits above), and an "Ask Agentiko →" pill that says what */}}
+{{/* a row click does. The why comes from alert-provider's OpensIncidents condition: a metric or */}}
+{{/* value Alert opens no incidents, a counting Alert has not opened one yet (listed first). */}}
+{{/* Row click → the Autopilot rail seeded to investigate that alert ({askHref}, a whole route). */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-awaiting
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. `awaiting` does not */}}
+  {{/* follow the ?status= chip. */}}
+  keyExtras: [projects]
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: '{askHref}'
+    pagination:
+      defaultPageSize: 8
+    columns:
+    - valueKey: sev
+      title: ' '
+    - valueKey: name
+      title: Alert
+    - valueKey: why
+      title: Why no incident
+    - valueKey: ask
+      title: ' '
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.awaiting // [])[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:"●",color:"var(--red-color)"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"why",kind:"jsonSchemaType",type:"string",stringValue:(if (.why // "") == "" then "—" else .why end)}, {valueKey:"ask",kind:"tag",stringValue:"Ask Agentiko →",color:"primary"}, {valueKey:"askHref",kind:"jsonSchemaType",type:"string",stringValue:(.askHref // "")} ] ] }'
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
