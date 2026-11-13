@@ -35,8 +35,12 @@ spec:
       errorKey: usageError
   {{/* ClickHouse FORMAT JSON => {meta, data:[...], rows}. Rows are pre-formatted for display and */}}
   {{/* the raw sums are kept alongside, so a later chart does not have to re-parse a string. */}}
-  {{/* Average time to first token: read as SECONDS, as this filter always has, so ×1000 into */}}
-  {{/* duration.label ("450 ms", "1.2 s"), the one duration format every portal stat uses. */}}
+  {{/* Average time to first token is SECONDS, so ×1000 into duration.label ("450 ms", "1.2 s"), */}}
+  {{/* the one duration format every portal stat uses. VERIFIED, not assumed: agentgateway v1.5.0 */}}
+  {{/* (the proxy image live on krateo-057) writes `agw.ai.time_to_first_token` onto the request */}}
+  {{/* span as `duration.as_secs_f64()` (crates/agentgateway/src/telemetry/log.rs, the request kv */}}
+  {{/* passed to the tracer). Stored values agree: on krateo-057, 7 days, 892 spans, 0.99–156 with */}}
+  {{/* a median of 4.2, and none larger than its own span's Duration in seconds (2026-11-13). */}}
   filter: |
     {{ include "duration.label" . }}
     def commas: tostring

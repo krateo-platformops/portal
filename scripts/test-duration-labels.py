@@ -272,9 +272,12 @@ def ttft():
     out = jq(prog, {'usage': {'data': [
         {'consumer': 'a', 'avg_ttft_s': 0.45}, {'consumer': 'b', 'avg_ttft_s': 1.23},
         {'consumer': 'c', 'avg_ttft_s': None}, {'consumer': 'd', 'avg_ttft_s': '12.34'},
+        # the magnitudes krateo-057 stores (7 days, 892 spans): min 0.99, median 4.21, max 156.18
+        {'consumer': 'e', 'avg_ttft_s': 0.99}, {'consumer': 'f', 'avg_ttft_s': 4.21},
+        {'consumer': 'g', 'avg_ttft_s': 156.18},
     ]}})
-    check('agents-token-usage ttft (read as seconds, as before)', [r['ttft'] for r in out['rows']],
-          ['450 ms', '1.2 s', '—', '12.3 s'])
+    check('agents-token-usage ttft (agentgateway writes seconds: as_secs_f64)', [r['ttft'] for r in out['rows']],
+          ['450 ms', '1.2 s', '—', '12.3 s', '990 ms', '4.2 s', '156.2 s'])
 
 
 run('obs-phases-card', phases_card)
