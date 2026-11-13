@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": true,
+  "properties": {
+    "namespace": {
+      "description": "The namespace this chart CREATES and installs the public pages into. It must be the frontend's PUBLIC_NAMESPACE (the frontend chart's `publicNamespace`, krateo-public by default) — the short address /public/<slug> opens flexes/page-<slug> in that namespace and nowhere else, and the pages' own links (Request access again) are short addresses. The only grant in it is the public identity's (user krateo:public, snowplow#1334), on exactly the objects these pages read. It holds no data, so it is not kept on uninstall. No schema default: the installer applies schema defaults, and crdgen materializes them into every CR; the chart default lives in values.yaml.",
+      "minLength": 1,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+      "maxLength": 63,
+      "title": "namespace",
+      "type": "string"
+    },
+    "requestAccess": {
+      "additionalProperties": false,
+      "description": "The request form's per-installation legal copy — who processes the requester's details, under which privacy policy, and what the optional newsletter is. These name the OPERATOR of the installation, so they are values rather than chart text; the defaults (values.yaml) are the approved copy for Krateo's own installation.",
+      "properties": {
+        "newsletterConsent": {
+          "description": "The label of the OPTIONAL newsletter checkbox.",
+          "minLength": 1,
+          "title": "newsletterConsent",
+          "type": "string"
+        },
+        "privacyPolicy": {
+          "additionalProperties": false,
+          "description": "The privacy policy linked from the processing-consent label.",
+          "properties": {
+            "text": {
+              "description": "The phrase of `processingConsent` that becomes the link (its first occurrence). When the label does not contain it, the link follows the label.",
+              "minLength": 1,
+              "title": "text",
+              "type": "string"
+            },
+            "url": {
+              "description": "The privacy policy's address, an http(s) URL. Opened in a new tab.",
+              "pattern": "^https?://[^\\s]+$",
+              "title": "url",
+              "type": "string"
+            }
+          },
+          "title": "privacyPolicy",
+          "type": "object"
+        },
+        "processingConsent": {
+          "description": "The label of the REQUIRED processing-consent checkbox. Name the data controller and what the details are used for. When it contains `privacyPolicy.text`, that phrase becomes the link.",
+          "minLength": 1,
+          "title": "processingConsent",
+          "type": "string"
+        }
+      },
+      "title": "requestAccess",
+      "type": "object"
+    }
+  },
+  "type": "object"
+}
