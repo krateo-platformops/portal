@@ -644,15 +644,15 @@ def check_what_the_page_says(ctx):
     objs = {x['metadata']['name']: x for x in load('objects.demo.json')}
     expect(f, 'eight files: one node per resource', sorted(eight),
            sorted(['arch:repository', 'arch:repo', 'arch:pullrequest'] + lr))
-    expect(f, 'eight files: kind and full name per sibling', [(eight[u]['kind'], eight[u]['name']) for u in lr],
+    expect(f, 'eight files: kind and full name per sibling', [(eight.get(u, {}).get('kind'), eight.get(u, {}).get('name')) for u in lr],
            [('LocalResource', u.split('/')[1]) for u in lr])
-    expect(f, 'eight files: each sibling\'s own targetCommitId', [eight[u]['detail'] for u in lr],
+    expect(f, 'eight files: each sibling\'s own targetCommitId', [eight.get(u, {}).get('detail') for u in lr],
            ['targetCommitId · ' + objs[u.split('/')[1]]['status']['targetCommitId'][:7] for u in lr])
     expect(f, 'eight files: each sibling drawn from the Repository and the Repo',
-           {u: [p['uid'] for p in eight[u]['parentRefs']] for u in lr}, {u: ['arch:repository', 'arch:repo'] for u in lr})
+           {u: [p['uid'] for p in eight.get(u, {}).get('parentRefs', [])] for u in lr}, {u: ['arch:repository', 'arch:repo'] for u in lr})
     expect(f, 'eight files: the PullRequest drawn from all eight',
-           [p['uid'] for p in eight['arch:pullrequest']['parentRefs']], lr)
-    expect(f, 'eight files: every sibling done', {eight[u]['state'] for u in lr}, {'done'})
+           [p['uid'] for p in eight.get('arch:pullrequest', {}).get('parentRefs', [])], lr)
+    expect(f, 'eight files: every sibling done', sorted({eight.get(u, {}).get('state') or '' for u in lr}), ['done'])
     # On every case: no node groups siblings or elides a name, and no two nodes share a uid.
     for c in sorted(w):
         drawn = w[c]['FlowChart flowchart-composition-detail-architecture data']
@@ -698,14 +698,14 @@ def check_what_the_page_says(ctx):
            nodes('v1b-denied-repository')['arch:repository']['detail']), ('done', 'not readable with your access'))
     # A denial is said on the sibling that was denied, not counted onto a group node.
     two = nodes('demo-denied-two-files')
-    unread = [u for u in files('demo') if two[u]['detail'] == 'not readable with your access']
+    unread = [u for u in files('demo') if two.get(u, {}).get('detail', '') == 'not readable with your access']
     expect(f, 'two files denied: exactly the two denied siblings say so', unread,
            ['arch:localresources/publish-pod-sizing-demo-003', 'arch:localresources/publish-pod-sizing-demo-004'])
-    expect(f, 'two files denied: every sibling still done', {two[u]['state'] for u in files('demo')}, {'done'})
+    expect(f, 'two files denied: every sibling still done', sorted({two.get(u, {}).get('state', '') for u in files('demo')}), ['done'])
     expect(f, 'two files denied: the others show their own value',
-           all(two[u]['detail'].startswith('targetCommitId · ') for u in files('demo') if u not in unread), True)
-    expect(f, 'every file denied: each sibling', {(nodes('demo-denied-all-files')[u]['state'], nodes('demo-denied-all-files')[u]['detail'])
-           for u in files('demo')}, {('done', 'not readable with your access')})
+           all(two.get(u, {}).get('detail', '').startswith('targetCommitId · ') for u in files('demo') if u not in unread), True)
+    expect(f, 'every file denied: each sibling', sorted({(nodes('demo-denied-all-files').get(u, {}).get('state') or '', nodes('demo-denied-all-files').get(u, {}).get('detail') or '')
+           for u in files('demo')}), [('done', 'not readable with your access')])
     expect(f, 'two files denied: still all ready', body('demo-denied-two-files'), [graph])
     for c in ('v1b-current-dropped', 'v1b-current-failed'):
         expect(f, f'{c}: repo', (nodes(c)['arch:repo']['state'], nodes(c)['arch:repo']['detail']),
