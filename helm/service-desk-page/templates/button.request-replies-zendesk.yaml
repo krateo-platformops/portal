@@ -1,0 +1,30 @@
+{{/* "Open in Zendesk ↗" as a link, beside the replies sentence. The same address as the header's
+     primary (zendesk-request `.url`, https only); a link here because it is where someone reading
+     about replies looks next, and the header's button is the page's one primary. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-replies-zendesk
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Open in Zendesk ↗
+    type: link
+    size: middle
+    clickActionId: open
+    actions:
+      navigate:
+        - id: open
+          type: navigate
+          path: /service-desk
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "open", type: "navigate", path: (if (.url // "") != "" then .url else "/service-desk" end) } ] } }'
+  resourcesRefs:
+    items: []

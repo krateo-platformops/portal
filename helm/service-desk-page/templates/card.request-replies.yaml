@@ -1,0 +1,30 @@
+{{/* Where the conversation is: "Replies appear in Zendesk; following them here comes later.", with
+     the link beside it. Stated plainly as a later step, because the page does not read replies
+     today and an empty "Activity" section would look like nobody had answered.
+
+     Drawn once there is a Zendesk request to have replies (zendesk-request `.showReplies`). No
+     title: it is one sentence and a link. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-replies-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    variant: outlined
+    size: small
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: request-replies-row
+  resourcesRefs:
+    items:
+    - id: request-replies-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-replies-row
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

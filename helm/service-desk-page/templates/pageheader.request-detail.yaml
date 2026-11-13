@@ -1,0 +1,41 @@
+{{/* The /service-desk/{namespace}/{name} header: the request's subject as the title, its Zendesk
+     number as the one line of context ("No Zendesk number yet" before the provider has filed it),
+     and the actions.
+
+     THE STATUS PILL IS NOT IN THIS HEADER, and that is a schema fact rather than a layout choice.
+     PageHeader draws its own pills from `widgetData.tags`, whose `color` is an ENUM — blue,
+     darkBlue, orange, gray, red, green, violet — and the status vocabulary needs slate, gold and
+     faint. snowplow validates RESOLVED widgetData against the CRD, so a templated colour would
+     refuse the whole header. The Tag WIDGET takes any palette name, so the pill is a Tag directly
+     under this header (flex.request-detail-pills.yaml) — the same StatusPill component. */}}
+kind: PageHeader
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-detail-header
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Request
+    allowedResources:
+    - flexes
+    items:
+    - resourceRefId: request-detail-actions
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .title // "Request" }'
+    - forPath: subtitle
+      expression: '${ .subtitle // "" }'
+  resourcesRefs:
+    items:
+    - id: request-detail-actions
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-detail-actions
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

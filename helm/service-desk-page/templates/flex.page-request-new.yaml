@@ -1,0 +1,61 @@
+{{/* Page root for /service-desk/new: the header, then the form — or, when no request can be raised
+     from here, one sentence saying why, in the place the form would be.
+
+     ITEMS ARE TEMPLATED off request-raise-context:
+       one or several configurations  → header, form.request-new
+       none                           → header, "No Zendesk configuration for your organisation —
+                                        ask an administrator."
+       the kind isn't served          → header, "Zendesk requests aren't served on this cluster"
+       the read failed                → header, the error
+     The form is not even fetched without a configuration: an unreferenced child is never resolved,
+     which also keeps snowplow from resolving a create ref for a kind the cluster does not serve.
+
+     A SUB-ROUTE OF THE QUEUE AGAIN, carrying only its path: it routes without earning a second
+     sidebar entry, and the queue's "Raise a request" links here (the convention page-alert-create
+     follows at /alerts/new). It lived in a namespace of its own while the Ticket desk needed one for
+     its requesters; see namespace.yaml. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-request-new
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-path": "/service-desk/new"
+    "krateo.io/verbose": "true"
+spec:
+  apiRef:
+    name: request-raise-context
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - forms
+    - results
+    vertical: true
+    {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
+    gap: middle
+    items:
+    - resourceRefId: request-new-header
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ [ { resourceRefId: "request-new-header" } ] + (if (.hasForm // false) then [ { resourceRefId: "request-new-form" } ] else [ { resourceRefId: "request-new-unavailable" } ] end) }'
+  resourcesRefs:
+    items:
+    - id: request-new-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-new-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: request-new-form
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-new
+      namespace: {{ $.Values.namespace }}
+      resource: forms
+      verb: GET
+    - id: request-new-unavailable
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-new-unavailable
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET

@@ -1,0 +1,96 @@
+{{/* Page root for /service-desk/{namespace}/{name}, top to bottom: the header (the subject, the
+     Zendesk number, "Ask Agentiko →" and "Open in Zendesk ↗") → the status pill, with "Last known"
+     beside it when Zendesk can't be reached → the one alert, when there is something to say → the
+     details → what the person asked → where replies are.
+
+     The namespace in the route is the REQUEST's namespace — its organisation's — not this chart's.
+
+     `items` is templated off zendesk-request, so a section renders only when there is something in
+     it, and a request that could not be read shows the header and one sentence. resourcesRefs hold
+     the full pool and an unreferenced child is never fetched.
+
+     IT STACKS, it does not tab: tabbed content sits outside Agentiko's context envelope.
+
+     THE NAV ANNOTATION IS LOAD-BEARING even though this is not a sidebar entry: the route table is
+     the list of page roots carrying `krateo.io/nav-path`, and the queue's rowNavigateTo leads here.
+     The absence of `nav-label` and `nav-group` keeps it out of the sidebar. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-request-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/nav-path": "/service-desk/{namespace}/{name}"
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The route's two params. A widget served extras it does not declare is never cached. */}}
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - pageheaders
+    - flexes
+    - alerts
+    - descriptions
+    - cards
+    - results
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: request-detail-header
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "request-detail-header" } ]
+        + (if (.found // false) then
+             [ { resourceRefId: "request-detail-pills" } ]
+             + (if (.alert.show // false) then [ { resourceRefId: "request-detail-alert" } ] else [] end)
+             + [ { resourceRefId: "request-detail-facts" }, { resourceRefId: "request-asked-card" } ]
+             + (if (.showReplies // false) then [ { resourceRefId: "request-replies-card" } ] else [] end)
+           else [ { resourceRefId: "request-detail-unavailable" } ] end) }
+  resourcesRefs:
+    items:
+    - id: request-detail-header
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-detail-header
+      namespace: {{ $.Values.namespace }}
+      resource: pageheaders
+      verb: GET
+    - id: request-detail-pills
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-detail-pills
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: request-detail-alert
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-detail-alert
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+    - id: request-detail-facts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-detail-facts
+      namespace: {{ $.Values.namespace }}
+      resource: descriptions
+      verb: GET
+    - id: request-asked-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-asked-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: request-replies-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-replies-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: request-detail-unavailable
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-detail-unavailable
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET

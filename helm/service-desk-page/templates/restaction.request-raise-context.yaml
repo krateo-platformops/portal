@@ -1,0 +1,132 @@
+{{/* The raise form's context: which organisations the CALLER can raise a request for, and the form
+     that follows from it.
+
+     A REQUEST GOES THROUGH A ZendeskRequestConfiguration: one per customer, in that customer's
+     namespace, holding only a reference to the Secret with its Zendesk token. So the form lists the
+     configurations the caller can read, across namespaces, by the same pattern as the queue
+     (restaction.zendesk-requests.yaml): snowplow lists with its own ServiceAccount and keeps the
+     objects in namespaces where the CALLER may `list` configurations. No jq predicate decides it.
+
+       none      no form: "No Zendesk configuration for your organisation — ask an administrator."
+       one       used without asking: the form has no organisation field.
+       several   an "Organisation" select, first, with no default; each option is the
+                 configuration's namespace with its name under it.
+       absent    the kind isn't served on this cluster: no form either, and the page says that.
+       failed    the read failed: no form, and the error, never "no configuration".
+
+     The request is created IN the chosen configuration's namespace, with configurationRef naming
+     it. Reading a configuration does not imply creating requests beside it; a caller who can read
+     but not create gets a 403 on submit, and the form says so (form.request-new.yaml).
+
+     THE FORM'S SCHEMA IS BUILT HERE AS A STRING, and that is what keeps the fields in order. A jq
+     object comes out of snowplow with its keys sorted (gojq), which would put Description before
+     Subject and the organisation in the middle. `stringSchema` is JSON.parsed in the browser, so
+     insertion order survives; the string below is joined from one fragment per field, in the order
+     the person reads them. Each fragment's own keys may come out sorted — their order means nothing.
+
+     THE LABELLED OPTIONS ARE `oneOf` const + title, WITH `enum` BESIDE THEM. The released Form
+     draws a string with only `oneOf` as a free-text input, which would let anyone type a kind the
+     provider refuses. With `enum` beside it, today's Form draws a select of the raw values (Bug,
+     FeatureRequest, low…) and submits exactly them. The labels ("Something is broken"), the
+     per-priority hints and the multi-line Description arrive with the frontend's Form presentation
+     change, which is queued and not released; until then this form still submits correct values.
+
+     The output carries no `username` key, deliberately: the form declares identityContext and
+     reads the injected `.username` itself, and a `username` here would shadow it. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: request-raise-context
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: configs
+      path: /apis/zendesk.ogen.krateo.io/v2/zendeskrequestconfigurations
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: zendesk.ogen.krateo.io
+        resource: zendeskrequestconfigurations
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: configsError
+  {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into one
+       line and so comment out the rest of the program. */}}
+  filter: |
+    def str: if type == "string" then . else "" end;
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def errtext: if . == null then ""
+      elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ")
+      elif type == "object" then (.message // tojson)
+      else tostring end;
+    # One schema property as a JSON fragment: "key":{…}.
+    def field($k; $v): ($k | tojson) + ":" + ($v | tojson);
+    ((.configs // {}) | if type == "object" then (.items // []) else [] end | if type == "array" then . else [] end) as $items
+    | ((.configsError // null) | errtext) as $err
+    | ([ (.configsError // null) | if type == "array" then .[] else . end | objects | .code // empty ]) as $codes
+    | ($err != "") as $failed
+    | ($failed and (($codes | index(404)) != null or ($err | test("404|not found|could not find|no matches for"; "i")))) as $absent
+    | ([ $items[] | select(type == "object") | { namespace: (.metadata.namespace | str), name: (.metadata.name | str) }
+         | select(.namespace != "" and .name != "") ] | unique_by([.namespace, .name])) as $configs
+    | ($configs | length) as $count
+    | (if $absent then "absent" elif $failed and $count == 0 then "failed"
+       elif $count == 0 then "none" elif $count == 1 then "one" else "several" end) as $state
+    | ([ (if $state == "several" then
+            field("organisation"; { type: "string", title: "Organisation", description: "Whose Zendesk this request goes to.",
+                                    enum: [ $configs[] | .namespace + "/" + .name ],
+                                    oneOf: [ $configs[] | { const: (.namespace + "/" + .name), title: .namespace, description: ("configuration " + .name) } ] })
+          else empty end),
+         field("subject"; { type: "string", title: "Subject", minLength: 1,
+                            description: "One line. The queue and Zendesk show it, so say the thing rather than the category." }),
+         field("description"; { type: "string", title: "Description", minLength: 1, format: "textarea",
+                                description: "What happened, or what you need. Include names, namespaces and any error text." }),
+         field("kind"; { type: "string", title: "What kind of request is this?",
+                         enum: ["Bug", "FeatureRequest"],
+                         oneOf: [ { const: "Bug", title: "Something is broken" },
+                                  { const: "FeatureRequest", title: "A feature or change I’d like" } ] }),
+         field("priority"; { type: "string", title: "Priority", description: "How much this is holding you up.",
+                             enum: ["low", "normal", "high", "urgent"], default: "normal",
+                             oneOf: [ { const: "low", title: "Low", description: "No date in mind. Whenever someone gets to it." },
+                                      { const: "normal", title: "Normal", description: "Needed, but nothing has stopped." },
+                                      { const: "high", title: "High", description: "It’s slowing down my work, or my team’s." },
+                                      { const: "urgent", title: "Urgent", description: "Something in production is down or blocked." } ] })
+       ] | join(",")) as $props
+    # Every field is required, so every field renders up front in this order: the Form collects the
+    # optional ones into a collapsed "Advanced" section.
+    | ((if $state == "several" then ["organisation"] else [] end) + ["subject", "description", "kind", "priority"]) as $required
+    | ("{\"type\":\"object\",\"required\":" + ($required | tojson) + ",\"properties\":{" + $props + "}}") as $schema
+    # The overrides that say WHERE the request goes. With one configuration they are literals, fixed
+    # here; with several they read the organisation the person chose ("<namespace>/<name>"). The
+    # name and krateo_reference are added by the form, which owns the clock (form.request-new.yaml).
+    | (if $state == "one" then
+         [ { name: "metadata.namespace", value: $configs[0].namespace },
+           { name: "spec.configurationRef.name", value: $configs[0].name },
+           { name: "spec.configurationRef.namespace", value: $configs[0].namespace } ]
+       else
+         [ { name: "metadata.namespace", value: "${ (.json.organisation // \"\") | split(\"/\") | .[0] }" },
+           { name: "spec.configurationRef.name", value: "${ (.json.organisation // \"\") | split(\"/\") | .[1] // \"\" }" },
+           { name: "spec.configurationRef.namespace", value: "${ (.json.organisation // \"\") | split(\"/\") | .[0] }" } ]
+       end) as $where
+    | {
+        state: $state,
+        configs: $configs,
+        hasForm: ($state == "one" or $state == "several"),
+        stringSchema: $schema,
+        overrides: ($where + [
+          { name: "spec.subject", value: "${ .json.subject // \"\" }" },
+          { name: "spec.description", value: "${ .json.description // \"\" }" },
+          { name: "spec.kind", value: "${ .json.kind // \"\" }" },
+          { name: "spec.priority", value: "${ .json.priority // \"normal\" }" } ]),
+        unavailable: (if $state == "absent" then
+                        { status: "info", title: "Zendesk requests aren’t served on this cluster",
+                          subTitle: "The portal can’t find the Zendesk provider’s kinds (zendesk.ogen.krateo.io/v2), so nothing can be raised here. An administrator installs the Zendesk provider." }
+                      elif $state == "failed" then
+                        { status: "warning", title: "Your organisation’s Zendesk configuration could not be read",
+                          subTitle: ("So the portal can’t tell where a request would go. " + ($err | cap(300))) }
+                      elif $state == "none" then
+                        { status: "info", title: "No Zendesk configuration for your organisation — ask an administrator.",
+                          subTitle: "Requests reach Zendesk through your organisation’s configuration, and there isn’t one you can use." }
+                      else { status: "info", title: "", subTitle: "" } end)
+      }

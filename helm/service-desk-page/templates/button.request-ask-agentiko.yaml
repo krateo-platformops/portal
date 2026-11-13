@@ -1,0 +1,34 @@
+{{/* "Ask Agentiko →" on a request's page. It navigates to THIS page with an ?ask seed the rail
+     consumes on mount, so the conversation starts holding the request: its status, its Zendesk
+     number and what the page's alert says are all on the page.
+
+     The label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored. Being filled
+     does not take the header's one primary: "Open in Zendesk ↗" keeps it (P6). The href is built
+     server-side (zendesk-request `.askHref`, @uri-encoded); the click is a plain literal navigate. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-ask-agentiko
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Ask Agentiko →
+    intent: agentiko
+    size: middle
+    clickActionId: ask
+    actions:
+      navigate:
+        - id: ask
+          type: navigate
+          path: /service-desk
+  widgetDataTemplate:
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/service-desk" end) } ] } }'
+  resourcesRefs:
+    items: []

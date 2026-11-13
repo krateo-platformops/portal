@@ -1,27 +1,30 @@
-{{/* Page root for /service-desk: the header, the state chips, then the queue — or, when the
-     selected view holds no ticket, a sentence saying why in place of the table.
+{{/* Page root for /service-desk: the header, then the queue of Zendesk requests — or a sentence in
+     place of the queue when there is nothing to show or nothing could be read.
 
-     IT READS tickets-list AND TEMPLATES ITS ITEMS, as reviews-page flex.reviews-decided does,
+     IT READS zendesk-requests AND TEMPLATES ITS ITEMS, as reviews-page flex.reviews-decided does,
      because the Table hard-codes "No rows" and has no field to say anything else. The choice is
-     made from the same RESTAction, with the same keyExtras, as the chips and the table, so the
-     three cannot disagree about which tickets there are:
-       read failed   → header, table. No chips (their counts would claim a quiet desk) and no
-                       sentence ("no one has raised a ticket" would be false); the header's red tag
-                       and subtitle say what happened, as they did before the chips.
-       nothing shown → header, chips, result.service-desk-empty (tickets-list `emptyTitle`).
-       otherwise     → header, chips, table.
+     made from the same RESTAction, with the same keyExtras and identity, as the chips and the table,
+     so the three cannot disagree about which requests there are:
+       read failed    → header, result.service-desk-unavailable. No chips: their zeros would
+                        describe a quiet desk. For a cluster that does not serve the kind the header
+                        also drops "Raise a request" (pageheader.service-desk.yaml).
+       nothing shown  → header, [warning], chips, result.service-desk-empty.
+       otherwise      → header, [warning], chips, table.
+     The warning (alert.service-desk-unreachable) is drawn only when some organisation's requests
+     can't be read from Zendesk, and then once, above the table.
 
      THE NAV ANNOTATIONS ARE HALF THE RBAC STORY. The portal discovers the namespaces where the
      CALLER may `list` page roots and lists the roots in each as that caller, so a group with no
-     RoleBinding in this namespace never sees the entry — see rbac.page-readers.yaml. The annotations
-     only say where it goes once someone is allowed to see it.
+     RoleBinding in this namespace never sees the entry — see rbac.page-readers.yaml. Under
+     "Platform", nav-order 40, as before: someone raising a request has stopped and gone looking.
 
-     Under "Platform" rather than its own group: a service desk is not an observability surface and
-     not a builder. nav-order 40 puts it after the authoring and observability entries — someone
-     raising a ticket is not in the middle of a task, they have stopped and gone looking.
+     identityContext: [username] on this root and on every widget below that reads
+     zendesk-requests: the "Mine" chip compares each request's raised-by label with the caller, and
+     only snowplow can say who that is. Every reader must ask with the same identity, or one would
+     count Mine and another would not. It also makes each cache cell per person, which the read is
+     anyway (the refilter is per caller).
 
-     allowedResources lists the child PLURALS. It is an enum, so a child kind missing from it is
-     refused rather than ignored — adding a widget below means adding its plural here. */}}
+     allowedResources lists the child PLURALS: adding a widget below means adding its plural here. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -38,12 +41,15 @@ spec:
   {{/* The extras keys that partition this widget's cache cell: which child is drawn depends on
        the ?state= chip. */}}
   keyExtras: [state]
+  identityContext:
+    - username
   apiRef:
-    name: tickets-list
+    name: zendesk-requests
     namespace: {{ $.Values.namespace }}
   widgetData:
     allowedResources:
     - pageheaders
+    - alerts
     - listies
     - tables
     - results
@@ -52,14 +58,17 @@ spec:
     items:
     - resourceRefId: service-desk-header
     - resourceRefId: service-desk-state-chips
-    - resourceRefId: tickets-table
+    - resourceRefId: service-desk-requests
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ [ { resourceRefId: "service-desk-header" } ]
-        + (if (.failed // false) then [ { resourceRefId: "tickets-table" } ]
-           elif ((.rows // []) | length) == 0 then [ { resourceRefId: "service-desk-state-chips" }, { resourceRefId: "service-desk-empty" } ]
-           else [ { resourceRefId: "service-desk-state-chips" }, { resourceRefId: "tickets-table" } ] end) }
+        + (if (.failed // false) then [ { resourceRefId: "service-desk-unavailable" } ]
+           else
+             (if (.unreachable.show // false) then [ { resourceRefId: "service-desk-unreachable" } ] else [] end)
+             + [ { resourceRefId: "service-desk-state-chips" } ]
+             + (if ((.rows // []) | length) == 0 then [ { resourceRefId: "service-desk-empty" } ] else [ { resourceRefId: "service-desk-requests" } ] end)
+           end) }
   resourcesRefs:
     items:
     - id: service-desk-header
@@ -68,11 +77,11 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: tickets-table
+    - id: service-desk-unreachable
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: tickets-table
+      name: service-desk-unreachable
       namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: alerts
       verb: GET
     - id: service-desk-state-chips
       apiVersion: widgets.templates.krateo.io/v1beta1
@@ -80,9 +89,21 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
+    - id: service-desk-requests
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-requests
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
     - id: service-desk-empty
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: service-desk-empty
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET
+    - id: service-desk-unavailable
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-unavailable
       namespace: {{ $.Values.namespace }}
       resource: results
       verb: GET

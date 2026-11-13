@@ -1,0 +1,42 @@
+{{/* The replies sentence, and "Open in Zendesk ↗" as a link beside it when there is an https
+     address to open (zendesk-request `.url`). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-replies-row
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    justify: space-between
+    wrap: true
+    allowedResources:
+    - paragraphs
+    - buttons
+    items:
+    - resourceRefId: request-replies-text
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ [ { resourceRefId: "request-replies-text" } ] + (if (.url // "") != "" then [ { resourceRefId: "request-replies-zendesk" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: request-replies-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-replies-text
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: request-replies-zendesk
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-replies-zendesk
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET

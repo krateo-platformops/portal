@@ -1,0 +1,35 @@
+{{/* What the queue says IN PLACE OF the chips and the table when the read did not work. An error is
+     not an empty list, so it never looks like one:
+       not served   the ZendeskRequest kind isn't on this cluster (a 404 on the list). Calm, `info`,
+                    the same treatment as "Data source unavailable". The header drops "Raise a
+                    request", because nothing could be filed.
+       denied       a 403: the access could not be confirmed, so the list is nothing at all.
+       failed       anything else, with the error, and never described as either of the two above.
+     The words are zendesk-requests' `unavailable`, so the page root, the header and this widget
+     read one decision. */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-unavailable
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    status: warning
+    title: Zendesk requests could not be read
+  widgetDataTemplate:
+    - forPath: status
+      expression: '${ .unavailable.status // "warning" }'
+    - forPath: title
+      expression: '${ if (.unavailable.title // "") != "" then .unavailable.title else "Zendesk requests could not be read" end }'
+    - forPath: subTitle
+      expression: '${ .unavailable.subTitle // "" }'
+  resourcesRefs:
+    items: []

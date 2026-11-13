@@ -1,0 +1,32 @@
+{{/* The ONE warning above the queue when the provider can't read some organisation's requests from
+     Zendesk (Ready=Unknown, reason ObserveFailed — most likely an expired token). It names each
+     organisation and who fixes it. No row is marked: the rows keep the last status the portal read.
+
+     A warning and not an error: the person did nothing wrong, and the requests are still in
+     Zendesk. Drawn only when zendesk-requests says so (`.unreachable.show`); the page root leaves it
+     out otherwise, so nothing marks the healthy case. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-unreachable
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Can’t reach Zendesk
+    type: warning
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ if (.unreachable.title // "") != "" then .unreachable.title else "Can’t reach Zendesk" end }'
+    - forPath: description
+      expression: '${ .unreachable.description // "" }'
+  resourcesRefs:
+    items: []

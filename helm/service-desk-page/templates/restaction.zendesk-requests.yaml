@@ -1,0 +1,179 @@
+{{/* /service-desk data source: one row per ZendeskRequest the CALLER may list, shaped server-side.
+
+     rows        : subject, status pill, priority, kind, Zendesk #, raised by, updated; filtered by
+                   the ?state= chip.
+     chips       : the chips themselves (Active · All · New · Open · Pending · On-hold · Solved ·
+                   Closed · Mine), each with its live count, its route and whether it is selected.
+     unreachable : the ONE warning above the table, naming each organisation whose requests the
+                   provider can't read from Zendesk (Ready=Unknown/ObserveFailed). No per-row mark.
+     unavailable : what the page says INSTEAD of chips and table when the read did not work.
+     emptyTitle/emptyText : the sentence the page draws in place of the table when `rows` is empty.
+     askHref     : the "Ask Agentiko →" link, a prompt about the view the person is looking at.
+
+     ACROSS NAMESPACES, AS THE CALLER. Requests live in each organisation's own namespace, so the
+     queue lists the cluster-scope collection under a userAccessFilter — the pattern
+     portal/restaction.compositions-list uses for compositions. snowplow lists with its own
+     ServiceAccount, then evaluates `list` on zendeskrequests in each object's namespace AS THE
+     CALLER and drops every object they may not list (snowplow apis/templates/v1/core.go,
+     UserAccessFilterSpec; refilter.go). That per-object check is snowplow's RBAC evaluator, built to
+     give exactly the apiserver's answer — it is not a jq predicate, and nothing in the filter below
+     decides who sees what. A tenant granted list in its own namespace sees its own organisation's
+     requests; an admin sees every organisation's.
+
+     WHAT THAT COSTS, so nobody discovers it later: a caller with no grant anywhere gets an EMPTY list,
+     not a 403 — the refilter drops objects, it does not refuse the read. So "No Zendesk requests yet"
+     is also what a missing grant looks like, and the empty sentence says where requests come from
+     rather than claiming the organisation has none.
+
+     THE CHIP FILTER IS A jq `select` OVER THE ONE READ. The counts need every request anyway, so the
+     filtered list is a subset of rows in hand. "Mine" compares the request's krateo.io/raised-by
+     label with the caller's own name, slugged the same way the raise form slugs it. The label is
+     informational, not a boundary — anyone who may create a request can set it with kubectl — so
+     "Mine" is a convenience view and never a permission. The username comes from snowplow
+     (identityContext on every widget reading this), never from the browser.
+
+     THE STATE OF EACH REQUEST, its label and its colour come from _zendesk.tpl, shared with the
+     request page, and are read from condition status and reason only. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: zendesk-requests
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{/* ONE read, with a literal path and nothing to dial at prewarm. A cluster that does not serve
+         the kind answers 404 here, which the filter turns into "Zendesk requests aren't served on
+         this cluster" rather than an empty queue. */}}
+    - name: requests
+      path: /apis/zendesk.ogen.krateo.io/v2/zendeskrequests
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: zendesk.ogen.krateo.io
+        resource: zendeskrequests
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: requestsError
+  {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into one
+       line and so comment out the rest of the program. */}}
+  filter: |
+    {{- include "servicedesk.requestDefs" . | nindent 4 }}
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+    def andjoin: if length <= 1 then (.[0] // "") elif length == 2 then (.[0] + " and " + .[1]) else ((.[0:-1] | join(", ")) + " and " + .[-1]) end;
+    # The chips, in order. Active is the default and hides Solved and Closed; Mine is every request
+    # the caller raised, whatever its status.
+    def chips: [
+      { key: "active", label: "Active", noun: "active requests" },
+      { key: "all", label: "All", noun: "requests" },
+      { key: "new", label: "New", noun: "new requests" },
+      { key: "open", label: "Open", noun: "open requests" },
+      { key: "pending", label: "Pending", noun: "pending requests" },
+      { key: "hold", label: "On-hold", noun: "requests on hold" },
+      { key: "solved", label: "Solved", noun: "solved requests" },
+      { key: "closed", label: "Closed", noun: "closed requests" },
+      { key: "mine", label: "Mine", noun: "requests you raised" } ];
+    # A request with no Zendesk status yet (filing, refused, held, an unknown reason) is Active and
+    # All, and under no status chip: it has no status to be filed under.
+    def inChip($k; $me):
+      if $k == "all" then true
+      elif $k == "active" then ((.zendeskStatus | IN("solved", "closed")) | not)
+      elif $k == "mine" then ($me != "" and .raisedBySlug == $me)
+      else .zendeskStatus == $k end;
+    # THE ERROR IS A LIST: snowplow appends every failure of a stage to its errorKey, each item a
+    # message string or, for an HTTP failure, the apiserver's Status object. A bare string is still
+    # accepted.
+    def errtext: if . == null then ""
+      elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ")
+      elif type == "object" then (.message // tojson)
+      else tostring end;
+    def item: "\"" + (.subject | cap(110)) + "\" (" + .label + (if .id != "" then ", Zendesk #" + .id else "" end) + ")";
+    def numbered: .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | item)) | join(" ");
+    # A GUARD on a step result, not a default in a path: the step is absent from the dict when it
+    # failed under continueOnError.
+    ((.requests // {}) | if type == "object" then (.items // []) else [] end | if type == "array" then . else [] end) as $items
+    | ((.requestsError // null) | errtext) as $err
+    | ([ (.requestsError // null) | if type == "array" then .[] else . end | objects | .code // empty ]) as $codes
+    | ($err != "") as $failed
+    # Not served: the apiserver's 404 for a resource it does not know. Checked before 403, because a
+    # cluster without the kind has nothing to be denied.
+    | ($failed and (($codes | index(404)) != null or ($err | test("404|not found|could not find|no matches for"; "i")))) as $absent
+    | ($failed and ($absent | not) and (($codes | index(403)) != null or ($err | test("403|forbidden"; "i")))) as $denied
+    | ((.username // "") | labelslug) as $me
+    | ((.state // "") | str | ascii_downcase | if . == "" then "active" else . end) as $sel
+    | ([ chips[] | select(.key == $sel) ] | .[0]) as $chip
+    | ($chip != null) as $valid
+    | ([ $items[] | select(type == "object") | requestView
+         | . + { sortKey: (if .updated != "" then .updated elif .created != "" then .created else .portalCreated end) } ]
+       | sort_by(.sortKey) | reverse) as $rows
+    | ($rows | length) as $total
+    | (chips | map(.key as $k | { key: $k, value: ([ $rows[] | select(inChip($k; $me)) ] | length) }) | from_entries) as $counts
+    | (if $valid then [ $rows[] | select(inChip($sel; $me)) ] else [] end) as $shown
+    # ONE warning for the whole queue, naming each organisation whose requests can't be read from
+    # Zendesk. An organisation is its configuration; two configurations in one namespace are told
+    # apart by name, otherwise the namespace says it.
+    | ([ $rows[] | select(.state == "unreachable") | .org ] | unique_by([.namespace, .name])) as $down
+    | ($down | map(. as $o | if ([ $down[] | select(.namespace == $o.namespace) ] | length) > 1 and $o.name != "" then ($o.namespace + " (" + $o.name + ")") else $o.namespace end)) as $downLabels
+    | (if $failed then
+         "The service-desk queue could not be read (" + ($err | cap(300)) + "). Explain what that error means and what an administrator has to fix."
+       elif $total == 0 then
+         "I have no Zendesk requests yet. Explain what the service desk on this platform can be asked for, and what a good request includes."
+       else
+         "Go through my organisation's Zendesk requests"
+         + (if $valid and $sel != "all" then " (" + $chip.noun + ")" else "" end) + ": "
+         + ($shown | length | tostring) + " in view, of " + n($total; "request"; "requests") + "."
+         + (if ($shown | length) > 0 then " The most recently updated: " + ($shown | numbered) + "." else "" end)
+         + (if ($downLabels | length) > 0 then " Zendesk can't be reached for " + ($downLabels | andjoin) + ", so those statuses may be out of date." else "" end)
+         + " What is happening with each, and does any need something from me?"
+       end) as $prompt
+    | {
+        failed: $failed,
+        absent: $absent,
+        denied: $denied,
+        readError: $err,
+        # "Raise a request" stays on every page except one that cannot raise anything: with no
+        # ZendeskRequest kind there is nothing to file. Without a configuration it stays, and the
+        # raise page says why (the decided design).
+        showRaise: ($absent | not),
+        unavailable: (if $absent then
+                        { status: "info", title: "Zendesk requests aren’t served on this cluster",
+                          subTitle: "The portal can’t find the ZendeskRequest kind (zendesk.ogen.krateo.io/v2), so it can’t list requests or raise new ones. This isn’t an empty queue. An administrator installs the Zendesk provider." }
+                      elif $denied then
+                        { status: "warning", title: "Your access to Zendesk requests could not be confirmed",
+                          subTitle: "So this is not your organisation’s list of requests: it is nothing at all. Tell an administrator." }
+                      elif $failed then
+                        { status: "warning", title: "Zendesk requests could not be read",
+                          subTitle: ("The read failed, so this says nothing about whether there are any requests. " + ($err | cap(300))) }
+                      else { status: "info", title: "", subTitle: "" } end),
+        # Only what the table draws: the request text and the conditions stay on the request's page.
+        rows: ($shown | map({ name, namespace, subject, label, color, priorityText, kindText, id, raisedBy, sortKey })),
+        counts: $counts,
+        total: $total,
+        state: $sel,
+        stateValid: $valid,
+        chips: (chips | map({ label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/service-desk?state=" + .key) })),
+        unreachable: (if ($downLabels | length) == 0 then { show: false, title: "", description: "" }
+                      else { show: true,
+                             title: ("Can’t reach Zendesk for " + ($downLabels | andjoin)),
+                             description: (if ($downLabels | length) == 1
+                                           then "That organisation’s Zendesk token may have expired. Ask an administrator. Its requests below show the last status the portal read, and any marked Not filed hasn’t reached Zendesk yet."
+                                           else "Those organisations’ Zendesk tokens may have expired. Ask an administrator. Their requests below show the last status the portal read, and any marked Not filed hasn’t reached Zendesk yet." end) } end),
+        # The sentence the page draws INSTEAD of the table when `rows` is empty — never on a failed
+        # read, where "no requests yet" would be a claim about a list nobody managed to read.
+        emptyTitle: (if $failed or ($shown | length) > 0 then ""
+                     elif ($valid | not) then "That is not a request status"
+                     elif $total == 0 then "No Zendesk requests yet."
+                     elif $sel == "active" then "No active requests."
+                     elif $sel == "mine" then "You haven’t raised a request here."
+                     else "No request is " + $chip.label + "." end),
+        emptyText: (if $failed or ($shown | length) > 0 then ""
+                    elif ($valid | not) then "The status in this page’s address is not one a request can have. Choose a status above, or All to see every request."
+                    elif $total == 0 then "Requests raised here for your organisation go to Zendesk, and appear in this list with their status. Agents answer them in Zendesk."
+                    elif $sel == "active" then (if $total == 1 then "The one request here is Solved or Closed. Choose All to see it." else "Every request here is Solved or Closed. Choose All to see them." end)
+                    elif $sel == "mine" then "Requests other people in your organisation raised, and any raised before the portal recorded who raised them, are under All."
+                    elif $total == 1 then "1 request has another status. Choose All to see it."
+                    else ($total | tostring) + " requests have other statuses. Choose All to see them." end),
+        askHref: ("/service-desk?" + (if $valid and $sel != "active" then "state=" + $sel + "&" else "" end) + "ask=" + ($prompt | @uri))
+      }
