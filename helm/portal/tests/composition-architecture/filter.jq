@@ -90,6 +90,14 @@ def exception:                                         # K8s-native tokens, exce
                                    elif .read == "missing" then false
                                    elif $existence or $isProven then true
                                    else null end) } ] as $inst
+      # each instance's own phase, by the node-phase rules applied to that one object: the page
+      # draws one node per instance, so a sibling's state is never another sibling's
+      | [ $inst[] | . + { phase: (if ($n.present | not) then "absent"
+                                  elif .ok == true then "done"
+                                  elif .ok == null and .read == "unreadable" then "unreadable"
+                                  elif .ok == null then "unavailable"
+                                  elif .read == "withheld" then "withheld"
+                                  else "waiting" end) } ] as $inst
       | { id, kind, apiVersion, class, level, present, forEach: (.forEach // false), readyWhen: (.readyWhen // null),
           parents: [ .dependsOn[]? | select(.active) | .ref ],
           waits: [ .dependsOn[]? | select(.active and .ready) | {ref, all: (.all // false)} ],
@@ -127,7 +135,8 @@ def exception:                                         # K8s-native tokens, exce
       state: (if $level == null then null else ($g.states[$level] // null) end),
       allReady: $all,
       waitingOn: (if $all then [] else [ $nodes2[] | select(.present and .level == $cur and .satisfied < .expected)
-                   | {id, kind, pending: (.expected - .satisfied), phase, gateOpen} ] end),
+                   | {id, kind, pending: (.expected - .satisfied), phase, gateOpen,
+                      instances: [ .instances[] | select(.phase != "done") | {name, phase} ]} ] end),
       progress: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) ]
                    | {satisfied: (map(.satisfied) | add), expected: (map(.expected) | add)}) end),
       since: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) | .since | select(. != null) ] | min) end),

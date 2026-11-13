@@ -279,6 +279,10 @@ def cluster_for(fixture, case=None):
     # objects its chart has not rendered for those values dropped from status.managed. The ConfigMap
     # is rendered from the patched spec, so the graph and status.managed agree, as CDC's would.
     merge_patch(comp.setdefault('spec', {}), case.get('spec') or {})
+    # A merge patch can only replace a list, so a creator who published fewer of the same files is
+    # `truncate: {files: N}`: the first N, exactly as the composition holds them.
+    for key, count in (case.get('truncate') or {}).items():
+        comp['spec'][key] = comp['spec'][key][:count]
     unmanaged = set(case.get('unmanaged') or [])
     listed = {m['name'] for m in comp['status']['managed']}
     if unmanaged - listed:
@@ -607,25 +611,54 @@ def check_what_the_page_says(ctx):
            [{'resourceRefId': graph, 'size': 24}, {'resourceRefId': where, 'size': 24}])
     expect(f, 'v1b: steps', [s['status'] for s in steps('v1b')], ['finish', 'process', 'wait', 'wait'])
     expect(f, 'v1b: current step', current('v1b'), 1)
-    # The name line drops the composition's own prefix (mockup 14), so the suffix that tells the
-    # nodes apart survives the node's 194px.
+    # One node per resource, by its FULL name: never a sibling range ("…-000 … 009") and never the
+    # composition's prefix elided ("…-source"). A forEach instance is `arch:<id>/<name>`.
+    files = lambda comp: [f'arch:localresources/publish-pod-sizing-{comp}-{i:03d}' for i in range(10)]
     expect(f, 'v1b: node names', {k: v['name'] for k, v in nodes('v1b').items()},
-           {'arch:repository': '…-repo', 'arch:repo': '…-source', 'arch:localresources': '…-000 … 009',
-            'arch:pullrequest': '…-pr'})
+           {'arch:repository': 'publish-pod-sizing-v1b-repo', 'arch:repo': 'publish-pod-sizing-v1b-source',
+            **{u: u.split('/')[1] for u in files('v1b')}, 'arch:pullrequest': 'publish-pod-sizing-v1b-pr'})
     expect(f, 'v1b: node states', {k: v['state'] for k, v in nodes('v1b').items()},
-           {'arch:repository': 'done', 'arch:repo': 'waiting', 'arch:localresources': 'withheld', 'arch:pullrequest': 'withheld'})
+           {'arch:repository': 'done', 'arch:repo': 'waiting', **{u: 'withheld' for u in files('v1b')},
+            'arch:pullrequest': 'withheld'})
     expect(f, 'v1b: repository detail', nodes('v1b')['arch:repository']['detail'], 'default_branch · main')
     expect(f, 'v1b: repo exception', nodes('v1b')['arch:repo'].get('exception', {}).get('label'), 'NotSynced')
     expect(f, 'v1b: no exception on a done node', 'exception' in nodes('v1b')['arch:repository'], False)
     expect(f, 'v1b: withheld detail', nodes('v1b')['arch:pullrequest']['detail'], 'waits for all 10 LocalResource')
     expect(f, 'v1b: where it is', rows('v1b'),
-           {'State': 'S2 · seeding', 'Since': o['v1b']['since'], 'Waiting on': 'Repo', 'Next': 'LocalResource'})
+           {'State': 'S2 · seeding', 'Since': o['v1b']['since'], 'Waiting on': 'Repo publish-pod-sizing-v1b-source',
+            'Next': 'LocalResource'})
+    # "Waiting on" names every resource the diagram draws, as the diagram does: no "×10".
+    expect(f, 'gate open: waiting on names each file', rows('v1b-gate-open')['Waiting on'],
+           'LocalResource ' + ', '.join(u.split('/')[1] for u in files('v1b')) + ' (not created yet)')
     # demo, finished: every step done, the graph alone, no "Where it is".
     expect(f, 'demo: body', body('demo'), [graph])
     expect(f, 'demo: steps', [s['status'] for s in steps('demo')], ['finish'] * 4)
     expect(f, 'demo: every node done', {v['state'] for v in nodes('demo').values()}, {'done'})
     expect(f, 'demo: node names', sorted(v['name'] for v in nodes('demo').values()),
-           ['…-000 … 009', '…-pr', '…-repo', '…-source'])
+           sorted([f'publish-pod-sizing-demo-{i:03d}' for i in range(10)]
+                  + ['publish-pod-sizing-demo-pr', 'publish-pod-sizing-demo-repo', 'publish-pod-sizing-demo-source']))
+    # Eight siblings (057's publish-bp-v2-20261002-1 has eight files): eight nodes, each with its full
+    # name and its own value, each drawn from both parents, and the PullRequest drawn from all eight.
+    eight = nodes('demo-eight-files')
+    lr = [f'arch:localresources/publish-pod-sizing-demo-{i:03d}' for i in range(8)]
+    objs = {x['metadata']['name']: x for x in load('objects.demo.json')}
+    expect(f, 'eight files: one node per resource', sorted(eight),
+           sorted(['arch:repository', 'arch:repo', 'arch:pullrequest'] + lr))
+    expect(f, 'eight files: kind and full name per sibling', [(eight[u]['kind'], eight[u]['name']) for u in lr],
+           [('LocalResource', u.split('/')[1]) for u in lr])
+    expect(f, 'eight files: each sibling\'s own targetCommitId', [eight[u]['detail'] for u in lr],
+           ['targetCommitId · ' + objs[u.split('/')[1]]['status']['targetCommitId'][:7] for u in lr])
+    expect(f, 'eight files: each sibling drawn from the Repository and the Repo',
+           {u: [p['uid'] for p in eight[u]['parentRefs']] for u in lr}, {u: ['arch:repository', 'arch:repo'] for u in lr})
+    expect(f, 'eight files: the PullRequest drawn from all eight',
+           [p['uid'] for p in eight['arch:pullrequest']['parentRefs']], lr)
+    expect(f, 'eight files: every sibling done', {eight[u]['state'] for u in lr}, {'done'})
+    # On every case: no node groups siblings or elides a name, and no two nodes share a uid.
+    for c in sorted(w):
+        drawn = w[c]['FlowChart flowchart-composition-detail-architecture data']
+        expect(f, f'{c}: no grouped kind, no elided name',
+               [(n['kind'], n['name']) for n in drawn if '×' in n['kind'] or '…' in n['name']], [])
+        expect(f, f'{c}: one uid per node', len({n['uid'] for n in drawn}), len(drawn))
     # A finished composition has no current step: antd paints a finished step that is also active
     # with a white check, which the frontend's tinted ground hides in the light theme.
     for c, out in sorted(o.items()):
@@ -658,19 +691,26 @@ def check_what_the_page_says(ctx):
     for c in ('configmap-failed', 'composition-failed', 'composition-version-moved'):
         expect(f, f'{c}: access', o[c].get('access'), 'error')
     expect(f, 'current node denied (httpcall response.Status): repo', nodes('v1b-denied-current')['arch:repo']['state'], 'unreadable')
-    expect(f, 'current node denied: waiting on', rows('v1b-denied-current')['Waiting on'], 'Repo (not readable with your access)')
+    expect(f, 'current node denied: waiting on', rows('v1b-denied-current')['Waiting on'],
+           'Repo publish-pod-sizing-v1b-source (not readable with your access)')
     expect(f, 'current node denied: level still known', rows('v1b-denied-current')['State'], 'S2 · seeding')
     expect(f, 'proven node denied (dispatch Forbidden string, #256): repository', (nodes('v1b-denied-repository')['arch:repository']['state'],
            nodes('v1b-denied-repository')['arch:repository']['detail']), ('done', 'not readable with your access'))
-    expect(f, 'two files denied: localresources', (nodes('demo-denied-two-files')['arch:localresources']['state'],
-           nodes('demo-denied-two-files')['arch:localresources']['detail']), ('done', '2 of 10 not readable with your access'))
-    expect(f, 'every file denied: localresources', (nodes('demo-denied-all-files')['arch:localresources']['state'],
-           nodes('demo-denied-all-files')['arch:localresources']['detail']), ('done', 'not readable with your access'))
+    # A denial is said on the sibling that was denied, not counted onto a group node.
+    two = nodes('demo-denied-two-files')
+    unread = [u for u in files('demo') if two[u]['detail'] == 'not readable with your access']
+    expect(f, 'two files denied: exactly the two denied siblings say so', unread,
+           ['arch:localresources/publish-pod-sizing-demo-003', 'arch:localresources/publish-pod-sizing-demo-004'])
+    expect(f, 'two files denied: every sibling still done', {two[u]['state'] for u in files('demo')}, {'done'})
+    expect(f, 'two files denied: the others show their own value',
+           all(two[u]['detail'].startswith('targetCommitId · ') for u in files('demo') if u not in unread), True)
+    expect(f, 'every file denied: each sibling', {(nodes('demo-denied-all-files')[u]['state'], nodes('demo-denied-all-files')[u]['detail'])
+           for u in files('demo')}, {('done', 'not readable with your access')})
     expect(f, 'two files denied: still all ready', body('demo-denied-two-files'), [graph])
     for c in ('v1b-current-dropped', 'v1b-current-failed'):
         expect(f, f'{c}: repo', (nodes(c)['arch:repo']['state'], nodes(c)['arch:repo']['detail']),
                ('unavailable', 'could not be read'))
-        expect(f, f'{c}: waiting on', rows(c)['Waiting on'], 'Repo (could not be read)')
+        expect(f, f'{c}: waiting on', rows(c)['Waiting on'], 'Repo publish-pod-sizing-v1b-source (could not be read)')
     expect(f, 'repo deleted: waiting, not unreadable', nodes('v1b-current-deleted')['arch:repo']['state'], 'waiting')
     expect(f, 'empty descriptor: body says there is nothing to draw', body('empty-descriptor'), [empty])
     for c in ('no-configmap', 'label-mismatch', 'no-extras', 'configmap-no-graph', 'graph-v2'):

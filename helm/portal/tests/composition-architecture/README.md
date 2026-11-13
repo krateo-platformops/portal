@@ -34,7 +34,8 @@ FlowChart (`variant: architecture`) and "Where it is".
 - **`cases.json`.** Each case names a composition, the extras it is asked with, and the mutations
   that turn the cluster into what a particular caller meets. A case may also patch the composition's
   `spec` and list objects its chart has not rendered for those values (`unmanaged`); the ConfigMap is
-  then rendered from the patched spec. `proves` says what the case pins. A `deny` names the shape
+  then rendered from the patched spec. A merge patch can only replace a list, so `truncate:
+  {files: N}` keeps the first N of a spec list as the composition holds them. `proves` says what the case pins. A `deny` names the shape
   snowplow records the denial in: `dispatch` (internal dispatch's Forbidden string, in cluster, #256)
   or `httpcall` (plumbing's `response.Status`, the httpcall fall-through, out of cluster).
 - **`expected.<case>.json`**: the RESTAction's output. **`widgets.<case>.json`**: what each widget
@@ -66,20 +67,20 @@ v0.13.0` and a `main` that calls `cli.Run()` builds it. Upstream gojq is a diffe
 
 | case | proves |
 |------|--------|
-| `demo` | A finished composition: S4 `change-request-open`, all ready, graph alone (no "Where it is"), and no step active. The ConfigMap and every other managed object are served without TypeMeta, as snowplow's informer serves them, so the join is by name. Node names drop the composition's prefix (`…-repo`, `…-000 … 009`). |
+| `demo` | A finished composition: S4 `change-request-open`, all ready, graph alone (no "Where it is"), and no step active. The ConfigMap and every other managed object are served without TypeMeta, as snowplow's informer serves them, so the join is by name. Every resource is its own node, by its full name (`publish-pod-sizing-demo-repo`, and `publish-pod-sizing-demo-000` through `publish-pod-sizing-demo-009` as ten nodes), each file with its own `targetCommitId`. |
 | `readywhen-condition-true` | The **condition** form of `readyWhen` — the half of the grammar no fixture reached, because every `readyWhen` these charts render is the field form. The Repository's `Ready` is True, so the node is done and the page reads exactly like `demo`. Before #298 the jq split the expression on its dots for `getpath`, read false forever and said nothing, and the composition sat at level 0 waiting on a Repository that was ready. |
 | `readywhen-condition-waiting` | The condition form saying false when it should: the PullRequest carries no `Deployed` condition, so the node waits and the composition is no longer all ready. The pair is what pins the fix to *evaluating* the expression rather than to answering true for any condition form. |
-| `v1b` | The live v1b: S2 `seeding`. Repository done (`default_branch · main`). Repo waiting (`targetCommitId · 0 of 1`) with a NotSynced dot. The ten files and the PR are withheld and not fetched. Where it is, under the graph: Since the Repo's creation, Waiting on Repo, Next LocalResource. |
+| `v1b` | The live v1b: S2 `seeding`. Repository done (`default_branch · main`). Repo waiting (`targetCommitId · 0 of 1`) with a NotSynced dot. The ten files and the PR are withheld and not fetched. Where it is, under the graph: Since the Repo's creation, Waiting on the Repo by name (`Repo publish-pod-sizing-v1b-source`), Next LocalResource. |
 | `v1b-cdc-extras` | CDC's extras (`compositionName`, `compositionNamespace`, `compositionId`) give exactly the `v1b` output. |
 | `v1b-denied-repository` | The Repository is denied: the in-cluster shape with #256 (internal dispatch's Forbidden string). The rendered Repo proves the Repository was ready at the last render (the chart gates the Repo on it), so the Repository is done, inferred, "not readable with your access". |
-| `v1b-denied-current` | The Repo is denied as plumbing's `response.Status` (snowplow's httpcall path, out of cluster), which has no `details`, so the object is named from the message. The Repo is unreadable, the level is still known, and Waiting on reads "Repo (not readable with your access)". |
+| `v1b-denied-current` | The Repo is denied as plumbing's `response.Status` (snowplow's httpcall path, out of cluster), which has no `details`, so the object is named from the message. The Repo is unreadable, the level is still known, and Waiting on reads "Repo publish-pod-sizing-v1b-source (not readable with your access)". |
 | `v1b-current-deleted` | The Repo is gone (404) while `status.managed` still lists it: waiting, not unreadable. |
 | `v1b-current-dropped` | The Repo is served with no error and nothing in it (an informer drop): unavailable, "could not be read". |
-| `v1b-gate-open` | The Repo is done and the files are not rendered yet: every parent is done, so their gate is open. They read "not created yet — its gate is open; the next reconcile creates it", and Waiting on reads "LocalResource ×10 (not created yet)". Never "waits for" parents that are done. The composition's Ready=False alone is a composition converging, not a failure. |
+| `v1b-gate-open` | The Repo is done and the files are not rendered yet: every parent is done, so their gate is open. They read "not created yet — its gate is open; the next reconcile creates it", and Waiting on names each of the ten files, then "(not created yet)". Never "waits for" parents that are done. The composition's Ready=False alone is a composition converging, not a failure. |
 | `v1b-create-failed` | The same open gate, with the composition Synced=False (the render or apply failed): the files read "not created — the composition is not synced" and carry the composition's NotSynced exception, message and all. |
 | `v1b-current-failed` | The Repo's read fails with a 500 that names no object: unavailable, never "not readable with your access". |
-| `demo-denied-two-files` | Two of the ten files are denied (as httpcall's `response.Status`). The rendered PullRequest proves all ten were ready, so the files are done, inferred, the composition is still all ready, and the node reads "2 of 10 not readable with your access". |
-| `demo-denied-all-files` | All ten files are denied (the in-cluster shape with #256). Still done, inferred; a node denied in full keeps the plain "not readable with your access". |
+| `demo-denied-two-files` | Two of the ten files are denied (as httpcall's `response.Status`). The rendered PullRequest proves all ten were ready, so the files are done, inferred, the composition is still all ready. The two denied files (`-003`, `-004`) read "not readable with your access" on their own nodes; the other eight show their own `targetCommitId`. |
+| `demo-denied-all-files` | All ten files are denied (the in-cluster shape with #256). Still done, inferred; each of the ten nodes reads "not readable with your access". |
 | `composition-forbidden` | The composition is denied (as httpcall's `response.Status`): `readable: false`, every present node `unknown`, no object fetched. The body says the topology is not readable and names the composition's kind as what to grant, not its ConfigMaps. |
 | `composition-failed` | The composition's read fails with a 500: `access: error`. The body says only that the topology could not be read. |
 | `composition-version-moved` | The composition's CRD now serves a newer version, and the ConfigMap names the old one until CDC renders it again: a 404, `access: error`, the neutral sentence. |
@@ -92,6 +93,7 @@ v0.13.0` and a `main` that calls `cli.Run()` builds it. Upstream gojq is a diffe
 | `graph-v2` | A graph shape this portal does not know (`v: 2`): no architecture, and no one, admins included, is told their access is the problem. |
 | `no-extras` | No extras (snowplow's Phase-1 walk): `architecture: false`, not a denial, and no stage runs — the `arch` step is gated on the extras, so nothing is requested. |
 | `empty-descriptor` | A chart that declares no resources: `nodes: []`, all ready, level null. The body says so in one sentence rather than leaving an empty titled card. |
+| `demo-eight-files` | Eight sibling LocalResources, the shape of 057's `publish-bp-v2-20261002-1`: eight nodes, one per file, each with its full name and its own `targetCommitId`, each drawn from the Repository and the Repo, and the PullRequest drawn from all eight. Never one `LOCALRESOURCE ×8` node, never a prefix-trimmed name. |
 | `demo-no-pull-request` | `pullRequest.create=false` (stop at the pushed branch): the PullRequest is absent, the composition is all ready at S3 `committing`, and the strip draws S1–S3 only, never a change request that does not exist. |
 | `v1b-no-source` | No source to seed from: the Repo is absent, so the strip draws S1, S3, S4, each with its level's own number, and `current` points at S3 among the steps drawn. |
 
