@@ -1,16 +1,32 @@
-{{/* /alerts data source — the Krateo Alert CRs (observability.krateo.io), read through the apiserver */}}
-{{/* as the caller, shaped server-side: */}}
-{{/* rows     : one per Alert, filtered by the ?status= chip (extras). state is the live HyperDX */}}
-{{/*            state (OK / ALERT / PENDING) the alert-provider mirrors into .status.state; stateKey */}}
-{{/*            is the chip it falls under. routeName/routeNs are the CR's own identity, for the row */}}
-{{/*            link to /alerts/{namespace}/{name}. incidents is the Incidents column, read off the */}}
-{{/*            OpensIncidents condition alert-provider writes: "Yes", "No · <why>", or "—" while an */}}
-{{/*            Alert carries no condition (alert-provider older than the condition, or its first pass). */}}
-{{/* counts   : per-chip totals over the full set, so every chip shows its live count. */}}
-{{/* status   : the chip in force, for the chips' active flag. */}}
-{{/* projects : echo of the shell scope param, so the chips can carry it into their routes. */}}
-{{/* askHref  : the header's "Ask Agentiko →" link, seeded with the alert-authoring flow. It keeps */}}
-{{/*            the chip and the scope, so opening the rail does not reset the view. */}}
+{{/* /alerts data source (root-pages UX slice 3a, build plan §3.4; mockup screen 07): the Krateo
+     Alert CRs (observability.krateo.io), read through the apiserver as the caller, and the Incidents
+     in the same namespace, read as the caller too, for "has open incidents".
+
+     THE FILTERS (portal.facets, _facets.tpl). One URL param per facet, values comma-joined:
+       status        State: alert, ok, pending, not-evaluated. The old chip param, so /alerts?status=alert
+                     still lands filtered; any case, `all` is no filter, several values now. An alert
+                     with no HyperDX alert behind it is not-evaluated, whatever .status.state says;
+       signal        what it watches: .status.type (Logs, Metric, Traces);
+       hasIncidents  yes / no: whether it has an open incident (state not Resolved or Closed). With the
+                     incidents unread no alert has a value, and the facet hides: unread is not "no";
+       q             search: display name, name and description.
+     Not a filter: view (`table`: today's table).
+
+     OUTPUT.
+       rows      the filtered alerts (today's table, ?view=table): name, routeName/routeNs (the row
+                 link), description, threshold, interval, state, stateKey, type, incidents (the
+                 Incidents column, off the OpensIncidents condition: "Yes", "No · <why>", "—"),
+                 openIncidents, okSince;
+       facets, chips, tableHref / cardsHref, stateTableHrefs, signalTableHrefs;
+       strip     over the filtered set: firing (and of how many), back to OK in the last 24 hours,
+                 with open incidents (and how many incidents), opening no incidents;
+       groups    the filtered alerts by what they need: firing, notEvaluated, pending, back to OK in
+                 the last 24 hours (newest first), OK with open incidents (most first), and the rest
+                 of the OK ones by signal; the widgets cap and place them;
+       counts / status   per-state totals over every alert, and the state picked (kept for the table);
+       failed / readError, incidentsFailed;
+       viewAskHref  "Ask Agentiko →": a prompt about the alerts on screen, keeping every filter param;
+       askHref   "Author with Autopilot": the alert-authoring prompt, keeping every filter param. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -25,8 +41,32 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: alertsError
+    {{/* "Has open incidents". An Incident is ~26 KB; this keeps two strings of each, so the filter */}}
+    {{/* below never holds the analysis text. */}}
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/incidents
+      verb: GET
+      continueOnError: true
+      errorKey: incidentsError
+      filter: '[ (.incidents.items // [])[] | { alert: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // ""), state: (.status.state // "Analyzing") } ]'
   filter: |
-    (.status // "all" | tostring | ascii_downcase) as $sel
+    {{- include "portal.facets" . | nindent 4 }}
+    def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
+    # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
+    def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    . as $in
+    | ["projects", "status", "signal", "hasIncidents", "q", "view"] as $pkeys
+    | ($in | fx_filters(["status", "signal", "hasIncidents"])) as $flt0
+    | ([ $flt0.status[] | ascii_downcase | select(. != "all") ] | unique) as $statusSel
+    | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_downcase) as $q
+    | ($flt0 + { status: $statusSel, q: (if $q == "" then [] else ["1"] end) }) as $flt
+    | fx_set(($in | fx_params($pkeys)); "status"; ($statusSel | join(","))) as $p
+    | ((($in.view // "") | tostring) == "table") as $tableView
+    | (.incidentsError != null) as $incidentsFailed
+    | ([ (.incidents // [])[] | select(.state != "Resolved" and .state != "Closed") | .alert ]
+       | group_by(.) | map({ key: .[0], value: length }) | from_entries) as $openBy
+    | now as $now
+    | (if ($statusSel | length) == 1 then $statusSel[0] elif ($statusSel | length) == 0 then "all" else "several" end) as $sel
     | ((.projects // "") | tostring) as $projects
     | [ "alert", "ok", "pending", "not-evaluated" ] as $keys
     | ([ ((.alerts.items) // [])[] | {
@@ -45,25 +85,90 @@ spec:
         evaluated: (((.status.hyperdxAlertId) // "") != ""),
         paused: (((.metadata.annotations // {})["krateo.io/paused"] // "") == "true"),
         type: (.status.type // ""),
+        okSince: (.status.okSince // ""),
+        openIncidents: (if $incidentsFailed then null else ($openBy[.metadata.name // ""] // 0) end),
         opens: ([ (.status.conditions // [])[] | select(.type == "OpensIncidents") ] | .[0] // {})
       } | .stateKey = (if .evaluated then (.state | ascii_downcase) else "not-evaluated" end)
+        | .opensNone = (.opens.status == "False")
+        | .backToOk = (.stateKey == "ok" and ((.okSince | epoch) as $t | $t != null and ($now - $t) < 86400))
         # The reason in a word: an aggregated Alert is a metric or a value read from rows.
         | .incidents = (if .opens.status == "True" then "Yes"
             elif .opens.status == "False" then "No" + ({ AggregatedValue: (if .type == "Metric" then " · metric" else " · value" end),
                                                          Paused: " · paused",
                                                          OutsideHomeNamespace: " · other namespace" }[.opens.reason // ""] // "")
             else "—" end)
-        | del(.opens) ]) as $rows
-    # A ?status= that is no chip shows no rows, as on /incidents, and the link drops it.
-    | ($keys | any(. == $sel)) as $filtered
+        | del(.opens)
+        | .f = { status: .stateKey, signal: (.type | gsub(","; "")),
+                 hasIncidents: (if .openIncidents == null then "" elif .openIncidents > 0 then "yes" else "no" end),
+                 q: (if $q == "" then "" elif (((.name // "") + " " + (.routeName // "") + " " + ((.description // "") | tostring)) | ascii_downcase | contains($q)) then "1" else "0" end) } ]) as $rows
+    | ($rows | fx_apply($flt)) as $shown
+    | { alert: "Alert", ok: "OK", pending: "Pending", "not-evaluated": "Not evaluated" } as $stateNames
+    | [ fx_facet($rows; $flt; "signal"; "Signal"; {}),
+        fx_facet($rows; $flt; "status"; "State"; $stateNames),
+        fx_facet($rows; $flt; "hasIncidents"; "Has open incidents"; { yes: "Yes", no: "No" }) ] as $facets
+    | ((.alertsError // null) | errtext) as $err
+    | ([ $shown[] | select(.stateKey == "ok" and (.backToOk | not) and (.openIncidents // 0) > 0) ] | sort_by(-.openIncidents, .name)) as $okOpen
+    # "Ask Agentiko →" (button.alerts-ask-agentiko) describes the view on screen and keeps every
+    # filter param. A failed read of the alerts is asked about, never described as a quiet platform;
+    # an unread incident list is said, never "no open incidents".
+    | ([ $facets[] | select((.active | length) > 0) | .label + ": " + ([ .values[] | select(.active) | .label ] | join(", ")) ]
+       + (if $q != "" then [ "search \"" + (($in.q // "") | tostring | .[0:80]) + "\"" ] else [] end) | join("; ")) as $desc
+    | def names($l): [ $l[0:8][] | .name + (if (.openIncidents // 0) > 0 then " (" + (.openIncidents | tostring) + " open)" else "" end) ] | join(", ");
+      def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+      ([ $shown[] | select(.stateKey == "alert") ]) as $firing
+    | ([ $shown[] | select(.backToOk) ]) as $back
+    | (if $err != "" then
+         "The observability alerts on this page could not be read (" + $err + "). Explain what that error means and what to check."
+       elif ($shown | length) == 0 then
+         (if $desc != "" then "No alert is in the view on screen (" + $desc + "); " + n($rows | length; "alert is"; "alerts are") + " outside it. Tell me whether that filter hides anything I should look at."
+          else "There are no observability alerts on this platform. Explain what I should alert on first, given what runs here." end)
+       else
+         "Review my observability alerts" + (if $desc != "" then " in the view on screen (" + $desc + ")" else "" end) + ": "
+         + n($shown | length; "alert"; "alerts") + " — " + ($firing | length | tostring) + " firing, "
+         + ($back | length | tostring) + " back to OK in the last 24 hours, "
+         + (if $incidentsFailed then "and the incidents could not be read, so which have open incidents is unknown."
+            else ([ $shown[] | select((.openIncidents // 0) > 0) ] | length | tostring) + " with open incidents ("
+                 + n([ $shown[] | .openIncidents // 0 ] | add // 0; "incident"; "incidents") + " between them)." end)
+         + (if ($firing | length) > 0 then " Firing now: " + names($firing) + "." else "" end)
+         + (if ($back | length) > 0 then " Back to OK: " + names($back) + "." else "" end)
+         + (if ($okOpen | length) > 0 then " OK but still with open incidents: " + names($okOpen) + "." else "" end)
+         + " Tell me which alert to look at first and why, whether any of them is noisy or mis-tuned, and the next step for each — grounded in the evidence on this page."
+       end) as $viewPrompt
     | {
-        rows: (if $sel == "all" then $rows else [ $rows[] | select(.stateKey == $sel) ] end),
+        rows: $shown,
+        matched: ($shown | length),
+        total: ($rows | length),
+        facets: $facets,
+        filtered: ([ $flt[] | select(length > 0) ] | length > 0),
+        view: (if $tableView then "table" else "" end),
+        chips: fx_chips("/alerts"; $p; $facets),
+        tableHref: fx_href("/alerts"; fx_set($p; "view"; "table")),
+        cardsHref: fx_href("/alerts"; fx_set($p; "view"; "")),
+        stateTableHrefs: ($keys | map({ key: ., value: fx_seeall("/alerts"; $p; "status"; .) }) | from_entries),
+        strip: { firing: ([ $shown[] | select(.stateKey == "alert") ] | length), of: ($shown | length),
+                 backToOk: ([ $shown[] | select(.backToOk) ] | length),
+                 withIncidents: (if $incidentsFailed then null else ([ $shown[] | select((.openIncidents // 0) > 0) ] | length) end),
+                 openIncidents: (if $incidentsFailed then null else ([ $shown[] | .openIncidents // 0 ] | add // 0) end),
+                 opensNone: ([ $shown[] | select(.opensNone) ] | length) },
+        groups: {
+          firing: [ $shown[] | select(.stateKey == "alert") ],
+          notEvaluated: [ $shown[] | select(.stateKey == "not-evaluated") ],
+          pending: [ $shown[] | select(.stateKey == "pending") ],
+          backToOk: ([ $shown[] | select(.backToOk) ] | sort_by(.okSince) | reverse),
+          okOpen: $okOpen,
+          okBySignal: ([ $shown[] | select(.stateKey == "ok" and (.backToOk | not) and ((.openIncidents // 0) == 0)) ]
+                       | group_by(.type) | map({ signal: (if .[0].type == "" then "(no signal)" else .[0].type end), count: length,
+                                                 names: [ .[0:3][] | .name ],
+                                                 href: fx_href("/alerts"; fx_set(fx_set(fx_set($p; "status"; "ok"); "signal"; .[0].type); "view"; "table")) })
+                       | sort_by(-.count, .signal)),
+          okOpenHref: fx_href("/alerts"; fx_set(fx_set(fx_set($p; "status"; "ok"); "hasIncidents"; "yes"); "view"; "table")) },
+        incidentsFailed: $incidentsFailed,
+        failed: ($err != ""),
+        readError: $err,
         counts: ({ all: ($rows | length) }
           + ($keys | map({ key: ., value: (. as $k | [ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)),
         status: $sel,
         projects: $projects,
-        askHref: ("/alerts?"
-          + ([ (if $filtered then "status=" + $sel else empty end),
-               (if $projects != "" then "projects=" + ($projects | @uri) else empty end) ] | map(. + "&") | join(""))
-          + "ask=" + ("I want to create a new observability alert. Help me define what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm." | @uri))
+        viewAskHref: fx_href("/alerts"; $p + [["ask", $viewPrompt]]),
+        askHref: fx_href("/alerts"; $p + [["ask", "I want to create a new observability alert. Help me define what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm."]])
       }
