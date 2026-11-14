@@ -808,7 +808,7 @@ jobs:
           jq --version
           python3 scripts/test-duration-labels.py
 
-  # The Dashboard "needs you" inbox (root-pages UX slice 1) and the filter helper every filtered
+  # The root-pages overviews (slices 1 and 3a) and the filter helper every filtered
   # overview page shares. portal.facets: the copies of _facets.tpl are byte-identical and its counts,
   # visibility and hrefs follow decisions Q1 and Q2. The inbox: a source whose page the caller cannot
   # open is absent, a failed read is never quiet, ZeroEvidence is not "not Ready", ?source= drives
@@ -854,6 +854,20 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-dashboard-inbox.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+      # Root-pages slice 3a: /compositions (a ReconcilePaused composition is Paused, never Ready; State
+      # and Kind facets over the scope; the exception groups, Pending folded, Ready by kind; the
+      # server-paged table at ?view=table), /alerts (the narrowed incidents read and "has open
+      # incidents"; Firing, Not evaluated and Pending first; Ask, Author and New in the header) and the
+      # /agents Overview tab (agents and tool servers as one set; no Status on an unchecked gateway;
+      # Needs attention, Orchestrators, Specialists; every widget in every tab declaring the filter
+      # keys). Reuses the CRDs above.
+      - name: Compositions, alerts and agents overviews, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 scripts/test-compositions-overview.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-alerts-overview.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-agents-overview.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   observability-traces:
     runs-on: ubuntu-latest
