@@ -1,0 +1,26 @@
+{{/* The calm line of the Overview tab: "Nothing needs attention: …" when no agent or tool server in
+     view does, or that nothing matches the filters. A gateway that could not be checked is said, as
+     a warning, and no agent is called unreachable or registered on it. Failed reads are stated in the
+     header's subtitle (paragraph.agents-subtitle), first and in full. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-calm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ (if (.matched // 0) == 0 then (if .filteredAny then "No agent or tool server matches these filters." else "No agent or tool server you can read." end) elif ((.attention // []) | length) == 0 then "Nothing needs attention: " + ([ (if ((.agentsInView // []) | length) > 0 then n((.agentsInView | length); "agent"; "agents") + (if .gatewayKnown then " registered at the gateway and Ready" else " Ready" end) else empty end), (if ((.serversInView // []) | length) > 0 then n((.serversInView | length); "tool server"; "tool servers") + " Accepted" else empty end) ] | join(", ")) + "." else empty end), (if (.gatewayKnown | not) then "Gateway registration could not be checked (" + (.gatewayUnknownWhy // "") + "), so no agent here is shown as unreachable." else empty end) ] | join(" ") }'
+  - forPath: type
+    expression: '${ if (.gatewayKnown | not) then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,35 @@
+{{/* The /agents Overview strip, over the agents and tool servers in view (mockup screen 09, four
+     tiles: the Model tile is left out, Diego 2026-11-14): Agents, Gateway gaps (not routed or not
+     allowed), Tool servers NotAccepted (of how many), Tools discovered (on how many Accepted
+     servers). Colour is exception-only: Gateway gaps and NotAccepted are red above zero. A gateway
+     that could not be checked is "—", "not checked", never 0 gaps; an unread server list is "—" on
+     Tools discovered. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-strip
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ (.strip // {}) as $s | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ { title: "Agents", value: (($s.agents // 0) | tostring), caption: "", tone: "" }, (if $s.gatewayGaps == null then { title: "Gateway gaps", value: "", caption: "not checked", tone: "warn" } else { title: "Gateway gaps", value: ($s.gatewayGaps | tostring), caption: "not routed or not allowed", tone: (if $s.gatewayGaps > 0 then "bad" else "" end) } end), { title: "Tool servers NotAccepted", value: (($s.serversNotAccepted // 0) | tostring), caption: ("of " + (($s.servers // 0) | tostring)), tone: (if ($s.serversNotAccepted // 0) > 0 then "bad" else "" end) }, (if $s.toolsDiscovered == null then { title: "Tools discovered", value: "", caption: "could not be read", tone: "warn" } else { title: "Tools discovered", value: ($s.toolsDiscovered | tostring), caption: ("on " + n($s.serversAccepted // 0; "server"; "servers")), tone: "" } end) ] }'
+  resourcesRefs:
+    items: []

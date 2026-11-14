@@ -1,0 +1,33 @@
+{{/* The escape to today's 12-column agents table and back (decision 2026-11-13 (a)): on the
+     overview, "All N agents as a table →" opens ?view=table with every filter kept (the table lists
+     the agents the filters match; the tool servers keep their own tab); on the table, "← Back to the
+     overview" drops ?view and keeps the rest. Both hrefs come from agents-list (portal.facets). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-view-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: All as a table →
+    type: link
+    size: middle
+    clickActionId: view
+    actions:
+      navigate:
+        - id: view
+          type: navigate
+          path: /agents?view=table
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ if .view == "table" then "← Back to the overview" else "All " + (((.agentsInView // []) | length) | tostring) + (if .filteredAny then " matching" else "" end) + " agents as a table →" end }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "view", type: "navigate", path: (if .view == "table" then (.cardsHref // "/agents") else (.tableHref // "/agents?view=table") end) } ] } }'
+  resourcesRefs:
+    items: []

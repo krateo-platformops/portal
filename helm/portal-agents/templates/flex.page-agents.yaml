@@ -7,7 +7,9 @@
 {{/* namespace — the bare `page:` convention would look for it in the frontend's configured */}}
 {{/* namespace and 404 (#261). */}}
 {{/* */}}
-{{/* Pagehead + the agent inventory table. */}}
+{{/* Pagehead + the tabs. The first tab, Overview (root-pages UX slice 3a, Diego 2026-11-14 Q3 (a)), */}}
+{{/* holds the filter bar, the strip and the groups, and at ?view=table the 12-column agents table. */}}
+{{/* The other five tabs are unchanged. */}}
 {{/* */}}
 {{/* THE "New agent" CTA IS NOW ON. It was withheld while the route did not exist: a Button navigating */}}
 {{/* to an unrouted path falls through to the shell catch-all (RoutesContext.tsx `{ element: */}}
@@ -34,12 +36,16 @@ metadata:
     "krateo.io/nav-label": "Agents"
     "krateo.io/nav-order": "14"
     "krateo.io/nav-path": "/agents"
+    {{/* The Overview tab's filter params (root-pages UX slice 3a). Every URL param reaches every */}}
+    {{/* widget on the page, in EVERY tab, so every widget reachable from here declares them; */}}
+    {{/* scripts/lint-keyextras.py fails one that does not (snowplow's F6 would decline to cache it). */}}
+    "krateo.io/filter-keys": "projects,kind,status,owner,q,view"
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [projects, kind, status, owner, q, view]
   widgetData:
     allowedResources:
     - pageheaders
-    - rows
     - tabs
     vertical: true
     gap: middle
@@ -48,9 +54,8 @@ spec:
     {{/* Both actions the page offers, paired in the header as the mockup shows them. Replaces the */}}
     {{/* single-button agents-new-cta: a reader looking for "how do I add a policy" should not have to */}}
     {{/* discover it on another page. */}}
-    {{/* The summary band: three stat cards, each fed by the same action as the section it summarises, */}}
-    {{/* so a number on the card can never disagree with the table under the tab. */}}
-    - resourceRefId: agents-stats
+    {{/* No summary band above the tabs any more: the Overview tab's strip replaces it (root-pages */}}
+    {{/* UX slice 3a, Diego 2026-11-14 Q3 (a)). */}}
     {{/* THE PAGE IS TABBED. Every section below was already built and verified; they were simply */}}
     {{/* stacked, which is also why "the sections are not clearly divided" was reported — the mockup */}}
     {{/* never divided them, it separated them into tabs. */}}
@@ -62,12 +67,6 @@ spec:
       name: agents-page-header
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
-      verb: GET
-    - id: agents-stats
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-stats
-      namespace: {{ $.Values.namespace }}
-      resource: rows
       verb: GET
     {{/* The four sections are resolved one level down, inside their tab panes (col.agents-tab-*), */}}
     {{/* so this page no longer composes them directly. */}}

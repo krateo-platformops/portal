@@ -195,7 +195,7 @@ check('detail, not found -> no link', jq(det, dict(base, agent={}))['askHref'], 
 check('detail, failed read -> no link', jq(det, dict(base, agent={}, agentError='forbidden'))['askHref'], '')
 
 # --- the buttons and where they sit ------------------------------------------------------------
-for name, ra, ke in (('agents-ask-agentiko', 'agents-list', None), ('agent-detail-ask-agentiko', 'agent-detail', ['name', 'namespace'])):
+for name, ra, ke in (('agents-ask-agentiko', 'agents-list', ['projects', 'kind', 'status', 'owner', 'q', 'view']), ('agent-detail-ask-agentiko', 'agent-detail', ['name', 'namespace'])):
     b = named(docs, 'Button', name)
     expr = [e for e in b['spec']['widgetDataTemplate'] if e['forPath'] == 'actions'][0]['expression'].strip()[2:-1]
     check(f'{name} -> askHref', jq(expr, {'askHref': '/x?ask=y'})['navigate'][0]['path'], '/x?ask=y')
