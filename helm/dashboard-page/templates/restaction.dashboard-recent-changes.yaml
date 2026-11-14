@@ -22,18 +22,35 @@
          LogAttributes['outcome'] AS outcome, LogAttributes['server.address'] AS server,
          count() OVER () AS matched
        FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL 7 DAY
-         AND NOT <dryRun><access> ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON
+         AND NOT <dryRun><access> AND LogAttributes['outcome'] = 'success'
+         AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io'
+                  AND LogAttributes['k8s.resource.resource'] = 'auditrecords')
+       ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON
      `matched` counts the whole window (a window function runs before LIMIT), so the panel can say
      how many changes the week holds while it shows five. Previews (dry runs) are not changes and are
-     left out, as the /audit table leaves them out. */}}
+     left out, as the /audit table leaves them out.
+
+     ONLY WRITES THAT HAPPENED (live check on 057, 2026-11-14, Diego's decisions). The panel is "what
+     changed", so:
+       - a failed or denied request is not a change. Three failed table-export POSTs (400) read as
+         "Create tables/trace-detail-spans" ×3. The outcome filter is /audit's own (`oc`, fixed to
+         "success" in the iterator), so `matched` counts only successful writes; /audit, behind See all,
+         still shows every outcome;
+       - Agentiko's AuditRecord of its own write (auditrecords.audit.krateo.io) is bookkeeping for a
+         write that already has its own row, so it is left out here and kept on /audit;
+       - the producer records `-` as the name when the request path carries none (every create), so the
+         row reads "Create tickets in <ns>", not "tickets/-". Recording the created object's name from
+         the response is the producer's fix, asked of its owner; when it lands, names appear here
+         with no change to this file. */}}
 {{- $window := include "audit.window" . -}}
 {{- $filters := include "audit.sql.filters" . -}}
 {{- $pop := include "audit.sql.population" . -}}
 {{- $dry := include "audit.sql.dryRun" . -}}
 {{- $select := "SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope, LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act, LogAttributes['http.request.method'] AS method, LogAttributes['k8s.resource.resource'] AS res, LogAttributes['k8s.resource.kind'] AS kind, LogAttributes['k8s.resource.group'] AS grp, LogAttributes['k8s.resource.name'] AS name, LogAttributes['k8s.namespace.name'] AS ns, LogAttributes['outcome'] AS outcome, LogAttributes['server.address'] AS server, count() OVER () AS matched FROM krateo_audit WHERE " -}}
 {{- /* The /audit iterator reads ?range and the three chip filters; the Dashboard has none of them, so
-       this one fixes the window at 7 days and the filters empty, and keeps the access rule. */ -}}
-{{- $iterator := printf "%s [ ({r: \"7d\", ns: \"\", usr: \"\", oc: \"\"} + (%s)) | select(.all or (.acc | length) > 0) ]" (include "audit.valid" .) (include "audit.access" .) -}}
+       this one fixes the window at 7 days, the namespace and user filters empty and the outcome to
+       "success" (only writes that happened), and keeps the access rule. */ -}}
+{{- $iterator := printf "%s [ ({r: \"7d\", ns: \"\", usr: \"\", oc: \"success\"} + (%s)) | select(.all or (.acc | length) > 0) ]" (include "audit.valid" .) (include "audit.access" .) -}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -51,7 +68,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $select }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON" }}" }'
+      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $select }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io' AND LogAttributes['k8s.resource.resource'] = 'auditrecords') ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON" }}" }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -66,7 +83,7 @@ spec:
     | ($a.all or ($a.acc | length) > 0) as $queried
     | [ ((.recent | objects | .data) // [])[]
         | { tsMs: (.ts_ms | num), scope: (.scope // ""), user: (.usr // ""), action: (.act // ""), method: (.method // ""),
-            resource: (.res // ""), kind: (.kind // ""), group: (.grp // ""), name: (.name // ""),
+            resource: (.res // ""), kind: (.kind // ""), group: (.grp // ""), name: ((.name // "") | if . == "-" then "" else . end),
             namespace: (.ns // ""), outcome: (.outcome // ""), code: "", server: (.server // ""),
             matched: (.matched | num) }
         | . + { verb: auditAction, target: auditResource, at: (.tsMs | tostring | auditUtc) } ] as $rows
