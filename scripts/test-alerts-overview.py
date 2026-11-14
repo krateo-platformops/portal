@@ -133,7 +133,7 @@ def check_facets():
            ['alerts-signal', 'alerts-status', 'alerts-search'])
     ok = [a for a in ALERTS if a['status']['state'] == 'OK' and a['status'].get('hyperdxAlertId')]
     expect(f, 'every alert OK: State left out', [i['resourceRefId'] for i in w('Flex', 'alerts-filter-bar', resolve({}, ok))['items']],
-           ['alerts-signal', 'alerts-hasIncidents', 'alerts-search'])
+           ['alerts-signal', 'alerts-has-incidents', 'alerts-search'])
     return f
 
 
