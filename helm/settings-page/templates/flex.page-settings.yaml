@@ -1,7 +1,10 @@
 {{/* Page wrapper for /settings: a vertical Flex stacking the page header (title + subtitle) */}}
-{{/* above the Users table. User administration is now the ONLY thing Settings hosts — the */}}
-{{/* Krateo control-plane status tab moved to Observability (Components tab; it was platform */}}
-{{/* health, not configuration), which also dropped the need for a Tabs wrapper around a */}}
+{{/* above the Users panel, then one line pointing at /audit. User administration is the ONLY thing */}}
+{{/* Settings hosts. The audit log panel that sat under Users is gone: it read the AuditRecords of */}}
+{{/* the release namespace alone, while /audit (audit-page chart) reads the whole trail, in every */}}
+{{/* namespace the caller may see, with filters. Two audit views that disagree is worse than one. */}}
+{{/* The Krateo control-plane status tab moved to Observability earlier (Components tab; it was */}}
+{{/* platform health, not configuration), which also dropped the need for a Tabs wrapper around a */}}
 {{/* single remaining tab. The nav `id: settings` is repointed here. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -20,6 +23,7 @@ spec:
     allowedResources:
     - pageheaders
     - cards
+    - markdowns
     vertical: true
     {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
     {{/* This root previously declared its own value; see design/03-composition.md P9. */}}
@@ -28,7 +32,7 @@ spec:
     {{/* "Add user" is the header's action (P26), not a bare button in the page's stack. */}}
     - resourceRefId: settings-page-header
     - resourceRefId: settings-users-card
-    - resourceRefId: settings-audit-log-card
+    - resourceRefId: settings-audit-trail-link
   resourcesRefs:
     items:
     - id: settings-page-header
@@ -43,9 +47,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
-    - id: settings-audit-log-card
+    - id: settings-audit-trail-link
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: settings-audit-log-card
+      name: settings-audit-trail-link
       namespace: {{ $.Values.namespace }}
-      resource: cards
+      resource: markdowns
       verb: GET

@@ -1,0 +1,27 @@
+{{/* The request's status, as the one pill on the page: Zendesk's own word (New, Open, Pending,
+     On-hold, Solved, Closed) once it is filed, or what the portal knows before that ("Filing…",
+     "Refused by Zendesk", "Held", or a provider reason verbatim). Word and colour both come from
+     zendesk-request (`.pill`, via _zendesk.tpl), the same as the queue's pill. A colour with no
+     label would carry its meaning by colour alone (C13), so the label never resolves empty. */}}
+kind: Tag
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Unknown
+    color: gray
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ if (.pill.label // "") != "" then .pill.label else "Unknown" end }'
+    - forPath: color
+      expression: '${ .pill.color // "gray" }'
+  resourcesRefs:
+    items: []

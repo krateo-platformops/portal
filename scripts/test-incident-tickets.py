@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
 """
-test-incident-tickets — the incident page's owner verdict, Agentiko's ticket proposal and the Tickets
-card, evaluated end to end.
+test-incident-tickets — the incident page's owner verdict, Agentiko's proposal to raise a Zendesk
+request and the "Zendesk requests for this incident" card, evaluated end to end.
 
-WHAT IT GUARDS (the approved mockup's frames A, C, E and F):
+WHAT IT GUARDS:
   - status.rootCause.owner (incident-provider 0.10.0) is the Summary's "Who fixes it" row: "Krateo",
-    "Your organization" or "Not determined". ownerEvidence, category and confidence are not on the
-    page. ABSENT — an older CRD, krateo-057 today — means no row and no proposal.
+    "Your organization" or "Not determined". ABSENT — an older CRD — means no row and no proposal.
   - Agentiko's proposal shows when the owner is `customer` or `krateo`, the incident is Open or
-    Verifying, the ticket list came back holding no ticket for this incident, and it is not dismissed
-    (`krateo.io/ticket-proposal: dismissed`); each condition, flipped, hides it. A ticket list that did
-    not come back is never "no ticket".
-  - "Review and raise" and "Raise a ticket" open service-desk-page's raise form with the incident in
-    the query string, under the parameter names that form keys its cell on; Dismiss merge-patches the
-    annotation onto this Incident, the target Close writes to.
-  - the Tickets card lists the tickets labelled `krateo.io/incident-uid: <uid>`, newest first; says
-    "No ticket yet."; tells a reader who is not the desk (403) who can see them; says a failed read
-    failed; and does not render on an install with no service desk (404). errorKey is a LIST, each
-    entry a message string or the apiserver's Status object (snowplow resolve.go accumulateErrorKey),
-    and is read in both shapes — by code, by reason and by words.
+    Verifying, the request list came back holding no ZendeskRequest for this incident, and it is not
+    dismissed (`krateo.io/ticket-proposal: dismissed`, a name kept so past dismissals hold); each
+    condition, flipped, hides it. A list that did not come back is never "no request".
+  - "Review and raise" and "Raise a Zendesk request" open service-desk-page's raise form with the
+    incident in the query string; FOLLOWED INTO THAT FORM, it reads the incident as the caller,
+    pre-fills from it, files the ZendeskRequest through the organisation's configuration with the
+    label `krateo.io/incident-uid`, and that request reads back on this page's card. Dismiss
+    merge-patches the annotation onto this Incident, the target Close writes to.
+  - the card lists the ZendeskRequests carrying `krateo.io/incident-uid: <uid>` across the namespaces
+    the caller may list (a userAccessFilter), most recently updated first, with Status, Zendesk #,
+    Subject and Updated, opening the service desk's page for each; says "No Zendesk request yet.";
+    says a refused or failed read so, in both errorKey shapes; and does not render on a cluster that
+    does not serve the kind (404).
+  - THE STATE MAPPING IS ONE DEFINITION: incidents-page's _zendesk.tpl is byte-for-byte
+    service-desk-page's, and every row of the documented reason table (test-service-desk.py
+    DOCUMENTED_REASONS) comes out of this card exactly as out of the service-desk queue.
   - the page keeps one agent entry point, "Ask Agentiko →": the proposal is not a second one.
 
 HOW. As test-incident-reanalyze: the chart is rendered, incident-detail is resolved over fixtures
 shaped like krateo-057's Incidents by the model in test-platform-review.py — extended so a failed
 step's errorKey entry can be a Status object as well as a string — and the widgets are evaluated over
-its output. service-desk-page is rendered too, for the raise link's contract with its form.
+its output. service-desk-page is rendered too, for the raise form the links open.
 
 With --crds DIR or --pinned, every widget resolved here is validated against its CRD.
-Usage: test-incident-tickets.py [--crds DIR | --pinned]. Exit code = failed checks.
+Usage: test-incident-tickets.py [--crds DIR | --pinned]. INCIDENTS_CHART / SERVICE_DESK_CHART=<dir>
+render other copies (the control run against main). Exit code = failed checks.
 """
 import copy
 import importlib.util
@@ -50,16 +55,18 @@ def _load(mod, file):
 
 
 tpr = _load('tpr', 'test-platform-review.py')
+tsd = _load('tsd', 'test-service-desk.py')
 tbi = tpr.tbi
 expect, ref_template, expr = tpr.expect, tpr.ref_template, tpr.expr
 
+INCIDENTS_DIR = os.environ.get('INCIDENTS_CHART') or os.path.join(REPO, 'helm', 'incidents-page')
+DESK_DIR = os.environ.get('SERVICE_DESK_CHART') or os.path.join(REPO, 'helm', 'service-desk-page')
 NS = 'krateo-system'
-DESK_NS = 'krateo-service-desk'
+ORG_NS = 'acme-retail'
 NAME = 'krateo-composition-reconcile-error-20261002-194519'
 UID = 'b20776b4-8c3c-4940-b981-7597e916f219'
 EX = {'name': NAME, 'namespace': NS}
-TICKETS_PATH = (f'/apis/servicedesk.krateo.io/v1alpha1/namespaces/{DESK_NS}/tickets'
-                f'?labelSelector=krateo.io%2Fincident-uid%3D{UID}')
+ZR_PATH = '/apis/zendesk.ogen.krateo.io/v2/zendeskrequests'  # re-read from the charts in main()
 
 
 class Err:
@@ -73,8 +80,8 @@ def status(code, reason, message):
             'message': message, 'reason': reason, 'code': code}
 
 
-DENIED = status(403, 'Forbidden', f'tickets.servicedesk.krateo.io is forbidden: User "erin" cannot list resource '
-                                  f'"tickets" in API group "servicedesk.krateo.io" in the namespace "{DESK_NS}"')
+DENIED = status(403, 'Forbidden', 'zendeskrequests.zendesk.ogen.krateo.io is forbidden: User "erin" cannot list resource '
+                                  '"zendeskrequests" in API group "zendesk.ogen.krateo.io" at the cluster scope')
 NO_CRD = status(404, 'NotFound', 'the server could not find the requested resource')
 
 
@@ -132,14 +139,16 @@ EVIDENCE = [{'kind': 'component', 'ref': 'apps/Deployment/krateo-system/core-pro
             {'kind': 'log', 'ref': '/Pod/krateo-system/core-provider-6c9d'}]
 
 
-def ticket(name, created, uid=UID, state='Open', requester='maria.rossi'):
-    return {'metadata': {'name': name, 'namespace': DESK_NS, 'creationTimestamp': created,
-                         'labels': {'krateo.io/ticket-state': state.lower().replace(' ', '-'), 'krateo.io/incident-uid': uid}},
-            'spec': {'kind': 'broken', 'state': state, 'summary': f'Summary of {name}', 'requester': requester}}
+def zrequest(name, updated, uid=UID, ns=ORG_NS, zid=None, zstatus=None, conditions=None):
+    """A ZendeskRequest raised from this incident (tsd.zr, labelled with the incident's uid)."""
+    obj = tsd.zr(name, ns=ns, conditions=tsd.FILED if conditions is None else conditions, zid=zid, zstatus=zstatus,
+                 updated=updated, created=updated)
+    obj['metadata'].setdefault('labels', {})['krateo.io/incident-uid'] = uid
+    return obj
 
 
 def listing(*items):
-    return {'kind': 'TicketList', 'apiVersion': 'servicedesk.krateo.io/v1alpha1', 'items': list(items)}
+    return {'kind': 'ZendeskRequestList', 'apiVersion': tsd.ZAPI, 'items': list(items)}
 
 
 EMPTY = listing()
@@ -155,7 +164,7 @@ def page(chart, inc, tickets=EMPTY, label=''):
     responses = {'incident': inc, 'incidents': {'items': [inc] if isinstance(inc, dict) else []},
                  'incidentApplies': Err('the server could not find the requested resource'),
                  'alert': Err(f'alerts.observability.krateo.io "krateo-composition-reconcile-error" not found'),
-                 'tickets': tickets}
+                 'zendeskRequests': tickets}
     out, dialled = resolve(chart, responses)
     w = {n: tbi.resolved_widget(chart, k, n, out, EX, f'{label}: {k} {n}')['spec'].get('widgetData', {}) for k, n in WIDGETS}
     return out, dialled, w
@@ -193,18 +202,18 @@ def base_chart():
 
 def check_owner_absent_is_todays_page(chart, base):
     f = []
-    # krateo-057 today: incident-provider 0.9.0 (no owner) and no service desk (Ticket CRD absent).
+    # krateo-057 today: incident-provider 0.9.0 (no owner), and ZendeskRequest not served (a 404).
     out, _, w = page(chart, incident(), Err(NO_CRD), 'absent')
     root = ids(w['page-incident-detail']['items'])
     expect(f, 'no owner, no desk: nothing new on the page', sorted(NEW_IDS & set(root)), [])
     expect(f, 'no owner: the why card holds only its tabs', ids(w['incident-why-card']['items']), ['incident-why-tabs'])
     expect(f, 'no owner: no Summary row, no proposal', (owner_row(w), out['sections']['proposal']), (None, False))
-    # With a service desk, the only addition is the Tickets card, right after "Why did it happen".
+    # With the kind served, the only addition is the requests card, right after "Why did it happen".
     out, _, w = page(chart, incident(), EMPTY, 'absent, desk')
     with_desk = ids(w['page-incident-detail']['items'])
-    expect(f, 'no owner, a desk: the same root plus Tickets after Why',
+    expect(f, 'no owner, the kind served: the same root plus the requests card after Why',
            with_desk, root[:root.index('incident-why-card') + 1] + ['incident-tickets-card'] + root[root.index('incident-why-card') + 1:])
-    expect(f, 'no owner: no proposal, even with no ticket', out['sections']['proposal'], False)
+    expect(f, 'no owner: no proposal, even with no request', out['sections']['proposal'], False)
     if base is not None:
         was, _ = resolve(base, {'incident': incident(), 'incidents': {'items': [incident()]},
                                 'incidentApplies': Err('the server could not find the requested resource'),
@@ -258,16 +267,16 @@ def check_proposal_conditions(chart):
            ['incident-detail-page-header', 'incident-detail-header-block', 'incident-ticket-proposal'])
     card = w['incident-ticket-proposal']
     expect(f, 'shown: title and text', (card['title'], card['headerLeft']),
-           ('Agentiko suggests opening a ticket for your platform team',
-            'Owner: your organization. The ticket goes to this portal\'s service desk.'))
+           ('Agentiko suggests raising a Zendesk request for this incident',
+            'Owner: your organization. The request goes to your organisation’s Zendesk, from the service desk.'))
     expect(f, 'shown: marked as Agentiko\'s', (card['icon'], card['extra'], card['extraVariant']),
            ({'name': 'fa-wand-magic-sparkles', 'color': 'blue'}, 'Agentiko', 'tag'))
     out, _, w = page(chart, incident(state='Verifying', **base), EMPTY, 'verifying')
     expect(f, 'Verifying: shown', out['sections']['proposal'], True)
-    # Krateo-owned: the same internal ticket, for now — the send to Krateo waits for the relay.
+    # Krateo-owned: the same request, for now — the send to Krateo waits for the relay.
     out, _, w = page(chart, incident(owner='krateo', evidence=EVIDENCE), EMPTY, 'krateo')
-    expect(f, 'krateo: shown, to the portal\'s own desk', (out['sections']['proposal'], w['incident-ticket-proposal']['headerLeft']),
-           (True, 'Owner: Krateo. The ticket goes to this portal\'s service desk.'))
+    expect(f, 'krateo: shown, to the organisation\'s Zendesk', (out['sections']['proposal'], w['incident-ticket-proposal']['headerLeft']),
+           (True, 'Owner: Krateo. The request goes to your organisation’s Zendesk, from the service desk.'))
     expect(f, 'krateo: nothing about sending to Krateo', 'Krateo support' in str(w['incident-ticket-proposal']), False)
     flips = (
         ('owner unknown', incident(owner='unknown'), EMPTY),
@@ -275,12 +284,13 @@ def check_proposal_conditions(chart):
         ('Analyzing', incident(state='Analyzing', **base), EMPTY),
         ('Resolved', incident(state='Resolved', **base), EMPTY),
         ('Closed', incident(state='Closed', **base), EMPTY),
-        ('a ticket exists', incident(**base), listing(ticket('ticket-maria-rossi-1', '2026-10-02T20:00:00Z'))),
+        ('a request exists', incident(**base), listing(zrequest('zr-maria-rossi-1', '2026-10-02T20:00:00Z'))),
+        ('a request exists, still filing', incident(**base), listing(zrequest('zr-maria-rossi-1', '2026-10-02T20:00:00Z', conditions=[]))),
         ('dismissed', incident(annotations={'krateo.io/ticket-proposal': 'dismissed'}, **base), EMPTY),
-        ('tickets denied [Status]', incident(**base), Err(DENIED)),
-        ('tickets denied [string]', incident(**base), Err(DENIED['message'])),
-        ('tickets failed', incident(**base), Err('dial tcp 10.0.0.1:443: i/o timeout')),
-        ('no service desk', incident(**base), Err(NO_CRD)),
+        ('requests denied [Status]', incident(**base), Err(DENIED)),
+        ('requests denied [string]', incident(**base), Err(DENIED['message'])),
+        ('requests failed', incident(**base), Err('dial tcp 10.0.0.1:443: i/o timeout')),
+        ('kind not served', incident(**base), Err(NO_CRD)),
     )
     for label, inc, tickets in flips:
         out, _, w = page(chart, inc, tickets, label)
@@ -305,40 +315,33 @@ def check_proposal_actions(chart, desk_chart):
     expect(f, 'opens the service desk\'s raise form', path, '/service-desk/new')
     expect(f, 'with this incident', params, {'incidentName': [NAME], 'incidentNamespace': [NS]})
     expect(f, 'never a ?ask= (not an Agentiko entry point)', 'ask=' in href, False)
-    # THE CONTRACT: the raise form must read these parameters, and key its cell on them. It lives in
-    # service-desk-page, which has to ship first (the incident page links into it).
-    try:
-        desk_chart.get('RESTAction', 'ticket-raise-context')
-    except LookupError:
-        f.append('service-desk-page has no ticket-raise-context: its raise form does not read the incident yet '
-                 '(the service-desk half of this feature ships first)')
-        return f
-    form = desk_chart.get('Form', 'ticket-new')
-    expect(f, 'service-desk-page\'s form keys on the raise link\'s parameters',
-           sorted(form['spec'].get('keyExtras') or []), sorted(params))
-    ctx = desk_chart.get('RESTAction', 'ticket-raise-context')
-    expect(f, 'and its context RESTAction reads them', all(f'.{p}' in ctx['spec']['api'][0]['dependsOn']['iterator'] for p in params), True)
     expect(f, 'Raise a ticket opens the same form', w['incident-raise-ticket']['actions']['navigate'][0]['path'], href)
-    # THE ROUND TRIP: follow the link into the form, raise the ticket it builds, and read it back
-    # through this page's own ticket list. The label the form writes must be the one this page
-    # selects on, or a raised ticket never shows here and the proposal never goes away.
-    raise_ex = {k: v[0] for k, v in params.items()}
+    expect(f, 'Raise a Zendesk request opens the same form', (w['incident-raise-ticket']['label'], w['incident-raise-ticket']['actions']['navigate'][0]['path']),
+           ('Raise a Zendesk request', href))
+    # THE ROUND TRIP: follow the link into service-desk-page's form, raise the request it builds, and
+    # read it back through this page's own card. The label the form writes must be the one this page
+    # selects on, or a raised request never shows here and the proposal never goes away.
+    roots = [d for d in desk_chart.docs if d.get('kind') == 'Flex'
+             and ((d.get('metadata') or {}).get('annotations') or {}).get('krateo.io/nav-path') == path]
+    expect(f, 'the link lands on a route service-desk-page serves', len(roots), 1)
+    form_doc = desk_chart.get('Form', 'request-new')
+    expect(f, 'its form keys its cell on the link\'s parameters', sorted(form_doc['spec'].get('keyExtras') or []), sorted(params))
+    raise_ex = dict({k: v[0] for k, v in params.items()}, username='maria.rossi@acme.example')
     inc = incident(owner='customer', evidence=EVIDENCE)
-    ra = desk_chart.get('RESTAction', 'ticket-raise-context')
-    it = tbi.jq(ra['spec']['api'][0]['dependsOn']['iterator'], raise_ex)
-    expect(f, 'the form reads exactly this incident', [tbi.jq(expr(ra['spec']['api'][0]['path']), i) for i in it],
+    ctx, dialled = tsd.resolve(desk_chart, 'request-raise-context',
+                               {'configs': tsd.configs((ORG_NS, 'zendesk-acme')), 'incident': inc}, raise_ex)
+    expect(f, 'the form reads exactly this incident', [d for d in dialled if '/incidents/' in d],
            [f'/apis/observability.krateo.io/v1alpha1/namespaces/{NS}/incidents/{NAME}'])
-    ctx = tbi.jq(ra['spec']['filter'], dict(raise_ex, incident=inc))
-    form_w = tbi.resolved_widget(desk_chart, 'Form', 'ticket-new', ctx, dict(raise_ex, username='maria.rossi'),
-                                 'round trip: Form ticket-new')['spec']['widgetData']
-    act = [a for a in form_w['actions']['rest'] if a['id'] == form_w['submitActionId']][0]
-    body = tpr.apply_overrides(act['payload'], act.get('payloadToOverride'), form_w['initialValues'])
+    form_w = tbi.resolved_widget(desk_chart, 'Form', 'request-new', ctx, raise_ex, 'round trip: Form request-new')['spec']['widgetData']
+    body = tsd.frontend_body(form_w, dict(form_w['initialValues'], priority='high'))
+    expect(f, 'the request carries this incident\'s uid', body['metadata']['labels'].get('krateo.io/incident-uid'), UID)
+    expect(f, 'pre-filled from it', (body['spec']['kind'], body['spec']['description'].startswith(f'Incident: {NS}/{NAME}. ')), ('Bug', True))
+    expect(f, 'into the organisation\'s namespace, which this page lists across', body['metadata']['namespace'], ORG_NS)
     body['metadata']['creationTimestamp'] = '2026-10-02T20:00:00Z'
-    expect(f, 'the raised ticket points at this incident', body['spec']['objectRef'],
-           {'apiVersion': 'observability.krateo.io/v1alpha1', 'kind': 'Incident', 'name': NAME, 'namespace': NS})
-    expect(f, 'into the namespace this page lists', body['metadata']['namespace'], DESK_NS)
+    body['status'] = {}
     out, _, w = page(chart, inc, listing(body), 'round trip')
-    expect(f, 'read back: listed here', [r['name'] for r in w['incident-tickets-list']['dataSource']], [body['metadata']['name']])
+    expect(f, 'read back: listed here, filing', [(r['name'], r['label']) for r in w['incident-tickets-list']['dataSource']],
+           [(body['metadata']['name'], 'Filing…')])
     expect(f, 'read back: the proposal is gone', out['sections']['proposal'], False)
     dismiss = w['incident-ticket-proposal-dismiss']
     act = dismiss['actions']['rest'][0]
@@ -362,56 +365,83 @@ def check_proposal_actions(chart, desk_chart):
 def check_tickets_card(chart):
     f = []
     out, dialled, w = page(chart, incident(), listing(
-        ticket('ticket-maria-rossi-1', '2026-10-02T20:00:00Z', requester='maria.rossi'),
-        ticket('ticket-luca-bianchi-2', '2026-10-03T08:30:00Z', state='In progress', requester='luca.bianchi'),
-        # The label selector is the apiserver's; a row that does not carry this uid is not shown anyway.
-        ticket('ticket-other', '2026-10-04T00:00:00Z', uid='another-uid')), 'tickets')
-    expect(f, 'lists the tickets by this incident\'s uid, as the caller', [d for d in dialled if d[0] == 'tickets'], [('tickets', TICKETS_PATH)])
-    expect(f, 'every label value it selects on fits', len(UID) <= 63, True)
+        zrequest('zr-maria-rossi-1', '2026-10-02T20:00:00Z', zid=48213, zstatus='open'),
+        zrequest('zr-luca-bianchi-2', '2026-10-03T08:30:00Z', ns='tern-logistics', conditions=[]),
+        # The list holds every request the caller may see; one for another incident is not shown.
+        zrequest('zr-other', '2026-10-04T00:00:00Z', uid='another-uid', zid=1, zstatus='new')), 'requests')
+    expect(f, 'lists ZendeskRequests across namespaces', [d for d in dialled if d[0] == 'zendeskRequests'], [('zendeskRequests', ZR_PATH)])
+    step = [st for st in chart.get('RESTAction', 'incident-detail')['spec']['api'] if st['name'] == 'zendeskRequests'][0]
+    expect(f, 'refiltered as the caller', step.get('userAccessFilter'),
+           {'verb': 'list', 'group': tsd.ZAPI.split('/')[0], 'resource': 'zendeskrequests', 'namespaceFrom': '.metadata.namespace'})
     rows = w['incident-tickets-list']['dataSource']
-    expect(f, 'newest first, this incident\'s only', [r['name'] for r in rows], ['ticket-luca-bianchi-2', 'ticket-maria-rossi-1'])
-    expect(f, 'a row', rows[0], {'name': 'ticket-luca-bianchi-2', 'namespace': DESK_NS, 'summary': 'Summary of ticket-luca-bianchi-2',
-                                  'state': 'In progress', 'raised': 'luca.bianchi · 2026-10-03 08:30 UTC'})
+    expect(f, 'most recently updated first, this incident\'s only', [r['name'] for r in rows], ['zr-luca-bianchi-2', 'zr-maria-rossi-1'])
+    expect(f, 'a filed row', rows[1], {'name': 'zr-maria-rossi-1', 'namespace': ORG_NS, 'subject': 'Subject of zr-maria-rossi-1',
+                                       'label': 'Open', 'color': 'slate', 'zendesk': '#48213', 'updated': 'Updated 2026-10-02 20:00 UTC'})
+    expect(f, 'a row still filing', (rows[0]['label'], rows[0]['color'], rows[0]['zendesk'], rows[0]['namespace']),
+           ('Filing…', 'gold', 'No Zendesk # yet', 'tern-logistics'))
     tmpl = w['incident-tickets-list']['itemTemplate']
-    expect(f, 'a row opens the ticket', tmpl['navigateTo'], '/service-desk/{namespace}/{name}')
-    expect(f, 'states as the queue colours them', (tmpl['color']['map'], tmpl['color']['default']),
-           ({'Open': 'slate', 'In progress': 'gold', 'Waiting on requester': 'gold', 'Resolved': 'faint', 'Closed': 'faint'}, 'slate'))
+    expect(f, 'Status, Zendesk #, Subject, Updated', (tmpl['primaryText'], tmpl['subPrimaryText'], tmpl['secondaryText'], tmpl['subSecondaryText']),
+           ('{subject}', '{zendesk}', '{label}', '{updated}'))
+    expect(f, 'a row opens the service desk\'s page for it', tmpl['navigateTo'], '/service-desk/{namespace}/{name}')
+    expect(f, 'the colour is the one _zendesk.tpl chose', (tmpl['color']['value'], all(k == v for k, v in tmpl['color']['map'].items())), ('{color}', True))
     card = w['incident-tickets-card']
+    expect(f, 'title', card['title'], 'Zendesk requests for this incident')
     expect(f, 'rows: the list, no line', (ids(card['items']), card['headerLeft']), (['incident-tickets-list'], ''))
-    expect(f, 'Raise a ticket in the header', (card['extraRefId'], w['incident-raise-ticket']['label'], w['incident-raise-ticket']['type']),
-           ('incident-raise-ticket', 'Raise a ticket', 'default'))
+    expect(f, 'Raise a Zendesk request in the header', (card['extraRefId'], w['incident-raise-ticket']['label'], w['incident-raise-ticket']['type']),
+           ('incident-raise-ticket', 'Raise a Zendesk request', 'default'))
     out, _, w = page(chart, incident(), EMPTY, 'none')
-    expect(f, 'empty: No ticket yet', (ids(w['incident-tickets-card']['items']), w['incident-tickets-card']['headerLeft']), ([], 'No ticket yet.'))
+    expect(f, 'empty: No Zendesk request yet', (ids(w['incident-tickets-card']['items']), w['incident-tickets-card']['headerLeft']),
+           ([], 'No Zendesk request yet.'))
     for label, err in (('[Status 403]', Err(DENIED)), ('[string 403]', Err(DENIED['message'])),
                        ('[Status 403, no word]', Err(status(403, 'Forbidden', 'access refused by policy')))):
         out, _, w = page(chart, incident(), err, label)
-        expect(f, f'{label}: the desk-only line', (out['ticketsState'], w['incident-tickets-card']['headerLeft']),
-               ('denied', 'The service desk can see tickets raised for this incident.'))
+        expect(f, f'{label}: the refused line', (out['ticketsState'], w['incident-tickets-card']['headerLeft']),
+               ('denied', 'Your access to Zendesk requests could not be confirmed.'))
         expect(f, f'{label}: still offers the raise', ('incident-tickets-card' in ids(w['page-incident-detail']['items'])), True)
     for label, err in (('[Status 404]', Err(NO_CRD)), ('[string 404]', Err(NO_CRD['message']))):
         out, _, w = page(chart, incident(), err, label)
-        expect(f, f'{label}: no service desk, no card', (out['ticketsState'], 'incident-tickets-card' in ids(w['page-incident-detail']['items'])),
+        expect(f, f'{label}: kind not served, no card', (out['ticketsState'], 'incident-tickets-card' in ids(w['page-incident-detail']['items'])),
                ('absent', False))
     out, _, w = page(chart, incident(), Err('dial tcp 10.0.0.1:443: i/o timeout'), 'timeout')
-    expect(f, 'another failure: says so, never "No ticket yet"', w['incident-tickets-card']['headerLeft'],
-           'The tickets raised for this incident could not be read: dial tcp 10.0.0.1:443: i/o timeout')
+    expect(f, 'another failure: says so, never "No Zendesk request yet"', w['incident-tickets-card']['headerLeft'],
+           'The Zendesk requests raised for this incident could not be read: dial tcp 10.0.0.1:443: i/o timeout')
     # Two entries accumulate; both are read, in order, and a Status object is read by its message.
-    resp = {'incident': incident(), 'incidents': {'items': []}, 'tickets': Err(status(500, 'InternalError', 'etcd timed out'))}
+    resp = {'incident': incident(), 'incidents': {'items': []}, 'zendeskRequests': Err(status(500, 'InternalError', 'etcd timed out'))}
     ra_out, _ = resolve(chart, resp, EX)
-    data = {'ticketsError': ['first failure', status(500, 'InternalError', 'etcd timed out')]}
     expect(f, 'one Status entry: its message', ra_out['ticketsNote'],
-           'The tickets raised for this incident could not be read: etcd timed out')
+           'The Zendesk requests raised for this incident could not be read: etcd timed out')
     two = tbi.jq(chart.get('RESTAction', 'incident-detail')['spec']['filter'],
-                 dict(EX, incident=incident(), incidents={'items': []}, **data))
+                 dict(EX, incident=incident(), incidents={'items': []},
+                      zendeskRequestsError=['first failure', status(500, 'InternalError', 'etcd timed out')]))
     expect(f, 'two entries: both, in order', two['ticketsNote'],
-           'The tickets raised for this incident could not be read: first failure; etcd timed out')
-    # A missing incident dials no ticket list and shows no card.
-    out, dialled, w = page(chart, Err(status(404, 'NotFound', f'incidents.observability.krateo.io "{NAME}" not found')), EMPTY, 'no incident')
-    expect(f, 'no incident: no ticket list dialled', [d for d in dialled if d[0] == 'tickets'], [])
-    expect(f, 'no incident: no card, no proposal', (out['sections']['tickets'], out['sections']['proposal']), (False, False))
-    # Prewarm: no extras at all.
-    out, dialled = resolve(chart, {}, {})
-    expect(f, 'prewarm: no ticket list dialled', [d for d in dialled if d[0] == 'tickets'], [])
+           'The Zendesk requests raised for this incident could not be read: first failure; etcd timed out')
+    # A missing incident shows no card and no proposal, whatever the list holds.
+    out, _, w = page(chart, Err(status(404, 'NotFound', f'incidents.observability.krateo.io "{NAME}" not found')),
+                     listing(zrequest('zr-x', '2026-10-02T20:00:00Z')), 'no incident')
+    expect(f, 'no incident: no card, no proposal', (out['sections']['tickets'], out['sections']['proposal'], out['ticketRows']), (False, False, []))
+    return f
+
+
+def check_state_mapping_is_one_definition(chart, desk_chart):
+    """The incident card and the service desk read a request through _zendesk.tpl. A `define` cannot
+    cross charts and snowplow's shared jq modules cannot be shipped by a page chart (see the file),
+    so incidents-page carries a copy — and this is what keeps it a copy."""
+    f = []
+    def read(chart_dir):
+        path = os.path.join(chart_dir, 'templates', '_zendesk.tpl')
+        return open(path, encoding='utf-8').read() if os.path.exists(path) else None
+    a, b = read(INCIDENTS_DIR), read(DESK_DIR)
+    expect(f, 'both charts carry _zendesk.tpl', (a is not None, b is not None), (True, True))
+    expect(f, '_zendesk.tpl is byte-for-byte the same in both charts', a == b and a is not None, True)
+    for row in tsd.DOCUMENTED_REASONS + [(c[0], 'portal') + c[1:] for c in tsd.PORTAL_CASES]:
+        label, conds, zid = row[0], row[2], row[3]
+        obj = tsd.state_fixture(conds, zid)
+        obj['metadata'].setdefault('labels', {})['krateo.io/incident-uid'] = UID
+        out, _, _ = page(chart, incident(), listing(obj), f'parity ({label})')
+        desk, _ = tsd.queue(desk_chart, [obj], state='all')
+        expect(f, f'{label}: the card says what the service desk says',
+               [(r['label'], r['color']) for r in out['ticketRows']], [(r['label'], r['color']) for r in desk['rows']])
+        expect(f, f'{label}: and what the documented table says', [(r['label'], r['color']) for r in out['ticketRows']], [(row[5], row[6])])
     return f
 
 
@@ -428,11 +458,20 @@ def main():
             return 1
         crds_dir = pinned.unpack(version)
         print(f'validating against the pinned frontend-crds {version}')
-    chart = tbi.Chart(tbi.render(os.path.join(REPO, 'helm', 'incidents-page')))
-    desk_chart = tbi.Chart(tbi.render(os.path.join(REPO, 'helm', 'service-desk-page')))
+    chart = tbi.Chart(tbi.render(INCIDENTS_DIR))
+    desk_chart = tbi.Chart(tbi.render(DESK_DIR))
+    # The served apiVersion, from service-desk-page's one define; the copy in incidents-page must
+    # dial the same (state mapping check), so the expectations follow the chart, not this file.
+    global ZR_PATH
+    try:
+        tsd.ZAPI, tsd.ZCFG = tsd.chart_zapi(desk_chart), tsd.chart_zcfg(desk_chart)
+        ZR_PATH = f'/apis/{tsd.ZAPI}/zendeskrequests'
+    except (LookupError, KeyError, IndexError):
+        pass
     runs = [(check_owner_absent_is_todays_page, (chart, base_chart())), (check_owner_krateo_and_customer, (chart,)),
             (check_owner_unknown, (chart,)), (check_proposal_conditions, (chart,)),
-            (check_proposal_actions, (chart, desk_chart)), (check_tickets_card, (chart,))]
+            (check_proposal_actions, (chart, desk_chart)), (check_tickets_card, (chart,)),
+            (check_state_mapping_is_one_definition, (chart, desk_chart))]
     failed = 0
     for check, a in runs:
         try:

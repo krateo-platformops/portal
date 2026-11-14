@@ -1,0 +1,46 @@
+{{/* "Needs you": one antd Collapse panel (Collapse, frontend 1.8.43) holding one card per source in
+     view that has something for someone, as drawn on mockup screen 01: open incidents, firing
+     alerts, agents the gateway cannot reach and tool servers not Accepted, proposals waiting for a
+     decision, compositions not Ready, paused or drifted. A failed read is a card too ("… could not
+     be read", with the error), and so is a gateway that could not be checked: neither is ever
+     allowed to look like nothing waiting.
+
+     Each card opens its page; that page carries the table. Faults come first (red), then what could
+     not be checked (orange), then work (neutral). A card lists at most three names, then "and N
+     more". The panel is red when any card is a fault, and starts open either way. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-needs-you
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    defaultActiveKey:
+    - needs-you
+    grid: { gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 2 }
+    itemTemplate:
+      rowVariant: card
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      subPrimaryText: '{meta}'
+      description: '{body}'
+      subSecondaryText: '{page}'
+      cardCta: '{cta}'
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ . as $r | ([ (.sources // [])[] | select(.inView) ]) as $view | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); def names($l): ($l | .[0:3] | join(", ")) + (if ($l | length) > 3 then " and " + ((($l | length) - 3) | tostring) + " more" else "" end); def card($t; $tag; $tone; $meta; $body; $s; $cta): { title: $t, tag: $tag, tone: $tone, meta: $meta, body: $body, page: $s.label, cta: $cta, href: $s.href }; def cards($s): if $s.failed then card($s.label + " could not be read"; "Not read"; "warn"; ""; $s.err; $s; "Open") elif $s.key == "incidents" then ($r.incidents) as $i | (if $i.open == 0 then empty else card(n($i.open; "open incident"; "open incidents"); "Open"; "bad"; ("from " + n($i.alerts; "alert"; "alerts") + (if $i.oldestOpenedAt != "" then " · oldest opened " + $i.oldestOpenedAt[0:10] else "" end)); (if $i.open == 1 then "It comes from " + $i.topAlert + "." elif $i.alerts == 1 then "All of them come from " + $i.topAlert + "." elif $i.topAlertCount > 1 then ($i.topAlertCount | tostring) + " of them come from one alert, " + $i.topAlert + "." else "Each comes from a different alert." end); $s; "Triage") end) elif $s.key == "alerts" then ($r.alerts) as $a | (if $a.firing == 0 then empty else card(n($a.firing; "alert firing"; "alerts firing"); "Firing"; "bad"; names($a.firingNames); ("Firing now, of " + n($a.total; "alert"; "alerts") + "."); $s; "Open") end) elif $s.key == "agents" then ($r.agents) as $g | ((if ($g.gaps | length) > 0 then card(n($g.gaps | length; "agent not reachable through the gateway"; "agents not reachable through the gateway"); ""; "bad"; names([ $g.gaps[] | .name ]); ((if ($g.gaps | length) == 1 then "Gateway: " + $g.gaps[0].gap + "." else "Gateway: " + ([ $g.gaps[0:3][] | .name + " " + .gap ] | join("; ")) + "." end) + (if ($g.notAccepted | length) > 0 then " Also " + n($g.notAccepted | length; "tool server"; "tool servers") + " NotAccepted." else "" end)); $s; "Open") elif ($g.notAccepted | length) > 0 then card(n($g.notAccepted | length; "tool server not Accepted"; "tool servers not Accepted"); ""; "bad"; names([ $g.notAccepted[] | .name ]); ("Accepted is not True: " + ([ $g.notAccepted[] | .reason | select(. != "") ] | unique | join(", ") | if . == "" then "no reason given" else . end) + "."); $s; "Open") else empty end), (if ($g.gatewayKnown | not) and $g.total > 0 then card("Gateway registration not checked"; ""; "warn"; ""; ("Whether the gateway can reach your agents could not be checked: " + $g.gatewayUnknownWhy + "."); $s; "Open") else empty end), (if $g.serversError != "" then card("Tool servers could not be read"; "Not read"; "warn"; ""; $g.serversError; $s; "Open") else empty end)) elif $s.key == "reviews" then ($r.reviews) as $p | (if $p.waiting == 0 then empty else card(n($p.waiting; "proposal waiting for a decision"; "proposals waiting for a decision"); ""; ""; (($p.newToday | tostring) + " new today · " + ($p.prOpen | tostring) + " with a pull request open"); (if $p.decided == 0 then "Nothing has been merged or rejected yet." else n($p.decided; "proposal"; "proposals") + " decided so far." end); $s; "Review") end) else ($r.compositions) as $c | ($c.notReady + $c.paused + $c.drift) as $k | (if $k == 0 then empty else card((if $c.paused == $k then n($k; "composition paused"; "compositions paused") elif $c.notReady == $k then n($k; "composition not Ready"; "compositions not Ready") elif $c.drift == $k then n($k; "composition drifted"; "compositions drifted") else n($k; "composition needs attention"; "compositions need attention") end); ""; (if $c.notReady > 0 then "bad" else "" end); names([ $c.problems[] | .name ]); (if ($c.problems | length) == 1 and $c.problems[0].reason != "" then "Ready reason " + $c.problems[0].reason + "." else ([ (if $c.notReady > 0 then ($c.notReady | tostring) + " not Ready" else empty end), (if $c.paused > 0 then ($c.paused | tostring) + " paused" else empty end), (if $c.drift > 0 then ($c.drift | tostring) + " drifted" else empty end) ] | join(" · ")) end); $s; "Open") end) end; ([ $view[] | cards(.) ] | sort_by({bad: 0, warn: 1}[.tone] // 2)) as $cards | if ($cards | length) == 0 then [] else [ { key: "needs-you", label: "Needs you", count: ($cards | length), dataSource: $cards } + (if any($cards[]; .tone == "bad") then { status: "error" } elif any($cards[]; .tone == "warn") then { status: "warning" } else {} end) ] end }'
+  resourcesRefs:
+    items: []

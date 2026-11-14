@@ -1,0 +1,56 @@
+{{/* The active incidents (mockup screen 06): one antd Collapse panel per active state that has
+     incidents in view, Open first (red, as a fault), then Analyzing and Verifying. Inside, one card
+     per alert, largest first, or with ?group=age one per age bucket, newest first:
+       - the alert's display name, "<N> open" (red on Open), and the alert's name;
+       - the newest incident's root cause;
+       - when the first and the newest fired, and the alert's state now;
+       - "Triage" opens the newest incident;
+       - a card holding more than one incident opens the table view filtered to that alert (or age)
+         and that state, "See all N →" (decision Q1); a card holding one opens it.
+     A panel draws at most six cards; past that its footer opens the table view of that state. Every
+     panel starts open. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-groups
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    defaultActiveKey:
+    - open
+    grid: { gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 3 }
+    itemTemplate:
+      rowVariant: card
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      subPrimaryText: '{meta}'
+      description: '{body}'
+      subSecondaryText: '{foot}'
+      cardCta: '{cta}'
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+      rowActions:
+      - actionId: triage
+        label: Triage
+    actions:
+      navigate:
+      - id: triage
+        type: navigate
+        path: /incidents/${namespace}/${newestName}
+    items: []
+  widgetDataTemplate:
+  - forPath: defaultActiveKey
+    expression: '${ [ (.panels // [])[] | .key ] }'
+  - forPath: items
+    expression: '${ def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end; [ (.panels // [])[] | . as $pnl | ($pnl.label | ascii_downcase) as $word | { key: .key, label: .label, count: .count, extra: (if .by == "age" then "by age, newest first" else n(.groups | length; "alert"; "alerts") + ", largest first" end), dataSource: [ .groups[0:6][] | { title: .label, tag: ((.count | tostring) + " " + $word), tone: (if $pnl.key == "open" then "bad" else "" end), meta: (if .alert != "" and .alert != .label then .alert else "" end), body: (if .latestCause == "analysis failed" then "The root-cause analysis of the newest failed." elif .latestCause == "" or .latestCause == "—" or .latestCause == "analyzing" then "No root cause yet for the newest." else "Latest root cause: " + (.latestCause | cap(220)) end), foot: ((if .count == 1 then "triggered " + .newest[0:10] else "since " + .since[0:10] + " · newest " + .newest[0:10] end) + (if .alertState != "" then " · alert now " + .alertState else "" end)), href: (if .count > 1 then .seeAll else "/incidents/" + .namespace + "/" + .newestName end), cta: (if .count > 1 then "See all " + (.count | tostring) else "" end), namespace: .namespace, newestName: .newestName } ] } + (if (.groups | length) > 6 then { footer: ("See all " + n(.count; $word + " incident"; $word + " incidents") + " →"), footerNavigateTo: .tableHref } else {} end) + (if .key == "open" then { status: "error" } else {} end) ] }'
+  resourcesRefs:
+    items: []

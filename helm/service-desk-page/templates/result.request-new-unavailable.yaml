@@ -1,0 +1,31 @@
+{{/* What /service-desk/new says in place of the form when no request can be raised from here: no
+     configuration the caller can read, the kind isn't served, or the configurations could not be
+     read. The queue's "Raise a request" button stays (except when the kind isn't served), so the
+     person lands here and reads why instead of finding the button missing. Words from
+     request-raise-context `.unavailable`. */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-new-unavailable
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The incident a request is raised from rides in the query string (form.request-new.yaml) and
+       reaches every widget on this screen. Declared so the screen stays cacheable. */}}
+  keyExtras: [incidentName, incidentNamespace]
+  apiRef:
+    name: request-raise-context
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    status: info
+    title: No Zendesk configuration for your organisation — ask an administrator.
+  widgetDataTemplate:
+    - forPath: status
+      expression: '${ .unavailable.status // "info" }'
+    - forPath: title
+      expression: '${ if (.unavailable.title // "") != "" then .unavailable.title else "No Zendesk configuration for your organisation — ask an administrator." end }'
+    - forPath: subTitle
+      expression: '${ .unavailable.subTitle // "" }'
+  resourcesRefs:
+    items: []

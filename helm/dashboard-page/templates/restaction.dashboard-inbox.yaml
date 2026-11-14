@@ -1,0 +1,357 @@
+{{/* The Dashboard's "needs you" inbox (root-pages UX, build plan §3.1): what needs someone across the
+     Incidents, Alerts, Agents, Platform review and Compositions pages, read from the same objects
+     those pages read, and what is fine.
+
+     EVERY READ RUNS AS THE CALLER. A plain stage is dialled as the caller. A userAccessFilter stage
+     is dialled by snowplow's ServiceAccount and then narrowed to the namespaces where the caller
+     holds the grant (resolvers/restactions/api/refilter.go). Every stage has continueOnError with an
+     errorKey, so one refused or failed read never blanks the others.
+
+     A SOURCE IS IN THE INBOX ONLY IF ITS PAGE IS IN THE CALLER'S SIDEBAR. Each gate* stage is a plain
+     GET, as the caller, of that page's root Flex: the object the sidebar has to be able to read for
+     the entry to show. This closes the userAccessFilter honesty hole. A caller with no grant on
+     proposals is served [] and no error, which would otherwise read as "no proposal waiting". With
+     the gate, a source whose page the caller cannot open does not appear at all: no strip tile, no
+     card, no facet value and no "fine" clause. The pages are named in values.yaml (`inboxPages`).
+
+     A FAILED READ IS NEVER QUIET. When a gated-in source's read fails, the source becomes one failed
+     item carrying the error, and it says nothing about that source being fine. The agent gateway's
+     reads are three-state (portal.agentsGateway): when they cannot be judged, that is an item too.
+
+     THE FILTER is ?source= (portal.facets): which pages' items are in view. Each base item is one
+     thing that needs someone (an open incident, a firing alert, an agent the gateway cannot reach,
+     a tool server not Accepted, a proposal waiting for a decision, a composition not Ready, paused or
+     drifted, a failed read), tagged with its source. The source facet counts those items and shows
+     only when two or more sources have any (decision Q2: over the unfiltered set). ?projects (the
+     shell's scope) narrows the compositions and blueprints to its namespaces, as compositions-list
+     does; the other sources live in the platform namespace and are not narrowed.
+
+     NOT READY leaves out Ready=Unknown/ZeroEvidence: the children publish no readiness the
+     controller can read, which is permanent and nobody's defect (compositions-list's `assessable`).
+     A paused composition reports Ready=True on purpose, so it is "paused", not "not Ready".
+
+     DATA, NOT PRESENTATION. This returns numbers, names, hrefs and the facet; the widgets word and
+     order it. `askHref` is the one sentence built here, because Ask Agentiko's prompt is data the
+     button carries verbatim (as on every other page). */}}
+{{- define "dashboard.inboxPage" -}}
+{{- $p := index (.Values.inboxPages | default dict) .key | default dict -}}
+{{- $ns := $p.namespace | default "" -}}
+{{- $root := $p.root | default "" -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" $ns) -}}
+{{- fail (printf "inboxPages.%s.namespace %q: must be a namespace name (that page chart's `namespace`)" .key $ns) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?$" $root) -}}
+{{- fail (printf "inboxPages.%s.root %q: must be the name of that page's root Flex" .key $root) -}}
+{{- end -}}
+/apis/widgets.templates.krateo.io/v1beta1/namespaces/{{ $ns }}/flexes/{{ $root }}
+{{- end -}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: dashboard-inbox
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    {{- range $key := list "incidents" "alerts" "agents" "reviews" "compositions" }}
+    - name: gate{{ title $key }}
+      path: {{ include "dashboard.inboxPage" (dict "Values" $.Values "key" $key) }}
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      filter: '((.gate{{ title $key }} // {}) | (.metadata.name // "")) != ""'
+      continueOnError: true
+      errorKey: gate{{ title $key }}Error
+    {{- end }}
+    {{/* Incidents and Alerts: plain reads as the caller, the same two incidents-list makes. The
+         stage filters keep only what the inbox reads: an Incident is about 26 KB on krateo-057. */}}
+    - name: incidents
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/incidents
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      filter: '[.incidents.items[]? | {name: (.metadata.name // ""), state: (.status.state // "Analyzing"), alert: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // ""), at: (.spec.triggeredAt // .metadata.creationTimestamp // "")}]'
+      continueOnError: true
+      errorKey: incidentsError
+    - name: alerts
+      path: /apis/observability.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/alerts
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      filter: '[.alerts.items[]? | {name: (.metadata.name // ""), displayName: (.spec.displayName // ""), state: (.status.state // "")}]'
+      continueOnError: true
+      errorKey: alertsError
+    {{/* Platform review: the phase the Reviews page reads (rv_phase in reviews-page/_review.tpl): a
+         decision recorded on the spec wins over a status the controller has not caught up with, and
+         Merged is final. Refused is historical and is left out, as the page leaves it out. */}}
+    - name: proposals
+      path: /apis/review.krateo.io/v1alpha1/namespaces/{{ $.Release.Namespace }}/proposals
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      userAccessFilter:
+        verb: list
+        group: review.krateo.io
+        resource: proposals
+        namespaceFrom: .metadata.namespace
+      filter: '[.proposals.items[]? | (.status.phase // "") as $s | {phase: (if $s == "Merged" then $s else (.spec.decision.phase // (if $s == "" then "Proposed" else $s end)) end), created: (.metadata.creationTimestamp // "")} | select(.phase != "Refused")]'
+      continueOnError: true
+      errorKey: proposalsError
+    {{/* Agents, tool servers and the gateway's routes and policies, as agents-list reads them. */}}
+    - name: agents
+      path: /apis/kagent.dev/v1alpha2/agents
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: agents
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: agentsError
+    - name: servers
+      path: /apis/kagent.dev/v1alpha2/remotemcpservers
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: kagent.dev
+        resource: remotemcpservers
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: serversError
+    - name: routes
+      path: /apis/gateway.networking.k8s.io/v1/httproutes
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: gateway.networking.k8s.io
+        resource: httproutes
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: routesError
+    - name: policies
+      path: /apis/agentgateway.dev/v1alpha1/agentgatewaypolicies
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: agentgateway.dev
+        resource: agentgatewaypolicies
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: policiesError
+    {{/* Compositions: kinds from CompositionDefinitions, then one cluster LIST per kind, both
+         narrowed per item (compositions-list's stages). `definitions` is the same list read again
+         for the blueprints' own Ready condition, which the `crds` projection drops. */}}
+    - name: crds
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, version: (.status.apiVersion | split(\"/\")[1])}] | unique"
+      continueOnError: true
+      errorKey: crdsError
+    - name: definitions
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      filter: '[.definitions.items[]? | {ns: (.metadata.namespace // ""), ready: (([ (.status.conditions // [])[] | select(.type == "Ready") ] | .[0].status) // "Unknown")}]'
+      continueOnError: true
+      errorKey: definitionsError
+    - name: allCompositions
+      dependsOn:
+        name: crds
+        iterator: ".crds"
+      path: ${ "/apis/composition.krateo.io/" + (.version) + "/" + (.plural) }
+      verb: GET
+      continueOnError: true
+      errorKey: allCompositionsError
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
+      filter: >
+        [.allCompositions.items[]?
+         | {name: .metadata.name, ns: .metadata.namespace, kind: .kind, conditions: (.status.conditions // []), wh: .status.workloadHealthy}]
+  filter: |
+    {{- include "portal.facets" . | nindent 4 }}
+    {{- include "portal.agentsGateway" . | nindent 4 }}
+    # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list whose entries are
+    # the apiserver's Status object or a bare message. "" means the read worked.
+    def errText($e):
+      if $e == null then ""
+      else ( [ ( $e | if type == "array" then .[] else . end )
+               | if type == "object" then ((.message // .reason // (. | tojson)))
+                 elif . == null then ""
+                 else tostring end ]
+             | map(select(. != "")) | unique | join("; ") )
+      end;
+    def cut($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    # A composition's class, from its conditions (compositions-list's railState, read the same way).
+    def cclass:
+      (.conditions // []) as $c
+      | (any($c[]; .type == "Ready" and .status == "True")) as $ready
+      | if any($c[]; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused")) then "paused"
+        elif any($c[]; .type == "Ready" and .status == "False" and .reason != "Creating") then "failed"
+        elif $ready and (.wh == false) then "degraded"
+        elif $ready and any($c[]; .type == "Synced" and .status == "False") then "drift"
+        elif $ready then "ready"
+        elif any($c[]; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence") then "notAssessable"
+        elif any($c[]; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden") then "unreadable"
+        else "pending" end;
+    def readyReason: ([ (.conditions // [])[] | select(.type == "Ready") ] | .[0].reason) // "";
+    (now | todate | .[0:10]) as $today
+    | ((.projects // "") | tostring) as $projects
+    | ($projects | split(",") | map(select(. != ""))) as $projSel
+    | def inScope: ($projSel | length) == 0 or (.ns as $n | any($projSel[]; . == $n));
+    # ── incidents ──────────────────────────────────────────────────────────────────────────────
+      ([ (.incidents // [])[] | select(.state == "Open") ]) as $openInc
+    | ($openInc | group_by(.alert) | map({alert: .[0].alert, count: length}) | sort_by(-.count, .alert)) as $byAlert
+    | { open: ($openInc | length),
+        alerts: ($byAlert | length),
+        topAlert: (($byAlert[0].alert) // ""),
+        topAlertCount: (($byAlert[0].count) // 0),
+        oldestOpenedAt: ([ $openInc[] | .at | select(. != "") ] | min // "") } as $inc
+    # ── alerts ─────────────────────────────────────────────────────────────────────────────────
+    | ((.alerts // []) | map(select(type == "object"))) as $alertRows
+    | ([ $alertRows[] | select(.state == "ALERT") ]) as $firingRows
+    | { total: ($alertRows | length),
+        firing: ($firingRows | length),
+        ok: ([ $alertRows[] | select(.state == "OK") ] | length),
+        firingNames: [ $firingRows[] | (if .displayName != "" then .displayName else .name end) ] } as $alt
+    # ── agents and the gateway ─────────────────────────────────────────────────────────────────
+    | errText(.routesError) as $rtErr
+    | errText(.policiesError) as $polErr
+    | errText(.serversError) as $srvErr
+    | agw_hosts as $hosts
+    | agw_allow_exprs as $exprs
+    | agw_known($rtErr; $polErr) as $gwKnown
+    | ([ (.agents.items // [])[]
+         | select(((.metadata.name // "") != "") and ((.metadata.namespace // "") != ""))
+         | {name: .metadata.name, namespace: .metadata.namespace}
+         | . + {gap: agw_gap(.name + "." + .namespace; $hosts; $exprs; $gwKnown)} ]) as $agentRows
+    | ([ $agentRows[] | select(.gap != "") ]) as $gaps
+    | ([ (.servers.items // [])[]
+         | ([ (.status.conditions // [])[] | select(.type == "Accepted") ] | .[0] // {}) as $c
+         | select(($c.status // "") != "True")
+         | {name: (.metadata.name // ""), namespace: (.metadata.namespace // ""), reason: ($c.reason // "")} ]) as $notAccepted
+    | { total: ($agentRows | length),
+        gaps: $gaps,
+        gatewayKnown: $gwKnown,
+        gatewayUnknownWhy: (if $gwKnown then "" else agw_unknown_why($rtErr; $polErr) end),
+        registered: (if $gwKnown then (($agentRows | length) - ($gaps | length)) else null end),
+        servers: ((.servers.items // []) | length),
+        serversError: $srvErr,
+        notAccepted: $notAccepted } as $agt
+    # An unchecked gateway is said, never left silent: with agents to judge and no verdict, it is one
+    # item of its own.
+    | ((($agt.gatewayKnown | not) and $agt.total > 0) or $srvErr != "") as $agtCaveat
+    # ── platform review ────────────────────────────────────────────────────────────────────────
+    | ((.proposals // []) | map(select(type == "object"))) as $props
+    | ([ $props[] | select(.phase == "Proposed" or .phase == "PrOpen") ]) as $waiting
+    | { waiting: ($waiting | length),
+        newToday: ([ $waiting[] | select((.created // "")[0:10] == $today) ] | length),
+        prOpen: ([ $waiting[] | select(.phase == "PrOpen") ] | length),
+        decided: ([ $props[] | select(.phase == "Merged" or .phase == "Rejected" or .phase == "Failed") ] | length) } as $rev
+    # ── compositions and blueprints ────────────────────────────────────────────────────────────
+    | ([ (.allCompositions // [])[] | select(type == "object") | select(inScope) | . + {class: cclass} ]) as $comps
+    | ([ (.definitions // [])[] | select(type == "object") | select(inScope) ]) as $defs
+    | ([ $comps[] | select(.class == "failed" or .class == "degraded" or .class == "unreadable" or .class == "pending") ]) as $notReady
+    | ([ $comps[] | select(.class == "paused") ]) as $paused
+    | ([ $comps[] | select(.class == "drift") ]) as $drift
+    | { total: ($comps | length),
+        ready: ([ $comps[] | select(.class == "ready" or .class == "paused" or .class == "drift") ] | length),
+        notReady: ($notReady | length),
+        paused: ($paused | length),
+        drift: ($drift | length),
+        notAssessable: ([ $comps[] | select(.class == "notAssessable") ] | length),
+        problems: [ ($notReady + $paused + $drift)[] | {name, namespace: .ns, kind, class, reason: readyReason} ],
+        blueprints: (if errText(.definitionsError) != "" then null else ($defs | length) end),
+        blueprintsReady: (if errText(.definitionsError) != "" then null else ([ $defs[] | select(.ready == "True") ] | length) end) } as $cmp
+    # ── the sources, gated ─────────────────────────────────────────────────────────────────────
+    | (if $projects != "" then "projects=" + ($projects | @uri) else "" end) as $carry
+    | def page($path; $query): ([ $query, $carry ] | map(select(. != "")) | join("&")) as $q | if $q == "" then $path else $path + "?" + $q end;
+      [ { key: "incidents", label: "Incidents", on: (.gateIncidents == true), err: errText(.incidentsError),
+          items: $inc.open, href: page("/incidents"; "status=open") },
+        { key: "alerts", label: "Alerts", on: (.gateAlerts == true), err: errText(.alertsError),
+          items: $alt.firing, href: page("/alerts"; "status=alert") },
+        { key: "agents", label: "Agents", on: (.gateAgents == true), err: errText(.agentsError),
+          items: (($agt.gaps | length) + ($agt.notAccepted | length) + (if $agtCaveat then 1 else 0 end)), href: page("/agents"; "") },
+        { key: "reviews", label: "Platform review", on: (.gateReviews == true), err: errText(.proposalsError),
+          items: $rev.waiting, href: page("/reviews"; "") },
+        { key: "compositions", label: "Compositions", on: (.gateCompositions == true),
+          err: ([ errText(.crdsError), errText(.allCompositionsError) ] | map(select(. != "")) | join("; ")),
+          items: ($cmp.notReady + $cmp.paused + $cmp.drift), href: page("/compositions"; "") } ] as $all
+    | [ $all[] | select(.on) | . + {failed: (.err != "")} ] as $src
+    # ── the facet ──────────────────────────────────────────────────────────────────────────────
+    | [ $src[] | . as $s | range(0; (if $s.failed then 1 else $s.items end)) | {f: {source: $s.key}} ] as $base
+    | fx_filters(["source"]) as $flt
+    | ($src | map({key: .key, value: .label}) | from_entries) as $names
+    | [ fx_facet($base; $flt; "source"; "Source"; $names) ] as $facets
+    | fx_params(["projects", "source"]) as $params
+    | ($flt.source // []) as $picked
+    | [ $src[] | . + {inView: (($picked | length) == 0 or (.key as $k | any($picked[]; . == $k)))} ] as $src
+    | ([ $src[] | {key: .key, value: .} ] | from_entries) as $by
+    # ── Ask Agentiko: the view on screen, failed reads first, never a quiet claim over one ───────
+    | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+      def names($l): ($l | .[0:3] | join(", ")) + (if ($l | length) > 3 then " and " + (($l | length) - 3 | tostring) + " more" else "" end);
+      def say($s):
+        if $s.failed then $s.label + " could not be read (" + ($s.err | cut(200)) + ")"
+        elif $s.key == "incidents" then
+          (if $inc.open == 0 then "no open incident"
+           else n($inc.open; "open incident"; "open incidents") + " from " + n($inc.alerts; "alert"; "alerts")
+                + (if $inc.topAlertCount > 1 then ", " + ($inc.topAlertCount | tostring) + " of them from " + $inc.topAlert else "" end) end)
+        elif $s.key == "alerts" then
+          (if $alt.firing == 0 then "no alert firing (" + ($alt.ok | tostring) + " of " + ($alt.total | tostring) + " OK)"
+           else n($alt.firing; "alert"; "alerts") + " firing (" + names($alt.firingNames) + ")" end)
+        elif $s.key == "agents" then
+          ([ (if ($agt.gaps | length) > 0 then n($agt.gaps | length; "agent"; "agents") + " not reachable through the gateway (" + ([ $agt.gaps[] | .name + ": " + .gap ] | .[0:3] | join("; ")) + ")" else empty end),
+             (if ($agt.notAccepted | length) > 0 then n($agt.notAccepted | length; "tool server"; "tool servers") + " not Accepted (" + names([ $agt.notAccepted[] | .name ]) + ")" else empty end),
+             (if ($agt.gatewayKnown | not) and $agt.total > 0 then "gateway registration could not be checked (" + $agt.gatewayUnknownWhy + ")" else empty end),
+             (if $srvErr != "" then "the tool servers could not be read (" + ($srvErr | cut(200)) + ")" else empty end) ]
+           | if length == 0 then "all " + ($agt.total | tostring) + " agents registered at the gateway" else join(", ") end)
+        elif $s.key == "reviews" then
+          (if $rev.waiting == 0 then "no review proposal waiting for a decision"
+           else n($rev.waiting; "review proposal"; "review proposals") + " waiting for a decision (" + ($rev.newToday | tostring) + " new today, " + ($rev.prOpen | tostring) + " with a pull request open)" end)
+        else
+          (if $s.items == 0 then "no composition needing attention (" + ($cmp.ready | tostring) + " of " + ($cmp.total | tostring) + " Ready)"
+           else ([ (if $cmp.notReady > 0 then ($cmp.notReady | tostring) + " not Ready" else empty end),
+                   (if $cmp.paused > 0 then ($cmp.paused | tostring) + " paused" else empty end),
+                   (if $cmp.drift > 0 then ($cmp.drift | tostring) + " drifted" else empty end) ] | join(", "))
+                + " composition" + (if $s.items == 1 then "" else "s" end) + " (" + names([ $cmp.problems[] | .name ]) + ")" end)
+        end;
+      ([ $src[] | select(.inView) ]) as $view
+    | ([ $view[] | select(.failed) ] + [ $view[] | select(.failed | not) ]) as $ordered
+    | (if ($src | length) == 0 then
+         "None of the pages behind my Dashboard inbox (Incidents, Alerts, Agents, Platform review, Compositions) is open to me. Explain what access each needs and who grants it."
+       elif ($view | length) == 0 then
+         "My Dashboard inbox is filtered to sources I cannot see (" + ($picked | join(", ")) + "). Explain what the inbox shows and how to see everything."
+       else
+         "Brief me on what needs me on my platform"
+         + (if ($picked | length) > 0 then " (only " + ([ $view[] | .label ] | join(", ")) + ")" else "" end)
+         + (if ($projSel | length) > 0 then " in namespace" + (if ($projSel | length) > 1 then "s " else " " end) + ($projSel | join(", ")) else "" end)
+         + ": " + ([ $ordered[] | say(.) ] | join("; ")) + "."
+         + " Tell me what to look at first and why, grounded in the evidence on those pages."
+       end) as $prompt
+    | {
+        sources: $src,
+        incidents: (if ($by.incidents.on // false) then $inc else null end),
+        alerts: (if ($by.alerts.on // false) then $alt else null end),
+        agents: (if ($by.agents.on // false) then $agt else null end),
+        reviews: (if ($by.reviews.on // false) then $rev else null end),
+        compositions: (if ($by.compositions.on // false) then $cmp else null end),
+        filters: $flt,
+        facets: $facets,
+        chips: fx_chips("/dashboard"; $params; $facets),
+        total: ($base | length),
+        matched: ($base | fx_apply($flt) | length),
+        projects: $projects,
+        askHref: ((fx_href("/dashboard"; $params) | if test("[?]") then . + "&" else . + "?" end) + "ask=" + ($prompt | @uri))
+      }

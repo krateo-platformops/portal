@@ -1,0 +1,27 @@
+{{/* The request's description, verbatim.
+
+     A PARAGRAPH AND NOT A MARKDOWN, on purpose: rendering what someone typed as Markdown would
+     reinterpret it — a pasted log line starting `#` becomes a heading, `*` turns a phrase italic.
+     The cost, stated rather than discovered: a Paragraph is HTML, so line breaks collapse and a
+     multi-paragraph request reads as one run of text. Losing the shape of text is recoverable by
+     reading it; having it silently rewritten is not. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-asked-text
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    {{/* `text` is required; zendesk-request always sends a sentence. */}}
+    text: ' '
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ .askedText // " " }'
+  resourcesRefs:
+    items: []

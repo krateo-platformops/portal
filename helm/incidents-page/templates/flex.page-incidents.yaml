@@ -1,6 +1,20 @@
-{{/* Page root for /incidents: page header, state filter chips (live counts), the incident table */}}
-{{/* (one row per Incident, row click → detail) and, only while there are any, the "Firing alerts */}}
-{{/* with no incident" section (a second table, each alert saying why it has none). */}}
+{{/* /incidents (root-pages UX, build plan §3.2; mockup screen 06). Top to bottom:
+       - the header, with Ask Agentiko;
+       - the filter bar (Alert, State, Age, Owner, search; a facet with one value is left out) and,
+         when a filter is applied, its chips;
+     then the OVERVIEW (the default):
+       - group by alert or by age, when anything is active;
+       - the strip;
+       - the calm line (no alert firing without an incident, nothing matching, a failed read) or
+         the "Firing alerts with no incident" section, when there are such alerts;
+       - the active incidents, one card per alert (Open, then Analyzing and Verifying when any);
+       - Resolved and Closed, folded;
+       - "All N incidents as a table →";
+     or, with ?view=table, "← Back to the overview" and today's table, with the same filters.
+
+     krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
+     fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
+     cache a widget that receives an extra it does not declare (F6). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,11 +26,10 @@ metadata:
     "krateo.io/nav-label": "Incidents"
     "krateo.io/nav-order": "12"
     "krateo.io/nav-path": "/incidents"
+    "krateo.io/filter-keys": "projects,status,alert,age,owner,q,group,view"
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. `awaitingCount` */}}
-  {{/* does not follow the ?status= chip. */}}
-  keyExtras: [projects]
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
   apiRef:
     name: incidents-list
     namespace: {{ $.Values.namespace }}
@@ -24,17 +37,20 @@ spec:
     allowedResources:
     - pageheaders
     - flexes
-    - tables
     - listies
+    - paragraphs
+    - collapses
+    - buttons
+    - tables
     vertical: true
     gap: middle
     items:
     - resourceRefId: incidents-page-header
-    - resourceRefId: incidents-status-chips
-    - resourceRefId: incidents-table
+    - resourceRefId: incidents-filter-bar
+    - resourceRefId: incidents-strip
   widgetDataTemplate:
   - forPath: items
-    expression: '${ [ { resourceRefId: "incidents-page-header" }, { resourceRefId: "incidents-status-chips" }, { resourceRefId: "incidents-table" } ] + (if ((.awaitingCount // 0) > 0) then [ { resourceRefId: "incidents-awaiting-section" } ] else [] end) }'
+    expression: '${ . as $r | [ { resourceRefId: "incidents-page-header" }, { resourceRefId: "incidents-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "incidents-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "incidents-view-toggle" }, { resourceRefId: "incidents-table" } ] else ((if ((.panels // []) | length) > 0 then [ { resourceRefId: "incidents-group-toggle" } ] else [] end) + [ { resourceRefId: "incidents-strip" } ] + (if .failed or .alertsFailed or (.awaitingCount // 0) == 0 or (.matched // 0) == 0 or ((.panels // []) | length) == 0 then [ { resourceRefId: "incidents-calm" } ] else [] end) + (if (.awaitingCount // 0) > 0 then [ { resourceRefId: "incidents-awaiting-section" } ] else [] end) + (if ((.panels // []) | length) > 0 then [ { resourceRefId: "incidents-groups" } ] else [] end) + (if ((.counts.resolved // 0) + (.counts.closed // 0)) > 0 then [ { resourceRefId: "incidents-done" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "incidents-view-toggle" } ] else [] end)) end) }'
   resourcesRefs:
     items:
     - id: incidents-page-header
@@ -43,21 +59,63 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: incidents-status-chips
+    - id: incidents-filter-bar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-status-chips
+      name: incidents-filter-bar
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: incidents-active-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-active-filters
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: incidents-table
+    - id: incidents-group-toggle
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-table
+      name: incidents-group-toggle
       namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: listies
+      verb: GET
+    - id: incidents-strip
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-strip
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: incidents-calm
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-calm
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
       verb: GET
     - id: incidents-awaiting-section
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: incidents-awaiting-section
       namespace: {{ $.Values.namespace }}
       resource: flexes
+      verb: GET
+    - id: incidents-groups
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-groups
+      namespace: {{ $.Values.namespace }}
+      resource: collapses
+      verb: GET
+    - id: incidents-done
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-done
+      namespace: {{ $.Values.namespace }}
+      resource: collapses
+      verb: GET
+    - id: incidents-view-toggle
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-view-toggle
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+    - id: incidents-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
       verb: GET

@@ -430,11 +430,14 @@ jobs:
           python3 scripts/test-settings-users.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-no-secret-reads.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-  # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the
+  # /reviews and its proposal and run pages: three RESTActions and ~50 widgets of jq over the
   # nightly review's Proposals and ReviewRuns. This resolves them on fixtures shaped like krateo-057
   # (superseded chains, legacy proposals, unanswered discovery, failed and partial runs), checks the
-  # change-request claim against builder-publish's values schema, and validates every widget, as
-  # resolved, against the newest released frontend CRDs.
+  # overview (facets, grouping, caps, strip, Decided and Runs, the table view; root-pages UX slice 2)
+  # and the change-request claim against builder-publish's values schema, and validates every widget,
+  # as resolved, against the newest released frontend CRDs. The overviews of /reviews and /incidents
+  # use Collapse, Listy `statistic`, Select counts/prefix/panelFooter and Flex role/ariaLabel, so this
+  # job needs a frontend-crds release carrying them (1.8.43): the data-before-consumer order.
   platform-review:
     runs-on: ubuntu-latest
     steps:
@@ -460,9 +463,12 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-platform-review.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-      # /incidents' "Ask Agentiko →": the prompt follows the ?status= chip, and a failed read of the
-      # incidents or of the alerts is said, never drawn as a quiet platform. Reuses the CRDs above.
-      - name: Incidents list Agentiko prompt, evaluated and validated
+      # /incidents: the overview (facets with their counts and hiding, ?status= back-compat, the
+      # strip, one card per alert or age, the caps and "See all" hrefs, Resolved and Closed folded,
+      # the table view), and its "Ask Agentiko →", which keeps every filter and names the view; a
+      # failed read of the incidents or of the alerts is said, never drawn as a quiet platform.
+      # Reuses the CRDs above.
+      - name: Incidents overview and Agentiko prompt, evaluated and validated
         run: python3 scripts/test-incidents-list.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
       # /alerts' state chips: counts over the full set, "Not evaluated" for an alert with no HyperDX
@@ -503,12 +509,13 @@ jobs:
   # the run printed. Evaluated over krateo-057-shaped Incidents, every widget validated against the
   # newest released frontend CRDs.
   # The incident page's layout (chips, Summary, the Reasoning tabs, How to fix, the Incident and Alert
-  # tabs), then its owner row (incident-provider 0.10.0), Agentiko's ticket proposal and the
-  # Tickets card: owner present, absent (nothing new renders) and unknown;
-  # each proposal condition flipped; the ticket list by label, refused, missing and failed in both
-  # errorKey shapes; Dismiss's target; and the raise link followed into service-desk-page's form and
-  # back through this page's own ticket list. Resolved widgets validated against the newest released
-  # CRDs and the ones the installer pins.
+  # tabs), then its owner row (incident-provider 0.10.0), Agentiko's proposal to raise a Zendesk
+  # request and the "Zendesk requests for this incident" card: owner present, absent and unknown;
+  # each proposal condition flipped; the requests by the incident-uid label, refused, not served and
+  # failed in both errorKey shapes; Dismiss's target; the raise link followed into service-desk-page's
+  # Zendesk form and back through this page's card; and the state mapping proved one definition
+  # (_zendesk.tpl byte-identical, every documented reason row the same out of both charts).
+  # Resolved widgets validated against the newest released CRDs and the ones the installer pins.
   incident-tickets:
     runs-on: ubuntu-latest
     steps:
@@ -531,8 +538,47 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-tickets.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-incident-tickets.py --pinned
+      # Its own step, run even when the one above fails: incident-tickets follows the raise link into
+      # service-desk-page's form, which is red by design until frontend-crds declares `textareas`,
+      # and that must not hide the incident page's own layout checks.
+      - name: Incident page layout, evaluated and validated
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
           python3 scripts/test-incident-page.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-incident-page.py --pinned
+
+  # The service desk on Zendesk: a request's state from condition status and reason (an unknown
+  # reason never drawn as progress), the chips, the one unreachable-organisation warning, a cluster
+  # without the kind / a denied / a failed read never rendered as an empty queue, the raise form's
+  # body (plain and raised from an incident), and a request's page. Resolved widgets validated
+  # against the newest released CRDs and the ones the installer pins.
+  # ITS OWN JOB, not a step of composition-architecture: a red step skips every step after it, and
+  # this one is red by design while the chart waits on a frontend-crds release (merge order in
+  # service-desk-page), which would hide six unrelated checks behind it.
+  service-desk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Service desk on Zendesk, over the chart's own jq, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          jq --version
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-service-desk.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+          python3 scripts/test-service-desk.py --pinned
 
   incident-reanalyze:
     runs-on: ubuntu-latest
@@ -555,34 +601,6 @@ jobs:
           helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-incident-reanalyze.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-
-  # A ticket raised from an incident (service-desk-page): the raise form pre-filled from the Incident
-  # it was opened for, the Ticket it POSTs (kind, objectRef, the `krateo.io/incident-uid` label the
-  # incident page selects on), and the ticket page's Incident card and DERIVED resolve proposal —
-  # each condition flipped, failed reads in both errorKey shapes, both deskActions modes. Resolved
-  # widgets are validated against the newest released CRDs and against the ones the installer pins.
-  ticket-from-incident:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Install Helm
-        uses: azure/setup-helm@v5.0.0
-        with:
-          version: v3.19.0
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Ticket from an incident, evaluated and validated
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          jq --version
-          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
-          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
-          python3 scripts/test-ticket-from-incident.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-          python3 scripts/test-ticket-from-incident.py --pinned
 
   # A composition's topology on its detail page is one builder-publish template, one RESTAction of
   # nine jq programs and five widgets of jq, run by CDC's Helm, snowplow's resolver and snowplow's
@@ -628,45 +646,24 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-compositions-table.py
 
-      # "Ask Agentiko →" on /compositions, /dashboard, /blueprints, /marketplace and the blueprint and
-      # marketplace detail pages: the prompt describes the view on screen and the link keeps its
-      # filters, a failed read is never described as an empty one, and a detail link is empty when
-      # the object was not read. Over the RESTActions' own jq.
-      - name: Ask Agentiko on compositions, dashboard, blueprints and marketplace, over the charts' own jq
+      # "Ask Agentiko →" on /compositions, /blueprints, /marketplace and the blueprint and marketplace
+      # detail pages: the prompt describes the view on screen and the link keeps its filters, a
+      # failed read is never described as an empty one, and a detail link is empty when the object
+      # was not read. Over the RESTActions' own jq. (The Dashboard's is in the dashboard-inbox job.)
+      - name: Ask Agentiko on compositions, blueprints and marketplace, over the charts' own jq
         run: |
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-agentiko-compositions-blueprints.py
 
-      # A composition that cannot be judged (Ready=Unknown, reason ZeroEvidence, or ChildrenForbidden
-      # which the rail labels as the RBAC defect it is) is set aside on the Dashboard, and an Unknown
-      # with any other reason is not. Runs the RA's and the widgets' own
-      # jq over krateo-057's compositions; same job because it needs helm, jq and the CRDs pulled above.
-      - name: Dashboard not-assessable bucket, over the chart's own jq
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          python3 scripts/test-dashboard-assessable.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-
-      # The Dashboard's card rows stack on smaller screens instead of squeezing their cards: the stat
-      # cards (4 across, 2 x 2 below 768 px, one per row below 576 px), the charts row (16 / 8, one per
-      # row below 992 px) and the lists row (12 / 12, one per row below 768 px). Resolves the rendered
-      # spans the way antd's grid does, and validates each Row against the CRDs pulled above, so a
-      # span key the CRD lacks fails here.
-      - name: Dashboard rows per line, at phone, tablet and desktop widths
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
-          python3 scripts/test-dashboard-rows.py --crds "$RUNNER_TEMP/crds/frontend-crds"
-
-      # The activity feed links a row from the event alone: the composition sse-proxy (>= 1.5.0) names
-      # on it, or a blueprint's own page; an id-only event stays unlinked. The events RA lists no
-      # compositions, which this asserts too. Same job: it needs helm and jq, and runs the chart's own jq.
-      - name: Dashboard activity feed routes, over the chart's own jq
+      # A composition that cannot be judged (Ready=Unknown, reason ZeroEvidence, or ChildrenForbidden,
+      # which is labelled as the RBAC defect it is) is set aside by compositions-list, and an Unknown
+      # with any other reason is not. Runs the RA's own jq over krateo-057's compositions.
+      - name: compositions-list not-assessable bucket, over the chart's own jq
         run: |
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
-          python3 scripts/test-dashboard-events-routes.py
+          python3 scripts/test-compositions-assessable.py
 
       # The composition detail page's events feed: each row's deep-link survives every shape the
       # per-group discovery stage can hand the filter (flat, nested, empty, null, garbage). A jq error
@@ -676,14 +673,6 @@ jobs:
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-events-routes.py
-
-      # A refused read must not render as a quiet desk. Same job for the same reason as the steps
-      # around it: it needs helm and jq, and runs the chart's own jq rather than a copy.
-      - name: Service desk queue, over the chart's own jq
-        run: |
-          set -euo pipefail
-          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
-          python3 scripts/test-service-desk.py
 
       # Ready=Unknown must not render as progress. Same job for the same reason as its neighbours:
       # it needs helm and jq, and runs the chart's own jq rather than a copy.
@@ -733,6 +722,7 @@ jobs:
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-agents-page.py
+
 
   # snowplow resolves every widget with NO request extras on its Phase-1 walk, and a step path that
   # papers over a missing route param with a `//` default dials a half-built path anyway: krateo-057
@@ -784,6 +774,87 @@ jobs:
   # edges, an Error span shown as an error, a quote in a TraceId or filter making no request — and
   # validates every widget, as rendered and as resolved, against the frontend-crds version the
   # installer PINS (not the latest), which is what the cluster serves.
+  # Every duration statistic reads "830 ms" / "1.2 s", never antd's "1,189 ms" (a decimal comma to an
+  # Italian reader). One formatter, _duration.tpl, byte-identical in compositions-page,
+  # observability-page and portal-agents; this runs each widget's own jq. Its own job because the
+  # time-to-first-token query is rendered by snowplow's own path renderer (needs Go) and executed
+  # against fixture spans in sqlite.
+  duration-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Duration labels, over the charts' own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-duration-labels.py
+
+  # The Dashboard "needs you" inbox (root-pages UX slice 1) and the filter helper every filtered
+  # overview page shares. portal.facets: the copies of _facets.tpl are byte-identical and its counts,
+  # visibility and hrefs follow decisions Q1 and Q2. The inbox: a source whose page the caller cannot
+  # open is absent, a failed read is never quiet, ZeroEvidence is not "not Ready", ?source= drives
+  # the strip, cards and prompt, and the copies of _agents-gateway.tpl and _audit.tpl match their
+  # owners. Its widgets are validated against the NEWEST RELEASED frontend-crds, so this job is red
+  # until a frontend release carries Collapse, Listy `statistic`, Select counts/prefix/panelFooter
+  # and Flex role/ariaLabel (frontend 1.8.43): the data-before-consumer order, not a flake.
+  dashboard-inbox:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Recent changes' ClickHouse request is rendered by snowplow's own path renderer
+      # (scripts/snowplow-path.py builds it from the snowplow tag the installer pins).
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Facets helper, over the charts' own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          jq --version
+          python3 scripts/test-facets.py
+
+      - name: Dashboard inbox, evaluated and validated
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml, jsonschema" 2>/dev/null || pip3 install --user pyyaml jsonschema
+          helm pull oci://ghcr.io/krateo-platformops/charts/frontend-crds --untar -d "$RUNNER_TEMP/crds"
+          grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
+          python3 scripts/test-dashboard-inbox.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
   observability-traces:
     runs-on: ubuntu-latest
     steps:

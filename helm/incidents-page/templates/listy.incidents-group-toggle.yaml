@@ -1,0 +1,27 @@
+{{/* How the active incidents are grouped: By alert (the default, no ?group=) or By age (?group=age).
+     Two chips, the current one active, each keeping every other param. The mockup draws a
+     Segmented; there is no Segmented widget, and the chip row is the existing single-choice
+     control (build plan §1). Drawn only when an active state has incidents in view. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-group-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{href}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ { label: "By alert", active: ((.group // "alert") == "alert"), href: (.groupHrefs.alert // "/incidents") }, { label: "By age", active: (.group == "age"), href: (.groupHrefs.age // "/incidents?group=age") } ] }'
+  resourcesRefs:
+    items: []

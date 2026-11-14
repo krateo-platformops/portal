@@ -1,0 +1,153 @@
+{{/* /service-desk/{namespace}/{name} data source: ONE ZendeskRequest, shaped server-side.
+
+     ONE READ, AS THE CALLER. No userAccessFilter and no endpointRef, so the step dials with the
+     person's own credential and the apiserver decides whether they may read this request: a URL
+     edited to name another organisation's request gets a 403, and the page says it could not be
+     read. snowplow splices each route value as ONE path segment (snowplow#1123), so neither can walk
+     the path somewhere else.
+
+     GATED ON ITS INPUT (scripts/lint-ra-paths.py): snowplow resolves widgets with no request extras
+     on its prewarm walk, so the iterator yields nothing without both route params and nothing is
+     dialled.
+
+     WHAT IT SAYS, from _zendesk.tpl's state (condition status and reason, never the message text):
+       filed        the header pill is Zendesk's status, with its Zendesk number. There is no
+                    "Open in Zendesk" link: the requester Zendesk records is the organisation's
+                    support account, so a person could not open that page. The portal is the window.
+       filing       an info alert: saved, not filed yet, reload in a moment. The page does not
+                    refresh by itself: the portal's data widgets don't live-refresh today.
+       unreachable  a warning: the organisation's token may have expired, ask an administrator.
+                    With a Zendesk number, the last known status stays, marked "Last known", and
+                    the alert says when the portal last read it (when Ready went Unknown). Without
+                    one, "Nothing has reached Zendesk yet".
+       refused      an error alert: Zendesk refused it, with the condition message verbatim.
+       held         a warning, with the condition message verbatim.
+       other        the reason verbatim as the title, with the message: never drawn as progress.
+     Times are absolute, never "3 hours ago": the page is cached until the request changes, and a
+     relative time would go on saying 3 hours. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: zendesk-request
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: request
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select((.name | type) == "string" and (.namespace | type) == "string" and .name != "" and .namespace != "") ]'
+      path: ${ "/apis/{{ include "servicedesk.zendeskRequestAPIVersion" . }}/namespaces/" + .namespace + "/zendeskrequests/" + .name }
+      verb: GET
+      continueOnError: true
+      errorKey: requestError
+  {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into one
+       line and so comment out the rest of the program. */}}
+  filter: |
+    {{- include "servicedesk.requestDefs" . | nindent 4 }}
+    def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
+    def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    def stamp: (. // "") as $s | ($s | epoch) as $at
+      | if $at == null then ($s | tostring | .[0:10]) else ($at | strftime("%Y-%m-%d %H:%M UTC")) end;
+    def sentence: if . == "" then "" elif test("[.!?]$") then . else . + "." end;
+    def errtext: if . == null then ""
+      elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ")
+      elif type == "object" then (.message // tojson)
+      else tostring end;
+    ((.name // "") | str) as $n
+    | ((.namespace // "") | str) as $ns
+    | ((.requestError // null) | errtext) as $err
+    | ([ (.requestError // null) | if type == "array" then .[] else . end | objects | .code // empty ]) as $codes
+    # A single iterator element is stored as the object itself; an array is taken defensively.
+    | ((.request // null) | if type == "array" then (.[0] // null) else . end
+       | if type == "object" and ((.metadata.name // "") == $n) and $n != "" then . else null end) as $o
+    | ($o != null) as $found
+    # Not served (the resource is unknown to the apiserver) and not there (this request is) are
+    # both 404s. The apiserver words them differently, and the remedies differ: install the
+    # provider, or the request was deleted.
+    | (($found | not) and ($err | test("could not find the requested resource|no matches for"; "i"))) as $absent
+    | (($found | not) and ($absent | not) and (($codes | index(404)) != null or ($err | test("not found"; "i")))) as $missing
+    | (($found | not) and (($codes | index(403)) != null or ($err | test("403|forbidden"; "i")))) as $denied
+    | (if $found then ($o | requestView) else null end) as $v
+    | ($v.state // "") as $state
+    | (($v.id // "") != "") as $hasId
+    | ($v.lastKnown // false) as $lk
+    # The alert: one per page at most, and none on a filed request.
+    | (if ($found | not) then { show: false }
+       elif $state == "filing" then
+         { show: true, type: "info", title: "Filing with Zendesk…",
+           description: "Your request is saved, and the Zendesk provider hasn’t filed it yet. When it has, its Zendesk number and status appear here. Reload in a moment." }
+       elif $state == "unreachable" then
+         { show: true, type: "warning", title: "Can’t reach Zendesk for this request",
+           description: ("Your organisation’s Zendesk token may have expired. Ask an administrator."
+             + (if $hasId then
+                  (if ($v.ready.since // "") != "" then " The portal last read this request at " + ($v.ready.since | stamp) + ", so the status shown may be out of date."
+                   else " The status shown is the last one the portal read, and may be out of date." end)
+                else " Nothing has reached Zendesk yet." end)) }
+       elif $state == "refused" then
+         { show: true, type: "error", title: "Zendesk refused this request",
+           description: ((if ($v.synced.message // "") != "" then $v.synced.message else ($v.ready.message // "") end | sentence) as $m
+             | (if $m != "" then $m + " " else "" end) + "Ask an administrator.") }
+       elif $state == "held" then
+         { show: true, type: "warning", title: "Held",
+           description: ((($v.ready.message // "") | sentence) as $m
+             | (if $m != "" then $m + " " else "" end) + "It hasn’t been filed with Zendesk. Ask an administrator.") }
+       elif $state == "other" then
+         { show: true, type: "warning",
+           title: ("Ready=" + (if ($v.ready.status // "") != "" then $v.ready.status else "?" end) + (if ($v.ready.reason // "") != "" then " · " + $v.ready.reason else "" end)),
+           description: (($v.ready.message // "") | if . != "" then . else "The Zendesk provider reported a state the portal does not know." end) }
+       else { show: false } end) as $alert
+    | (if $found then
+         (if $hasId then
+            "Zendesk request #" + $v.id + (if ($v.created // "") != "" then ", filed " + ($v.created | stamp) else "" end) + "."
+          else
+            "Raised " + ($v.portalCreated | stamp) + ". No Zendesk number yet."
+          end)
+       else "" end) as $subtitle
+    | (if $found then [
+         { label: "Status", value: (if ($v.zendeskStatus // "") != "" or $state == "filed" then $v.label + (if $lk then " (last known)" else "" end) elif $state == "filing" or $state == "unreachable" then "Not filed yet" else $v.label end) },
+         { label: "Priority", value: $v.priorityText },
+         { label: "Kind", value: $v.kindText },
+         { label: "Zendesk #", value: (if $hasId then "#" + $v.id else "—" end) },
+         { label: "Created", value: (if ($v.created // "") != "" then ($v.created | stamp) else ($v.portalCreated | stamp) end) },
+         { label: "Updated", value: (if ($v.updated // "") != "" then ($v.updated | stamp) + (if $lk then " (last known)" else "" end) else "—" end) },
+         { label: "Organisation", value: (if ($v.org.namespace // "") != "" then $v.org.namespace else "—" end) },
+         { label: "Raised by", value: (if ($v.raisedBy // "") != "" then $v.raisedBy else "—" end) },
+         { label: "Portal reference", value: (if ($v.reference // "") != "" then $v.reference else $v.name end) }
+       ] else [] end) as $items
+    | (if ($found | not) then
+         (if $err != "" then "My Zendesk request " + $n + " in " + $ns + " could not be read (" + ($err | cap(300)) + "). Explain what that error means and what to check."
+          else "Explain how I raise a request with the service desk on this platform." end)
+       else
+         "Explain what is happening with my Zendesk request \"" + ($v.subject | cap(110)) + "\" in " + $v.org.namespace
+         + " (" + $v.label + (if $lk then ", last known" else "" end) + (if $hasId then ", Zendesk #" + $v.id else ", not in Zendesk yet" end)
+         + ", priority " + $v.priorityText + ", " + $v.kindText + ")."
+         + (if ($alert.show // false) then " The page says: " + $alert.title + ". " + ($alert.description // "") else "" end)
+         + " Does it need anything from me?"
+       end) as $prompt
+    | {
+        found: $found,
+        title: (if $found and ($v.subject // "") != "" then $v.subject elif $found then $v.name else "Request" end),
+        subtitle: $subtitle,
+        pill: (if $found then { label: $v.label, color: $v.color } else { label: "", color: "gray" } end),
+        lastKnown: $lk,
+        alert: $alert,
+        items: $items,
+        # The request text, verbatim: what the person typed, from the object's own spec.
+        askedText: (if $found then (if ($v.description // "") != "" then $v.description else "No description was given." end) else " " end),
+        # The line about replies is on every request's page: replies are a later version, not a
+        # state of this request.
+        showReplies: $found,
+        unavailable: (if $found then { status: "info", title: "", subTitle: "" }
+                      elif $absent then { status: "info", title: "Zendesk requests aren’t served on this cluster",
+                                          subTitle: "The portal can’t find the ZendeskRequest kind ({{ include "servicedesk.zendeskRequestAPIVersion" . }}). An administrator installs the Zendesk provider." }
+                      elif $denied then { status: "warning", title: "You can’t read this request",
+                                          subTitle: ("Your access to Zendesk requests in " + $ns + " could not be confirmed. Ask an administrator.") }
+                      elif $missing then { status: "info", title: "This request isn’t here",
+                                           subTitle: ("There is no Zendesk request " + $n + " in " + $ns + ". It may have been deleted from the portal, which never removes it from Zendesk.") }
+                      else { status: "warning", title: "This request could not be read",
+                             subTitle: (if $err != "" then ($err | cap(300)) else "The read returned nothing the page could use." end) } end),
+        askHref: (if $n == "" or $ns == "" then "/service-desk" else ("/service-desk/" + ($ns | @uri) + "/" + ($n | @uri) + "?ask=" + ($prompt | @uri)) end)
+      }

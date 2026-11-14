@@ -1,0 +1,67 @@
+{{/* The queue: one row per ZendeskRequest off zendesk-requests, which applies the ?state= chip as a
+     jq `select` over its one read, server-side. Subject, Status, Priority, Kind, Zendesk #, Raised
+     by, Updated. Clicking anywhere on a row opens the request, as rowNavigateTo always has.
+
+     THE STATUS PILL'S WORD AND COLOUR COME FROM THE RESTACTION (_zendesk.tpl), never from a map
+     here: the request page shows the same pill, and two copies of a colour map are two chances to
+     drift. Every tag renders as getTagStyle's soft tint, not a solid pill.
+
+     PRIORITY AND KIND ARE PLAIN TEXT (worded in _zendesk.tpl): they are not statuses, and
+     indicators are exception-only.
+     Zendesk # is the request number, or a faint dash before the provider has filed it.
+
+     "RAISED BY" is the krateo.io/raised-by the raise form wrote — informational, not a boundary
+     (anyone who may create a request can set it). A request raised before the portal recorded it,
+     or made by hand, shows a faint dash. There is no Assignee column: nobody assigns requests here
+     any more; agents work them in Zendesk.
+
+     UPDATED is Zendesk's own last change (status.updated_at), or when the portal saved the request
+     if Zendesk has not seen it yet. `format: relative` is drawn by the browser, so it does not go
+     stale in a cached cell. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-requests
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* `state` selects the rows, and "Mine" selects them per person. */}}
+  keyExtras: [state]
+  identityContext:
+    - username
+  widgetData:
+    {{/* Shrink columns to the container rather than growing a horizontal scrollbar: a long subject
+         ellipsis-truncates and carries its full text on hover. */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /service-desk/{namespace}/{name}
+    pagination:
+      defaultPageSize: 20
+    columns:
+    - valueKey: subject
+      title: Subject
+    - valueKey: status
+      title: Status
+    - valueKey: priority
+      title: Priority
+    - valueKey: kind
+      title: Kind
+    - valueKey: zendesk
+      title: Zendesk #
+    - valueKey: raisedBy
+      title: Raised by
+    - valueKey: updated
+      title: Updated
+    dataSource: []
+  widgetDataTemplate:
+  {{/* The subject is capped at ~110 characters so it cannot crush the trailing columns. */}}
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"subject",kind:"jsonSchemaType",type:"string",stringValue:((.subject // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"status",kind:"tag",stringValue:(.label // ""),color:(.color // "gray")}, {valueKey:"priority",kind:"jsonSchemaType",type:"string",stringValue:(.priorityText // "—")}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:(.kindText // "—")}, (if (.id // "") != "" then {valueKey:"zendesk",kind:"jsonSchemaType",type:"string",stringValue:("#" + .id)} else {valueKey:"zendesk",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"faint"} end), (if (.raisedBy // "") != "" then {valueKey:"raisedBy",kind:"jsonSchemaType",type:"string",stringValue:.raisedBy} else {valueKey:"raisedBy",kind:"jsonSchemaType",type:"string",stringValue:"—",color:"faint"} end), {valueKey:"updated",kind:"jsonSchemaType",type:"string",stringValue:(.sortKey // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

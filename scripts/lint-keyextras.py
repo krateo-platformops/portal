@@ -34,6 +34,17 @@ WHAT THIS SCRIPT DOES:
      navigation (the PR#21 dashboard first-nav regression). The nav Menu is a
      walk BOUNDARY here: its resourcesRefs are route bindings (per-route page
      content), not chrome render children.
+  f. FAIL (filter-keys rule, root-pages UX build plan §2.4): a page root that
+     carries the annotation `krateo.io/filter-keys: "projects,source"` names
+     the URL params its filter bar writes. Every URL query param reaches every
+     widget on the page as an extra, so every widget reachable from that root
+     must declare all of them in spec.keyExtras, or snowplow's F6 guard
+     declines every cache Put for it. This rule runs over EVERY chart under
+     helm/ whose templates use the annotation (page roots live in the page
+     charts, not in the portal chart the route rule reads), and the walk is
+     the same same-chart resourcesRefs walk as (c). A widget another chart owns
+     (the shell's new-composition Button) is outside the walk and is not
+     checked here.
 
   Exit code: 1 if any FAIL, 0 otherwise (warnings never gate).
 
@@ -54,19 +65,21 @@ import tempfile
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CHART_DIR = os.environ.get("CHART_DIR", os.path.join(HERE, "..", "helm", "portal"))
+HELM_DIR = os.environ.get("HELM_DIR", os.path.join(HERE, "..", "helm"))
+CHART_DIR = os.environ.get("CHART_DIR", os.path.join(HELM_DIR, "portal"))
+FILTER_KEYS_ANNOTATION = "krateo.io/filter-keys"
 ROUTES_WIDGET = os.environ.get("ROUTES_WIDGET", "sidebar-nav")
 CHROME_HEADER_WIDGET = os.environ.get("CHROME_HEADER_WIDGET", "header-context")
 WIDGET_API_GROUP = "widgets.templates.krateo.io"
 PARAM_RE = re.compile(r"\{([A-Za-z0-9_-]+)\}")
 
 
-def render_chart():
+def render_chart(chart_dir=None):
     """helm template the chart; substitute the CHART_VERSION placeholder in a
     tempdir copy so the working tree is untouched (restore-after by design)."""
     with tempfile.TemporaryDirectory(prefix="lint-keyextras-") as tmp:
         chart_copy = os.path.join(tmp, "chart")
-        shutil.copytree(CHART_DIR, chart_copy)
+        shutil.copytree(chart_dir or CHART_DIR, chart_copy)
         chart_yaml = os.path.join(chart_copy, "Chart.yaml")
         with open(chart_yaml) as f:
             text = f.read()
@@ -207,6 +220,52 @@ def walk(root, widgets, boundaries=frozenset()):
     return seen
 
 
+def filter_key_charts():
+    """Every chart under HELM_DIR whose templates use the filter-keys annotation."""
+    found = []
+    for chart in sorted(os.listdir(HELM_DIR)):
+        tdir = os.path.join(HELM_DIR, chart, "templates")
+        if not os.path.isfile(os.path.join(HELM_DIR, chart, "Chart.yaml")) or not os.path.isdir(tdir):
+            continue
+        for root, _, files in os.walk(tdir):
+            if any(FILTER_KEYS_ANNOTATION in open(os.path.join(root, f), encoding="utf-8").read()
+                   for f in files if f.endswith((".yaml", ".tpl"))):
+                found.append(os.path.join(HELM_DIR, chart))
+                break
+    return found
+
+
+def filter_key_failures(docs, chart_label):
+    """(f): every widget reachable from an annotated page root declares the root's filter keys."""
+    widgets = build_widget_index(docs)
+    failures = 0
+    roots = [(k, d) for k, d in widgets.items()
+             if FILTER_KEYS_ANNOTATION in ((d.get("metadata") or {}).get("annotations") or {})]
+    for key, doc in sorted(roots, key=lambda kd: kd[0][1]):
+        raw = doc["metadata"]["annotations"][FILTER_KEYS_ANNOTATION]
+        keys = [k.strip() for k in str(raw).split(",") if k.strip()]
+        if not keys:
+            failures += 1
+            print(f"  FAIL  {chart_label}: {doc['kind']} {key[1]}: {FILTER_KEYS_ANNOTATION} "
+                  f"is {raw!r}, which names no key")
+            continue
+        tree = walk(key, widgets)
+        bad = []
+        for w in sorted(tree, key=lambda k: k[1]):
+            missing = [k for k in keys if k not in key_extras(widgets[w])]
+            if missing:
+                bad.append((widgets[w]["kind"], w[1], missing, key_extras(widgets[w])))
+        print(f"filter-keys {chart_label} page={key[1]} keys={keys} "
+              f"widgets={len(tree)} violations={len(bad)}")
+        for kind, name, missing, declared in bad:
+            failures += 1
+            print(f"  FAIL  {kind} {name}: keyExtras={declared} is missing filter "
+                  f"key(s) {missing} from {key[1]}'s {FILTER_KEYS_ANNOTATION} - every "
+                  "URL param reaches every widget on the page, so snowplow's F6 guard "
+                  "will decline every cache Put for it")
+    return failures, len(roots)
+
+
 def main():
     docs = [d for d in yaml.safe_load_all(render_chart()) if d]
     widgets = build_widget_index(docs)
@@ -254,9 +313,19 @@ def main():
                   " — will guard-decline if the shell scope selector's ?projects= "
                   "reaches it (the PR#21 regression shape)")
 
+    # (f) filter-keys rule — FAIL, over every chart that uses the annotation.
+    filtered_pages = 0
+    for chart_dir in filter_key_charts():
+        label = os.path.basename(os.path.normpath(chart_dir))
+        chart_docs = docs if os.path.realpath(chart_dir) == os.path.realpath(CHART_DIR) else \
+            [d for d in yaml.safe_load_all(render_chart(chart_dir)) if d]
+        f, n = filter_key_failures(chart_docs, label)
+        failures += f
+        filtered_pages += n
+
     print(f"\nlint-keyextras: {failures} failure(s), {warnings} warning(s) "
           f"across {sum(1 for _, p, t in routes if p and t)} parameterized "
-          f"route(s), {len(widgets)} widgets")
+          f"route(s), {len(widgets)} widgets, {filtered_pages} filtered page(s)")
     if failures:
         print("FAILED — declare the missing keys in the widget's CHART template "
               "(live CR edits are reverted by the composition controller). "

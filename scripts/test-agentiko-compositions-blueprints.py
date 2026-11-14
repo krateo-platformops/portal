@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""""Ask Agentiko →" on /compositions, /dashboard, /blueprints, /marketplace and the two detail pages,
+""""Ask Agentiko →" on /compositions, /blueprints, /marketplace and the two detail pages,
 over the charts' OWN jq.
 
 Every entry point is a Button that navigates to an `…Href` its RESTAction builds, so what the
@@ -194,21 +194,9 @@ many = run_comps(items=[comp(f'c{i}', 'ns', ready='False', reason='X') for i in 
 _, prompt = ask(many['askHref'])
 check('compositions: eight at most', ('8. WebApp/c7' in prompt, '9. ' in prompt), (True, False))
 
-# The dashboard: `.list`, not the workloads view; ?range and ?projects kept.
-href, prompt = ask(normal['dashboardAskHref'])
-check('dashboard: -> self page', href, '/dashboard')
-check('dashboard: -> every composition', prompt,
-      'Brief me on my platform: 5 compositions — 2 healthy, 2 failed, 1 degraded, 0 pending. The ones that need attention are: '
-      '1. Portal/portal · krateo-system — failed 2. WebApp/orders-api · team-alpha — failed 3. WebApp/web · team-alpha — degraded '
-      '4. Redis/cache · team-beta — drifted. '
-      'What needs my attention first, and what should I do about it?')
-href, prompt = ask(run_comps(range='7d', projects='team-beta', status='failed')['dashboardAskHref'])
-check('dashboard: scoped -> keeps range and projects, not the compositions page status', href, '/dashboard?range=7d&projects=team-beta')
-check('dashboard: scoped -> said', prompt.startswith('Brief me on my platform in namespace team-beta: 2 compositions — 2 healthy, 0 failed'), True)
-_, prompt = ask(run_comps(items=[])['dashboardAskHref'])
-check('dashboard: none -> says so', prompt.startswith('Brief me on my platform: I have no compositions yet.'), True)
-_, prompt = ask(refused['dashboardAskHref'])
-check('dashboard: refused -> asks about the error', prompt.startswith("My platform's compositions could not be read (compositiondefinitions"), True)
+# The Dashboard's Ask Agentiko no longer reads compositions-list: it is the platform inbox now, and
+# scripts/test-dashboard-inbox.py holds its prompt (dashboard-inbox's askHref).
+check('compositions-list no longer builds the Dashboard\'s link', 'dashboardAskHref' in normal, False)
 
 cpage = render('compositions-page')
 cbutton = named(cpage, 'Button', 'compositions-ask-agentiko')
@@ -217,12 +205,6 @@ check('compositions button: keyExtras = the table\'s', cbutton['spec']['keyExtra
       named(cpage, 'Table', 'compositions-table')['spec']['keyExtras'])
 check('compositions header: Ask, then Create', items_of(named(cpage, 'PageHeader', 'compositions-page-header')),
       ['compositions-ask-agentiko', 'new-composition'])
-dpage = render('dashboard-page')
-dbutton = named(dpage, 'Button', 'dashboard-ask-agentiko')
-button_check('dashboard button', dbutton, normal, 'dashboardAskHref', '/dashboard')
-check('dashboard button: reads compositions-list, not dashboard-data', dbutton['spec']['apiRef']['name'], 'compositions-list')
-check('dashboard header: Ask, then Create', items_of(named(dpage, 'PageHeader', 'dashboard-page-header')),
-      ['dashboard-ask-agentiko', 'new-composition'])
 
 # --- /blueprints: the shell's blueprints-cards ------------------------------------------------------
 cards_prog = named(portal, 'RESTAction', 'blueprints-cards')['spec']['filter']
@@ -367,6 +349,6 @@ check('marketplace detail actions: Ask, then Install', items_of(named(mpage, 'Fl
 
 for f in failures:
     print(f'FAIL  {f}')
-print(f'{"FAILED" if failures else "ok"}: Ask Agentiko on compositions, dashboard, blueprints and marketplace'
+print(f'{"FAILED" if failures else "ok"}: Ask Agentiko on compositions, blueprints and marketplace'
       f' ({len(failures)} failure(s))')
 raise SystemExit(1 if failures else 0)

@@ -1,0 +1,31 @@
+{{/* Recent changes (decision Q5): the five latest changes of the last 7 days from the audit trail
+     (dashboard-recent-changes), each as "<action> <resource>/<name>" with who made it and when (UTC).
+     The header counts the week; "See all N →" opens the /audit page on the same 7 days, which has
+     the rest, when the week holds more than the five shown.
+
+     A caller whose namespaces' audit trail is not shared with them, or whose read failed, gets one
+     row saying so, never an empty week. Its own Collapse, below the calm line, as drawn. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-recent-changes
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-recent-changes
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    defaultActiveKey:
+    - recent
+    itemTemplate:
+      primaryText: '{what}'
+      subPrimaryText: '{who}'
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (.rows // []) as $rows | (.total // 0) as $total | if .scope == "none" then [ { key: "recent", label: "Recent changes", extra: "not shared with you", dataSource: [ { what: "The audit trail of your namespaces is not shared with you.", who: "An administrator grants it per namespace (list auditrecords.audit.krateo.io)." } ] } ] elif .failed then [ { key: "recent", label: "Recent changes", extra: "could not be read", status: "warning", dataSource: [ { what: "The audit trail could not be read.", who: "The /audit page reads the same records." } ] } ] else [ { key: "recent", label: "Recent changes", count: $total, extra: "last 7 days", dataSource: (if ($rows | length) == 0 then [ { what: "No changes in the last 7 days.", who: "" } ] else [ $rows[] | { what: (.verb + " " + (if .resource != "" then .resource elif .kind != "" then .kind else "—" end) + (if .name != "" then "/" + .name else "" end) + (if .namespace != "" then " in " + .namespace else "" end)), who: ((if .user != "" then .user else "no user (controller)" end) + " · " + (.at[5:16]) + " UTC") } ] end) } + (if $total > ($rows | length) then { footer: ("See all " + ($total | tostring) + " →"), footerNavigateTo: (.auditHref // "/audit?range=7d") } else {} end) ] end }'
+  resourcesRefs:
+    items: []
