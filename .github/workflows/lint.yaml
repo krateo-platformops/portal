@@ -279,6 +279,17 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-dangling-refs.py
 
+      # A ref that resolves can still name something the apiserver refuses: alerts-page 1.8.119
+      # shipped a Select named `alerts-hasIncidents` (uppercase), referenced consistently, so every
+      # gate here passed and the page's composition hot-looped on krateo-057 until a fix release.
+      # helm template does not validate names; this runs the apiserver's DNS-1123 rule over every
+      # rendered metadata.name, resourcesRefs name and apiRef name, in the same flag states.
+      - name: Every rendered name is a valid Kubernetes name
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-k8s-names.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A

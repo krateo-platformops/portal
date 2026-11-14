@@ -27,7 +27,7 @@ spec:
     - resourceRefId: alerts-search
   widgetDataTemplate:
   - forPath: items
-    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("signal", "status", "hasIncidents") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("alerts-" + $k) } ] + [ { resourceRefId: "alerts-search" } ] }'
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("signal", "status", "hasIncidents") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ({signal: "alerts-signal", status: "alerts-status", hasIncidents: "alerts-has-incidents"}[$k]) } ] + [ { resourceRefId: "alerts-search" } ] }'
   resourcesRefs:
     items:
     - id: alerts-signal
@@ -42,9 +42,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: selects
       verb: GET
-    - id: alerts-hasIncidents
+    - id: alerts-has-incidents
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-hasIncidents
+      name: alerts-has-incidents
       namespace: {{ $.Values.namespace }}
       resource: selects
       verb: GET
