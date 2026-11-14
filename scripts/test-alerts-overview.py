@@ -12,8 +12,10 @@ WHAT IT GUARDS (build plan §3.4, mockup screen 07, decisions of 2026-11-13 and 
     many incidents), Don't open incidents;
   - the groups, in order: Firing (red), Not evaluated (orange), Pending, Back to OK in the last 24
     hours (newest first), OK with open incidents (most first), then OK by signal, folded; six cards
-    a group, then "See all N →" to the table filtered to it (Q1); a Firing card claims no time it
-    started firing (the CR records none);
+    a group, then "See all N →" to the table filtered to it (Q1);
+  - a Firing card says "Firing since <time>" from status.stateSince (alert-provider 0.2.83), in UTC
+    whatever its offset, and "since: unknown" when it is absent or empty, never stateObservedAt and
+    never now (an alert firing before 0.2.83, or a cluster on an older provider);
   - the header: Ask Agentiko (about the alerts on screen), Author with Autopilot (authoring), New
     alert; both Agentiko links keep every filter;
   - the calm line when nothing is firing, not evaluated or pending; ?view=table keeps today's table,
@@ -40,8 +42,15 @@ def ago(hours):
     return (NOW - datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.123456+00:00')
 
 
-def alert(name, state='OK', typ='Logs', ok_hours=None, synced=True, opens=None):
+ABSENT = object()
+
+
+def alert(name, state='OK', typ='Logs', ok_hours=None, synced=True, opens=None, since=ABSENT, observed=None):
     st = {'state': state, 'type': typ}
+    if since is not ABSENT:
+        st['stateSince'] = since
+    if observed:
+        st['stateObservedAt'] = observed
     if synced:
         st['hyperdxAlertId'] = 'hdx-' + name
     if ok_hours is not None:
@@ -58,7 +67,10 @@ def incident(name, alert_name, state):
             'status': {'state': state, 'rootCause': {'statement': 'y' * 500}}}
 
 
-ALERTS = [alert('reconcile-errors', 'ALERT'), alert('orphan', 'OK', synced=False), alert('fresh', 'PENDING'),
+# The firing alert as one already ALERT before alert-provider 0.2.83: no stateSince yet, but a
+# stateObservedAt (the last observation), which must never stand in for it.
+OBSERVED = (NOW - datetime.timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%S.123456+00:00')
+ALERTS = [alert('reconcile-errors', 'ALERT', observed=OBSERVED), alert('orphan', 'OK', synced=False), alert('fresh', 'PENDING'),
           alert('cert-expiry', ok_hours=2), alert('job-failed', ok_hours=12), alert('old-recovery', ok_hours=40),
           alert('probe', ok_hours=900), alert('oom', ok_hours=900, typ='Metric', opens=('False', 'AggregatedValue')),
           alert('quiet-logs', ok_hours=900), alert('quiet-trace', ok_hours=900, typ='Traces')]
@@ -143,8 +155,8 @@ def check_groups():
            [('firing', 1, 'error'), ('notEvaluated', 1, 'warning'), ('pending', 1, None), ('backToOk', 2, None), ('okOpen', 2, None), ('ok', 3, None)])
     expect(f, 'every group open but OK', g['defaultActiveKey'], ['firing', 'notEvaluated', 'pending', 'backToOk', 'okOpen'])
     fire = g['items'][0]['dataSource'][0]
-    expect(f, 'a Firing card: its open incidents, its cadence, no firing-since claim', (fire['tag'], fire['body'], fire['foot'], fire['href']),
-           ('Alert', '1 open incident.', 'reconcile-errors · Logs · every 5m', '/alerts/krateo-system/reconcile-errors'))
+    expect(f, 'a Firing card: its open incidents, since: unknown without stateSince, its cadence', (fire['tag'], fire['body'], fire['foot'], fire['href']),
+           ('Alert', '1 open incident.', 'since: unknown · reconcile-errors · Logs · every 5m', '/alerts/krateo-system/reconcile-errors'))
     back = [p for p in g['items'] if p['key'] == 'backToOk'][0]['dataSource']
     expect(f, 'Back to OK in the last 24 hours: newest first; 40 hours ago is not', [c['title'] for c in back], ['Cert Expiry', 'Job Failed'])
     okopen = [p for p in g['items'] if p['key'] == 'okOpen'][0]['dataSource']
@@ -157,6 +169,27 @@ def check_groups():
     fire = w('Collapse', 'alerts-groups', resolve(ex, many), ex)['items'][0]
     expect(f, 'past six: See all N to the Firing table (Q1)', (len(fire['dataSource']), fire['footer'], fire['footerNavigateTo']),
            (6, 'See all 8 →', '/alerts?projects=team-a&status=alert&view=table'))
+    return f
+
+
+def check_firing_since():
+    """status.stateSince (alert-provider 0.2.83) on the Firing card, in the page's time style, in UTC;
+    "since: unknown" when absent or empty (before 0.2.83's first transition, or an older provider),
+    never stateObservedAt and never now."""
+    f = []
+    obs = '2026-11-14T08:22:39.886675+00:00'
+    cases = [('fractional, +00:00', '2026-11-13T21:05:07.123456+00:00', 'Firing since 2026-11-13 21:05 UTC'),
+             ('Z', '2026-11-13T21:05:07Z', 'Firing since 2026-11-13 21:05 UTC'),
+             ('another offset, shown in UTC', '2026-11-13T23:05:07+02:00', 'Firing since 2026-11-13 21:05 UTC'),
+             ('empty', '', 'since: unknown'),
+             ('absent', ABSENT, 'since: unknown')]
+    for label, since, want in cases:
+        g = w('Collapse', 'alerts-groups', resolve({}, [alert('a', 'ALERT', since=since, observed=obs)], incidents=[]))
+        foot = g['items'][0]['dataSource'][0]['foot']
+        expect(f, f'stateSince {label}', foot.split(' · ')[0], want)
+        expect(f, f'stateSince {label}: never the last observation', '08:22' in foot, False)
+    row = resolve({}, [alert('a', 'ALERT', since='2026-11-13T21:05:07Z')], incidents=[])['rows'][0]
+    expect(f, 'the RA keeps the raw value and its UTC form', (row['stateSince'], row['stateSinceUtc']), ('2026-11-13T21:05:07Z', '2026-11-13 21:05 UTC'))
     return f
 
 
@@ -209,7 +242,7 @@ def check_filter_keys():
     return f
 
 
-CHECKS = [check_incidents_read, check_facets, check_strip, check_groups, check_header_and_asks, check_calm_and_table, check_filter_keys]
+CHECKS = [check_incidents_read, check_facets, check_strip, check_groups, check_firing_since, check_header_and_asks, check_calm_and_table, check_filter_keys]
 
 
 def main():

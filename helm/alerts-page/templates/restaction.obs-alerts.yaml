@@ -16,7 +16,8 @@
        rows      the filtered alerts (today's table, ?view=table): name, routeName/routeNs (the row
                  link), description, threshold, interval, state, stateKey, type, incidents (the
                  Incidents column, off the OpensIncidents condition: "Yes", "No · <why>", "—"),
-                 openIncidents, okSince;
+                 openIncidents, okSince, stateSince and stateSinceUtc (when the state last changed,
+                 alert-provider 0.2.83; "" when the provider has not written it);
        facets, chips, tableHref / cardsHref, stateTableHrefs, signalTableHrefs;
        strip     over the filtered set: firing (and of how many), back to OK in the last 24 hours,
                  with open incidents (and how many incidents), opening no incidents;
@@ -53,6 +54,20 @@ spec:
     {{- include "portal.facets" . | nindent 4 }}
     def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
     # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
+    # status.stateSince (alert-provider 0.2.83; RFC 3339): when .status.state last CHANGED, never moved
+    # by a re-read. Normalized to UTC whatever offset it carries, and shown as the page shows a time
+    # ("2026-11-14 08:22 UTC"). "" when absent, empty or unparseable: an alert already firing before
+    # 0.2.83 (until its next transition) or a cluster on an older provider. Nothing stands in for it,
+    # not stateObservedAt (the last observation) and not now: the card says "since: unknown".
+    def utcstamp:
+      if type != "string" or . == "" then ""
+      else (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.[0-9]+)?(?<z>[Zz]|(?<sg>[+-])(?<oh>[0-9]{2}):?(?<om>[0-9]{2}))$")? // null) as $m
+        | if $m == null then ""
+          else ((($m.d + "T" + $m.t + "Z") | fromdateiso8601?) // null) as $local
+          | if $local == null then ""
+            else ($local - (if ($m.sg // "") == "" then 0
+                            else (if $m.sg == "-" then -1 else 1 end) * (($m.oh | tonumber) * 3600 + ($m.om | tonumber) * 60) end))
+                 | strftime("%Y-%m-%d %H:%M UTC") end end end;
     def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
     . as $in
     | ["projects", "status", "signal", "hasIncidents", "q", "view"] as $pkeys
@@ -86,6 +101,8 @@ spec:
         paused: (((.metadata.annotations // {})["krateo.io/paused"] // "") == "true"),
         type: (.status.type // ""),
         okSince: (.status.okSince // ""),
+        stateSince: (.status.stateSince // ""),
+        stateSinceUtc: ((.status.stateSince // "") | utcstamp),
         openIncidents: (if $incidentsFailed then null else ($openBy[.metadata.name // ""] // 0) end),
         opens: ([ (.status.conditions // [])[] | select(.type == "OpensIncidents") ] | .[0] // {})
       } | .stateKey = (if .evaluated then (.state | ascii_downcase) else "not-evaluated" end)
