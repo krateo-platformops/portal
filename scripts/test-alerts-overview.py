@@ -196,16 +196,18 @@ def check_firing_since():
 def check_header_and_asks():
     f = []
     hdr = w('PageHeader', 'alerts-page-header', {})
-    expect(f, 'header: Ask, Author, New', [i['resourceRefId'] for i in hdr['items']], ['alerts-ask-agentiko', 'alerts-author-autopilot', 'alerts-new'])
+    expect(f, 'header: Ask and New (one Agentiko button, Diego 2026-11-14)', [i['resourceRefId'] for i in hdr['items']], ['alerts-ask-agentiko', 'alerts-new'])
     ex = {'projects': 'team-a', 'signal': 'Logs', 'hasIncidents': 'yes', 'view': 'table'}
     out = resolve(ex)
-    for name, starts in (('alerts-ask-agentiko', 'Review my observability alerts in the view on screen (Signal: Logs; Has open incidents: Yes): 3 alerts — 1 firing,'),
-                         ('alerts-author-autopilot', 'I want to create a new observability alert.')):
+    for name, starts in (('alerts-ask-agentiko', 'Review my observability alerts in the view on screen (Signal: Logs; Has open incidents: Yes): 3 alerts — 1 firing,'),):
         path = w('Button', name, out, ex)['actions']['navigate'][0]['path']
         base, _, query = path.partition('?')
         params = parse_qs(query)
         expect(f, f'{name}: every filter kept, in the page order', [k for k in params], ['projects', 'signal', 'hasIncidents', 'view', 'ask'])
         expect(f, f'{name}: its prompt', params['ask'][0][:len(starts)], starts)
+    author = ' If I want a new alert instead, help me author it: what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm.'
+    prompt = parse_qs(w('Button', 'alerts-ask-agentiko', out, ex)['actions']['navigate'][0]['path'].partition('?')[2])['ask'][0]
+    expect(f, 'Ask also offers to author a new alert', prompt.endswith(author), True)
     path = w('Button', 'alerts-ask-agentiko', resolve({}, incidents='ERROR'))['actions']['navigate'][0]['path']
     prompt = parse_qs(path.partition('?')[2])['ask'][0]
     expect(f, 'incidents unread: the prompt says so, never "no open incidents"',

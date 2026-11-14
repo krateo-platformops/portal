@@ -169,19 +169,20 @@ def check_button_and_page():
     for ex, want in (({}, '/alerts'), ({'status': 'OK', 'projects': 'team-a'}, '/alerts?projects=team-a&status=ok'),
                      ({'status': 'firing'}, '/alerts?status=firing')):
         out = resolve(ex)
-        path = tbi.resolved_widget(CH, 'Button', 'alerts-author-autopilot', out, ex, 'ask button')['spec']['widgetData']['actions']['navigate'][0]['path']
+        path = tbi.resolved_widget(CH, 'Button', 'alerts-ask-agentiko', out, ex, 'ask button')['spec']['widgetData']['actions']['navigate'][0]['path']
         base, _, query = path.partition('?')
         params = parse_qs(query, keep_blank_values=True)
         prompt = params.pop('ask', [''])[0]
         kept = '&'.join(f'{k}={v[0]}' for k, v in params.items())
         expect(f, f'ask link keeps the view ({ex})', base + ('?' + kept if kept else ''), want)
-        expect(f, f'ask link seeds the authoring flow ({ex})', prompt.startswith('I want to create a new observability alert.'), True)
+        expect(f, f'ask link also offers to author a new alert ({ex})', prompt.endswith(' If I want a new alert instead, help me author it: what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm.'), True)
     expect(f, 'button, no data: the list',
-           tbi.widget(CH, 'Button', 'alerts-author-autopilot', 'actions', {}, {})['navigate'][0]['path'], '/alerts')
+           tbi.widget(CH, 'Button', 'alerts-ask-agentiko', 'actions', {}, {})['navigate'][0]['path'], '/alerts')
+    expect(f, 'no second Agentiko button: the author button is gone', [d['metadata']['name'] for d in CH.docs if d['metadata'].get('name') == 'alerts-author-autopilot'], [])
     want = CH.get('Table', 'obs-alerts')['spec']['keyExtras']
     expect(f, 'one cache key for every reader of the filtered action',
-           [CH.get(k, n)['spec'].get('keyExtras') for k, n in (('Select', 'alerts-status'), ('Button', 'alerts-author-autopilot'), ('Button', 'alerts-ask-agentiko'))],
-           [want, want, want])
+           [CH.get(k, n)['spec'].get('keyExtras') for k, n in (('Select', 'alerts-status'), ('Button', 'alerts-ask-agentiko'))],
+           [want, want])
     ex = {'view': 'table'}
     page = tbi.resolved_widget(CH, 'Flex', 'page-alerts', resolve(ex), ex, 'page')['spec']['widgetData']
     expect(f, 'the table view: header, filter bar, back link, table', [i['resourceRefId'] for i in page['items']],

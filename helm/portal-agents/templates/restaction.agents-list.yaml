@@ -279,12 +279,19 @@ spec:
             chips: fx_chips("/agents"; $p; $facets),
             tableHref: fx_href("/agents"; fx_set($p; "view"; "table")),
             cardsHref: fx_href("/agents"; fx_set($p; "view"; "")),
+            # The Tool servers tab, deep-linked by label (Tabs reads ?tab=), keeping only the project
+            # scope: the tab lists every server and does not read the overview's facets.
+            serversHref: fx_href("/agents"; [ $p[] | select(.[0] == "projects") ] + [["tab", "Tool servers"]]),
             strip: { agents: ($agentsInView | length),
                      gatewayGaps: (if $gatewayKnown then ([ $agentsInView[] | select((.gateway // "") != "") ] | length) else null end),
                      servers: ($serversInView | length),
                      serversNotAccepted: ([ $serversInView[] | select(.accepted | not) ] | length),
                      serversAccepted: ([ $serversInView[] | select(.accepted) ] | length),
-                     toolsDiscovered: (if $srvErr != "" then null else ([ $serversInView[] | .tools ] | add // 0) end),
+                     # Tools on the ACCEPTED servers only. The tile captions them "on N servers" with N the
+                     # accepted count, and a server kagent no longer accepts can keep a stale discoveredTools
+                     # list that no agent can call. Summing every server credited those to the healthy ones
+                     # (live check of slice 3a, 2026-11-14).
+                     toolsDiscovered: (if $srvErr != "" then null else ([ $serversInView[] | select(.accepted) | .tools ] | add // 0) end),
                      models: ([ $agentsInView[] | .model ] | group_by(.) | map({ model: .[0], count: length })) },
             # The groups (mockup screen 09). Needs attention: an agent the gateway cannot reach (only
             # when the check ran), an agent whose Ready or Accepted is not True, a tool server not
