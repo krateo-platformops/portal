@@ -152,12 +152,21 @@ check('the fixture is the 057 mix', sorted({r: [ready_reason(i) for i in LIVE].c
                                             for r in map(ready_reason, LIVE)}.items()),
       [('Available', 65), ('AvailablePartialCoverage', 14), ('ReconcilePaused', 1), ('ZeroEvidence', 2)])
 SILENT = {'event-health', 'model-configs'}
+
+
+def ready_reason_of(item):
+    """The Ready reason of a compositions-list item (its conditions, as the RA keeps them)."""
+    return next((c.get('reason', '') for c in item.get('conditions', []) if c.get('type') == 'Ready'), '')
 check('the fixture\'s ZeroEvidence pair', sorted(i['metadata']['name'] for i in LIVE if ready_reason(i) == 'ZeroEvidence'), sorted(SILENT))
 
 # --- 1. krateo-057 as it is -----------------------------------------------------------------------
 out = compositions_list(LIVE)
+# 79 of 80 healthy: the ReconcilePaused composition is Paused, not healthy (it reports Ready=True on
+# purpose, and was counted healthy until root-pages slice 3a).
 check('057: assessment', out['assessment'],
-      {'total': 82, 'assessable': 80, 'notAssessable': 2, 'pending': 0, 'healthyPercent': 100, 'pendingPercent': 0})
+      {'total': 82, 'assessable': 80, 'notAssessable': 2, 'pending': 0, 'healthyPercent': 98, 'pendingPercent': 0})
+check('057: the ReconcilePaused composition is paused, not healthy',
+      sorted({(i['state'], i['railState']) for i in out['list'] if ready_reason_of(i) == 'ReconcilePaused'}), [('paused', 'paused')])
 check('057: coverage Ready counts the assessable, and says how many it left out',
       coverage(out), ('80/80', 100, '+ 2 not assessable (no readiness signal)'))
 check('057: no other coverage row carries a note', sorted(r['type'] for r in out['conditionCoverage'] if r['type'] != 'Ready' and r['note']), [])
@@ -175,7 +184,7 @@ check('057: the RA keeps .state and .railState pending for them',
 out = compositions_list(LIVE + [UNREADABLE] + DEFECTS)
 SET_ASIDE = SILENT | {'children-forbidden'}
 check('defects: assessment', out['assessment'],
-      {'total': 85, 'assessable': 82, 'notAssessable': 3, 'pending': 2, 'healthyPercent': 97, 'pendingPercent': 2})
+      {'total': 85, 'assessable': 82, 'notAssessable': 3, 'pending': 2, 'healthyPercent': 96, 'pendingPercent': 2})
 check('defects: coverage Ready', coverage(out), ('80/82', 97, '+ 3 not assessable (no readiness signal)'))
 item = next(i for i in out['list'] if i['name'] == 'children-forbidden')
 check('defects: children-forbidden is not assessable, and unreadable', (item['assessable'], item['state'], item['railState']),
@@ -195,7 +204,7 @@ CREATING2 = copy.deepcopy(CREATING)
 CREATING2['metadata'].update(name='creating-2', uid='uid-creating-2')
 out = compositions_list(LIVE + [UNREADABLE] + DEFECTS + [CREATING, CREATING2])
 check('creating: counted pending with the two other Unknowns, and pendingPercent from the same set',
-      (out['assessment']['pending'], out['assessment']['pendingPercent'], out['assessment']['healthyPercent']), (4, 4, 95))
+      (out['assessment']['pending'], out['assessment']['pendingPercent'], out['assessment']['healthyPercent']), (4, 4, 94))
 only_creating = compositions_list([CREATING])['assessment']
 check('only Creating: one pending, all of the assessable', (only_creating['pending'], only_creating['pendingPercent']), (1, 100))
 

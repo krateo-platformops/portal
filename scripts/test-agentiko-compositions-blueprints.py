@@ -142,35 +142,35 @@ normal = run_comps()
 check('compositions: a read with no error -> readError empty', normal['readError'], '')
 href, prompt = ask(normal['askHref'])
 check('compositions: unfiltered -> self page, no params', href, '/compositions')
-check('compositions: unfiltered -> the workloads in view', prompt.split(' The unhealthy')[0],
-      'Review my compositions: 4 in view — 2 healthy, 1 failed, 1 degraded, 1 drifted, 0 pending, 0 with unreadable children.')
-check('compositions: unfiltered -> unhealthy, failed first',
-      prompt.split('The unhealthy ones are: ')[1].split(' For each')[0],
+check('compositions: unfiltered -> the workloads in view', prompt.split(' The ones that need attention')[0],
+      'Review my compositions: 4 in view — 2 healthy, 1 failed, 1 degraded, 1 drifted, 0 paused, 0 pending, 0 with unreadable children.')
+check('compositions: unfiltered -> the ones needing attention, failed first',
+      prompt.split('The ones that need attention are: ')[1].split(' For each')[0],
       '1. WebApp/orders-api · team-alpha — failed 2. WebApp/web · team-alpha — degraded 3. Redis/cache · team-beta — drifted.')
 check('compositions: unfiltered -> the ask', prompt.endswith(
     'For each, explain what is wrong from its conditions and managed resources, and what to fix first.'), True)
 
 filt = run_comps(status='failed', q='ORD', projects='team-alpha')
 href, prompt = ask(filt['askHref'])
-check('compositions: filtered -> keeps status, q and projects', href, '/compositions?status=failed&q=ORD&projects=team-alpha')
-check('compositions: filtered -> the filtered view', prompt.split(' The unhealthy')[0],
-      'Review my compositions (only failed ones; namespace team-alpha; name or type matching "ORD"): '
-      '1 in view — 0 healthy, 1 failed, 0 degraded, 0 drifted, 0 pending, 0 with unreadable children.')
-check('compositions: filtered -> only the filtered rows listed', 'web' in prompt.split('The unhealthy ones are: ')[1], False)
+check('compositions: filtered -> keeps status, q and projects (in the page\'s param order)', href, '/compositions?projects=team-alpha&status=failed&q=ORD')
+check('compositions: filtered -> the filtered view', prompt.split(' The ones that need attention')[0],
+      'Review my compositions (State: NotReady; namespace team-alpha; name or type matching "ORD"): '
+      '1 in view — 0 healthy, 1 failed, 0 degraded, 0 drifted, 0 paused, 0 pending, 0 with unreadable children.')
+check('compositions: filtered -> only the filtered rows listed', 'web' in prompt.split('The ones that need attention are: ')[1], False)
 check('compositions: filtered -> the prompt counts what the table shows', len(filt['filtered']), 1)
 href, prompt = ask(run_comps(scope='platform')['askHref'])
 check('compositions: ?scope=platform -> kept', href, '/compositions?scope=platform')
 check('compositions: ?scope=platform -> said', prompt.startswith('Review my compositions (platform components only): 1 in view — 0 healthy, 1 failed'), True)
 check('compositions: ?scope=platform -> the platform component listed', '1. Portal/portal · krateo-system — failed.' in prompt, True)
 _, prompt = ask(run_comps(q='site')['askHref'])
-check('compositions: nothing unhealthy -> no empty list', 'The unhealthy ones are' in prompt, False)
-check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted or unreadable.' in prompt, True)
+check('compositions: nothing unhealthy -> no empty list', 'The ones that need attention are' in prompt, False)
+check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted, paused or unreadable.' in prompt, True)
 check('compositions: ?status=all -> not carried', ask(run_comps(status='all')['askHref'])[0], '/compositions')
 
 href, prompt = ask(run_comps(status='pending')['askHref'])
 check('compositions: a filter with no rows -> keeps it', href, '/compositions?status=pending')
 check('compositions: a filter with no rows -> says so', prompt,
-      'No composition is in view (only pending ones); 5 other compositions are outside it. '
+      'No composition is in view (State: Pending); 5 other compositions are outside it. '
       'Tell me whether that is expected, and whether anything in my other compositions needs attention.')
 _, prompt = ask(run_comps(items=[])['askHref'])
 check('compositions: none at all -> says so', prompt,

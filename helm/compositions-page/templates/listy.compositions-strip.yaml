@@ -1,0 +1,35 @@
+{{/* The /compositions strip, over the compositions in view (mockup screen 02): Not Ready (of how
+     many in this scope), Degraded (workload unhealthy), Drift (Synced=False), Paused
+     (ReconcilePaused) and Ready (in how many kinds). Colour is exception-only: Not Ready and
+     Degraded are red above zero, Paused orange above zero, Drift and Ready neutral. A paused
+     composition is Paused, never Ready: it reports Ready=True on purpose, and the old chips counted
+     it as Healthy. A failed read with nothing read is "—", never 0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-strip
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ (.strip // {}) as $s | (.readError // "") as $err | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ { title: "Not Ready", v: $s.notReady, caption: ("of " + (($s.total // 0) | tostring)), tone: (if ($s.notReady // 0) > 0 then "bad" else "" end) }, { title: "Degraded", v: $s.degraded, caption: "workload unhealthy", tone: (if ($s.degraded // 0) > 0 then "bad" else "" end) }, { title: "Drift", v: $s.drift, caption: "Synced=False", tone: "" }, { title: "Paused", v: $s.paused, caption: "ReconcilePaused", tone: (if ($s.paused // 0) > 0 then "warn" else "" end) }, { title: "Ready", v: $s.ready, caption: n($s.readyKinds // 0; "kind"; "kinds"), tone: "" } ] | map(if $err != "" and ($s.total // 0) == 0 then { title: .title, value: "", caption: "could not be read", tone: "warn" } else { title: .title, value: ((.v // 0) | tostring), caption: .caption, tone: .tone } end) }'
+  resourcesRefs:
+    items: []

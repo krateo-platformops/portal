@@ -1,0 +1,26 @@
+{{/* The calm line, under the strip (mockup screen 02): "Nothing is NotReady, Degraded or drifting in
+     My workloads." when none is, in the scope on screen. Before it, what keeps a quiet page honest: a
+     read that failed (all or part of the list), or nothing matching. Drawn as a warning when a read
+     failed, muted otherwise. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-calm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ ({workloads: "My workloads", platform: "Platform", all: "Everything"}[.scope // "workloads"] // "this scope") as $where | [ (if (.readError // "") != "" then (if ((.list // []) | length) == 0 then "The compositions could not be read (" + .readError + ")." else "Part of the list could not be read (" + .readError + "), so this may not be all of them." end) else empty end), (if (.matched // 0) == 0 and ((.readError // "") == "" or ((.list // []) | length) > 0) then (if .filteredAny or ((.q // "") != "") then "No composition matches these filters." else "No composition in " + $where + " yet." end) elif (.matched // 0) > 0 and (((.strip.notReady // 0) + (.strip.degraded // 0) + (.strip.drift // 0)) == 0) then "Nothing is NotReady, Degraded or drifting in " + $where + (if .filteredAny or ((.q // "") != "") then " (in this view)" else "" end) + "." else empty end) ] | join(" ") }'
+  - forPath: type
+    expression: '${ if (.readError // "") != "" then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

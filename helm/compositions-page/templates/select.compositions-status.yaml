@@ -1,0 +1,32 @@
+{{/* The State facet, written to ?status= (comma-joined): the param the status chips wrote, so
+     /compositions?status=failed still lands filtered. One state per composition, in the order a
+     reader triages them: NotReady, Degraded, Drift, Children unreadable, Paused, Pending, Ready.
+     Values keep the old keys (failed, degraded, drift, unreadable, paused, pending, healthy); the
+     labels are the mockup's. Only the states some composition in this scope is in are offered. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    name: status
+    label: State
+    queryParam: status
+    mode: multiple
+    prefix: State
+    placeholder: All
+    size: small
+    panelFooter: Counted in compositions in this scope, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "status") | .values | sort_by({failed: 0, degraded: 1, drift: 2, unreadable: 3, paused: 4, pending: 5, healthy: 6}[.value] // 99)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []
