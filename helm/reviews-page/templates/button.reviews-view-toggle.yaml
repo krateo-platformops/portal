@@ -1,0 +1,33 @@
+{{/* The escape to today's table and back (decision 2026-11-13 (a)): on the overview, "All N proposals
+     as a table →" (N the open proposals the filters match; "All 47 Alert proposals" with one kind
+     picked) opens ?view=table with every filter kept; on the table, "← Back to the overview" drops
+     ?view and keeps the rest. Both hrefs come from platform-reviews (portal.facets). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-view-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: All proposals as a table →
+    type: link
+    size: middle
+    clickActionId: view
+    actions:
+      navigate:
+        - id: view
+          type: navigate
+          path: /reviews?view=table
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ ([ (.facets // [])[] | select(.key == "kind") | .active[] ]) as $k | if .view == "table" then "← Back to the overview" else "All " + ((.matched // 0) | tostring) + (if ($k | length) == 1 then " " + $k[0] else "" end) + (if .filtered and ($k | length) != 1 then " matching" else "" end) + " proposals as a table →" end }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "view", type: "navigate", path: (if .view == "table" then (.cardsHref // "/reviews") else (.tableHref // "/reviews?view=table") end) } ] } }'
+  resourcesRefs:
+    items: []

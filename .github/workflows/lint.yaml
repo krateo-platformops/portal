@@ -430,11 +430,14 @@ jobs:
           python3 scripts/test-settings-users.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-no-secret-reads.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-  # /reviews and its proposal and run pages: three RESTActions and ~40 widgets of jq over the
+  # /reviews and its proposal and run pages: three RESTActions and ~50 widgets of jq over the
   # nightly review's Proposals and ReviewRuns. This resolves them on fixtures shaped like krateo-057
   # (superseded chains, legacy proposals, unanswered discovery, failed and partial runs), checks the
-  # change-request claim against builder-publish's values schema, and validates every widget, as
-  # resolved, against the newest released frontend CRDs.
+  # overview (facets, grouping, caps, strip, Decided and Runs, the table view; root-pages UX slice 2)
+  # and the change-request claim against builder-publish's values schema, and validates every widget,
+  # as resolved, against the newest released frontend CRDs. The overviews of /reviews and /incidents
+  # use Collapse, Listy `statistic`, Select counts/prefix/panelFooter and Flex role/ariaLabel, so this
+  # job needs a frontend-crds release carrying them (1.8.43): the data-before-consumer order.
   platform-review:
     runs-on: ubuntu-latest
     steps:
@@ -460,9 +463,12 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-platform-review.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-      # /incidents' "Ask Agentiko →": the prompt follows the ?status= chip, and a failed read of the
-      # incidents or of the alerts is said, never drawn as a quiet platform. Reuses the CRDs above.
-      - name: Incidents list Agentiko prompt, evaluated and validated
+      # /incidents: the overview (facets with their counts and hiding, ?status= back-compat, the
+      # strip, one card per alert or age, the caps and "See all" hrefs, Resolved and Closed folded,
+      # the table view), and its "Ask Agentiko →", which keeps every filter and names the view; a
+      # failed read of the incidents or of the alerts is said, never drawn as a quiet platform.
+      # Reuses the CRDs above.
+      - name: Incidents overview and Agentiko prompt, evaluated and validated
         run: python3 scripts/test-incidents-list.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
       # /alerts' state chips: counts over the full set, "Not evaluated" for an alert with no HyperDX

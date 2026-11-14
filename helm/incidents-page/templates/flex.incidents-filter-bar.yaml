@@ -1,0 +1,63 @@
+{{/* The /incidents filter bar: a named search landmark (Flex role/ariaLabel) holding the Alert,
+     State, Age and Owner facets, then the search box. A facet whose values are all one (over every
+     incident, decision Q2) is left out unless one of its values is applied: a Select with one value
+     would be a control that does nothing. Project is not repeated here: the shell's project switcher
+     is the scope and rides every route (decision Q8). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-filter-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - selects
+    - inputs
+    role: search
+    ariaLabel: Filter incidents
+    wrap: true
+    gap: small
+    align: center
+    items:
+    - resourceRefId: incidents-search
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("alert", "status", "age", "owner") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("incidents-" + $k) } ] + [ { resourceRefId: "incidents-search" } ] }'
+  resourcesRefs:
+    items:
+    - id: incidents-alert
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-alert
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: incidents-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-status
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: incidents-age
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-age
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: incidents-owner
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-owner
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: incidents-search
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-search
+      namespace: {{ $.Values.namespace }}
+      resource: inputs
+      verb: GET

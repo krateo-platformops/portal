@@ -1,7 +1,8 @@
 {{/* "Ask Agentiko →" on /incidents — the assistant entry point for the incidents the person is
-     looking at. It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping the
-     ?status= chip and the ?projects= scope, so the conversation starts on the same view: with a
-     chip selected the prompt is about that chip's incidents, not every incident.
+     looking at. It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping every
+     filter param (?status, ?alert, ?age, ?owner, ?q), ?group, ?view and the ?projects= scope, so the
+     conversation starts on the same view: with a filter applied the prompt names it and is about
+     the incidents it matches, not every incident.
 
      Same object as service-desk-page's button.request-ask-agentiko — read the comment there. The
      label and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not
@@ -10,8 +11,8 @@
      The href is built server-side (incidents-list `.askHref`, @uri-encoded) from the counts, the
      open incidents' titles and root causes, and the alerts firing with no incident, all of which
      the list already read. On a failed read of the incidents it asks what the error means instead
-     of describing a quiet platform. The per-alert links in the "not yet investigated" strip are
-     separate (`awaiting[].askHref`) and unchanged. */}}
+     of describing a quiet platform. The per-alert links in the "Firing alerts with no incident"
+     section are separate (`awaiting[].askHref`) and unchanged. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -20,8 +21,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): the prompt differs per chip, and `projects` rides the href. */}}
-  keyExtras: [projects, status]
+  {{/* F6 (snowplow#130): the prompt differs per filter, and every filter param rides the href. */}}
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
   apiRef:
     name: incidents-list
     namespace: {{ $.Values.namespace }}

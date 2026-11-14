@@ -72,7 +72,12 @@ spec:
     # an Incident that does not change is not written, so "2m ago" would stay "2m ago".
     def stamp: (. // "") as $s | ($s | epoch) as $t
       | if $t == null then ($s | tostring | .[0:10]) else ($t | strftime("%Y-%m-%d %H:%M UTC")) end;
-    def clean: gsub("[^ -~]"; "") | sub("^ +"; "") | sub(" +$"; "");
+    # An alert's display name, as a title. It may open with a decorative emoji (7f414fb stripped it
+    # from the page title): drop emoji (symbols, skin tones, the joiner and the emoji variation
+    # selector) and keep everything else. The old filter kept printable ASCII only, which also
+    # dropped the em dash of "Krateo — composition reconcile errors" (leaving two spaces) and every
+    # accented letter. Then whitespace runs become one space, trimmed. Same regex on jq and gojq.
+    def dispname: gsub("[\\p{So}\\x{1F3FB}-\\x{1F3FF}\\x{200D}\\x{FE0F}]"; "") | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "");
     def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
     def when: (.spec.triggeredAt // .metadata.creationTimestamp // "");
     def isnum: (type == "number");
@@ -146,7 +151,7 @@ spec:
        and ($aaVerb == "DELETE" or (($aa.payload // null) | type) == "object")) as $aaOk
     | ([ ($fix.precondition // ""), ($fix.apply // ""), ($fix.verify // "") ] | any(. != "") or $aaOk) as $hasFix
     | ((($analyzed | length) > 0) or (($sources | length) > 0) or (($trace | length) > 0) or (($rc.statement // "") != "") or $hasFix) as $structured
-    | ((if $alert then ($alert.spec.displayName // "") else "" end) | clean) as $alertDisplay
+    | ((if $alert then ($alert.spec.displayName // "") else "" end) | dispname) as $alertDisplay
     | (if $alertDisplay != "" then $alertDisplay elif ($rc.statement // "") != "" then $rc.statement elif $alertName != "" then $alertName else $n end) as $title
     | ((.incidents.items) // [] | map(. + { metadata: (.metadata + { namespace: (.metadata.namespace // $ns) }) })) as $all
     | ([ $all[] | select(alertlabel == $alertName and $alertName != "") ] | sort_by([when, .metadata.name])) as $siblings

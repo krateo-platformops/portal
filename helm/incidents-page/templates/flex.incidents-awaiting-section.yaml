@@ -1,5 +1,6 @@
-{{/* The second section of /incidents: its title and the firing-alerts-with-no-incident table. The */}}
-{{/* page Flex includes it only while incidents-list has such alerts. */}}
+{{/* The firing-alerts-with-no-incident section of /incidents: its title and its table, above the */}}
+{{/* active incidents (an exception, like them). The page Flex includes it only while incidents-list */}}
+{{/* has such alerts, in place of the calm line's "No alert is firing without an incident". */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -8,6 +9,9 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* Every widget on /incidents receives the page's filter params (krateo.io/filter-keys on
+       page-incidents); one it does not declare makes snowplow decline to cache it (F6). */}}
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
   widgetData:
     allowedResources:
     - paragraphs

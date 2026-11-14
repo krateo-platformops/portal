@@ -7,7 +7,7 @@ themselves, and "See all N →" into the table view. A `define` cannot cross cha
 cannot ship a snowplow jq module, so each chart that filters carries its own copy of _facets.tpl
 (the _duration.tpl precedent). This checks:
   - the copies are byte-for-byte the same (every chart under helm/ that has the file, and
-    dashboard-page, the first, must have it);
+    dashboard-page, incidents-page and reviews-page, the filtered pages, must have it);
   - the semantics, run through each chart's RENDERED copy (lifted out of a RESTAction that includes
     it, not read from the .tpl) under jq and, with JQ=gojq, under snowplow's engine:
       a facet's counts ignore its own filter and apply every other one;
@@ -36,8 +36,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 JQ = os.environ.get('JQ', 'jq')
 FIRST = 'dashboard-page'
+# Every chart that filters an overview page, so a chart losing its copy fails here too.
+EXPECTED = sorted(['dashboard-page', 'incidents-page', 'reviews-page'])
 # Where each chart's rendered copy is lifted from: a RESTAction whose filter includes portal.facets.
-LIFT_FROM = {'dashboard-page': 'dashboard-inbox'}
+LIFT_FROM = {'dashboard-page': 'dashboard-inbox', 'incidents-page': 'incidents-list', 'reviews-page': 'platform-reviews'}
 
 failures = []
 
@@ -96,6 +98,7 @@ DEFS_RE = re.compile(r'def fx_list:.*?def fx_seeall\(\$path; \$params; \$k; \$v\
 paths = sorted(glob.glob(os.path.join(REPO, 'helm', '*', 'templates', '_facets.tpl')))
 charts = {p.split(os.sep)[-3]: open(p, 'rb').read() for p in paths}
 check(f'{FIRST} carries _facets.tpl', FIRST in charts, True)
+check('every filtered page chart carries _facets.tpl', sorted(c for c in EXPECTED if c in charts), EXPECTED)
 check('_facets.tpl is byte-for-byte the same in every chart that carries it', len(set(charts.values())) <= 1, True)
 check('every chart carrying _facets.tpl says where its rendered copy is lifted from',
       sorted(set(charts) - set(LIFT_FROM)), [])

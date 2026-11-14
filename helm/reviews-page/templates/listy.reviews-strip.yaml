@@ -1,0 +1,34 @@
+{{/* The /reviews strip (mockup screen 08, without "High confidence": decision Q3): Waiting for a
+     decision, New today and Pull request open count the open proposals the filters match; Last run
+     is the latest review run of every kind, labelled so. Colour is exception-only: only a Failed last
+     run is red, and a waiting proposal is work, not a fault. A runs read that failed is an empty
+     value (a muted "—") captioned "could not be read". */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-strip
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ (.counts // {}) as $c | [ { title: "Waiting for a decision", value: (($c.waiting // 0) | tostring), caption: (if .filtered then "of " + ((.open // 0) | tostring) + " open" else "open proposals" end), tone: "" }, { title: "New today", value: (($c.newToday // 0) | tostring), caption: "", tone: "" }, { title: "Pull request open", value: (($c.prOpen // 0) | tostring), caption: "", tone: "" }, (if .runsFailed then { title: "Last run (all kinds)", value: "", caption: "could not be read", tone: "warn" } elif (.lastRun // null) == null then { title: "Last run (all kinds)", value: "", caption: "no review has run yet", tone: "" } else { title: "Last run (all kinds)", value: .lastRun.phase, caption: (.lastRun.name + " · " + (.lastRun.started | .[11:])), tone: (if .lastRun.phase == "Failed" then "bad" else "" end) } end) ] }'
+  resourcesRefs:
+    items: []
