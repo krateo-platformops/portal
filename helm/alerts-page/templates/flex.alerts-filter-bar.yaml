@@ -1,0 +1,56 @@
+{{/* The /alerts filter bar: a named search landmark (Flex role/ariaLabel) holding the Signal, State
+     and Has open incidents facets, then the search box. A facet whose values are all one (over every
+     alert, decision Q2) is left out unless one of its values is applied: on a quiet day every alert
+     is OK, so State is not offered, and it comes back the day one fires. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-filter-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - selects
+    - inputs
+    role: search
+    ariaLabel: Filter alerts
+    wrap: true
+    gap: small
+    align: center
+    items:
+    - resourceRefId: alerts-search
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("signal", "status", "hasIncidents") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("alerts-" + $k) } ] + [ { resourceRefId: "alerts-search" } ] }'
+  resourcesRefs:
+    items:
+    - id: alerts-signal
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-signal
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: alerts-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-status
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: alerts-hasIncidents
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-hasIncidents
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: alerts-search
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-search
+      namespace: {{ $.Values.namespace }}
+      resource: inputs
+      verb: GET

@@ -1,0 +1,59 @@
+{{/* The /compositions filter bar: a named search landmark (Flex role/ariaLabel) holding the scope
+     chips (My workloads / Platform / Everything), the State and Kind facets and the search box. A
+     facet whose values are all one (over the compositions in this scope, decision Q2) is left out
+     unless one of its values is applied. Namespace and Project are not repeated here: the shell's
+     project switcher is the scope and rides every route (decision Q8). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-filter-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - listies
+    - selects
+    - inputs
+    role: search
+    ariaLabel: Filter compositions
+    wrap: true
+    gap: small
+    align: center
+    items:
+    - resourceRefId: compositions-scope-chips
+    - resourceRefId: compositions-search
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ { resourceRefId: "compositions-scope-chips" } ] + [ ("status", "kind") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("compositions-" + $k) } ] + [ { resourceRefId: "compositions-search" } ] }'
+  resourcesRefs:
+    items:
+    - id: compositions-scope-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-scope-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: compositions-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-status
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: compositions-kind
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-kind
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: compositions-search
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-search
+      namespace: {{ $.Values.namespace }}
+      resource: inputs
+      verb: GET

@@ -22,6 +22,9 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* Every widget on /alerts receives the page's filter params (krateo.io/filter-keys on
+       page-alerts); one it does not declare makes snowplow decline to cache it (F6). */}}
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
   widgetData:
     title: Alerts
     subtitle: Each alert watches your cluster for one kind of problem and fires when it occurs.
@@ -31,10 +34,19 @@ spec:
     {{/* wrapper to place them. Autopilot first, the deterministic create Form second: `alerts-new` */}}
     {{/* is the page's primary, and P6 allows exactly one. */}}
     items:
+    {{/* Three buttons (Diego, 2026-11-14): "Ask Agentiko →" about the alerts on screen, then the two */}}
+    {{/* create routes, "Author with Autopilot" (in prose) and "New alert" (the form, the primary). */}}
+    - resourceRefId: alerts-ask-agentiko
     - resourceRefId: alerts-author-autopilot
     - resourceRefId: alerts-new
   resourcesRefs:
     items:
+    - id: alerts-ask-agentiko
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-ask-agentiko
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
     - id: alerts-author-autopilot
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: alerts-author-autopilot

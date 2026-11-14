@@ -140,6 +140,26 @@ spec:
              | map(select(. != "")) | unique | join("; ") )
       end;
     {{- include "portal.agentsGateway" . | nindent 4 }}
+    {{- include "portal.facets" . | nindent 4 }}
+    # THE FILTERS (portal.facets; root-pages UX slice 3a, build plan §3.4, mockup screen 09). One
+    # base set, the agents AND the tool servers, each with a per-item `f`:
+    #   kind    agent / server;
+    #   status  registered / notregistered (an agent, by the gateway check; neither while the check
+    #           could not run), accepted / notaccepted (a tool server's Accepted condition);
+    #   owner   the shipping composition (krateo.io/composition-name), else app.kubernetes.io/managed-by,
+    #           else "—";
+    #   q       search: name and description.
+    # Not filters: view (`table`: the 12-column agents table).
+    . as $in
+    | ["projects", "kind", "status", "owner", "q", "view"] as $pkeys
+    | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_downcase) as $q
+    | (($in | fx_filters(["kind", "status", "owner"])) + { q: (if $q == "" then [] else ["1"] end) }) as $flt
+    | ($in | fx_params($pkeys)) as $p
+    | ((($in.view // "") | tostring) == "table") as $tableView
+    | def shipper: (.metadata.labels // {}) as $l
+        | if ($l["krateo.io/composition-name"] // "") != "" then $l["krateo.io/composition-name"]
+          else ($l["app.kubernetes.io/managed-by"] // "—") end;
+      def qmatch($text): if $q == "" then "" elif ($text | ascii_downcase | contains($q)) then "1" else "0" end;
     ( errText(.agentsError) )  as $agErr
     | ( errText(.modelsError) )  as $mcErr
     | ( errText(.serversError) ) as $srvErr
@@ -160,6 +180,15 @@ spec:
     | ( if $srvErr != "" then null
         else ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) end ) as $toolsDiscovered
     | ( (.servers.items // []) | length ) as $serverCount
+    # The tool servers as overview items: Accepted is the condition kagent writes once it has
+    # connected and listed the server's tools.
+    | ( [ (.servers.items // [])[]
+          | ([ (.status.conditions // [])[] | select(.type == "Accepted") ][0] // {}) as $c
+          | { name: (.metadata.name // ""), namespace: (.metadata.namespace // ""), item: "server",
+              accepted: ($c.status == "True"), reason: ($c.reason // ""), message: (($c.message // "") | tostring | .[0:240]),
+              tools: ((.status.discoveredTools // []) | length), owner: shipper,
+              f: { kind: "server", status: (if $c.status == "True" then "accepted" else "notaccepted" end),
+                   owner: (shipper | gsub(","; "")), q: qmatch((.metadata.name // "") + " " + ((.spec.description // "") | tostring)) } } ] ) as $serverItems
     | { rows: [ (.agents.items // [])[]
         | . as $a
         | select( (($a.metadata.name // "") != "") and (($a.metadata.namespace // "") != "") )
@@ -222,9 +251,50 @@ spec:
             statusLabel: ( [ $exc[].label ] | join(" · ") ),
             statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red"
                            elif ( $exc | length ) > 0 then "orange"
-                           else "" end )
+                           else "" end ),
+            item: "agent",
+            shipper: ( $a | shipper ),
+            f: { kind: "agent",
+                 status: ( if ($gatewayKnown | not) then "" elif $gw != "" then "notregistered" else "registered" end ),
+                 owner: ( $a | shipper | gsub(","; "") ),
+                 q: qmatch( ($a.metadata.name // "") + " " + (($a.spec.description // "") | tostring) ) }
           } ]
         | sort_by( (if .bench then 1 else 0 end), .name ) }
+    # THE OVERVIEW, over the filtered agents and servers. `rows` stays every agent (the 12-column
+    # table and the stats read it); `agentsInView` / `serversInView` are what the filters match.
+    | ( (.rows + $serverItems) ) as $items
+    | ( $items | fx_apply($flt) ) as $inView
+    | [ fx_facet($items; $flt; "kind"; "Kind"; { agent: "Agents", server: "Tool servers" }),
+        fx_facet($items; $flt; "status"; "Status"; { registered: "Registered", notregistered: "NotRegistered", accepted: "Accepted", notaccepted: "NotAccepted" }),
+        fx_facet($items; $flt; "owner"; "Owner"; {}) ] as $facets
+    | ( [ $inView[] | select(.item == "agent") ] ) as $agentsInView
+    | ( [ $inView[] | select(.item == "server") ] ) as $serversInView
+    | ( [ $facets[] | select((.active | length) > 0) | .label + ": " + ([ .values[] | select(.active) | .label ] | join(", ")) ]
+        + (if $q != "" then [ "search \"" + (($in.q // "") | tostring | .[0:80]) + "\"" ] else [] end) | join("; ") ) as $desc
+    | . + { tableRows: [ .rows[] | . as $r | select(any($agentsInView[]; .name == $r.name and .namespace == $r.namespace)) ],
+            agentsInView: $agentsInView, serversInView: $serversInView,
+            facets: $facets, filteredBy: $desc, filteredAny: ($desc != ""),
+            matched: ($inView | length),
+            view: (if $tableView then "table" else "" end),
+            chips: fx_chips("/agents"; $p; $facets),
+            tableHref: fx_href("/agents"; fx_set($p; "view"; "table")),
+            cardsHref: fx_href("/agents"; fx_set($p; "view"; "")),
+            strip: { agents: ($agentsInView | length),
+                     gatewayGaps: (if $gatewayKnown then ([ $agentsInView[] | select((.gateway // "") != "") ] | length) else null end),
+                     servers: ($serversInView | length),
+                     serversNotAccepted: ([ $serversInView[] | select(.accepted | not) ] | length),
+                     serversAccepted: ([ $serversInView[] | select(.accepted) ] | length),
+                     toolsDiscovered: (if $srvErr != "" then null else ([ $serversInView[] | .tools ] | add // 0) end),
+                     models: ([ $agentsInView[] | .model ] | group_by(.) | map({ model: .[0], count: length })) },
+            # The groups (mockup screen 09). Needs attention: an agent the gateway cannot reach (only
+            # when the check ran), an agent whose Ready or Accepted is not True, a tool server not
+            # Accepted. Then the healthy agents: orchestrators (they hand work to other agents, most
+            # delegates first) and specialists.
+            attention: ( [ $agentsInView[] | select((.gateway // "") != "" or (.statusLabel // "") != "") ]
+                         + [ $serversInView[] | select(.accepted | not) ] ),
+            orchestrators: ( [ $agentsInView[] | select((.gateway // "") == "" and (.statusLabel // "") == "" and .orchestrator) ] | sort_by(-.delegates, .name) ),
+            specialists: ( [ $agentsInView[] | select((.gateway // "") == "" and (.statusLabel // "") == "" and (.orchestrator | not)) ] | sort_by(.name) ),
+            gatewayUnknownWhy: $gatewayUnknownWhy }
     | ( [ .rows[] | select(.orchestrator) ] | sort_by(-.delegates, .name) ) as $orch
     | ( [ .rows[] | select((.gateway // "") != "") ] ) as $unreg
     | . + { total: (.rows | length),
@@ -291,6 +361,17 @@ spec:
           elif (.rows | length) == 0 then
             ( ( if ($failed | length) > 0 then ("Some of the reads behind my agent control plane failed — " + ($failed | join("; ")) + ". ") else "" end )
               + "I can read no agents on this cluster. Explain whether that means none is installed or that my permissions do not cover them, and how to tell." )
+          elif .filteredAny then
+            ( ( if ($failed | length) > 0 then ("Some of the reads behind my agent control plane failed — " + ($failed | join("; ")) + "; what is missing is missing for that reason. ") else "" end )
+              + "Review the part of my agent control plane on screen (" + .filteredBy + "): "
+              + (.agentsInView | length | tostring) + ( if (.agentsInView | length) == 1 then " agent and " else " agents and " end )
+              + (.serversInView | length | tostring) + ( if (.serversInView | length) == 1 then " tool server." else " tool servers." end )
+              + ( [ (.agentsInView[] | select((.gateway // "") != "") | .name + " cannot be reached through the gateway (" + .gateway + ")"),
+                    (.agentsInView[] | select((.statusLabel // "") != "") | .name + " reports " + .statusLabel),
+                    (.serversInView[] | select(.accepted | not) | .name + " is not Accepted (" + (if .reason != "" then .reason else "no reason given" end) + ")") ]
+                  | if length == 0 then ( if $gatewayKnown then " None of them reports a problem." else " None reports a problem, but gateway registration could not be checked (" + $gatewayUnknownWhy + ")." end )
+                    else " " + (to_entries | map(((.key + 1) | tostring) + ". " + .value) | .[0:8] | join(" ")) + "." end )
+              + " Explain what is wrong with each and how to fix it, and anything that looks risky." )
           else
             ( ( if ($failed | length) > 0 then ("Some of the reads behind my agent control plane failed — " + ($failed | join("; ")) + "; what is missing is missing for that reason. ") else "" end )
               + "Review my agent control plane: " + (.rows | length | tostring) + ( if (.rows | length) == 1 then " agent, " else " agents, " end )
@@ -310,4 +391,4 @@ spec:
                       + ( if ($gatewayKnown | not) then (". Gateway registration could not be checked (" + $gatewayUnknownWhy + ")") else "" end )
                       + ". Explain what is wrong with each and how to fix it, starting with the one that breaks the most delegation." ) end ) )
           end ) ) as $prompt
-    | . + { askHref: ( "/agents?ask=" + ($prompt | @uri) ) }
+    | . + { askHref: fx_href("/agents"; $p + [["ask", $prompt]]) }
