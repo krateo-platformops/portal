@@ -406,6 +406,17 @@ def _():
     zero = [i for i in COMPS057 if i['status']['conditions'][0]['reason'] == 'ZeroEvidence']
     out = inbox(raw={'allCompositions': {'items': zero}})
     check('only ZeroEvidence: nothing not Ready, nothing needs anyone', (out['compositions']['notReady'], out['sources'][4]['items']), (0, 0))
+    # An unrecognised Unknown whose reconcile fails (Synced=False) is failed, not pending (Diego,
+    # 2026-11-14): alerts-page on 057 read Unknown/ObserveFailed + Synced=False/ReconcileError.
+    def failing(item):
+        item['status']['conditions'][1].update(status='False', reason='ReconcileError')
+        return item
+    out = inbox(raw={'allCompositions': {'items': COMPS057 + [failing(unknown('alerts-page', 'ObserveFailed')),
+                                                              unknown('first-observe', 'ObserveFailed'),
+                                                              failing(unknown('children-forbidden', 'ChildrenForbidden'))]}})
+    check('Unknown/ObserveFailed + Synced=False: failed; with Synced=True: pending; ChildrenForbidden keeps unreadable',
+          sorted((p['name'], p['class']) for p in out['compositions']['problems'] if p['name'] != 'acme-feedback-controller'),
+          [('alerts-page', 'failed'), ('children-forbidden', 'unreadable'), ('first-observe', 'pending')])
 
 
 # --- 3. each source absent (its page is not the caller's) -------------------------------------------
