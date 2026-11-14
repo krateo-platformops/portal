@@ -1,0 +1,144 @@
+{{/* SCREEN 1's form: the request for access.
+
+     PORTED FROM frontend ui/src/widgets/Form/checkPostFixtures.ts (REQUEST_FORM), the widgetData
+     the frontend wrote and tested for this page (#719), with every intake answer mapped. Plus the
+     presentation options of frontend #721. Both render only with a frontend that carries #719 and
+     #721 (1.8.42 and later), and the strict Form CRD refuses this CR before frontend-crds carries
+     them.
+
+     IT POSTS TO identity-lifecycle, NOT TO SNOWPLOW: `submitPost` sends the values as JSON,
+     same-origin, with NO credential, to /request-access/api/v1/requests. The frontend refuses any
+     path outside its PUBLIC_POST_PATHS, so the install must list /request-access/api/v1/ there,
+     and the gateway must route /request-access/ to identity-lifecycle. The intake contract
+     (identity-lifecycle README): 202 {"status":"received"} for a valid request, a duplicate or a
+     honeypot alike; 400 {fields} naming the invalid fields; 429 with Retry-After. Anything else,
+     or no answer, is `otherwise`. `phone` is normalised by the intake (whitespace removed before
+     its E.164 check), which is why the help text can say spaces are fine.
+
+     The fields are the intake's own (firstName, lastName, email, company, country, phone,
+     useCase, consentProcessing, consentNewsletter) and there is NO username: it is chosen on
+     screen 2, after the email address is confirmed.
+
+     THE COUNTRY is a labelled choice (#721): `oneOf` of {const: ISO-2 code, title: name} shows the
+     names and submits the code, with `enum` of the same codes beside it so a frontend older than
+     #721 still draws a Select. The list is the COMPLETE ISO 3166-1 set from
+     files/iso-3166-1.yaml (generated from pycountry, never typed). The two lists come from the
+     same range, so they cannot disagree — the Form refuses to render when they do. */}}
+{{- $countries := (.Files.Get "files/iso-3166-1.yaml" | fromYaml).countries }}
+{{- $codes := list }}
+{{- $options := list }}
+{{- range $countries }}
+{{- $codes = append $codes .code }}
+{{- $options = append $options (dict "const" .code "title" .name) }}
+{{- end }}
+{{- $copy := .Values.requestAccess }}
+kind: Form
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-access
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    {{/* The page heading lives in the Form, so it goes when the "Check your inbox" Result
+         replaces the form (mockup 1.4). */}}
+    title: "Request access"
+    layout: vertical
+    size: large
+    {{/* Fields not marked "(optional)" are required (mockup screen 1): antd's own
+         requiredMark="optional". It also keeps the optional phone and newsletter fields in
+         schema order instead of an "Advanced" collapse. */}}
+    requiredMark: optional
+    buttonConfig:
+      primary:
+        label: "Request access"
+        block: true
+        size: large
+      {{/* No Reset: the mockup's card has one full-width action. */}}
+      secondary:
+        hidden: true
+    textareas:
+      - name: useCase
+        rows: 3
+    fieldHelp:
+      - name: phone
+        text: "Start with + and your country code. Spaces are fine."
+    checkboxes:
+      - name: consentProcessing
+        link:
+          text: {{ $copy.privacyPolicy.text | quote }}
+          href: {{ $copy.privacyPolicy.url | quote }}
+        requiredMessage: "Please agree to the processing of your details; we can’t review a request without it."
+      - name: consentNewsletter
+    {{/* The approved required-field copy (mockup v3, "Validation copy"). The same sentences
+         answer the intake's 400 below, so a field reads the same whichever side refused it. */}}
+    validationMessages:
+      - { name: firstName, requiredMessage: "Enter your first name." }
+      - { name: lastName, requiredMessage: "Enter your last name." }
+      - { name: email, requiredMessage: "Enter a valid email address, like jane@example.com." }
+      - { name: company, requiredMessage: "Enter your company." }
+      - { name: country, requiredMessage: "Choose your country." }
+      - { name: useCase, requiredMessage: "Tell us what you’d like to use it for." }
+    {{/* A JSON STRING, not `schema`: the client parses it in source order, so the fields render
+         in the order written here. The property order IS the field order. */}}
+    stringSchema: |-
+      {
+        "type": "object",
+        "required": ["firstName", "lastName", "email", "company", "country", "useCase", "consentProcessing"],
+        "properties": {
+          "firstName": { "type": "string", "title": "First name" },
+          "lastName": { "type": "string", "title": "Last name" },
+          "email": { "type": "string", "title": "Email" },
+          "company": { "type": "string", "title": "Company" },
+          "country": {
+            "type": "string",
+            "title": "Country",
+            "enum": {{ $codes | toJson }},
+            "oneOf": {{ $options | toJson }}
+          },
+          "phone": { "type": "string", "title": "Phone" },
+          "useCase": { "type": "string", "title": "What would you like to use it for?" },
+          "consentProcessing": { "type": "boolean", "title": {{ $copy.processingConsent | toJson }} },
+          "consentNewsletter": { "type": "boolean", "title": {{ $copy.newsletterConsent | toJson }} }
+        }
+      }
+    submitPost:
+      path: /request-access/api/v1/requests
+      responses:
+        {{/* Accepted. Never says the account was created: an administrator still decides. */}}
+        - when: { status: [202] }
+          result:
+            status: info
+            icon: fa-envelope
+            title: "Check your inbox"
+            subtitle: "We’ve sent a link to confirm your email address. After you confirm, an administrator reviews your request; if it’s approved, you’ll get an email to set your password and sign in."
+        {{/* 400 {fields}: each named field gets its own message, inline under it (mockup 1.2). */}}
+        - when: { status: [400] }
+          fieldErrors:
+            namesFrom: fields
+            message: "Check this field."
+            fieldMessages:
+              firstName: "Enter your first name."
+              lastName: "Enter your last name."
+              email: "Enter a valid email address, like jane@example.com."
+              company: "Enter your company."
+              country: "Choose your country."
+              phone: "Enter the number with its country code, like +39 …"
+              useCase: "Tell us what you’d like to use it for."
+        {{/* A warning, not an error: the person did nothing wrong and only has to wait (1.6). */}}
+        - when: { status: [429] }
+          alert:
+            type: warning
+            title: "Too many requests"
+            description: "We’ve had too many requests in a short time. Wait a while, then try again."
+            retryAfterDescription: "We’ve had too many requests in a short time. Try again in {retryAfter}."
+      {{/* Anything else (a 5xx, a 503 when the intake is full, no answer at all): an inline error
+           above the button, and nothing typed is lost (1.5). */}}
+      otherwise:
+        alert:
+          type: error
+          title: "We couldn’t send your request"
+          description: "Something went wrong on our side. Your details are still here, so try again later."
+  resourcesRefs:
+    items: []

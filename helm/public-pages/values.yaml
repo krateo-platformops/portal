@@ -1,0 +1,36 @@
+# @schema
+# description: The namespace this chart CREATES and installs the public pages into. It must be the frontend's PUBLIC_NAMESPACE (the frontend chart's `publicNamespace`, krateo-public by default) — the short address /public/<slug> opens flexes/page-<slug> in that namespace and nowhere else, and the pages' own links (Request access again) are short addresses. The only grant in it is the public identity's (user krateo:public, snowplow#1334), on exactly the objects these pages read. It holds no data, so it is not kept on uninstall.
+# type: string
+# @schema
+namespace: krateo-public
+
+# @schema
+# description: The request form's per-installation legal copy — who processes the requester's details, under which privacy policy, and what the optional newsletter is. These name the OPERATOR of the installation, so they are values rather than chart text; the defaults are the approved copy for Krateo's own installation.
+# type: object
+# @schema
+requestAccess:
+  # @schema
+  # description: The label of the REQUIRED processing-consent checkbox. Name the data controller and what the details are used for. When it contains `privacyPolicy.text`, that phrase becomes the link.
+  # type: string
+  # @schema
+  processingConsent: "I agree that Krateo S.r.l. processes the details in this form to review my request for access to the Krateo demo control plane, to create my account if it’s approved, and to contact me about it. See the privacy policy."
+  # @schema
+  # description: The privacy policy linked from the processing-consent label.
+  # type: object
+  # @schema
+  privacyPolicy:
+    # @schema
+    # description: The phrase of `processingConsent` that becomes the link (its first occurrence). When the label does not contain it, the link follows the label.
+    # type: string
+    # @schema
+    text: privacy policy
+    # @schema
+    # description: The privacy policy's address, an http(s) URL. Opened in a new tab.
+    # type: string
+    # @schema
+    url: https://agentiko.eu/privacy-policy/
+  # @schema
+  # description: The label of the OPTIONAL newsletter checkbox.
+  # type: string
+  # @schema
+  newsletterConsent: Send me occasional news about Krateo and Agentiko. I can unsubscribe at any time.
