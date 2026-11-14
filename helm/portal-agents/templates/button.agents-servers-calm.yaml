@@ -1,0 +1,37 @@
+{{/* The accepted tool servers, accounted for when something needs attention (live check of slice 3a */}}
+{{/* on krateo-057, Diego 2026-11-14). The overview groups the agents (Needs attention, Orchestrators, */}}
+{{/* Specialists) but has no group for a tool server that is fine: those live on the Tool servers tab. */}}
+{{/* So with Kind = Tool servers the view showed the 2 NotAccepted servers and nothing else, and the 9 */}}
+{{/* healthy ones appeared nowhere. This line names them and opens that tab (Tabs reads ?tab=<label>). */}}
+{{/* It is shown only when something needs attention: when nothing does, agents-calm already says */}}
+{{/* "Nothing needs attention: … N tool servers Accepted". A link-type Button, the component the */}}
+{{/* overview already uses for "All N agents as a table →", because a Paragraph cannot carry a link. */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-calm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: Tool servers →
+    type: link
+    size: middle
+    clickActionId: servers
+    actions:
+      navigate:
+        - id: servers
+          type: navigate
+          path: /agents?tab=Tool%20servers
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ (.strip // {}) as $s | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); "The rest is fine: " + n(($s.serversAccepted // 0); "tool server"; "tool servers") + " Accepted" + (if $s.toolsDiscovered == null then "" else " · " + n($s.toolsDiscovered; "tool"; "tools") end) + " · on the Tool servers tab →" }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "servers", type: "navigate", path: (.serversHref // "/agents?tab=Tool%20servers") } ] } }'
+  resourcesRefs:
+    items: []

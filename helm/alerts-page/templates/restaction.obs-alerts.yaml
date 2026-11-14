@@ -26,8 +26,8 @@
                  of the OK ones by signal; the widgets cap and place them;
        counts / status   per-state totals over every alert, and the state picked (kept for the table);
        failed / readError, incidentsFailed;
-       viewAskHref  "Ask Agentiko →": a prompt about the alerts on screen, keeping every filter param;
-       askHref   "Author with Autopilot": the alert-authoring prompt, keeping every filter param. */}}
+       viewAskHref  "Ask Agentiko →": a prompt about the alerts on screen that also offers to author a
+                    new alert, keeping every filter param. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -134,7 +134,7 @@ spec:
       def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
       ([ $shown[] | select(.stateKey == "alert") ]) as $firing
     | ([ $shown[] | select(.backToOk) ]) as $back
-    | (if $err != "" then
+    | ((if $err != "" then
          "The observability alerts on this page could not be read (" + $err + "). Explain what that error means and what to check."
        elif ($shown | length) == 0 then
          (if $desc != "" then "No alert is in the view on screen (" + $desc + "); " + n($rows | length; "alert is"; "alerts are") + " outside it. Tell me whether that filter hides anything I should look at."
@@ -150,7 +150,10 @@ spec:
          + (if ($back | length) > 0 then " Back to OK: " + names($back) + "." else "" end)
          + (if ($okOpen | length) > 0 then " OK but still with open incidents: " + names($okOpen) + "." else "" end)
          + " Tell me which alert to look at first and why, whether any of them is noisy or mis-tuned, and the next step for each — grounded in the evidence on this page."
-       end) as $viewPrompt
+       end)
+       # One Ask button on the header (Diego, 2026-11-14): the alert-authoring route that used to be a
+       # second, identically labelled "Ask Agentiko →" button is offered here instead. Not on a failed read.
+       + (if $err != "" then "" else " If I want a new alert instead, help me author it: what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm." end)) as $viewPrompt
     | {
         rows: $shown,
         matched: ($shown | length),
@@ -186,6 +189,5 @@ spec:
           + ($keys | map({ key: ., value: (. as $k | [ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries)),
         status: $sel,
         projects: $projects,
-        viewAskHref: fx_href("/alerts"; $p + [["ask", $viewPrompt]]),
-        askHref: fx_href("/alerts"; $p + [["ask", "I want to create a new observability alert. Help me define what to watch (the telemetry query), the threshold and comparison, and the evaluation interval, then create it once I confirm."]])
+        viewAskHref: fx_href("/alerts"; $p + [["ask", $viewPrompt]])
       }

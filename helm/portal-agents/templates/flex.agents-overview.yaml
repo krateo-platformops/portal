@@ -31,7 +31,7 @@ spec:
     - resourceRefId: agents-filter-bar
   widgetDataTemplate:
   - forPath: items
-    expression: '${ [ { resourceRefId: "agents-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "agents-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "agents-view-toggle" }, { resourceRefId: "agents-list-card" } ] else [ { resourceRefId: "agents-strip" } ] + (if (.matched // 0) == 0 or ((.attention // []) | length) == 0 or (.gatewayKnown | not) then [ { resourceRefId: "agents-calm" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "agents-groups" } ] else [] end) + (if ((.agentsInView // []) | length) > 0 then [ { resourceRefId: "agents-view-toggle" } ] else [] end) end) }'
+    expression: '${ [ { resourceRefId: "agents-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "agents-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "agents-view-toggle" }, { resourceRefId: "agents-list-card" } ] else [ { resourceRefId: "agents-strip" } ] + (if (.matched // 0) == 0 or ((.attention // []) | length) == 0 or (.gatewayKnown | not) then [ { resourceRefId: "agents-calm" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "agents-groups" } ] else [] end) + (if ((.attention // []) | length) > 0 and ((.strip.serversAccepted // 0) > 0) then [ { resourceRefId: "agents-servers-calm" } ] else [] end) + (if ((.agentsInView // []) | length) > 0 then [ { resourceRefId: "agents-view-toggle" } ] else [] end) end) }'
   resourcesRefs:
     items:
     - id: agents-filter-bar
@@ -57,6 +57,12 @@ spec:
       name: agents-calm
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
+      verb: GET
+    - id: agents-servers-calm
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-calm
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
       verb: GET
     - id: agents-groups
       apiVersion: widgets.templates.krateo.io/v1beta1

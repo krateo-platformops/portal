@@ -117,7 +117,7 @@ def check_strip():
     f = []
     rows = [(t['title'], t['value'], t['caption'], t['tone']) for t in w('Listy', 'agents-strip', resolve({}))['dataSource']]
     expect(f, 'the strip: four tiles, no Model', rows, [('Agents', '6', '', ''), ('Gateway gaps', '1', 'not routed or not allowed', 'bad'),
-                                                       ('Tool servers NotAccepted', '1', 'of 3', 'bad'), ('Tools discovered', '26', 'on 2 servers', '')])
+                                                       ('Tool servers NotAccepted', '1', 'of 3', 'bad'), ('Tools discovered', '13', 'on 2 servers', '')])
     rows = [(t['title'], t['value'], t['caption'], t['tone']) for t in w('Listy', 'agents-strip', resolve({}, routes=False))['dataSource']]
     expect(f, 'gateway not checked: "—", never 0 gaps', rows[1], ('Gateway gaps', '', 'not checked', 'warn'))
     calm = w('Paragraph', 'agents-calm', resolve({}, routes=False))
@@ -181,12 +181,40 @@ def check_filter_keys():
         if d.get('apiVersion', '').startswith('widgets.templates.krateo.io/') and n in (
                 'page-agents', 'agents-main', 'agents-tab-inventory', 'agents-overview', 'agents-filter-bar', 'agents-kind', 'agents-status',
                 'agents-owner', 'agents-search', 'agents-active-filters', 'agents-strip', 'agents-calm', 'agents-groups', 'agents-view-toggle',
-                'agents-list-card', 'agents-list', 'agents-ask-agentiko', 'agents-topology', 'agents-policies-card-cors'):
+                'agents-list-card', 'agents-list', 'agents-ask-agentiko', 'agents-topology', 'agents-policies-card-cors', 'agents-servers-calm'):
             expect(f, f'{d["kind"]} {n} declares every filter key', [k for k in KX if k not in (d['spec'].get('keyExtras') or [])], [])
     return f
 
 
-CHECKS = [check_facets, check_strip, check_groups, check_page_and_table, check_filter_keys]
+def check_servers_calm():
+    # Live check of slice 3a on 057 (Diego, 2026-11-14): with Kind = Tool servers the overview showed the
+    # NotAccepted servers and nothing else; the healthy ones appeared nowhere. When something needs
+    # attention, a calm line names the accepted servers and opens the Tool servers tab.
+    f = []
+    items = lambda out, ex: [i['resourceRefId'] for i in w('Flex', 'agents-overview', out, ex)['items']]
+    for ex in ({}, {'kind': 'server'}, {'projects': 'p'}):
+        out = resolve(ex)
+        expect(f, f'{ex}: the calm line follows the groups', 'agents-servers-calm' in items(out, ex), True)
+        btn = w('Button', 'agents-servers-calm', out, ex)
+        expect(f, f'{ex}: it names the accepted servers and their tools', btn['label'],
+               'The rest is fine: 2 tool servers Accepted · 13 tools · on the Tool servers tab →')
+        want = '/agents?projects=p&tab=Tool%20servers' if ex.get('projects') else '/agents?tab=Tool%20servers'
+        expect(f, f'{ex}: it opens the Tool servers tab, keeping only the project scope', btn['actions']['navigate'][0]['path'], want)
+    ex = {'kind': 'agent'}
+    expect(f, '?kind=agent: no servers in view, no line', 'agents-servers-calm' in items(resolve(ex), ex), False)
+    healthy = [s for s in SERVERS if s['metadata']['name'] != 'cujbench-evidence']
+    calm_agents = [a for a in AGENTS if a['metadata']['name'] not in ('broken-agent', 'nightly-review-agent')]
+    out = resolve({}, agents=calm_agents, servers=healthy, routes=True)
+    expect(f, 'nothing needs attention: agents-calm says it, no second line', ('agents-servers-calm' in items(out, {}), 'agents-calm' in items(out, {})), (False, True))
+    ex = {'view': 'table'}
+    expect(f, '?view=table: no line', 'agents-servers-calm' in items(resolve(ex), ex), False)
+    one = [server('docs'), server('cujbench-evidence', accepted=False, tools=0)]
+    expect(f, 'one accepted server: singular', w('Button', 'agents-servers-calm', resolve({}, servers=one))['label'],
+           'The rest is fine: 1 tool server Accepted · 3 tools · on the Tool servers tab →')
+    return f
+
+
+CHECKS = [check_facets, check_strip, check_groups, check_page_and_table, check_filter_keys, check_servers_calm]
 
 
 def main():
