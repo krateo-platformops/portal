@@ -1,0 +1,30 @@
+{{/* The Kind facet, written to ?kind=: agents (kagent Agents) or tool servers (RemoteMCPServers).
+     The mockup draws it as a Segmented (All / Agents / Tool servers); the facets are Selects on
+     every overview page (build plan §1). */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-kind
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: kind
+    label: Kind
+    queryParam: kind
+    mode: multiple
+    prefix: Kind
+    placeholder: All
+    size: small
+    panelFooter: Counted in agents and tool servers, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "kind") | .values | sort_by({agent: 0, server: 1}[.value] // 99)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

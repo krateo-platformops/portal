@@ -1,0 +1,56 @@
+{{/* The /agents Overview filter bar: a named search landmark (Flex role/ariaLabel) holding the Kind,
+     Status and Owner facets, then the search box. A facet whose values are all one (over every agent
+     and tool server, decision Q2) is left out unless one of its values is applied. Every agent uses
+     the same model, so Model is not a facet. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-filter-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - selects
+    - inputs
+    role: search
+    ariaLabel: Filter agents and tool servers
+    wrap: true
+    gap: small
+    align: center
+    items:
+    - resourceRefId: agents-search
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("kind", "status", "owner") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("agents-" + $k) } ] + [ { resourceRefId: "agents-search" } ] }'
+  resourcesRefs:
+    items:
+    - id: agents-kind
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-kind
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: agents-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-status
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: agents-owner
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-owner
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: agents-search
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-search
+      namespace: {{ $.Values.namespace }}
+      resource: inputs
+      verb: GET

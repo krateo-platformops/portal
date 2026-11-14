@@ -1,0 +1,31 @@
+{{/* The State facet, written to ?status= (comma-joined, lower case): the param the state chips
+     wrote, so /alerts?status=alert still lands filtered. Alert (firing), Not evaluated (no HyperDX
+     alert behind it, whatever .status.state says), Pending, OK, in that order. Only the states some
+     alert is in are offered, so a facet whose every alert is OK is left out of the bar. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: status
+    label: State
+    queryParam: status
+    mode: multiple
+    prefix: State
+    placeholder: All
+    size: small
+    panelFooter: Counted in alerts, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "status") | .values | sort_by({alert: 0, "not-evaluated": 1, pending: 2, ok: 3}[.value] // 99)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,26 @@
+{{/* The calm line, under the strip (mockup screen 07): "Nothing is firing: all 31 alerts are OK." when
+     no alert in view is firing, not evaluated or pending. Before it, what keeps a quiet page honest: a
+     failed read of the alerts, an unread incident list, or nothing matching. A warning when a read
+     failed, muted otherwise. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-calm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ [ (if .failed then "The alerts could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.matched // 0) == 0 then (if .filtered then "No alert matches these filters." else "There are no alerts yet." end) elif (.strip.firing // 0) == 0 and ((.groups.notEvaluated // []) | length) == 0 and ((.groups.pending // []) | length) == 0 then "Nothing is firing: " + (if (.matched // 0) == 1 then "the 1 alert" else "all " + ((.matched // 0) | tostring) + " alerts" end) + (if .filtered then " in view" else "" end) + (if (.matched // 0) == 1 then " is OK." else " are OK." end) else empty end), (if .incidentsFailed then "The incidents could not be read, so which alerts have open incidents is not shown." else empty end) ] | join(" ") }'
+  - forPath: type
+    expression: '${ if .failed or .incidentsFailed then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

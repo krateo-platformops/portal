@@ -1,0 +1,46 @@
+{{/* The agents and tool servers in view, grouped (mockup screen 09). A card each, at most six a group,
+     then "See all N →" to the 12-column table (decision Q1):
+       - Needs attention (red): an agent the gateway cannot reach (NotRegistered, and what it is
+         missing: no route, no Allow rule), an agent whose Ready or Accepted is not True, a tool
+         server not Accepted (kagent could not connect or list its tools: its reason and message);
+       - Orchestrators: the healthy agents that hand work to other agents, most delegates first,
+         with how many delegates, tools and tool servers;
+       - Specialists, folded: the other healthy agents.
+     An agent's card opens its page. A tool server has no page (the Tool servers tab is its table),
+     so its card is inert. Needs attention and Orchestrators start open. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-groups
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    defaultActiveKey: []
+    grid: { gutter: 16, xs: 1, sm: 1, md: 2, lg: 3, xl: 3, xxl: 3 }
+    itemTemplate:
+      rowVariant: card
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      description: '{body}'
+      subSecondaryText: '{foot}'
+      cardCta: '{cta}'
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    items: []
+  widgetDataTemplate:
+  - forPath: defaultActiveKey
+    expression: '${ [ (if ((.attention // []) | length) > 0 then "attention" else empty end), (if ((.orchestrators // []) | length) > 0 then "orchestrators" else empty end) ] }'
+  - forPath: items
+    expression: '${ . as $r | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); def agentcard($tag; $tone; $foot): { title: .name, tag: $tag, tone: $tone, body: (.role // ""), foot: $foot, cta: "Open", href: ("/agents/" + .routeNs + "/" + .routeName) }; def card: if .item == "server" then { title: .name, tag: "NotAccepted", tone: "bad", body: (if .message != "" then .message else "Accepted is not True, and no message was given." end), foot: ("RemoteMCPServer · reason " + (if .reason != "" then .reason else "none given" end)), cta: "", href: "" } elif (.gateway // "") != "" then agentcard("NotRegistered"; (if .gatewayColor == "orange" then "warn" else "bad" end); ("Gateway: " + .gateway + " · owner " + .shipper)) else agentcard(.statusLabel; (if .statusColor == "red" then "bad" else "warn" end); ("owner " + .shipper)) end; def panel($k; $label; $status; $extra; cards): (($r[$k]) // []) as $m | if ($m | length) == 0 then empty else { key: $k, label: $label, count: ($m | length), extra: $extra, dataSource: [ $m[0:6][] | cards ] } + (if $status != "" then { status: $status } else {} end) + (if ($m | length) > 6 then { footer: ("See all " + ($m | length | tostring) + " →"), footerNavigateTo: ($r.tableHref // "/agents?view=table") } else {} end) end; [ panel("attention"; "Needs attention"; "error"; "unreachable through the gateway, not Ready, or not Accepted"; card), panel("orchestrators"; "Orchestrators"; ""; "agents that hand work to other agents"; agentcard(""; ""; (n(.delegates; "delegate"; "delegates") + " · " + n(.tools; "tool"; "tools") + " on " + n(.servers; "server"; "servers")))), panel("specialists"; "Specialists"; ""; (if $r.gatewayKnown then "all registered, all Ready" else "all Ready; gateway not checked" end); agentcard(""; ""; ("owner " + .shipper))) ] }'
+  resourcesRefs:
+    items: []

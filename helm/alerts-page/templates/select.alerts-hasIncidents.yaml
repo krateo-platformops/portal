@@ -1,0 +1,30 @@
+{{/* The "Has open incidents" facet, written to ?hasIncidents= (yes, no): whether an alert has an
+     incident that is not Resolved or Closed, from the Incidents obs-alerts now reads. With the
+     incidents unread no alert has a value, so the facet is left out: an unread list is not "no". */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-hasIncidents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: hasIncidents
+    label: Has open incidents
+    queryParam: hasIncidents
+    mode: multiple
+    prefix: Has open incidents
+    placeholder: All
+    size: small
+    panelFooter: Counted in alerts, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "hasIncidents") | .values | sort_by({yes: 0, no: 1}[.value] // 99)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

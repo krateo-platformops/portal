@@ -1,0 +1,78 @@
+{{/* The Overview tab of /agents (root-pages UX slice 3a, build plan §3.4; mockup screen 09; Diego,
+     2026-11-14, Q3 (a)). Top to bottom: the filter bar (Kind, Status, Owner, search; a facet with one
+     value is left out) and, when a filter is applied, its chips; then the OVERVIEW: the strip, the
+     calm line when nothing needs anyone or the gateway could not be checked, the groups (Needs
+     attention, Orchestrators, Specialists) and "All N agents as a table →"; or, with ?view=table,
+     "← Back to the overview" and today's 12-column agents table, listing the agents the filters
+     match. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-overview
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - flexes
+    - listies
+    - paragraphs
+    - collapses
+    - buttons
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-filter-bar
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "agents-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "agents-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "agents-view-toggle" }, { resourceRefId: "agents-list-card" } ] else [ { resourceRefId: "agents-strip" } ] + (if (.matched // 0) == 0 or ((.attention // []) | length) == 0 or (.gatewayKnown | not) then [ { resourceRefId: "agents-calm" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "agents-groups" } ] else [] end) + (if ((.agentsInView // []) | length) > 0 then [ { resourceRefId: "agents-view-toggle" } ] else [] end) end) }'
+  resourcesRefs:
+    items:
+    - id: agents-filter-bar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-filter-bar
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-active-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-active-filters
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-strip
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-strip
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-calm
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-calm
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agents-groups
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-groups
+      namespace: {{ $.Values.namespace }}
+      resource: collapses
+      verb: GET
+    - id: agents-view-toggle
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-view-toggle
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+    - id: agents-list-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-list-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

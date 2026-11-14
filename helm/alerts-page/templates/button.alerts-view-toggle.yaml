@@ -1,0 +1,32 @@
+{{/* The escape to today's table and back (decision 2026-11-13 (a)): on the overview, "All N alerts
+     as a table →" opens ?view=table with every filter kept; on the table, "← Back to the overview"
+     drops ?view and keeps the rest. Both hrefs come from obs-alerts (portal.facets). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-view-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: All as a table →
+    type: link
+    size: middle
+    clickActionId: view
+    actions:
+      navigate:
+        - id: view
+          type: navigate
+          path: /alerts?view=table
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ if .view == "table" then "← Back to the overview" else "All " + ((.matched // 0) | tostring) + (if .filtered then " matching" else "" end) + " alerts as a table →" end }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "view", type: "navigate", path: (if .view == "table" then (.cardsHref // "/alerts") else (.tableHref // "/alerts?view=table") end) } ] } }'
+  resourcesRefs:
+    items: []

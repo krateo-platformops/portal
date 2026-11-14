@@ -1,0 +1,31 @@
+{{/* The Status facet, written to ?status=: an agent is Registered or NotRegistered at the agent
+     gateway (portal.agentsGateway: an HTTPRoute for its host and the Allow clauses naming it), a
+     tool server Accepted or NotAccepted (its Accepted condition). While the gateway could not be
+     checked an agent has neither, so nobody is called registered on a check that did not run. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: status
+    label: Status
+    queryParam: status
+    mode: multiple
+    prefix: Status
+    placeholder: All
+    size: small
+    panelFooter: Counted in agents and tool servers, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "status") | .values | sort_by({notregistered: 0, notaccepted: 1, registered: 2, accepted: 3}[.value] // 99)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,50 @@
+{{/* The compositions in view, grouped by state (mockup screen 02; decisions of 2026-11-14). Exception
+     groups first, each a card per composition, at most six, then "See all N →" to the table filtered
+     to that state (decision Q1):
+       - Paused (orange): reconcile paused on purpose (ReconcilePaused); never counted Ready;
+       - NotReady (red), Degraded (red: workload unhealthy), Drift (orange: Synced=False);
+       - Children unreadable (orange): ChildrenForbidden, an RBAC defect in the generated grants,
+         shown as one (Diego, 2026-11-10);
+       - Pending, folded and neutral: converging (Creating, other Ready=Unknown); a ZeroEvidence one
+         is labelled "No signal": its children publish no readiness the controller can read;
+       - "Ready, by kind": one card per kind, not per row, largest first, its three newest names and
+         any Ready reason other than Available (AvailablePartialCoverage ×15); a kind of one opens
+         the composition, a larger one the table filtered to that kind.
+     A card opens the composition, where pause, resume and the rest live. Every panel but Pending
+     starts open. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-groups
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    defaultActiveKey: []
+    grid: { gutter: 16, xs: 1, sm: 1, md: 2, lg: 3, xl: 3, xxl: 3 }
+    itemTemplate:
+      rowVariant: card
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      description: '{body}'
+      subSecondaryText: '{foot}'
+      cardCta: '{cta}'
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    items: []
+  widgetDataTemplate:
+  - forPath: defaultActiveKey
+    expression: '${ [ ("paused", "failed", "degraded", "drift", "unreadable") as $k | select(((.byState // {})[$k] // []) | length > 0) | $k ] + (if ((.readyByKind // []) | length) > 0 then [ "ready" ] else [] end) }'
+  - forPath: items
+    expression: '${ . as $r | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); def card($tone): { title: .name, tag: (if .notAssessable and .reason == "ZeroEvidence" then "No signal" else .reason end), tone: $tone, body: .message, foot: (.kind + " · " + .ns + " · created " + (.ts // "")[0:10]), cta: "Open", href: ("/compositions/" + .ns + "/" + .name) }; [ ({ k: "paused", label: "Paused", status: "warning", tone: "warn", extra: "reconcile paused" }, { k: "failed", label: "NotReady", status: "error", tone: "bad", extra: "Ready=False" }, { k: "degraded", label: "Degraded", status: "error", tone: "bad", extra: "workload unhealthy" }, { k: "drift", label: "Drift", status: "warning", tone: "warn", extra: "Synced=False" }, { k: "unreadable", label: "Children unreadable", status: "warning", tone: "warn", extra: "ChildrenForbidden: the generated RBAC refuses a read" }, { k: "pending", label: "Pending", tone: "", extra: "converging, or no readiness signal" }) as $g | (($r.byState // {})[$g.k] // []) as $m | select(($m | length) > 0) | { key: $g.k, label: $g.label, count: ($m | length), extra: $g.extra, dataSource: [ $m[0:6][] | card($g.tone) ] } + (if $g.status then { status: $g.status } else {} end) + (if ($m | length) > 6 then { footer: ("See all " + ($m | length | tostring) + " →"), footerNavigateTo: ($r.stateTableHrefs[$g.k] // "/compositions") } else {} end) ] + ((($r.readyByKind // [])) as $kinds | if ($kinds | length) == 0 then [] else [ { key: "ready", label: "Ready, by kind", count: ([ $kinds[] | .count ] | add), extra: "a card per kind, not per row", dataSource: [ $kinds[0:6][] | { title: .kind, tag: ([ .reasons[] | .reason + " ×" + (.count | tostring) ] | join(" · ")), tone: "", body: ((.names | join(", ")) + (if .count > 3 then " and " + ((.count - 3) | tostring) + " more" else "" end)), foot: (n(.count; "composition"; "compositions") + " · newest " + (.newest // "")[0:10] + " · " + (if .count > 1 then "all Ready" else "Ready" end)), cta: (if .count > 1 then "See all " + (.count | tostring) else "Open" end), href: .href } ] } + (if ($kinds | length) > 6 then { footer: ("See all " + ([ $kinds[] | .count ] | add | tostring) + " Ready →"), footerNavigateTo: ($r.stateTableHrefs.healthy // "/compositions") } else {} end) ] end) }'
+  resourcesRefs:
+    items: []
