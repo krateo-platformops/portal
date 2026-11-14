@@ -200,6 +200,7 @@ spec:
       | (any($c[]; .type == "Ready" and .status == "True")) as $ready
       | if any($c[]; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused")) then "paused"
         elif any($c[]; .type == "Ready" and .status == "False" and .reason != "Creating") then "failed"
+        elif any($c[]; (.type == "Ready" and .status == "Unknown" and .reason != "ZeroEvidence" and .reason != "ChildrenForbidden")) and any($c[]; .type == "Synced" and .status == "False") then "failed"
         elif $ready and (.wh == false) then "degraded"
         elif $ready and any($c[]; .type == "Synced" and .status == "False") then "drift"
         elif $ready then "ready"

@@ -68,8 +68,10 @@ def tags_program():
     return expr.strip().removeprefix('${').removesuffix('}').strip()
 
 
-def pill(program, status, reason, healthy):
+def pill(program, status, reason, healthy, synced=None):
     conditions = [] if status is None else [{'type': 'Ready', 'status': status, 'reason': reason}]
+    if synced is not None:
+        conditions.append({'type': 'Synced', 'status': synced[0], 'reason': synced[1]})
     data = {'detail': {'status': {'conditions': conditions}}, 'workloadHealthy': healthy}
     proc = subprocess.run([JQ, '-c', program], input=json.dumps(data), capture_output=True, text=True, check=False)
     if proc.returncode != 0:
@@ -139,6 +141,17 @@ def main():
             failures += 1
             print(f'FAIL Ready={status}/{reason} workloadHealthy={healthy}: '
                   f'got {got["label"]}/{got["color"]}, want {label}/{color}')
+    # An unrecognised Unknown whose reconcile fails is NotReady, not Unknown (Diego, 2026-11-14).
+    for status, reason, synced, label, color in [
+            ('Unknown', 'ObserveFailed', ('False', 'ReconcileError'), 'NotReady', 'red'),
+            ('Unknown', 'SomeNewReason', ('False', 'ReconcileError'), 'NotReady', 'red'),
+            ('Unknown', 'ObserveFailed', ('True', 'ReconcileSuccess'), 'Unknown', 'gray'),
+            ('Unknown', 'ZeroEvidence', ('False', 'ReconcileError'), 'Unknown', 'gray'),
+            ('Unknown', 'ChildrenForbidden', ('False', 'ReconcileError'), 'Unknown', 'gray')]:
+        got = pill(program, status, reason, None, synced)
+        if (got['label'], got['color']) != (label, color):
+            failures += 1
+            print(f'FAIL Ready={status}/{reason} Synced={synced}: got {got["label"]}/{got["color"]}, want {label}/{color}')
     print(f'{len(CASES)} pill cases, {failures} failure(s) in all')
     return min(failures, 125)
 

@@ -208,6 +208,27 @@ check('creating: counted pending with the two other Unknowns, and pendingPercent
 only_creating = compositions_list([CREATING])['assessment']
 check('only Creating: one pending, all of the assessable', (only_creating['pending'], only_creating['pendingPercent']), (1, 100))
 
+# --- 2b. an unrecognised Ready=Unknown whose reconcile is FAILING is failed (Diego, 2026-11-14) -----
+# alerts-page on krateo-057 read Ready=Unknown/ObserveFailed with Synced=False/ReconcileError: its helm
+# upgrade was refused on every attempt, and it showed as "pending", as if it were converging. Synced=False
+# is the reconcile's own verdict, so an unrecognised Unknown with it is a failure. With Synced True or
+# absent it stays pending (a first observe in flight). ZeroEvidence and ChildrenForbidden keep their states.
+def synced_false(item):
+    item = copy.deepcopy(item)
+    synced = [c for c in item['status']['conditions'] if c['type'] == 'Synced']
+    assert len(synced) == 1, item['metadata']['name']
+    synced[0].update(status='False', reason='ReconcileError')
+    return item
+for reason in ('ObserveFailed', 'SomeNewReason', 'InventoryNotRecorded'):
+    item = compositions_list([synced_false(unknown(f'u-{reason.lower()}', reason))])['list'][0]
+    check(f'Unknown/{reason} + Synced=False: failed', (item['state'], item['railState'], item['rail']['state']), ('failed', 'failed', 'failed'))
+    item = compositions_list([unknown(f'u-{reason.lower()}', reason)])['list'][0]
+    check(f'Unknown/{reason} + Synced=True: still pending', (item['state'], item['railState']), ('pending', 'pending'))
+item = compositions_list([synced_false(only_silent_0 := next(i for i in LIVE if ready_reason(i) == 'ZeroEvidence'))])['list'][0]
+check('Unknown/ZeroEvidence + Synced=False: still not assessable, not failed', (item['assessable'], item['state']), (False, 'pending'))
+item = compositions_list([synced_false(UNREADABLE)])['list'][0]
+check('Unknown/ChildrenForbidden + Synced=False: still unreadable, not failed', (item['assessable'], item['state']), (False, 'unreadable'))
+
 # --- 3. nothing to set aside ------------------------------------------------------------------------
 NONE = [i for i in LIVE if ready_reason(i) != 'ZeroEvidence'] + DEFECTS
 out = compositions_list(NONE)
