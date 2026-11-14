@@ -690,6 +690,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-header-pill.py
 
+      # The blueprint header's pill reads Degraded from Ready=False only: a CompositionDefinition's
+      # other conditions (AuthnMappingApplied, ControllerActive, ...) can be False on a healthy one.
+      # Runs the chart's own jq, with a control that the old "any False" rule fails the test.
+      - name: Blueprint header pill, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-blueprint-header-pill.py
+
       # The Access card's gate lives in composition-detail's `access` object, so this runs that
       # filter over every state in the approved mockup, plus the gate's edges.
       - name: Composition Access card, over the chart's own jq
@@ -846,6 +855,9 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           jq --version
           python3 scripts/test-facets.py
+
+      - name: Copied helpers match their portal source
+        run: python3 scripts/test-copied-helpers.py
 
       - name: Dashboard inbox, evaluated and validated
         run: |
