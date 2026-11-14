@@ -600,7 +600,7 @@ def _():
     check('no audit access: one row saying so', [r['what'] for r in w['items'][0]['dataSource']],
           ['The audit trail of your namespaces is not shared with you.'])
     it, out, w = recent_changes({'namespaces': [NS], 'allNamespaces': False, 'recent': ch_rows(5, 12)})
-    check('namespace access: one call, narrowed', [(i['all'], i['acc'], i['r']) for i in it], [(False, [NS], '7d')])
+    check('namespace access: one call, narrowed, successful writes only', [(i['all'], i['acc'], i['r'], i['oc']) for i in it], [(False, [NS], '7d', 'success')])
     item = w['items'][0]
     check('twelve this week: five shown, counted, See all to /audit', (item['count'], len(item['dataSource']), item.get('footer'), item.get('footerNavigateTo')),
           (12, 5, 'See all 12 →', '/audit?range=7d'))
@@ -613,6 +613,14 @@ def _():
     check('ClickHouse failed: said, not an empty week', (w['items'][0].get('status'), w['items'][0]['extra']), ('warning', 'could not be read'))
     it, out, w = recent_changes({'namespaces': [NS], 'allNamespaces': False, 'recent': ch_rows(0, 0)})
     check('an empty week: said', w['items'][0]['dataSource'], [{'what': 'No changes in the last 7 days.', 'who': ''}])
+    # The producer records `-` as the name when the request path has none (every create): the row
+    # reads the resource alone, never "tickets/-" (live check on 057, 2026-11-14).
+    created = ch_rows(2, 2)
+    created['data'][0].update({'method': 'POST', 'res': 'tickets', 'grp': 'servicedesk.krateo.io', 'name': '-'})
+    created['data'][1].update({'method': 'POST', 'res': 'tickets', 'grp': 'servicedesk.krateo.io', 'name': ''})
+    _, _, w = recent_changes({'namespaces': [NS], 'allNamespaces': False, 'recent': created})
+    check('a create with no name: the resource alone, no "/-"', [r['what'] for r in w['items'][0]['dataSource']],
+          [f'Create tickets in {NS}', f'Create tickets in {NS}'])
 
 
 # --- 10b. the ClickHouse request, as snowplow dials it ---------------------------------------------
@@ -625,6 +633,12 @@ SELECT = ("SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope
           "LogAttributes['k8s.resource.group'] AS grp, LogAttributes['k8s.resource.name'] AS name, "
           "LogAttributes['k8s.namespace.name'] AS ns, LogAttributes['outcome'] AS outcome, "
           "LogAttributes['server.address'] AS server, count() OVER () AS matched FROM krateo_audit WHERE ")
+
+
+# Only writes that happened, and not Agentiko's own AuditRecord of a write (live check, 2026-11-14).
+SUCCESS = " AND LogAttributes['outcome'] = 'success'"
+NOT_AUDIT = (" AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io'"
+             " AND LogAttributes['k8s.resource.resource'] = 'auditrecords')")
 
 
 @case('Recent changes: the request snowplow dials')
@@ -643,7 +657,7 @@ def _():
         check(f'{label}: a ClickHouse query', path.startswith('/?query='), True)
         once = urllib.parse.unquote(path[len('/?query='):])
         check(f'{label}: no escape survives one decode (not encoded twice)', re.search(r'%[0-9A-Fa-f]{2}', once), None)
-        check(f'{label}: the SQL', once, SELECT + POP + ' AND Timestamp > now() - INTERVAL 7 DAY AND NOT ' + DRY + access + tail)
+        check(f'{label}: the SQL', once, SELECT + POP + ' AND Timestamp > now() - INTERVAL 7 DAY AND NOT ' + DRY + access + SUCCESS + NOT_AUDIT + tail)
 
 
 # --- 11. the widgets against the CRDs ------------------------------------------------------------------------
