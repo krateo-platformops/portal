@@ -870,6 +870,12 @@ jobs:
       - name: Copied helpers match their portal source
         run: python3 scripts/test-copied-helpers.py
 
+      # installer's CI reads retracted-versions.yaml over every pin and refuses a listed version. A
+      # malformed entry would match nothing there, so it is checked here: only this repo's charts,
+      # plain semver, and both the retracted version and its `use` published (helm show chart).
+      - name: Retracted versions are well formed and point at published releases
+        run: python3 scripts/test-retracted-versions.py
+
       - name: Dashboard inbox, evaluated and validated
         run: |
           set -euo pipefail
