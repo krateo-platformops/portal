@@ -425,11 +425,25 @@ def check_legal_copy_comes_from_values(_chart):
     return f
 
 
+
+def check_newsletter_shows_no_optional_mark(chart):
+    """The approved mockup draws the newsletter checkbox with no "(optional)" after it (frontend
+    1.8.44's checkboxes[].hideOptionalMark). It is optional, so the Form would add the marker;
+    the required processing consent never shows one, so it carries no such key."""
+    f = []
+    boxes = {c['name']: c for c in chart.get('Form', 'request-access')['spec']['widgetData']['checkboxes']}
+    if boxes.get('consentNewsletter', {}).get('hideOptionalMark') is not True:
+        f.append(f'consentNewsletter has no hideOptionalMark: true ({boxes.get("consentNewsletter")})')
+    if 'hideOptionalMark' in boxes.get('consentProcessing', {}):
+        f.append('consentProcessing is required: hideOptionalMark has nothing to hide there')
+    return f
+
+
 CHECKS = [check_rbac_is_exactly_what_the_roots_reach, check_the_comparison_fails_on_a_mutation,
           check_bound_to_the_public_user_only, check_roots_are_public_routes_not_nav_entries,
           check_namespace_created_not_kept_and_holds_everything, check_forms_post_only_to_the_intake,
           check_every_intake_answer_is_mapped, check_country_is_the_complete_iso_list,
-          check_legal_copy_comes_from_values]
+          check_legal_copy_comes_from_values, check_newsletter_shows_no_optional_mark]
 
 
 def crd_schemas(crds_dir):
