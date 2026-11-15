@@ -11,6 +11,11 @@ spec:
     hasSider: true
     sider:
       resourceRefId: sider-content
+      {{/* The brand sits in the Sider's own header slot, not in its scrolling content: a 64px band */}}
+      {{/* level with the top bar (the frontend's Layout draws it). In the collapsed icon rail the */}}
+      {{/* compact glyph takes its place. */}}
+      header: brand
+      collapsedHeader: brand-glyph
       theme: light
       width: 236
     {{/* Global side-effect widgets rendered invisibly once for the whole app (issue #49 §7): */}}
@@ -24,6 +29,18 @@ spec:
         name: sider-content
         namespace: {{ .Release.Namespace }}
         resource: flexes
+        verb: GET
+      - id: brand
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: brand-logo
+        namespace: {{ .Release.Namespace }}
+        resource: images
+        verb: GET
+      - id: brand-glyph
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: brand-glyph
+        namespace: {{ .Release.Namespace }}
+        resource: images
         verb: GET
       - id: app-theme
         apiVersion: widgets.templates.krateo.io/v1beta1

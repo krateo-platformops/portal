@@ -44,7 +44,7 @@ Looked orphan to a static inbound-edge scan, but referenced at runtime:
 ## 4. Feature map (reachable CRs by area + backing RESTActions)
 | Area | Root | Backing RESTAction(s) (`apiRef`) |
 |---|---|---|
-| **Shell / nav** | `app-shell` (Layout), `sidebar-nav` (Menu) | `projects` (via `project-select`); `brand-logo`, `tenant-chip` |
+| **Shell / nav** | `app-shell` (Layout), `sidebar-nav` (Menu) | `projects` (via `project-select`); `brand-logo` and `brand-glyph` (the Layout's sider header slots), `tenant-chip` |
 | **Dashboard** | `dashboard-flex` | `dashboard-data` (greeting, throughput, deltas), `compositions-list` (stat/delta cards, `dashboard-conditions`, `rail-list`), `events` (`list-activity-events`) |
 | **Compositions (list)** | `page-compositions` | `compositions-list` (table + status/range chip counts) |
 | **Composition detail** | `page-composition-detail` | `composition-detail` (header/metadata/spec/conditions/manifest + sync/pause/delete), `composition-events` (events List), `composition-resources` (rail + relations), `composition-editdef` (edit Form) |
