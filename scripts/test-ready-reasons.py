@@ -45,14 +45,20 @@ def parse_table(markdown):
     `expected to clear` after `parent verdict`) changes nothing here. A header that lacks one of
     COLUMNS raises: a table this cannot read must fail the gate, not parse as empty."""
     lines = markdown.splitlines()
-    head = next((i for i, l in enumerate(lines) if l.lstrip().startswith('|') and cells(l)[:1] == ['reason']), None)
+    # The header is the table row that NAMES a `reason` column, wherever it stands: core-provider#528
+    # put a `condition` column before it, and a header test on the first cell refused the table.
+    head = next((i for i, l in enumerate(lines) if l.lstrip().startswith('|') and 'reason' in cells(l)), None)
     if head is None:
-        raise ValueError('no table header starting with `reason`')
+        raise ValueError('no table header with a `reason` column')
     names = cells(lines[head])
     missing = [c for c in COLUMNS if c not in names]
     if missing:
         raise ValueError(f'table header {names} lacks {missing}')
     at = {c: names.index(c) for c in COLUMNS}
+    # Since core-provider#528 the table lists EVERY condition a composition carries (ApiResolved,
+    # ChartRenderable, RBACComplete, Ready, Synced), with a `condition` column. The portal classifies
+    # Ready reasons, so only Ready rows count; a table without the column is all Ready (the old shape).
+    cond = names.index('condition') if 'condition' in names else None
     rows = {}
     for line in lines[head + 2:]:                      # skip the |---| separator
         if not line.lstrip().startswith('|'):
@@ -60,6 +66,8 @@ def parse_table(markdown):
         row = cells(line)
         if len(row) != len(names):
             raise ValueError(f'a row has {len(row)} cells, the header {len(names)}: {line[:80]}')
+        if cond is not None and row[cond].strip('`') != 'Ready':
+            continue
         reason = row[at['reason']].strip('`')
         rows[(reason, row[at['writer']])] = (row[at['status']], row[at['parent verdict']])
     return rows
@@ -113,6 +121,12 @@ def parser_controls():
         '|---|---|', '|---|---|---|', 1).replace('| `Deleting` | False |', '| `Deleting` | 2.13.0 | False |')
     if parse_table(inserted) != want:
         problems.append('control: a column inserted before `status` changed the parse')
+    # core-provider#528's shape: a `condition` column FIRST, and rows for other conditions too.
+    by_condition = ('intro\n| condition | reason | status | writer | parent verdict | written by |\n|---|---|---|---|---|---|\n'
+                    '| Ready | `Deleting` | False | unstructured-runtime | converging | Delete is in progress |\n'
+                    '| Synced | `ReconcileError` | False | unstructured-runtime | failed | the reconcile failed |\n')
+    if parse_table(by_condition) != want:
+        problems.append('control: a leading `condition` column, or a non-Ready row, changed the parse')
     for label, broken in (('a header without `parent verdict`', TABLE_CONTROL.replace('parent verdict', 'verdict')),
                           ('no table at all', 'intro only')):
         try:
@@ -155,7 +169,8 @@ def main():
             print(f'[FAIL] {p}')
         return len(problems)
     print('[PASS] controls: an added reason, a reclassified reason, a missing converging key and an empty table are caught; '
-          'columns are read by header (an inserted column parses the same, a missing one is refused)')
+          'columns are read by header (an inserted column, or a leading condition column with other conditions\' rows, '
+          'parses the same; a missing column is refused)')
     args = sys.argv[1:]
     if '--table' in args:
         with open(args[args.index('--table') + 1], encoding='utf-8') as fh:
