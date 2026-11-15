@@ -1,0 +1,92 @@
+{{/* GUARDED by observability.reconcileTracing, like every widget that reads it (the latency card's
+     By controller view): the timings come from composition-dynamic-controller traces. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* RECONCILE LATENCY BY CONTROLLER (Diego, 2026-11-15; mockup approved): one row per composition
+     Kind, controller versions merged, with the EXACT p95 of its reconcile spans.
+
+     WHY SPANS, NOT THE HISTOGRAM. observability compared both on krateo-057 (72 controllers): the
+     histogram's counts match the spans exactly, but its interpolated p95 ran a median 1.36x high
+     (p90 1.86x), because its 10/25/50 s buckets are coarse at ~40 samples per controller. cdc traces
+     are not tail-sampled, so quantileExact over the spans is the real p95.
+
+     THE CONTROLLER is SpanAttributes['krateo.composition.gvr'] (group/version/plural), set by cdc
+     2.13.100 and later. Rows group by group + plural, so the versions a range spans (installers ran 8
+     in 6h on 057) are one row; `versions` says how many. The Kind is the span's own
+     k8s.object.kind: on 057 every group/plural carries exactly one Kind (70 of 70 over 7 days), so
+     no CompositionDefinition lookup is needed. No ParentSpanId filter, deliberately: today every
+     reconcile span is a tagged root (4987 of 4987 in an hour on 057), and if a reconcile were ever
+     recorded as a child span, a root-only filter would drop reconciles By composition counts.
+
+     COVERAGE (step `cov`): spans from a cdc older than 2.13.100 carry no controller, so a window
+     reaching back before the cutover counts fewer reconciles here than By composition does. The
+     filter says so in `note`, with the first tagged span and the minute after the last untagged one
+     ("complete from"), read from the data rather than a date written here.
+
+     RANGE defaults to 24h, the shared range chips' own default, so the chip that reads selected is
+     the window shown. External-fetch endpointRef to ClickHouse, FORMAT JSON, like its siblings. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-reconcile-by-controller
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: byk
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=" + "SELECT%20any%28SpanAttributes%5B%27k8s.object.kind%27%5D%29%20AS%20kind%2C%20splitByChar%28%27%2F%27%2C%20SpanAttributes%5B%27krateo.composition.gvr%27%5D%29%5B1%5D%20AS%20grp%2C%20splitByChar%28%27%2F%27%2C%20SpanAttributes%5B%27krateo.composition.gvr%27%5D%29%5B3%5D%20AS%20plural%2C%20uniqExact%28SpanAttributes%5B%27krateo.composition.gvr%27%5D%29%20AS%20versions%2C%20uniqExact%28SpanAttributes%5B%27k8s.object.namespace%27%5D%2C%20SpanAttributes%5B%27k8s.object.name%27%5D%29%20AS%20compositions%2C%20count%28%29%20AS%20reconciles%2C%20round%28quantileExact%280.95%29%28Duration%29%2F1e6%2C%200%29%20AS%20p95_ms%2C%20round%28avg%28Duration%29%2F1e6%2C%200%29%20AS%20avg_ms%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20SpanAttributes%5B%27krateo.composition.gvr%27%5D%20%21%3D%20%27%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20grp%2C%20plural%20ORDER%20BY%20p95_ms%20DESC%2C%20kind%20LIMIT%20200%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: bykError
+    - name: cov
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=" + "SELECT%20countIf%28SpanAttributes%5B%27krateo.composition.gvr%27%5D%20%3D%20%27%27%29%20AS%20untagged%2C%20toUnixTimestamp%28minIf%28Timestamp%2C%20SpanAttributes%5B%27krateo.composition.gvr%27%5D%20%21%3D%20%27%27%29%29%20AS%20first_tagged%2C%20toUnixTimestamp%28maxIf%28Timestamp%2C%20SpanAttributes%5B%27krateo.composition.gvr%27%5D%20%3D%20%27%27%29%29%20AS%20last_untagged%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: covError
+  {{/* FORMAT JSON => {meta, data:[...]}. A 64-bit integer may arrive quoted or bare: `num` reads
+       both. errorKey is a list (snowplow accumulates it): `errmsg` takes its first entry. */}}
+  filter: |
+    def num: if type == "number" then . elif type == "string" then (tonumber? // 0) else 0 end;
+    def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
+    def pad2: tostring | if length < 2 then "0" + . else . end;
+    def hhmm($t): ($t | gmtime) as $g | ($g[3] | pad2) + ":" + ($g[4] | floor | pad2);
+    def day($t): ($t | gmtime) as $g | ($g[2] | tostring) + " " + (["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][$g[1]]);
+    ((.range // "24h") | tostring) as $range
+    | (.byk | if type == "object" then . else null end) as $b
+    | ($b != null and (.bykError // null) == null) as $read
+    | [ (($b // {}).data // [])[] | select(type == "object" and (.plural // "") != "") ] as $rows
+    | ((((.cov | if type == "object" then . else {} end).data) // [])[0] // {}) as $cv
+    | (($cv.untagged // 0) | num) as $untagged
+    | (($cv.first_tagged // 0) | num) as $first
+    | (($cv.last_untagged // 0) | num) as $lastUn
+    | ((($lastUn / 60) | floor) * 60 + 60) as $complete
+    | {
+        view: (if ($read | not) then "unavailable" elif ($rows | length) == 0 then "empty" else "table" end),
+        rows: [ $rows[] | {kind: ((.kind // "") | if . == "" then null else . end), plural, group: (.grp // ""),
+                           versions: (.versions | num), compositions: (.compositions | num),
+                           reconciles: (.reconciles | num), p95_ms: (.p95_ms | num), avg_ms: (.avg_ms | num)}
+                         | .kind = (.kind // .plural) ],
+        note: (if ($rows | length) > 0 and $untagged > 0 and $first > 0
+               then "Controller timings from " + day($first) + " " + hhmm($first) + " UTC"
+                    + (if $lastUn > 0 then " (complete from " + (if day($complete) == day($first) then "" else day($complete) + " " end) + hhmm($complete) + ")" else "" end)
+                    + ": only reconciles from cdc 2.13.100 on name their controller. "
+                    + ($untagged | tostring) + " earlier reconciles in this range are in By composition, not here."
+               else "" end),
+        title: (if ($read | not) then "Couldn't read reconcile timings."
+                elif $untagged > 0 then "No reconcile in the last " + $range + " names its controller."
+                else "No reconcile spans in the last " + $range + "." end),
+        message: (if ($read | not) then ("clickhouse-endpoint: " + ((.bykError // "no response") | errmsg))
+                  elif $untagged > 0 then "Controllers older than cdc 2.13.100 don't tag their spans. By composition still shows these reconciles."
+                  else "Reconcile tracing may be off on this cluster." end)
+      }
+{{- end }}

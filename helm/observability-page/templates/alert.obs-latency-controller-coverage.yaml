@@ -1,0 +1,29 @@
+{{/* GUARDED by observability.reconcileTracing, like the latency card that reaches it. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* Says where controller timings start when the window reaches back before cdc 2.13.100 tagged */}}
+{{/* its spans: the first tagged span, the minute after the last untagged one, and how many */}}
+{{/* reconciles only By composition counts. Text from obs-reconcile-by-controller's `note`. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-latency-controller-coverage
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  widgetData:
+    type: info
+    showIcon: true
+    title: ''
+    description: ''
+  widgetDataTemplate:
+  - forPath: title
+    expression: '${ .note // "" }'
+  apiRef:
+    name: obs-reconcile-by-controller
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

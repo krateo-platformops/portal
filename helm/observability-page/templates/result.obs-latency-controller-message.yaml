@@ -1,0 +1,32 @@
+{{/* GUARDED by observability.reconcileTracing, like the latency card that reaches it. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* The By controller view when there is no table: nothing in the window names its controller */}}
+{{/* (info), or the timings could not be read (warning, with the error text). Title, message and */}}
+{{/* status come from obs-reconcile-by-controller. */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-latency-controller-message
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  widgetData:
+    status: warning
+    title: Couldn't read reconcile timings.
+    subTitle: ''
+  widgetDataTemplate:
+  - forPath: status
+    expression: '${ if .view == "empty" then "info" else "warning" end }'
+  - forPath: title
+    expression: '${ .title // "Couldn''t read reconcile timings." }'
+  - forPath: subTitle
+    expression: '${ .message // "" }'
+  apiRef:
+    name: obs-reconcile-by-controller
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}
