@@ -1,0 +1,48 @@
+{{/* GUARDED by observability.reconcileTracing, like the latency card that reaches it. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* Reconcile latency BY CONTROLLER: one row per composition Kind (controller versions merged; the */}}
+{{/* Controller cell says "· N versions" when a range spans an upgrade), its compositions, */}}
+{{/* reconciles, and the EXACT p95 and avg of its reconcile spans (obs-reconcile-by-controller). */}}
+{{/* Rows come slowest-first from the server. Same cell rules as obs-reconcile-by-composition: */}}
+{{/* durations through duration.label, p95 tinted >3 s red, >1.5 s orange, avg neutral. A row */}}
+{{/* opens Compositions filtered to its Kind, across every scope (platform kinds sit outside the */}}
+{{/* default My workloads scope). */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-reconcile-by-controller
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /compositions?scope=all&kind={kind}
+    pagination:
+      defaultPageSize: 10
+    columns:
+    - valueKey: controller
+      title: Controller
+    - valueKey: compositions
+      title: Compositions
+    - valueKey: reconciles
+      title: Reconciles
+    - valueKey: p95
+      title: p95
+    - valueKey: avg
+      title: avg
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ {{ include "duration.label" . }} [ (.rows // [])[] | [ {valueKey:"controller",kind:"jsonSchemaType",type:"string",stringValue:(.kind + (if .versions > 1 then " · " + (.versions | tostring) + " versions" else "" end))}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind}, {valueKey:"compositions",kind:"jsonSchemaType",type:"string",stringValue:(.compositions | tostring),color:"var(--gray-color)"}, {valueKey:"reconciles",kind:"jsonSchemaType",type:"string",stringValue:(.reconciles | tostring)}, {valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:(.p95_ms | durationLabel),color:(.p95_ms | if . > 3000 then "var(--red-color)" elif . > 1500 then "var(--orange-color)" else "var(--gray-color)" end)}, {valueKey:"avg",kind:"jsonSchemaType",type:"string",stringValue:(.avg_ms | durationLabel),color:"var(--gray-color)"} ] ] }'
+  apiRef:
+    name: obs-reconcile-by-controller
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}

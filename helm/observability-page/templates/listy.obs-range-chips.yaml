@@ -17,8 +17,8 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `range` drives */}}
-  {{/* the active flag, `projects` is carried into the routes. */}}
-  keyExtras: [projects, range]
+  {{/* the active flag, `projects` and the latency card's `latencyBy` are carried into the routes. */}}
+  keyExtras: [projects, range, latencyBy]
   widgetData:
     itemTemplate:
       rowVariant: chip
@@ -29,6 +29,6 @@ spec:
   {{/* widgetDataTemplate data source (same mechanism the old range Buttons used). */}}
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.range // "24h") | tostring) as $sel | ((.projects // "") | tostring) as $projects | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $carry | [{key: "1h", label: "1h"}, {key: "6h", label: "6h"}, {key: "24h", label: "24h"}, {key: "7d", label: "7d"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + .key + $carry)}) }'
+      expression: '${ ((.range // "24h") | tostring) as $sel | ((.projects // "") | tostring) as $projects | ((if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) + (if .latencyBy == "controller" then "&latencyBy=controller" else "" end)) as $carry | [{key: "1h", label: "1h"}, {key: "6h", label: "6h"}, {key: "24h", label: "24h"}, {key: "7d", label: "7d"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + .key + $carry)}) }'
   resourcesRefs:
     items: []

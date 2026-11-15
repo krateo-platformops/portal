@@ -1,0 +1,28 @@
+{{/* GUARDED by observability.reconcileTracing, like the latency card that reaches it. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* The latency card's switch: By composition | By controller, as chips (the /compositions scope */}}
+{{/* chips' pattern). URL state ?latencyBy=controller (absent = By composition). No apiRef, so the */}}
+{{/* request extras feed the template; each route re-emits the page's other URL state (range, the */}}
+{{/* log limit, serviceName, the shell's projects) and stays on the Telemetry tab, so switching */}}
+{{/* the view changes nothing else. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-latency-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, serviceName, limit, latencyBy]
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ (if .latencyBy == "controller" then "controller" else "composition" end) as $sel | ((.range // "24h") | tostring) as $range | ((.limit // "") | tostring | gsub("[^0-9]"; "")) as $limit | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.projects // "") | tostring) as $projects | ("/observability?tab=Telemetry&range=" + ($range | @uri) + (if $limit != "" then "&limit=" + $limit else "" end) + (if $svc != "" then "&serviceName=" + ($svc | @uri) else "" end) + (if $projects != "" then "&projects=" + ($projects | @uri) else "" end)) as $base | [{key: "composition", label: "By composition", q: ""}, {key: "controller", label: "By controller", q: "&latencyBy=controller"}] | map({label: .label, active: (.key == $sel), route: ($base + .q)}) }'
+  resourcesRefs:
+    items: []
+{{- end }}
