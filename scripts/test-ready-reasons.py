@@ -10,7 +10,8 @@ HelmOperationInProgress and Deleting are converging, and the portal only knew Cr
 
 Checks, in order:
   1. ready-reasons.yaml's `table` is the table core-provider publishes now, row for row:
-     (reason, status, writer, parent verdict). A reason added, removed or reclassified fails here,
+     (reason, status, writer, parent verdict), columns found by header name. A reason added, removed
+     or reclassified fails here,
      with the difference, so the portal's handling is decided before the snapshot is updated.
   2. The Ready=False rows whose verdict is `converging` are exactly the keys of readyFalseConverging
      in _ready-reasons.tpl, and every label it maps to is a non-empty string.
@@ -30,17 +31,37 @@ import yaml
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SNAPSHOT = os.path.join(REPO, 'ready-reasons.yaml')
 DEFS = os.path.join(REPO, 'helm', 'portal', 'templates', '_ready-reasons.tpl')
-ROW = re.compile(r'^\|\s*`([^`]+)`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|')
+COLUMNS = ('reason', 'status', 'writer', 'parent verdict')   # read BY HEADER NAME, never by position
+
+
+def cells(line):
+    return [c.strip() for c in line.strip().strip('|').split('|')]
 
 
 def parse_table(markdown):
-    """{(reason, writer): (status, verdict)} from core-provider's markdown table."""
+    """{(reason, writer): (status, verdict)} from core-provider's markdown table.
+
+    Columns are found by their HEADER, so a column added anywhere (core-provider#523 added
+    `expected to clear` after `parent verdict`) changes nothing here. A header that lacks one of
+    COLUMNS raises: a table this cannot read must fail the gate, not parse as empty."""
+    lines = markdown.splitlines()
+    head = next((i for i, l in enumerate(lines) if l.lstrip().startswith('|') and cells(l)[:1] == ['reason']), None)
+    if head is None:
+        raise ValueError('no table header starting with `reason`')
+    names = cells(lines[head])
+    missing = [c for c in COLUMNS if c not in names]
+    if missing:
+        raise ValueError(f'table header {names} lacks {missing}')
+    at = {c: names.index(c) for c in COLUMNS}
     rows = {}
-    for line in markdown.splitlines():
-        m = ROW.match(line)
-        if m:
-            reason, status, writer, verdict = m.groups()
-            rows[(reason, writer)] = (status, verdict)
+    for line in lines[head + 2:]:                      # skip the |---| separator
+        if not line.lstrip().startswith('|'):
+            break
+        row = cells(line)
+        if len(row) != len(names):
+            raise ValueError(f'a row has {len(row)} cells, the header {len(names)}: {line[:80]}')
+        reason = row[at['reason']].strip('`')
+        rows[(reason, row[at['writer']])] = (row[at['status']], row[at['parent verdict']])
     return rows
 
 
@@ -75,8 +96,35 @@ def check(live, snap, defs):
     return out
 
 
-def controls(snap, defs):
+TABLE_CONTROL = """intro
+| reason | status | writer | parent verdict | written by |
+|---|---|---|---|---|
+| `Deleting` | False | unstructured-runtime | converging | Delete is in progress |
+"""
+
+
+def parser_controls():
+    """The parser reads columns by name: an inserted column changes nothing, a missing one fails."""
     problems = []
+    want = {('Deleting', 'unstructured-runtime'): ('False', 'converging')}
+    if parse_table(TABLE_CONTROL) != want:
+        problems.append('control: the plain table did not parse')
+    inserted = TABLE_CONTROL.replace('| reason | status |', '| reason | since | status |').replace(
+        '|---|---|', '|---|---|---|', 1).replace('| `Deleting` | False |', '| `Deleting` | 2.13.0 | False |')
+    if parse_table(inserted) != want:
+        problems.append('control: a column inserted before `status` changed the parse')
+    for label, broken in (('a header without `parent verdict`', TABLE_CONTROL.replace('parent verdict', 'verdict')),
+                          ('no table at all', 'intro only')):
+        try:
+            parse_table(broken)
+            problems.append(f'control: {label} was parsed instead of refused')
+        except ValueError:
+            pass
+    return problems
+
+
+def controls(snap, defs):
+    problems = parser_controls()
     if check(dict(snap), snap, defs):
         problems.append('control: the snapshot against itself was refused')
     added = dict(snap)
@@ -106,7 +154,8 @@ def main():
         for p in problems:
             print(f'[FAIL] {p}')
         return len(problems)
-    print('[PASS] controls: an added reason, a reclassified reason, a missing converging key and an empty table are caught')
+    print('[PASS] controls: an added reason, a reclassified reason, a missing converging key and an empty table are caught; '
+          'columns are read by header (an inserted column parses the same, a missing one is refused)')
     args = sys.argv[1:]
     if '--table' in args:
         with open(args[args.index('--table') + 1], encoding='utf-8') as fh:
@@ -114,7 +163,12 @@ def main():
     else:
         with urllib.request.urlopen(doc['source'], timeout=30) as resp:
             markdown, where = resp.read().decode('utf-8'), doc['source']
-    failures = check(parse_table(markdown), snap, defs)
+    try:
+        live = parse_table(markdown)
+    except ValueError as exc:
+        print(f'[FAIL] core-provider table at {where}: {exc}')
+        return 1
+    failures = check(live, snap, defs)
     for f in failures:
         print(f'[FAIL] {f}')
     if not failures:
