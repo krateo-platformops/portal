@@ -108,7 +108,7 @@ def rows(*readys):
 # fail anywhere — the frontend's getColorCode returns palette.dark for a name it does not know, so
 # a typo renders as near-black ink rather than raising. These five names are all in ui/src/theme
 # tokens.ts, in both the light and dark tables.
-LABEL_COLOR = {'Creating': 'blue', 'NotReady': 'red', 'Paused': 'slate', 'Ready': 'green', 'Unknown': 'gray'}
+LABEL_COLOR = {'Creating': 'blue', 'Pending': 'blue', 'NotReady': 'red', 'Paused': 'slate', 'Ready': 'green', 'Unknown': 'gray'}
 
 C0 = {'converging': 0, 'paused': 0}
 CASES = [
@@ -128,6 +128,11 @@ CASES = [
     # It was landing in notReady — the same shape as the portal#333 regression above, one state
     # later: a bucket absorbing a state that is not a failure.
     ([('False', 'Creating')],     {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 1, 'paused': 0, 'unknown': 0}, 'blue'),
+    # PendingHelmOperation is converging too: core-provider writes it only while a helm operation is
+    # inside its grace period (Diego, 2026-11-15). Its row pill reads Pending, in the converging blue.
+    ([('False', 'PendingHelmOperation')], {'total': 1, 'ready': 0, 'notReady': 0, 'converging': 1, 'paused': 0, 'unknown': 0}, 'blue'),
+    ([('False', 'Unavailable'), ('False', 'PendingHelmOperation')],
+                                  {'total': 2, 'ready': 0, 'notReady': 1, 'converging': 1, 'paused': 0, 'unknown': 0}, 'orange'),
     # Converging must NOT fall through to green: the row never reported True.
     ([('True', 'Available'), ('False', 'Creating')],
                                   {'total': 2, 'ready': 1, 'notReady': 0, 'converging': 1, 'paused': 0, 'unknown': 0}, 'blue'),
@@ -355,8 +360,10 @@ def main():
             failures.append(f'{label}: statusColor {got.get("statusColor")!r} != {want_color!r}')
         # The summary must never contradict the labels it summarises.
         labels = [r.get('readyLabel') for r in got.get('rows', [])]
-        if labels.count('Creating') != got.get('counts', {}).get('converging'):
-            failures.append(f'{label}: Creating pills={labels.count("Creating")} but '
+        # Converging rows read Creating or Pending (PendingHelmOperation); together they are the count.
+        converging_pills = labels.count('Creating') + labels.count('Pending')
+        if converging_pills != got.get('counts', {}).get('converging'):
+            failures.append(f'{label}: Creating+Pending pills={converging_pills} but '
                             f'converging={got.get("counts", {}).get("converging")}')
         if labels.count('NotReady') != got.get('counts', {}).get('notReady'):
             failures.append(f'{label}: {labels.count("NotReady")} NotReady rows but '
