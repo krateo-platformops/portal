@@ -26,6 +26,10 @@
 {{/* workloadHealthy branch would paint it red if it ran first. A paused one reports Ready=True, so */}}
 {{/* without this it reads as a healthy green Ready while nothing reconciles. The strings are the */}}
 {{/* values core-provider emits, not its Go identifiers: there is no reason called Paused. */}}
+{{/* PendingHelmOperation reads Pending/orange, like Creating (Diego, 2026-11-15): core-provider writes */}}
+{{/* it only while a helm operation is inside its grace period, and past the grace it rolls the */}}
+{{/* release back and normal conditions replace it. Its message says "pending for N", which the */}}
+{{/* Conditions card shows verbatim; the grace is the controller's setting, so nothing here times it. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -65,7 +69,7 @@ spec:
     {{/* The pill is the visible half of A17; the LABEL is the half that does the work, since */}}
     {{/* it is selectable (`-l krateo.io/created-by=autopilot`) without opening a page. */}}
     - forPath: tags
-      expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Ready")) | .[0]) as $r | [ ( if ($r.reason // "") == "Creating" then {label:"Creating", color:"orange"} elif ($r.reason // "") == "ReconcilePaused" or ($r.reason // "") == "ReconcileGracefullyPaused" then {label:"Paused", color:"gray"} elif .workloadHealthy == false then (if ($r != null and $r.status == "True") then {label:"Degraded", color:"orange"} else {label:"Unhealthy", color:"red"} end) elif $r == null then {label:"Unknown", color:"gray"} elif $r.status == "True" then {label:"Ready", color:"green"} elif $r.status == "False" then {label:"NotReady", color:"red"} elif ($r.status == "Unknown" and ($r.reason // "") != "ZeroEvidence" and ($r.reason // "") != "ChildrenForbidden" and any($c[]; .type == "Synced" and .status == "False")) then {label:"NotReady", color:"red"} else {label:"Unknown", color:"gray"} end ) ] + (if ((.detail.metadata.labels // {})["krateo.io/created-by"] // "") != "" then [ {label: ("Created by " + ((.detail.metadata.labels // {})["krateo.io/created-by"])), color: "violet"} ] else [] end) }'
+      expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Ready")) | .[0]) as $r | [ ( if ($r.reason // "") == "Creating" then {label:"Creating", color:"orange"} elif ($r.reason // "") == "PendingHelmOperation" then {label:"Pending", color:"orange"} elif ($r.reason // "") == "ReconcilePaused" or ($r.reason // "") == "ReconcileGracefullyPaused" then {label:"Paused", color:"gray"} elif .workloadHealthy == false then (if ($r != null and $r.status == "True") then {label:"Degraded", color:"orange"} else {label:"Unhealthy", color:"red"} end) elif $r == null then {label:"Unknown", color:"gray"} elif $r.status == "True" then {label:"Ready", color:"green"} elif $r.status == "False" then {label:"NotReady", color:"red"} elif ($r.status == "Unknown" and ($r.reason // "") != "ZeroEvidence" and ($r.reason // "") != "ChildrenForbidden" and any($c[]; .type == "Synced" and .status == "False")) then {label:"NotReady", color:"red"} else {label:"Unknown", color:"gray"} end ) ] + (if ((.detail.metadata.labels // {})["krateo.io/created-by"] // "") != "" then [ {label: ("Created by " + ((.detail.metadata.labels // {})["krateo.io/created-by"])), color: "violet"} ] else [] end) }'
   resourcesRefs:
     items:
     - id: composition-detail-actions

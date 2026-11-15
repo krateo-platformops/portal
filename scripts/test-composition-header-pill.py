@@ -33,6 +33,11 @@ CASES = [
     ('True', 'Available', False, 'Degraded', 'orange'),
     ('False', 'Creating', None, 'Creating', 'orange'),
     ('False', 'Creating', False, 'Creating', 'orange'),
+    # PendingHelmOperation: core-provider writes it only inside its grace period (a helm operation in
+    # flight); past the grace it rolls the release back and normal conditions replace it. Converging,
+    # so orange Pending, never red (Diego, 2026-11-15).
+    ('False', 'PendingHelmOperation', None, 'Pending', 'orange'),
+    ('False', 'PendingHelmOperation', False, 'Pending', 'orange'),
     ('True', 'ReconcilePaused', True, 'Paused', 'gray'),
     ('True', 'ReconcileGracefullyPaused', None, 'Paused', 'gray'),
     ('True', 'ReconcilePaused', False, 'Paused', 'gray'),
@@ -114,9 +119,13 @@ def exception_failures():
     start = text.index('def exception:')
     body = text[start:text.index('end;', start) + len('end;')]
     cases = [
-        ([('Synced', 'False', 'ReconcilePaused')], 'Paused'),
+        # The FlowChart CRD allows exactly NotReady and NotSynced: converging and paused carry none.
+        ([('Synced', 'False', 'ReconcilePaused')], None),
+        ([('Synced', 'False', 'ReconcileGracefullyPaused')], None),
         ([('Synced', 'False', 'ReconcileError')], 'NotSynced'),
-        ([('Ready', 'False', 'Creating')], 'Creating'),
+        ([('Ready', 'False', 'Creating')], None),
+        ([('Ready', 'False', 'PendingHelmOperation')], None),
+        ([('Ready', 'False', 'Creating'), ('Synced', 'False', 'ReconcileError')], 'NotSynced'),
         ([('Ready', 'False', 'Unavailable')], 'NotReady'),
         ([('Ready', 'True', 'Available'), ('Synced', 'True', 'ReconcileSuccess')], None),
     ]

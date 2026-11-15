@@ -205,6 +205,10 @@ CREATING2['metadata'].update(name='creating-2', uid='uid-creating-2')
 out = compositions_list(LIVE + [UNREADABLE] + DEFECTS + [CREATING, CREATING2])
 check('creating: counted pending with the two other Unknowns, and pendingPercent from the same set',
       (out['assessment']['pending'], out['assessment']['pendingPercent'], out['assessment']['healthyPercent']), (4, 4, 94))
+HELM_PENDING = unknown('helm-pending', 'PendingHelmOperation')
+HELM_PENDING['status']['conditions'][0]['status'] = 'False'
+item = compositions_list([HELM_PENDING])['list'][0]
+check('pending helm operation: assessable and pending, never failed', (item['assessable'], item['state'], item['railState']), (True, 'pending', 'pending'))
 only_creating = compositions_list([CREATING])['assessment']
 check('only Creating: one pending, all of the assessable', (only_creating['pending'], only_creating['pendingPercent']), (1, 100))
 

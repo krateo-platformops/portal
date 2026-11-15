@@ -494,6 +494,95 @@
         "publish-pod-sizing-v1b-source"
       ],
       "proves": "No source to seed from: the Repo is absent, so the strip draws S1, S3, S4, keeps each level's own number, and `current` points at S3 among the steps drawn."
+    },
+    {
+      "name": "v1b-repo-creating",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "patch",
+          "name": "publish-pod-sizing-v1b-repo",
+          "set": {
+            "status": {
+              "conditions": [
+                {
+                  "lastTransitionTime": "2026-11-15T09:27:36Z",
+                  "message": "1 of 3 managed children are not ready",
+                  "reason": "Creating",
+                  "status": "False",
+                  "type": "Ready"
+                },
+                {
+                  "lastTransitionTime": "2026-11-15T09:27:36Z",
+                  "message": "",
+                  "reason": "ReconcileSuccess",
+                  "status": "True",
+                  "type": "Synced"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "proves": "The current node is Ready=False/Creating: converging, so it carries no exception (the FlowChart exception is NotReady or NotSynced, only when something needs attention), and the widget still validates."
+    },
+    {
+      "name": "v1b-repo-helm-pending",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "patch",
+          "name": "publish-pod-sizing-v1b-repo",
+          "set": {
+            "status": {
+              "conditions": [
+                {
+                  "lastTransitionTime": "2026-11-15T09:27:36Z",
+                  "message": "waiting for an in-flight helm operation to settle (status pending-upgrade, pending for 4m12s)",
+                  "reason": "PendingHelmOperation",
+                  "status": "False",
+                  "type": "Ready"
+                },
+                {
+                  "lastTransitionTime": "2026-11-15T09:27:36Z",
+                  "message": "",
+                  "reason": "ReconcileSuccess",
+                  "status": "True",
+                  "type": "Synced"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "proves": "The current node is Ready=False/PendingHelmOperation: core-provider writes it only inside its grace period, so it is converging like Creating, with no exception."
+    },
+    {
+      "name": "v1b-repo-paused",
+      "composition": "v1b",
+      "extras": "page",
+      "mutate": [
+        {
+          "op": "patch",
+          "name": "publish-pod-sizing-v1b-repo",
+          "set": {
+            "status": {
+              "conditions": [
+                {
+                  "lastTransitionTime": "2026-11-15T09:27:36Z",
+                  "message": "Reconciliation is paused via the pause annotation",
+                  "reason": "ReconcilePaused",
+                  "status": "False",
+                  "type": "Synced"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "proves": "The current node is paused on purpose (Synced=False/ReconcilePaused): no exception, and the widget still validates."
     }
   ],
   "gate": [
