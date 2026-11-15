@@ -876,6 +876,12 @@ jobs:
       - name: Retracted versions are well formed and point at published releases
         run: python3 scripts/test-retracted-versions.py
 
+      # Since .github#45, release-oci ships a chart's compositiondefinition.yaml inside its package
+      # when one sits in the chart directory or its parent. Portal's are registered by the INSTALLER,
+      # so a file appearing there would silently change who registers it: tell installer first.
+      - name: No chart package ships a CompositionDefinition
+        run: python3 scripts/test-no-cd-in-chart-packages.py
+
       - name: Dashboard inbox, evaluated and validated
         run: |
           set -euo pipefail
