@@ -162,6 +162,12 @@ check('a pending helm operation is an amber Pending, not NotReady',
       pills([{'reason': 'PendingHelmOperation', 'status': 'False', 'type': 'Ready'},
              {'reason': 'ReconcileSuccess', 'status': 'True', 'type': 'Synced'}], 'pending'),
       ([('Pending', 'orange'), ('Synced', 'green')], ('Pending', 'orange')))
+check('a helm operation in progress is an amber Pending',
+      pills([{'reason': 'HelmOperationInProgress', 'status': 'False', 'type': 'Ready'}], 'pending'),
+      ([('Pending', 'orange')], ('Pending', 'orange')))
+check('deleting is an amber Deleting',
+      pills([{'reason': 'Deleting', 'status': 'False', 'type': 'Ready'}], 'pending'),
+      ([('Deleting', 'orange')], ('Pending', 'orange')))
 check('unavailable is still NotReady',
       pills([{'reason': 'Unavailable', 'status': 'False', 'type': 'Ready'}], 'failed'),
       ([('NotReady', 'red')], ('Failed', 'red')))
@@ -192,6 +198,9 @@ check('creating is pending, not failed', state_of([{'reason': 'Creating', 'statu
       ('pending', 'pending'))
 check('a pending helm operation is pending, not failed',
       state_of([{'reason': 'PendingHelmOperation', 'status': 'False', 'type': 'Ready'}]), ('pending', 'pending'))
+for reason in ('HelmOperationInProgress', 'Deleting'):
+    check(f'{reason} is pending, not failed',
+          state_of([{'reason': reason, 'status': 'False', 'type': 'Ready'}]), ('pending', 'pending'))
 check('unavailable is failed', state_of([{'reason': 'Unavailable', 'status': 'False', 'type': 'Ready'}]),
       ('failed', 'failed'))
 # Paused is its own state (root-pages slice 3a): it reports Ready=True on purpose, and was counted healthy.
