@@ -17,6 +17,7 @@ palette colour NAME, and getColorCode returns near-black for a name it does not 
 renders as dark ink and nothing reports it.
 """
 import json
+import sys
 import os
 import subprocess
 import tempfile
@@ -276,6 +277,52 @@ check('the join is the name+child-namespace rule exactly once', prog.count(NEW_J
 old_prog = prog.replace(NEW_JOIN, OLD_JOIN).replace('ns: $m._rns,', 'ns: $m._cns,')
 check('control: the old composition-namespace join fails the join cases', bool(join_failures(old_prog)), True)
 failures.extend(join_failures(prog))
+
+# ---------------------------------------------------------------------------------------------
+# THE ROW'S STATED HEALTH (frontend Listy itemTemplate.health). The page header's worst-child pill
+# used to infer each child's health from the row COLOUR, where `unread` is the same grey as a
+# genuinely unknown child: a healthy installer read "└─ ReadyUnknown · 3 of 137 children not Ready"
+# over three Secrets the portal never reads. Now each row states it. The map must cover every state
+# the RA emits; `unread` is `excluded` (not counted); every other state keeps the verdict its colour
+# gave, so this changes nothing for any child but the unread ones.
+import re as _re
+COLOUR_VERDICT = {'green': 'ready', 'violet': 'notSynced', 'orange': 'pending', 'red': 'notReady', 'gray': 'unknown'}
+HEALTH_TOKENS = {'ready', 'pending', 'unknown', 'notSynced', 'notReady', 'excluded'}
+m = _re.search(r'\{([^{}]*)\} as \$health', expr)
+health_map = dict(_re.findall(r'(\w+): "(\w+)"', m.group(1))) if m else {}
+check('the relations list states each row\'s health', relations['spec']['widgetData']['itemTemplate'].get('health'), '{health}')
+check('every emitted state has a health', sorted(emitted - set(health_map)), [])
+check('no health map entry is dead', sorted(set(health_map) - emitted), [])
+check('every health is a token the header knows', sorted(set(health_map.values()) - HEALTH_TOKENS), [])
+check('unread is excluded', health_map.get('unread'), 'excluded')
+check('every other state keeps its colour\'s verdict',
+      {k: v for k, v in health_map.items() if k != 'unread'},
+      {k: COLOUR_VERDICT[colour_map[k]] for k in health_map if k != 'unread' and k in colour_map})
+rows_out = jq(expr.strip().removeprefix('${').removesuffix('}'), {'resources': [
+    {'kind': 'Secret', 'name': 'hyperdx-admin-creds', 'ns': 'krateo-system', 'state': 'unread', 'stateLabel': 'Unread', 'navHref': ''},
+    {'kind': 'Deployment', 'name': 'snowplow', 'ns': 'krateo-system', 'state': 'healthy', 'stateLabel': 'Healthy', 'navHref': '/x'}]})
+check('each resolved row carries its health', [(r['name'], r['health']) for r in rows_out],
+      [('hyperdx-admin-creds', 'excluded'), ('snowplow', 'ready')])
+
+# --pinned: the relations widget must validate against the frontend-crds the installer PINS. The
+# `health` field exists from frontend 1.8.46; a portal that emits it before that CRD is live has its
+# widget refused by snowplow (400), so this keeps the order: frontend line first, then portal.
+if '--pinned' in sys.argv[1:]:
+    import importlib.util as _ilu
+    def _load(name, file):
+        spec = _ilu.spec_from_file_location(name, os.path.join(HERE, file))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    _pinned = _load('pinned', 'lint-pinned-crds.py')
+    _version, _why = _pinned.pinned_version()
+    if not _version:
+        failures.append(f'cannot determine the pinned frontend-crds version: {_why}')
+    else:
+        _tbi = _load('gates', 'test-ra-input-gates.py').tbi
+        _tbi.RESOLVED.append(('authored list-composition-detail-relations', relations))
+        failures.extend(f'pinned frontend-crds {_version}: {p}' for p in _tbi.validate_resolved(_pinned.unpack(_version)))
+        print(f'relations widget checked against frontend-crds {_version} ({_why})')
 
 for f in failures:
     print(f'FAIL  {f}')
