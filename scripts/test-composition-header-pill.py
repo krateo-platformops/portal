@@ -38,6 +38,11 @@ CASES = [
     # so orange Pending, never red (Diego, 2026-11-15).
     ('False', 'PendingHelmOperation', None, 'Pending', 'orange'),
     ('False', 'PendingHelmOperation', False, 'Pending', 'orange'),
+    # The other two Ready=False reasons core-provider's generated table marks converging.
+    ('False', 'HelmOperationInProgress', None, 'Pending', 'orange'),
+    ('False', 'HelmOperationInProgress', False, 'Pending', 'orange'),
+    ('False', 'Deleting', None, 'Deleting', 'orange'),
+    ('False', 'Deleting', False, 'Deleting', 'orange'),
     ('True', 'ReconcilePaused', True, 'Paused', 'gray'),
     ('True', 'ReconcileGracefullyPaused', None, 'Paused', 'gray'),
     ('True', 'ReconcilePaused', False, 'Paused', 'gray'),
@@ -117,7 +122,9 @@ def exception_failures():
     ra = next(d for d in render() if d.get('kind') == 'RESTAction' and d['metadata']['name'] == 'composition-architecture')
     text = ra['spec']['filter']
     start = text.index('def exception:')
-    body = text[start:text.index('end;', start) + len('end;')]
+    # exception reads the shared converging set (portal.readyReasonDefs, rendered at the filter's top).
+    defs = next(line for line in text.splitlines() if line.strip().startswith('def readyFalseConverging:'))
+    body = defs + '\n' + text[start:text.index('end;', start) + len('end;')]
     cases = [
         # The FlowChart CRD allows exactly NotReady and NotSynced: converging and paused carry none.
         ([('Synced', 'False', 'ReconcilePaused')], None),
@@ -125,6 +132,8 @@ def exception_failures():
         ([('Synced', 'False', 'ReconcileError')], 'NotSynced'),
         ([('Ready', 'False', 'Creating')], None),
         ([('Ready', 'False', 'PendingHelmOperation')], None),
+        ([('Ready', 'False', 'HelmOperationInProgress')], None),
+        ([('Ready', 'False', 'Deleting')], None),
         ([('Ready', 'False', 'Creating'), ('Synced', 'False', 'ReconcileError')], 'NotSynced'),
         ([('Ready', 'False', 'Unavailable')], 'NotReady'),
         ([('Ready', 'True', 'Available'), ('Synced', 'True', 'ReconcileSuccess')], None),

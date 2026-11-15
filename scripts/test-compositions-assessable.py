@@ -209,6 +209,11 @@ HELM_PENDING = unknown('helm-pending', 'PendingHelmOperation')
 HELM_PENDING['status']['conditions'][0]['status'] = 'False'
 item = compositions_list([HELM_PENDING])['list'][0]
 check('pending helm operation: assessable and pending, never failed', (item['assessable'], item['state'], item['railState']), (True, 'pending', 'pending'))
+for reason in ('HelmOperationInProgress', 'Deleting'):
+    row = unknown(reason.lower(), reason)
+    row['status']['conditions'][0]['status'] = 'False'
+    item = compositions_list([row])['list'][0]
+    check(f'{reason}: assessable and pending, never failed', (item['assessable'], item['state'], item['railState']), (True, 'pending', 'pending'))
 only_creating = compositions_list([CREATING])['assessment']
 check('only Creating: one pending, all of the assessable', (only_creating['pending'], only_creating['pendingPercent']), (1, 100))
 

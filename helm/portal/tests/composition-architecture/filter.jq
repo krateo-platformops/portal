@@ -1,3 +1,4 @@
+def readyFalseConverging: {"Creating": "Creating", "Deleting": "Deleting", "HelmOperationInProgress": "Pending", "PendingHelmOperation": "Pending"}; def isConvergingFalse: ((. // "") as $r | readyFalseConverging | has($r));
 # Input: snowplow's resolve dict — the request extras at the top level, each stage's (step-filtered)
 # output under its name, and each stage's errors, accumulated as a list, under its errorKey.
 def truthy: . != null and . != false and . != "" and . != 0 and . != [] and . != {};  # Helm `if`
@@ -34,8 +35,8 @@ def errName:
 def errs($k): [ ($k // []) | if type == "array" then .[] else . end ];
 # K8s-native tokens, exception-only: the FlowChart CRD allows exactly NotReady and NotSynced, "only
 # when something needs attention", and snowplow refuses a resolved widget that does not validate.
-# So a node that is converging (Ready=False/Creating, or /PendingHelmOperation, which core-provider
-# writes only inside its grace period) or paused on purpose (Synced=False/ReconcilePaused or
+# So a node that is converging (a Ready=False reason core-provider marks converging: Creating,
+# Deleting, HelmOperationInProgress, PendingHelmOperation; see _ready-reasons.tpl) or paused on purpose (Synced=False/ReconcilePaused or
 # ReconcileGracefullyPaused) carries NO exception. This emitted "Creating" and "Paused" labels,
 # which failed validation and blanked the whole architecture card.
 def exception:
@@ -43,7 +44,7 @@ def exception:
   | ([ $c[] | select(.type == "Synced" and .status == "False"
                      and (.reason // "") != "ReconcilePaused" and (.reason // "") != "ReconcileGracefullyPaused") ][0]) as $s
   | ([ $c[] | select((.type == "Ready" or .type == "Available") and .status == "False"
-                     and (.reason // "") != "Creating" and (.reason // "") != "PendingHelmOperation") ][0]) as $r
+                     and (.reason | isConvergingFalse | not)) ][0]) as $r
   | if $s != null then {label: "NotSynced", reason: ($s.reason // ""), message: ($s.message // "")}
     elif $r != null then {label: "NotReady", reason: ($r.reason // ""), message: ($r.message // "")}
     else null end;

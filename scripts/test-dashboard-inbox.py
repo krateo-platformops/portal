@@ -390,20 +390,21 @@ def _():
     check('057: two ZeroEvidence are not counted not Ready', (out['compositions']['notReady'], out['compositions']['notAssessable']), (0, 2))
     extra = [unknown('inventory-not-recorded', 'InventoryNotRecorded'), unknown('children-forbidden', 'ChildrenForbidden'),
              unknown('broken', 'ApplyFailed', 'False'), unknown('creating', 'Creating', 'False'),
-             unknown('helm-pending', 'PendingHelmOperation', 'False')]
+             unknown('helm-pending', 'PendingHelmOperation', 'False'),
+             unknown('helm-running', 'HelmOperationInProgress', 'False'), unknown('deleting', 'Deleting', 'False')]
     out = inbox(raw={'allCompositions': {'items': COMPS057 + extra}})
     c = out['compositions']
-    check('defects: InventoryNotRecorded, ChildrenForbidden, a failure, a Creating and a PendingHelmOperation are not Ready', c['notReady'], 5)
+    check('defects: InventoryNotRecorded, ChildrenForbidden, a failure and the four converging reasons are not Ready', c['notReady'], 7)
     check('defects: ZeroEvidence still set aside', c['notAssessable'], 2)
     check('defects: each problem is classed', sorted((p['name'], p['class']) for p in c['problems']), [
         ('acme-feedback-controller', 'paused'), ('broken', 'failed'), ('children-forbidden', 'unreadable'),
-        ('creating', 'pending'), ('helm-pending', 'pending'), ('inventory-not-recorded', 'pending')])
+        ('creating', 'pending'), ('deleting', 'pending'), ('helm-pending', 'pending'), ('helm-running', 'pending'), ('inventory-not-recorded', 'pending')])
     got = page(out)
-    check('defects: the tile goes red', got['strip'][2], ('Compositions not Ready', '5', 'of 87', 'red'))
+    check('defects: the tile goes red', got['strip'][2], ('Compositions not Ready', '7', 'of 89', 'red'))
     card = next(c for c in got['cards'] if c['subSecondaryText'] == 'Compositions')
     check('defects: one card, a fault, names capped at three', (card['primaryText'], card['subPrimaryText'], card['description'], card['color']),
-          ('6 compositions need attention', 'inventory-not-recorded, children-forbidden, broken and 3 more',
-           '5 not Ready · 1 paused', 'red'))
+          ('8 compositions need attention', 'inventory-not-recorded, children-forbidden, broken and 5 more',
+           '7 not Ready · 1 paused', 'red'))
     zero = [i for i in COMPS057 if i['status']['conditions'][0]['reason'] == 'ZeroEvidence']
     out = inbox(raw={'allCompositions': {'items': zero}})
     check('only ZeroEvidence: nothing not Ready, nothing needs anyone', (out['compositions']['notReady'], out['sources'][4]['items']), (0, 0))
