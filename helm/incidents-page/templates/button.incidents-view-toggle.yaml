@@ -1,0 +1,33 @@
+{{/* The escape to today's table and back (decision 2026-11-13 (a)): on the overview, "All N incidents
+     as a table →" opens ?view=table with every filter kept (N is what the filters match); on the
+     table, "← Back to the overview" drops ?view and keeps the rest. Both hrefs come from
+     incidents-list (portal.facets). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-view-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    label: All incidents as a table →
+    type: link
+    size: middle
+    clickActionId: view
+    actions:
+      navigate:
+        - id: view
+          type: navigate
+          path: /incidents?view=table
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ if .view == "table" then "← Back to the overview" else "All " + ((.matched // 0) | tostring) + (if .filtered then " matching" else "" end) + " incidents as a table →" end }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "view", type: "navigate", path: (if .view == "table" then (.cardsHref // "/incidents") else (.tableHref // "/incidents?view=table") end) } ] } }'
+  resourcesRefs:
+    items: []

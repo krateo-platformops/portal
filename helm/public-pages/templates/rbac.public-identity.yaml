@@ -1,0 +1,76 @@
+{{/* WHO SEES THESE PAGES: ANYONE. The grant that makes them public, and the only one in this
+     namespace.
+
+     snowplow serves a request that carries no Authorization header as the user `krateo:public`
+     (snowplow#1334, publicIdentity.enabled), and decides what it may read by ordinary RBAC. So a
+     page is public exactly when its objects are granted to that user. The guide's grant model
+     (snowplow docs/howto-frontend-public-identity.md §5), followed to the letter:
+
+       - bound to the USER `krateo:public`, NEVER the group `system:unauthenticated`: that group is
+         also what an anonymous caller of the APISERVER itself is, so a grant to it would publish
+         these objects to the whole internet through the apiserver, not through snowplow;
+       - `get` only, with `resourceNames`: no `list` (it cannot be narrowed by name, and nothing
+         here lists), no `watch`, no write. The pages' two forms post to identity-lifecycle
+         (submitPost / fieldChecks), not to snowplow, so they need no write grant at all;
+       - on EXACTLY what the two page roots reach: every widget walked from page-request-access and
+         page-request-access-confirm through their resourcesRefs (and any apiRef). There is no
+         RESTAction: both pages are static.
+
+     scripts/test-public-pages.py walks the rendered refs from both roots and fails unless these
+     resourceNames equal that set exactly — a name missing here is a widget that 403s for every
+     visitor; an extra one is an object published for no reason. Add a widget, add its name. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: public-identity-read-pages
+  namespace: {{ .Values.namespace }}
+rules:
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - flexes
+  verbs:
+  - get
+  resourceNames:
+  - page-request-access
+  - page-request-access-confirm
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - cards
+  verbs:
+  - get
+  resourceNames:
+  - request-access-card
+  - request-access-confirm-card
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - forms
+  verbs:
+  - get
+  resourceNames:
+  - request-access
+  - request-access-confirm
+- apiGroups:
+  - widgets.templates.krateo.io
+  resources:
+  - markdowns
+  verbs:
+  - get
+  resourceNames:
+  - request-access-sign-in
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: public-identity-read-pages
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: public-identity-read-pages
+subjects:
+- kind: User
+  name: krateo:public
+  apiGroup: rbac.authorization.k8s.io

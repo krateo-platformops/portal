@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""""Ask Agentiko →" on /compositions, /dashboard, /blueprints, /marketplace and the two detail pages,
+""""Ask Agentiko →" on /compositions, /blueprints, /marketplace and the two detail pages,
 over the charts' OWN jq.
 
 Every entry point is a Button that navigates to an `…Href` its RESTAction builds, so what the
@@ -142,35 +142,35 @@ normal = run_comps()
 check('compositions: a read with no error -> readError empty', normal['readError'], '')
 href, prompt = ask(normal['askHref'])
 check('compositions: unfiltered -> self page, no params', href, '/compositions')
-check('compositions: unfiltered -> the workloads in view', prompt.split(' The unhealthy')[0],
-      'Review my compositions: 4 in view — 2 healthy, 1 failed, 1 degraded, 1 drifted, 0 pending, 0 with unreadable children.')
-check('compositions: unfiltered -> unhealthy, failed first',
-      prompt.split('The unhealthy ones are: ')[1].split(' For each')[0],
+check('compositions: unfiltered -> the workloads in view', prompt.split(' The ones that need attention')[0],
+      'Review my compositions: 4 in view — 2 healthy, 1 failed, 1 degraded, 1 drifted, 0 paused, 0 pending, 0 with unreadable children.')
+check('compositions: unfiltered -> the ones needing attention, failed first',
+      prompt.split('The ones that need attention are: ')[1].split(' For each')[0],
       '1. WebApp/orders-api · team-alpha — failed 2. WebApp/web · team-alpha — degraded 3. Redis/cache · team-beta — drifted.')
 check('compositions: unfiltered -> the ask', prompt.endswith(
     'For each, explain what is wrong from its conditions and managed resources, and what to fix first.'), True)
 
 filt = run_comps(status='failed', q='ORD', projects='team-alpha')
 href, prompt = ask(filt['askHref'])
-check('compositions: filtered -> keeps status, q and projects', href, '/compositions?status=failed&q=ORD&projects=team-alpha')
-check('compositions: filtered -> the filtered view', prompt.split(' The unhealthy')[0],
-      'Review my compositions (only failed ones; namespace team-alpha; name or type matching "ORD"): '
-      '1 in view — 0 healthy, 1 failed, 0 degraded, 0 drifted, 0 pending, 0 with unreadable children.')
-check('compositions: filtered -> only the filtered rows listed', 'web' in prompt.split('The unhealthy ones are: ')[1], False)
+check('compositions: filtered -> keeps status, q and projects (in the page\'s param order)', href, '/compositions?projects=team-alpha&status=failed&q=ORD')
+check('compositions: filtered -> the filtered view', prompt.split(' The ones that need attention')[0],
+      'Review my compositions (State: NotReady; namespace team-alpha; name or type matching "ORD"): '
+      '1 in view — 0 healthy, 1 failed, 0 degraded, 0 drifted, 0 paused, 0 pending, 0 with unreadable children.')
+check('compositions: filtered -> only the filtered rows listed', 'web' in prompt.split('The ones that need attention are: ')[1], False)
 check('compositions: filtered -> the prompt counts what the table shows', len(filt['filtered']), 1)
 href, prompt = ask(run_comps(scope='platform')['askHref'])
 check('compositions: ?scope=platform -> kept', href, '/compositions?scope=platform')
 check('compositions: ?scope=platform -> said', prompt.startswith('Review my compositions (platform components only): 1 in view — 0 healthy, 1 failed'), True)
 check('compositions: ?scope=platform -> the platform component listed', '1. Portal/portal · krateo-system — failed.' in prompt, True)
 _, prompt = ask(run_comps(q='site')['askHref'])
-check('compositions: nothing unhealthy -> no empty list', 'The unhealthy ones are' in prompt, False)
-check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted or unreadable.' in prompt, True)
+check('compositions: nothing unhealthy -> no empty list', 'The ones that need attention are' in prompt, False)
+check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted, paused or unreadable.' in prompt, True)
 check('compositions: ?status=all -> not carried', ask(run_comps(status='all')['askHref'])[0], '/compositions')
 
 href, prompt = ask(run_comps(status='pending')['askHref'])
 check('compositions: a filter with no rows -> keeps it', href, '/compositions?status=pending')
 check('compositions: a filter with no rows -> says so', prompt,
-      'No composition is in view (only pending ones); 5 other compositions are outside it. '
+      'No composition is in view (State: Pending); 5 other compositions are outside it. '
       'Tell me whether that is expected, and whether anything in my other compositions needs attention.')
 _, prompt = ask(run_comps(items=[])['askHref'])
 check('compositions: none at all -> says so', prompt,
@@ -194,21 +194,9 @@ many = run_comps(items=[comp(f'c{i}', 'ns', ready='False', reason='X') for i in 
 _, prompt = ask(many['askHref'])
 check('compositions: eight at most', ('8. WebApp/c7' in prompt, '9. ' in prompt), (True, False))
 
-# The dashboard: `.list`, not the workloads view; ?range and ?projects kept.
-href, prompt = ask(normal['dashboardAskHref'])
-check('dashboard: -> self page', href, '/dashboard')
-check('dashboard: -> every composition', prompt,
-      'Brief me on my platform: 5 compositions — 2 healthy, 2 failed, 1 degraded, 0 pending. The ones that need attention are: '
-      '1. Portal/portal · krateo-system — failed 2. WebApp/orders-api · team-alpha — failed 3. WebApp/web · team-alpha — degraded '
-      '4. Redis/cache · team-beta — drifted. '
-      'What needs my attention first, and what should I do about it?')
-href, prompt = ask(run_comps(range='7d', projects='team-beta', status='failed')['dashboardAskHref'])
-check('dashboard: scoped -> keeps range and projects, not the compositions page status', href, '/dashboard?range=7d&projects=team-beta')
-check('dashboard: scoped -> said', prompt.startswith('Brief me on my platform in namespace team-beta: 2 compositions — 2 healthy, 0 failed'), True)
-_, prompt = ask(run_comps(items=[])['dashboardAskHref'])
-check('dashboard: none -> says so', prompt.startswith('Brief me on my platform: I have no compositions yet.'), True)
-_, prompt = ask(refused['dashboardAskHref'])
-check('dashboard: refused -> asks about the error', prompt.startswith("My platform's compositions could not be read (compositiondefinitions"), True)
+# The Dashboard's Ask Agentiko no longer reads compositions-list: it is the platform inbox now, and
+# scripts/test-dashboard-inbox.py holds its prompt (dashboard-inbox's askHref).
+check('compositions-list no longer builds the Dashboard\'s link', 'dashboardAskHref' in normal, False)
 
 cpage = render('compositions-page')
 cbutton = named(cpage, 'Button', 'compositions-ask-agentiko')
@@ -217,12 +205,6 @@ check('compositions button: keyExtras = the table\'s', cbutton['spec']['keyExtra
       named(cpage, 'Table', 'compositions-table')['spec']['keyExtras'])
 check('compositions header: Ask, then Create', items_of(named(cpage, 'PageHeader', 'compositions-page-header')),
       ['compositions-ask-agentiko', 'new-composition'])
-dpage = render('dashboard-page')
-dbutton = named(dpage, 'Button', 'dashboard-ask-agentiko')
-button_check('dashboard button', dbutton, normal, 'dashboardAskHref', '/dashboard')
-check('dashboard button: reads compositions-list, not dashboard-data', dbutton['spec']['apiRef']['name'], 'compositions-list')
-check('dashboard header: Ask, then Create', items_of(named(dpage, 'PageHeader', 'dashboard-page-header')),
-      ['dashboard-ask-agentiko', 'new-composition'])
 
 # --- /blueprints: the shell's blueprints-cards ------------------------------------------------------
 cards_prog = named(portal, 'RESTAction', 'blueprints-cards')['spec']['filter']
@@ -367,6 +349,6 @@ check('marketplace detail actions: Ask, then Install', items_of(named(mpage, 'Fl
 
 for f in failures:
     print(f'FAIL  {f}')
-print(f'{"FAILED" if failures else "ok"}: Ask Agentiko on compositions, dashboard, blueprints and marketplace'
+print(f'{"FAILED" if failures else "ok"}: Ask Agentiko on compositions, blueprints and marketplace'
       f' ({len(failures)} failure(s))')
 raise SystemExit(1 if failures else 0)

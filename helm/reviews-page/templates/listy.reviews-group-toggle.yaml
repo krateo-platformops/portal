@@ -1,0 +1,27 @@
+{{/* How the open proposals are grouped: By kind or By target repo, the current one active, each
+     keeping every other param (?group=kind, ?group=repo). Without ?group= the page groups by kind,
+     and by target repo when exactly one kind is picked. The mockup draws a Segmented; there is no
+     Segmented widget, and the chip row is the existing single-choice control (build plan §1). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-group-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{href}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ { label: "By kind", active: ((.group // "kind") == "kind"), href: (.groupHrefs.kind // "/reviews?group=kind") }, { label: "By target repo", active: (.group == "repo"), href: (.groupHrefs.repo // "/reviews?group=repo") } ] }'
+  resourcesRefs:
+    items: []

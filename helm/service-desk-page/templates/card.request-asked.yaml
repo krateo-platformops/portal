@@ -1,0 +1,28 @@
+{{/* "What you asked" — the request's own words, from the object's spec, shown from the moment it is
+     saved (before the provider has filed it). Same card language as the rest of the portal:
+     eyebrow title, outlined. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-asked-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    title: What you asked
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - paragraphs
+    items:
+    - resourceRefId: request-asked-text
+  resourcesRefs:
+    items:
+    - id: request-asked-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-asked-text
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

@@ -1,0 +1,42 @@
+{{/* The Evidence tab's "Resources" block: # · Type · Name · Namespace. First the objects the */}}
+{{/* reasoning trace cites, then the objects the analysis read (status.analyzedResources) but did */}}
+{{/* not cite, numbered on. Each row opens the object's page. Shaped by incident-detail (.resourceRows). */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-evidence-resources
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    {{/* fitContent: shrink columns to the container instead of the default horizontal scrollbar; a */}}
+    {{/* wide cell ellipsis-truncates and carries its full value on hover (P19). */}}
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    {{/* The whole destination is one hidden `route` cell, used verbatim (frontend Table >= 1.3.78); */}}
+    {{/* an empty route leaves the row inert. */}}
+    rowNavigateTo: '{route}'
+    columns:
+    - valueKey: num
+      title: '#'
+      width: 48
+    - valueKey: type
+      title: Type
+    - valueKey: name
+      title: Name
+    - valueKey: namespace
+      title: Namespace
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.resourceRows // [])[] | [ {valueKey:"num",kind:"jsonSchemaType",type:"string",stringValue:(.num // ""),color:"var(--gray-color)"}, {valueKey:"type",kind:"jsonSchemaType",type:"string",stringValue:(.type // "")}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(if (.namespace // "") != "" then .namespace else "—" end),color:"var(--gray-color)"}, {valueKey:"route",kind:"jsonSchemaType",type:"string",stringValue:(.route // "")} ] ] }'
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

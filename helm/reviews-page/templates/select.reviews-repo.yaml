@@ -1,0 +1,30 @@
+{{/* The Target repo facet, written to ?repo= (comma-joined spec.target.repo values; "(no target
+     repo)" for a proposal that names none). The repo is the model's claim, never verified here: the
+     facet only groups on it. At most the 12 largest, plus any picked. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-repo
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: repo
+    label: Target repo
+    queryParam: repo
+    mode: multiple
+    prefix: Target repo
+    placeholder: All
+    size: small
+    panelFooter: Counted in open proposals, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "repo") | .values[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

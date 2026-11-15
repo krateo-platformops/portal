@@ -158,6 +158,16 @@ check('creating is amber, and Synced keeps its own pill',
       pills([{'reason': 'Creating', 'status': 'False', 'type': 'Ready'},
              {'reason': 'ReconcileSuccess', 'status': 'True', 'type': 'Synced'}], 'pending'),
       ([('Creating', 'orange'), ('Synced', 'green')], ('Pending', 'orange')))
+check('a pending helm operation is an amber Pending, not NotReady',
+      pills([{'reason': 'PendingHelmOperation', 'status': 'False', 'type': 'Ready'},
+             {'reason': 'ReconcileSuccess', 'status': 'True', 'type': 'Synced'}], 'pending'),
+      ([('Pending', 'orange'), ('Synced', 'green')], ('Pending', 'orange')))
+check('a helm operation in progress is an amber Pending',
+      pills([{'reason': 'HelmOperationInProgress', 'status': 'False', 'type': 'Ready'}], 'pending'),
+      ([('Pending', 'orange')], ('Pending', 'orange')))
+check('deleting is an amber Deleting',
+      pills([{'reason': 'Deleting', 'status': 'False', 'type': 'Ready'}], 'pending'),
+      ([('Deleting', 'orange')], ('Pending', 'orange')))
 check('unavailable is still NotReady',
       pills([{'reason': 'Unavailable', 'status': 'False', 'type': 'Ready'}], 'failed'),
       ([('NotReady', 'red')], ('Failed', 'red')))
@@ -186,9 +196,15 @@ check('available is healthy', state_of([{'reason': 'Available', 'status': 'True'
       {'reason': 'ReconcileSuccess', 'status': 'True', 'type': 'Synced'}]), ('healthy', 'healthy'))
 check('creating is pending, not failed', state_of([{'reason': 'Creating', 'status': 'False', 'type': 'Ready'}]),
       ('pending', 'pending'))
+check('a pending helm operation is pending, not failed',
+      state_of([{'reason': 'PendingHelmOperation', 'status': 'False', 'type': 'Ready'}]), ('pending', 'pending'))
+for reason in ('HelmOperationInProgress', 'Deleting'):
+    check(f'{reason} is pending, not failed',
+          state_of([{'reason': reason, 'status': 'False', 'type': 'Ready'}]), ('pending', 'pending'))
 check('unavailable is failed', state_of([{'reason': 'Unavailable', 'status': 'False', 'type': 'Ready'}]),
       ('failed', 'failed'))
-check('paused is not drift', state_of(PAUSED), ('healthy', 'paused'))
+# Paused is its own state (root-pages slice 3a): it reports Ready=True on purpose, and was counted healthy.
+check('paused is not drift, and not healthy', state_of(PAUSED), ('paused', 'paused'))
 check('a real drift is still drift', state_of([{'reason': 'Available', 'status': 'True', 'type': 'Ready'},
       {'reason': 'ReconcileError', 'status': 'False', 'type': 'Synced'}]), ('healthy', 'drift'))
 check('unknown is pending', state_of([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}]),
@@ -227,39 +243,31 @@ check('?status=unreadable lists exactly the unreadable ones',
       [i['name'] for i in listing(MIX, status='unreadable')['filtered']], ['forbidden'])
 check('?status=all still lists every composition', len(listing(MIX, status='all')['filtered']), len(MIX))
 
-chips_doc = named(render('compositions-page'), 'compositions-status-chips')
-chips_expr = unwrap(next(e['expression'] for e in chips_doc['spec']['widgetDataTemplate'] if e['forPath'] == 'dataSource'))
+# The State facet replaced the status chips (root-pages slice 3a): its options are the states some
+# composition is in, in triage order, each counted under the other filters.
+state_doc = named(render('compositions-page'), 'compositions-status')
+state_expr = unwrap(next(e['expression'] for e in state_doc['spec']['widgetDataTemplate'] if e['forPath'] == 'options'))
 
 
-def chips(out):
-    return [(c['label'], c['count'], c['active']) for c in jq(chips_expr, out)]
+def states(out):
+    return [(o['label'], o['value'], o['count']) for o in jq(state_expr, out)]
 
 
-check('chips: Children unreadable appears after Pending with its count while some are unreadable',
-      chips(out), [('All', 6, True), ('Healthy', 1, False), ('Drift', 0, False), ('Pending', 3, False),
-                   ('Children unreadable', 1, False), ('Degraded', 0, False), ('Failed', 1, False)])
-check('chips: its route filters to them',
-      [c['route'] for c in jq(chips_expr, out) if c['label'] == 'Children unreadable'],
-      ['/compositions?status=unreadable&scope=workloads'])
+check('State: Children unreadable is offered with its count while some are unreadable, in triage order',
+      states(out), [('NotReady', 'failed', 1), ('Children unreadable', 'unreadable', 1), ('Pending', 'pending', 3), ('Ready', 'healthy', 1)])
+check('State: ?status=unreadable lists exactly them, and the others stay counted',
+      ([i['name'] for i in listing(MIX, status='unreadable')['filtered']], states(listing(MIX, status='unreadable'))[1]),
+      (['forbidden'], ('Children unreadable', 'unreadable', 1)))
 none_out = listing([i for i in MIX if i['name'] != 'forbidden'])
-check('chips: no Children unreadable chip when none is',
-      [c[0] for c in chips(none_out)], ['All', 'Healthy', 'Drift', 'Pending', 'Degraded', 'Failed'])
-check('chips: kept while it is the selected filter, even at 0',
-      [c for c in chips(listing([MIX[0]], status='unreadable')) if c[0] == 'Children unreadable'],
-      [('Children unreadable', 0, True)])
+check('State: no Children unreadable option when none is', [c[0] for c in states(none_out)], ['NotReady', 'Pending', 'Ready'])
+check('State: kept while it is the selected filter, even at 0',
+      [c for c in states(listing([MIX[0]], status='unreadable')) if c[1] == 'unreadable'], [('Children unreadable', 'unreadable', 0)])
 
 obs_pending = named(render('observability-page'), 'obs-stat-pending')
 obs_expr = unwrap(next(e['expression'] for e in obs_pending['spec']['widgetDataTemplate'] if e['forPath'] == 'value'))
 check('observability Pending leaves children unreadable out (ZeroEvidence and InventoryNotRecorded stay)',
       jq(obs_expr, out), 2)
 check('observability Pending is unchanged without an unreadable composition', jq(obs_expr, none_out), 2)
-
-# Every railState must be in the dashboard rail's colour map: a value missing there renders near-black.
-rail_list = named(render('dashboard-page'), 'rail-list')
-rail_map = rail_list['spec']['widgetData']['itemTemplate']['bar']['color']['map'] \
-    if 'bar' in rail_list['spec']['widgetData']['itemTemplate'] else {}
-check('the dashboard rail colours every railState',
-      sorted({'healthy', 'drift', 'pending', 'degraded', 'failed', 'paused', 'unreadable'} - set(rail_map)), [])
 
 for line in failures:
     print(f'FAIL  {line}')

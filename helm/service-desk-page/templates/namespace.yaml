@@ -1,40 +1,27 @@
-{{/* TWO namespaces, because the namespace IS the RBAC boundary this chart exists for — see
-     values.yaml and rbac.page-readers.yaml. A service desk has two audiences and they are
-     different people, so they get two boundaries:
+{{/* ONE namespace, for the pages. It is the RBAC boundary for who sees /service-desk at all — see
+     rbac.page-readers.yaml.
 
-       namespace       the QUEUE and THE TICKETS. The desk reads it.
-       raiseNamespace  the RAISE-A-TICKET screen, and nothing else. Requesters read it.
+     There used to be two. The Ticket desk had two audiences, the requesters who raised tickets and
+     the desk that worked them, and `resourceNames` does not apply to `list`, so the raise screen
+     lived in a second namespace (`raiseNamespace`) that requesters could read without seeing the
+     queue. Zendesk dissolves that split: the queue lists the requests THE CALLER may list, so a
+     requester who opens it sees their own organisation's requests and nobody else's. The raise
+     screen is an ordinary sub-route of the queue again. Helm deletes the old raise namespace on
+     upgrade, with the three widgets in it; it held no data.
 
-     One namespace could not express that. `resourceNames` does not apply to `list`, so a group
-     granted `list` on the page roots of a namespace sees EVERY root in it: granting requesters
-     enough to open the create screen in the queue's namespace would also offer them "Service
-     desk", whose body then 403s. Splitting the screen off is the mechanism, not a workaround.
-
-     ONLY `namespace` HOLDS TICKETS. The create form posts into it across the boundary, because
-     `create` does not require read. That is why changing `namespace` after install is worse here
-     than for a page-only chart — it orphans people's tickets, not just widgets, and Helm will not
-     prune them because it no longer renders them. Changing `raiseNamespace` orphans three widgets
-     and costs nobody their data. */}}
+     NO ZENDESK REQUEST LIVES HERE. Each is created in its organisation's own namespace, beside the
+     ZendeskRequestConfiguration that carries the organisation's token (form.request-new.yaml). */}}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.namespace }}
   annotations:
-    # KEEP, and only on THIS one of the two. A `keep` on the Ticket CRD alone does not protect the
-    # tickets: deleting a namespace deletes everything in it regardless of any CRD's policy, so an
-    # uninstall would take the tickets with the namespace and the surviving CRD would be empty.
-    # This namespace is the one that holds them (see the note above), so it is the one that is kept.
-    #
-    # `raiseNamespace` deliberately does NOT carry this. It holds three widgets and no data, so
-    # keeping it would leave an empty namespace behind on every uninstall and protect nothing. The
-    # asymmetry is the point: retention follows the data, not the chart.
+    # STILL KEPT, although no new data lands here. This namespace holds every Ticket filed before the
+    # service desk moved to Zendesk. The Ticket CRD is no longer rendered, and its own `keep` left it
+    # (and those Tickets) in the cluster when this chart stopped shipping it. Deleting a namespace
+    # deletes everything in it whatever any CRD says, so dropping `keep` here would let the next
+    # uninstall — which happens on every component version bump — take those Tickets with it.
+    # Retention follows the data, and the data is still here.
     helm.sh/resource-policy: keep
-  labels:
-    "krateo.io/page-namespace": "true"
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ .Values.raiseNamespace }}
   labels:
     "krateo.io/page-namespace": "true"

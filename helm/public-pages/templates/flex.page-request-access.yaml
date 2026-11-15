@@ -1,0 +1,43 @@
+{{/* SCREEN 1 — /public/request-access: someone with no account asks for one.
+
+     A PUBLIC page root (frontend#717): /public/<slug> opens flexes/page-<slug> in the frontend's
+     PUBLIC_NAMESPACE, outside the signed-in shell, reading every widget with no Authorization
+     header, so snowplow serves it as `krateo:public` (rbac.public-identity.yaml).
+
+     NO `krateo.io/nav-*` ANNOTATION, deliberately. The sidebar (portal restaction.sidebar-nav)
+     lists page roots in every namespace the caller may list flexes in and keeps those whose
+     `krateo.io/nav-path` is set; an admin may list flexes here, so a nav-path would put a public
+     route in the signed-in sidebar and claim /request-access as a shell route. Public pages are
+     reached by their /public/ address, never through the nav. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: page-request-access
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+      - cards
+      - markdowns
+    vertical: true
+    gap: middle
+    items:
+      - resourceRefId: request-access-card
+      {{/* Under the card, and still there when the form's Result replaces the form (mockup 1.4). */}}
+      - resourceRefId: request-access-sign-in
+  resourcesRefs:
+    items:
+      - id: request-access-card
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: request-access-card
+        namespace: {{ .Values.namespace }}
+        resource: cards
+        verb: GET
+      - id: request-access-sign-in
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: request-access-sign-in
+        namespace: {{ .Values.namespace }}
+        resource: markdowns
+        verb: GET

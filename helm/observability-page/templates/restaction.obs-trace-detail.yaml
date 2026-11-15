@@ -4,7 +4,7 @@
 {{/* The query, decoded: */}}
 {{/*   SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, */}}
 {{/*          ParentSpanId AS parent_id, ServiceName AS svc, SpanName AS span, Duration AS dur_ns, */}}
-{{/*          StatusCode AS status, */}}
+{{/*          StatusCode AS status, StatusMessage AS msg, */}}
 {{/*          coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), */}}
 {{/*                   nullIf(SpanAttributes['http.status_code'], ''), SpanAttributes['http.status']) AS http, */}}
 {{/*          SpanAttributes['jwt.sub'] AS sub */}}
@@ -19,6 +19,14 @@
 {{/* carries more than one of them, so the order only matters if a producer ever writes two. A */}}
 {{/* missing key reads '' (Map access), so a span with none is ''. The column is a String in */}}
 {{/* SpanAttributes, so FORMAT JSON always quotes it. */}}
+{{/* */}}
+{{/* THE SPAN'S OTel StatusMessage, as `message`: why an Error span failed, in its producer's words */}}
+{{/* ("context deadline exceeded", "dial tcp …: connect: connection refused"). The trace page shows */}}
+{{/* it as the tooltip of the span's red Status tag. On krateo-057 (7 days to 2026-11-11) only */}}
+{{/* Error spans carry one, and the longest is 1,173 characters (3 are over 1000), so the filter */}}
+{{/* CUTS it to 1000 characters, the last an ellipsis: one pathological message cannot bloat the */}}
+{{/* response the widgets resolve from. Not filtered further: the collector redacts JWTs, and a */}}
+{{/* 7-day scan of 11,584 Error-span messages found no credential shape. */}}
 {{/* */}}
 {{/* GATED ON A WELL-FORMED TRACE ID. The iterator yields the request only for 32 hex characters */}}
 {{/* (lowercased first: the exporter writes lowercase hex), so a missing id — snowplow's Phase-1 */}}
@@ -45,7 +53,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ "/?query=SELECT%20toUnixTimestamp64Micro%28Timestamp%29%20AS%20start_us%2C%20SpanId%20AS%20span_id%2C%20ParentSpanId%20AS%20parent_id%2C%20ServiceName%20AS%20svc%2C%20SpanName%20AS%20span%2C%20Duration%20AS%20dur_ns%2C%20StatusCode%20AS%20status%2C%20coalesce%28nullIf%28SpanAttributes%5B%27http.response.status_code%27%5D%2C%20%27%27%29%2C%20nullIf%28SpanAttributes%5B%27http.status_code%27%5D%2C%20%27%27%29%2C%20SpanAttributes%5B%27http.status%27%5D%29%20AS%20http%2C%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%20FROM%20otel_traces%20WHERE%20TraceId%20%3D%20%27" + .tid + "%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%207%20DAY%20ORDER%20BY%20Timestamp%20ASC%2C%20SpanId%20ASC%20LIMIT%201000%20FORMAT%20JSON" }'
+      path: '${ "/?query=SELECT%20toUnixTimestamp64Micro%28Timestamp%29%20AS%20start_us%2C%20SpanId%20AS%20span_id%2C%20ParentSpanId%20AS%20parent_id%2C%20ServiceName%20AS%20svc%2C%20SpanName%20AS%20span%2C%20Duration%20AS%20dur_ns%2C%20StatusCode%20AS%20status%2C%20StatusMessage%20AS%20msg%2C%20coalesce%28nullIf%28SpanAttributes%5B%27http.response.status_code%27%5D%2C%20%27%27%29%2C%20nullIf%28SpanAttributes%5B%27http.status_code%27%5D%2C%20%27%27%29%2C%20SpanAttributes%5B%27http.status%27%5D%29%20AS%20http%2C%20SpanAttributes%5B%27jwt.sub%27%5D%20AS%20sub%20FROM%20otel_traces%20WHERE%20TraceId%20%3D%20%27" + .tid + "%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%207%20DAY%20ORDER%20BY%20Timestamp%20ASC%2C%20SpanId%20ASC%20LIMIT%201000%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -68,7 +76,8 @@ spec:
     | [ ((.spans.data) // [])[]
         | { startUs: (.start_us | tonumber? // 0), spanId: (.span_id // ""), parentId: (.parent_id // ""),
             service: (.svc // ""), span: (.span // ""), durationNs: (.dur_ns | tonumber? // 0),
-            status: (.status // ""), httpStatus: ((.http // "") | tostring), user: (.sub // "") } ] as $spans
+            status: (.status // ""), message: ((.msg // "") | tostring | cap(1000)),
+            httpStatus: ((.http // "") | tostring), user: (.sub // "") } ] as $spans
     | (.spansError != null) as $failed
     | (($spans | length) >= 1000) as $truncated
     | ($spans | map(.service | select(. != "")) | unique) as $services

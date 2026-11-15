@@ -1,0 +1,33 @@
+{{/* The escape to today's table and back (decision 2026-11-13 (a)): on the overview, "All N
+     workloads as a table →" (N the compositions the filters match in this scope) opens ?view=table
+     with every filter kept; on the table, "← Back to the overview" drops ?view and keeps the rest.
+     The table keeps its server paging. Both hrefs come from compositions-list (portal.facets). */}}
+kind: Button
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-view-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    label: All as a table →
+    type: link
+    size: middle
+    clickActionId: view
+    actions:
+      navigate:
+        - id: view
+          type: navigate
+          path: /compositions?view=table
+  widgetDataTemplate:
+    - forPath: label
+      expression: '${ if .view == "table" then "← Back to the overview" else "All " + ((.matched // 0) | tostring) + " " + ({workloads: "workloads", platform: "platform components", all: "compositions"}[.scope // "workloads"] // "compositions") + (if .filteredAny then " in this view" else "" end) + " as a table →" end }'
+    - forPath: actions
+      expression: '${ { navigate: [ { id: "view", type: "navigate", path: (if .view == "table" then (.cardsHref // "/compositions") else (.tableHref // "/compositions?view=table") end) } ] } }'
+  resourcesRefs:
+    items: []

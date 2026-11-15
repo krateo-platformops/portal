@@ -1,0 +1,25 @@
+{{/* The superseded count line (mockup screen 08's folded "Superseded" group, as one line): how many
+     proposals in view (the same filters, on the superseded proposal's own kind, repo and day) a later
+     run replaced with a newer one for the same finding. Each is counted on the open proposal that
+     replaced it ("Superseded" in the table). The historical Refused records, never listed, are said
+     here too. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-superseded
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ (if (.supersededInView // 0) > 0 then "Superseded: " + n(.supersededInView; "proposal"; "proposals") + (if .filtered then " in this view" else "" end) + " replaced by a newer one for the same finding." else empty end), (if (.refused // 0) > 0 then n(.refused; "historical Refused record is"; "historical Refused records are") + " not listed." else empty end) ] | join(" ") }'
+  resourcesRefs:
+    items: []

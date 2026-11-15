@@ -18,9 +18,12 @@ snowplow-path.py), runs the widgets' own jq over the result, and checks what a r
     three keys producers write it (`http.response.status_code`, `http.status_code`, `http.status`),
     then "error" when StatusCode is Error — "403 · error" as a red tag on the failing span, "403" as
     plain text on spans that carried it back Unset, "—" where there is neither;
+  - an Error span's red tag carries the span's OTel StatusMessage as its tooltip, cut to 1000
+    characters with an ellipsis; no message, or a span that is not Error, means no tooltip;
   - a row opens /observability/traces/<its full trace id>;
   - the trace page lists spans in start order with offsets from the first, and draws one node per
-    service with an edge wherever a span's ParentSpanId belongs to another service;
+    service with an edge wherever a span's ParentSpanId belongs to another service, top to bottom
+    in compact cards (it sits in a 9-of-24 column);
   - a TraceId or filter carrying a quote or an SQL fragment makes NO request at all, and every
     request that is made keeps each SQL string literal to the characters its filter allows;
   - the HyperDX link exists only when `observabilityConsoleUrl` is set, and opens /trace/<id>;
@@ -156,10 +159,11 @@ LIST_ROWS = [
 US = T0_MS * 1000                          # trace A's start, in microseconds
 
 
-def span(start_us, sid, parent, svc, name, dur_ns, status='Unset', sub='', http=''):
+def span(start_us, sid, parent, svc, name, dur_ns, status='Unset', sub='', http='', msg=''):
     # `http` is the SQL's coalesce over the three HTTP status keys: '' when the span has none.
+    # `msg` is StatusMessage: '' when the producer wrote none (every Unset and Ok span on 057).
     return {'start_us': str(start_us), 'span_id': sid, 'parent_id': parent, 'svc': svc, 'span': name,
-            'dur_ns': str(dur_ns), 'status': status, 'http': http, 'sub': sub}
+            'dur_ns': str(dur_ns), 'status': status, 'msg': msg, 'http': http, 'sub': sub}
 
 
 # The mockup's trace: the gateway receives the A2A call, agentiko calls the model and k8s-agent back
@@ -174,7 +178,8 @@ TRACE_A_SPANS = [
 ]
 # Its root's parent (the portal's browser span) was never exported, so no span has parent_id "".
 TRACE_B_SPANS = [
-    span(US - 133886000, 'b000000000000001', 'ffffffffffffffff', 'snowplow', 'GET /call restactions/obs-log-stream', 1940000000, 'Error', 'cyberjoker', '500'),
+    span(US - 133886000, 'b000000000000001', 'ffffffffffffffff', 'snowplow', 'GET /call restactions/obs-log-stream', 1940000000, 'Error', 'cyberjoker', '500',
+         'context deadline exceeded'),
     span(US - 133880000, 'b000000000000002', 'b000000000000001', 'snowplow', 'clickhouse query',                    1900000000, 'Error'),
     span(US - 133000000, 'b000000000000003', 'b000000000000001', 'snowplow', 'jq filter',                           820000),
 ]
@@ -186,15 +191,31 @@ TRACE_B_SPANS = [
 TRACE_C = 'ff5a4879d0c68269b1139c9f397df304'
 TRACE_C_SPANS = [
     {'start_us': 1794325039029000, 'span_id': '6d0efbb1933ac92e', 'parent_id': '', 'svc': 'krateo-frontend',
-     'span': 'krateo.widget.fetch', 'dur_ns': 115000000, 'status': 'Error', 'http': '403', 'sub': ''},
+     'span': 'krateo.widget.fetch', 'dur_ns': 115000000, 'status': 'Error', 'msg': '', 'http': '403', 'sub': ''},
     {'start_us': 1794325039169499, 'span_id': 'c17089a8861ddd6f', 'parent_id': '6d0efbb1933ac92e',
-     'svc': 'krateo-agent-gateway-platform', 'span': 'POST /content/*', 'dur_ns': 69155777, 'status': 'Unset',
+     'svc': 'krateo-agent-gateway-platform', 'span': 'POST /content/*', 'dur_ns': 69155777, 'status': 'Unset', 'msg': '',
      'http': '403', 'sub': ''},
     {'start_us': 1794325039169950, 'span_id': '25c7e32e998d976e', 'parent_id': 'c17089a8861ddd6f',
      'svc': 'krateo-agent-gateway-platform', 'span': 'POST snowplow.krateo-system.svc.cluster.local:8081',
-     'dur_ns': 68638957, 'status': 'Unset', 'http': '403', 'sub': ''},
+     'dur_ns': 68638957, 'status': 'Unset', 'msg': '', 'http': '403', 'sub': ''},
     {'start_us': 1794325039180670, 'span_id': 'd47b19fd2666d974', 'parent_id': '25c7e32e998d976e', 'svc': 'snowplow',
-     'span': 'POST /call', 'dur_ns': 57521053, 'status': 'Unset', 'http': '403', 'sub': ''},
+     'span': 'POST /call', 'dur_ns': 57521053, 'status': 'Unset', 'msg': '', 'http': '403', 'sub': ''},
+]
+# An alert reconcile ClickHouse's API throttled, as krateo-057 answered the detail query for trace
+# c7cc78dab460075812911fc78b8da08d: the reconcile and observe spans say why (StatusMessage), the
+# HTTP GET under them carries only the 429. All three are Error. Unquoted 64-bit integers.
+TRACE_D = 'c7cc78dab460075812911fc78b8da08d'
+TRACE_D_SPANS = [
+    {'start_us': 1794252513790231, 'span_id': '665bc4cc7b3c76cc', 'parent_id': '', 'svc': 'krateo-alert-provider',
+     'span': 'alert.reconcile', 'dur_ns': 26615078, 'status': 'Error',
+     'msg': 'observe failed: 429 Client Error: Too Many Requests for url: http://krateo-clickstack-api.krateo-system.svc:8000/api/v2/alerts',
+     'http': '', 'sub': ''},
+    {'start_us': 1794252513790864, 'span_id': '6b005f3662c83ede', 'parent_id': '665bc4cc7b3c76cc', 'svc': 'krateo-alert-provider',
+     'span': 'alert.observe', 'dur_ns': 2898398, 'status': 'Error',
+     'msg': '429 Client Error: Too Many Requests for url: http://krateo-clickstack-api.krateo-system.svc:8000/api/v2/alerts',
+     'http': '', 'sub': ''},
+    {'start_us': 1794252513790951, 'span_id': 'b6fcae383f33b1ed', 'parent_id': '6b005f3662c83ede', 'svc': 'krateo-alert-provider',
+     'span': 'HTTP GET', 'dur_ns': 2775583, 'status': 'Error', 'msg': '', 'http': '429', 'sub': ''},
 ]
 
 FACETS = {'services': ch([{'svc': 'agentgateway', 'n': '4120'}, {'svc': 'snowplow', 'n': '2210'},
@@ -231,7 +252,7 @@ LIST_SQL = ("SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ServiceName AS s
             "ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON")
 DETAIL_SQL = ("SELECT toUnixTimestamp64Micro(Timestamp) AS start_us, SpanId AS span_id, ParentSpanId AS parent_id, "
               "ServiceName AS svc, SpanName AS span, Duration AS dur_ns, StatusCode AS status, "
-              "coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), "
+              "StatusMessage AS msg, coalesce(nullIf(SpanAttributes['http.response.status_code'], ''), "
               "nullIf(SpanAttributes['http.status_code'], ''), SpanAttributes['http.status']) AS http, "
               "SpanAttributes['jwt.sub'] AS sub FROM otel_traces WHERE TraceId = '{tid}' "
               "AND Timestamp > now() - INTERVAL 7 DAY ORDER BY Timestamp ASC, SpanId ASC LIMIT 1000 FORMAT JSON")
@@ -328,6 +349,62 @@ def check_span_status_says_which_span_failed(c):
     expect(p, 'columns', cols, ['Service', 'Span', 'Start', 'Duration', 'Status'])
     reqs, _, _ = resolve(c, 'obs-trace-detail', {'traceId': TRACE_C}, {'spans': ch(TRACE_C_SPANS)})
     expect(p, 'the SQL reads all three HTTP status keys', [sql_of(r[1]) for r in reqs], [DETAIL_SQL.format(tid=TRACE_C)])
+    return p
+
+
+TOOLTIP_CAP = 1000
+
+
+def check_error_tag_tooltip_is_the_status_message(c):
+    """An Error span's red Status tag carries the span's StatusMessage as its tooltip (frontend
+    #681's cell `tooltip`), cut to 1000 characters with the last an ellipsis. No message means no
+    tooltip key at all — not an empty one — and no other cell, nor a span that is not Error, ever
+    gets one, even when its producer wrote a message."""
+    p = []
+
+    def view(tid, spans):
+        _, _, out = resolve(c, 'obs-trace-detail', {'traceId': tid}, {'spans': ch(spans)})
+        rows = tbi.resolved_widget(c, 'Table', 'trace-detail-spans', out, {'traceId': tid},
+                                   f'trace-detail-spans (tooltip, {tid[:4]})')['spec']['widgetData']['dataSource']
+        for r in rows:
+            for cell in r:
+                if cell['valueKey'] != 'status' and 'tooltip' in cell:
+                    p.append(f'{cell["valueKey"]} cell has a tooltip: {cell["tooltip"]!r}')
+        return [(cells(r)['span']['stringValue'], cells(r)['status']['kind'], cells(r)['status']['stringValue'],
+                 cells(r)['status'].get('tooltip', 'NO TOOLTIP')) for r in rows]
+
+    throttled = 'Too Many Requests for url: http://krateo-clickstack-api.krateo-system.svc:8000/api/v2/alerts'
+    expect(p, 'an alert reconcile ClickHouse throttled (057 trace c7cc…08d)', view(TRACE_D, TRACE_D_SPANS), [
+        ('alert.reconcile', 'tag', 'error', 'observe failed: 429 Client Error: ' + throttled),
+        ('alert.observe', 'tag', 'error', '429 Client Error: ' + throttled),
+        ('HTTP GET', 'tag', '429 · error', 'NO TOOLTIP')])
+    expect(p, 'the message on the failing call, none on its silent Error child', view(TRACE_B, TRACE_B_SPANS), [
+        ('GET /call restactions/obs-log-stream', 'tag', '500 · error', 'context deadline exceeded'),
+        ('clickhouse query', 'tag', 'error', 'NO TOOLTIP'),
+        ('jq filter', 'jsonSchemaType', '—', 'NO TOOLTIP')])
+    expect(p, 'an Error span with no message (057 trace ff5a…f304)', [t[3] for t in view(TRACE_C, TRACE_C_SPANS)],
+           ['NO TOOLTIP'] * 4)
+    expect(p, 'a span that is not Error gets none, even with a message',
+           view(TRACE_A, [span(US, 'a000000000000001', '', 'snowplow', 'GET /call', 1000, 'Unset', http='200', msg='retrying'),
+                          span(US + 1, 'a000000000000002', '', 'snowplow', 'GET /call', 1000, 'Ok', msg='done')]),
+           [('GET /call', 'jsonSchemaType', '200', 'NO TOOLTIP'), ('GET /call', 'jsonSchemaType', '—', 'NO TOOLTIP')])
+    expect(p, 'a row from a ClickHouse without the msg column',
+           view(TRACE_B, [{k: v for k, v in TRACE_B_SPANS[0].items() if k != 'msg'}])[0][3], 'NO TOOLTIP')
+    # At the cap and past it. Multi-byte characters, so a byte-counting cut would show: the cap is
+    # in characters, as the tooltip reads them.
+    for n, label in [(TOOLTIP_CAP, 'exactly 1000 characters is kept whole'),
+                     (TOOLTIP_CAP + 1, '1001 characters'), (1173, "1173 characters (057's longest)"), (20000, '20000 characters')]:
+        msg = ('é' * 7 + ' ') * (n // 8) + 'x' * (n % 8)
+        assert len(msg) == n
+        got = view(TRACE_B, [span(US, 'b000000000000001', '', 'snowplow', 'GET /call', 1000, 'Error', msg=msg)])[0][3]
+        want = msg if n <= TOOLTIP_CAP else msg[:TOOLTIP_CAP - 1] + '…'
+        expect(p, f'{label}: tooltip length', len(got), min(n, TOOLTIP_CAP))
+        expect(p, f'{label}: tooltip text', got, want)
+    _, _, out = resolve(c, 'obs-trace-detail', {'traceId': TRACE_D}, {'spans': ch(TRACE_D_SPANS)})
+    expect(p, 'the RA carries the message on each span', [s.get('message') for s in out['spans']],
+           [TRACE_D_SPANS[0]['msg'], TRACE_D_SPANS[1]['msg'], ''])
+    reqs, _, _ = resolve(c, 'obs-trace-detail', {'traceId': TRACE_D}, {'spans': ch(TRACE_D_SPANS)})
+    expect(p, 'the SQL reads StatusMessage', [sql_of(r[1]) for r in reqs], [DETAIL_SQL.format(tid=TRACE_D)])
     return p
 
 
@@ -493,6 +570,9 @@ def check_topology_follows_parent_span_ids(c):
     _, _, out_b = resolve(c, 'obs-trace-detail', {'traceId': TRACE_B}, {'spans': ch(TRACE_B_SPANS)})
     nodes = tbi.widget(c, 'FlowChart', 'trace-detail-topology', 'data', out_b, {'traceId': TRACE_B})
     expect(p, 'a parent outside the trace draws no edge', [(n['name'], n['parentRefs']) for n in nodes], [('snowplow', [])])
+    layout = c.get('FlowChart', 'trace-detail-topology')['spec']['widgetData']
+    expect(p, 'the diagram runs top to bottom in compact cards (a 9-of-24 column)',
+           (layout.get('variant'), layout.get('direction'), layout.get('density')), ('architecture', 'TB', 'compact'))
     note = c.get('Markdown', 'trace-detail-note')['spec']['widgetData']['markdown']
     expect(p, 'the note, with no HyperDX link configured', note,
            'This diagram shows which services the request passed through, not how long each took. '
@@ -1156,6 +1236,7 @@ def main():
         ('span list is newest first and bounded', lambda: check_span_list_is_newest_first_and_bounded(c)),
         ('an Error span shows as an error', lambda: check_error_status_shows_as_an_error(c)),
         ('the trace page says which span failed, and with what HTTP code', lambda: check_span_status_says_which_span_failed(c)),
+        ("an Error span's tag shows its StatusMessage on hover, cut at 1000", lambda: check_error_tag_tooltip_is_the_status_message(c)),
         ('each filter reaches the SQL as one predicate', lambda: check_filters_reach_the_sql_as_one_predicate_each(c)),
         ('each request is encoded exactly once, as snowplow dials it', lambda: check_requests_are_encoded_exactly_once(c)),
         ('a quote or SQL fragment in any input makes no request', lambda: check_injection_is_refused(c)),

@@ -2,9 +2,12 @@
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* Titled panel around the per-composition reconcile-latency Table — matches the other */}}
-{{/* observability cards (eyebrow title + outlined). The `extra` labels the window/metric; */}}
-{{/* the table itself carries the live per-composition numbers. */}}
+{{/* Reconcile latency, two ways (Diego, 2026-11-15; mockup approved): By composition (the default, */}}
+{{/* the per-composition table as it was) or By controller (one row per Kind, exact span p95). The */}}
+{{/* choice is URL state, ?latencyBy=controller, written by the chips (obs-latency-chips). No */}}
+{{/* apiRef: snowplow merges the request extras into a no-apiRef widget's template data, so */}}
+{{/* `items` and `extra` read .latencyBy directly. Only the referenced child is fetched, so the */}}
+{{/* view not shown makes no ClickHouse call. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,19 +16,42 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [latencyBy]
   widgetData:
-    title: Reconcile latency by composition
+    title: Reconcile latency
     titleVariant: eyebrow
     variant: outlined
     extra: 'p95 · slowest first'
+    allowedResources:
+    - listies
+    - tables
+    - flexes
     items:
+    - resourceRefId: obs-latency-chips
     - resourceRefId: obs-reconcile-by-composition
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ if .latencyBy == "controller" then "p95 · slowest first · exact, from reconcile spans" else "p95 · slowest first" end }'
+  - forPath: items
+    expression: '${ [ { resourceRefId: "obs-latency-chips" } ] + (if .latencyBy == "controller" then [ { resourceRefId: "obs-latency-by-controller" } ] else [ { resourceRefId: "obs-reconcile-by-composition" } ] end) }'
   resourcesRefs:
     items:
+    - id: obs-latency-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-latency-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
     - id: obs-reconcile-by-composition
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-reconcile-by-composition
       namespace: {{ $.Values.namespace }}
       resource: tables
+      verb: GET
+    - id: obs-latency-by-controller
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-latency-by-controller
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
       verb: GET
 {{- end }}

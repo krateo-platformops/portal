@@ -1,15 +1,15 @@
-{{/* Ticket state filter chips (All · Open · In progress · Waiting on requester · Resolved · Closed),
-     built as incidents-page builds its status chips: one data-driven Listy(chip) whose state is URL
-     state. Each chip navigates to /service-desk?state=<slug>, which reaches tickets-list as an
-     extra; the RESTAction filters `.rows`, counts over EVERY ticket and echoes `.state`, so each
-     chip shows its live count and whether it is the one selected.
+{{/* The queue's chips: Active · All · New · Open · Pending · On-hold · Solved · Closed · Mine, built
+     as incidents-page builds its status chips: one data-driven Listy(chip) whose state is URL state.
+     Each chip navigates to /service-desk?state=<key>, which reaches zendesk-requests as an extra.
 
-     A FIXED SET, not one chip per state that occurs: the five are the Ticket CRD's enum, and a
-     state with no tickets shows 0 rather than vanishing, so the row does not change shape as the
-     queue moves. The slugs are the ones the table's `stateKey` and the label mirror use.
+     ACTIVE IS THE DEFAULT (no ?state=), and hides Solved and Closed: what still needs a person is
+     what the page opens on. All is one click away. The six status chips are Zendesk's statuses,
+     worded verbatim; a request not yet in Zendesk has no status and appears under Active and All
+     only. Mine is every request the caller raised (the raised-by label), whatever its status.
 
-     A ?state= that is not one of these leaves no chip active, and tickets-list words the empty
-     state for it (`stateValid`), so a mistyped address is said, not drawn as a quiet desk. */}}
+     A FIXED SET, not one chip per status that occurs: a status with no requests shows 0 rather than
+     vanishing, so the row does not change shape as the queue moves. The chips, their counts, routes
+     and which is selected all come from zendesk-requests (`.chips`); this widget only draws them. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,10 +18,12 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* The extras keys that partition this widget's cache cell: `state` drives the active flag. */}}
+  {{/* `state` drives the active flag; the identity drives Mine's count. */}}
   keyExtras: [state]
+  identityContext:
+    - username
   apiRef:
-    name: tickets-list
+    name: zendesk-requests
     namespace: {{ $.Values.namespace }}
   widgetData:
     itemTemplate:
@@ -31,6 +33,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.state // "all") | tostring) as $sel | (.counts // {}) as $counts | [{key: "all", label: "All"}, {key: "open", label: "Open"}, {key: "in-progress", label: "In progress"}, {key: "waiting-on-requester", label: "Waiting on requester"}, {key: "resolved", label: "Resolved"}, {key: "closed", label: "Closed"}] | map({label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: ("/service-desk?state=" + .key)}) }'
+      expression: '${ .chips // [] }'
   resourcesRefs:
     items: []

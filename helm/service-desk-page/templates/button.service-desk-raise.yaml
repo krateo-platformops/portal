@@ -1,21 +1,12 @@
-{{/* "Raise a ticket" — the queue's one primary action.
+{{/* "Raise a request" — the queue's one primary action.
 
-     Navigates rather than opening a modal. A ticket form asks three required fields and branches on
-     the request kind, which is too much for a modal and leaves someone nowhere to land if they need
-     to go and look something up. A route can be left and come back to.
+     Navigates rather than opening a modal: the form asks four things, and someone may need to go
+     and look something up before writing the description. A route can be left and come back to.
 
-     `type: primary` is the only primary on this page. The desk's actions — assign, resolve — live on
-     a ticket, where there is a ticket to act on.
-
-     THE SHAPE HERE IS LOAD-BEARING AND MY FIRST ATTEMPT WAS REJECTED. The Button CRD requires
-     `widgetData.clickActionId` (required: [actions, clickActionId]) — without it the CR does not
-     apply and the whole chart fails to install, not just this button. And `path` belongs on the
-     NAVIGATE ACTION: a `resourcesRefs` item declares only allowed/apiVersion/id/name/namespace/
-     payload/resource/slice/verb, so a `path` written there is pruned silently by the apiserver and
-     the navigation simply does nothing. A navigate action takes id/type/path/resourceRefId/loading/
-     requireConfirmation — there is no `name` key, so one written there is pruned too.
-
-     Modelled on alerts-page/templates/button.alerts-new.yaml, which is the exact analogue. */}}
+     THE SHAPE IS LOAD-BEARING. The Button CRD requires `widgetData.clickActionId`; without it the
+     CR does not apply and the whole chart fails to install. `path` belongs on the NAVIGATE ACTION:
+     a `path` written on a resourcesRefs item is pruned silently and the click does nothing.
+     Modelled on alerts-page/templates/button.alerts-new.yaml. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -24,8 +15,11 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* Declared so the button stays cacheable under the queue's ?state=: a widget served extras it
+       does not declare is never cached. It does not read the chip. */}}
+  keyExtras: [state]
   widgetData:
-    label: Raise a ticket
+    label: Raise a request
     icon: fa-plus
     type: primary
     size: middle

@@ -17,17 +17,16 @@ spec:
   keyExtras: [range]
   widgetData:
     title: Reconcile p95
-    value: 0
-    suffix: ' ms'
+    value: '—'
     valueStyle:
       color: var(--orange-color)
   {{/* HONESTY (IA obs-deepdive): show an em-dash, not "0 ms", when zero reconcile spans are in */}}
   {{/* range (.n == 0) — otherwise "no trace data" reads as "sub-millisecond reconciles". */}}
+  {{/* The value is the WHOLE label (duration.label in _duration.tpl: "830 ms", "1.2 s") and */}}
+  {{/* there is no suffix: antd groups a value that looks like a number ("1,189"). */}}
   widgetDataTemplate:
   - forPath: value
-    expression: '${ if (.n // 0) == 0 then "—" else (.p95 // 0) end }'
-  - forPath: suffix
-    expression: '${ if (.n // 0) == 0 then "" else " ms" end }'
+    expression: '${ {{ include "duration.label" . }} if (.n // 0) == 0 then "—" else (.p95 | durationLabel) end }'
   apiRef:
     name: obs-reconcile-perf
     namespace: {{ $.Values.namespace }}

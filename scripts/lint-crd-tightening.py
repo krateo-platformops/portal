@@ -21,7 +21,7 @@ a kind holding people's submitted requests is exactly the shape that incident ha
 this repo looked at it.
 
 THE BASELINE IS THE VERSION WITH DATA IN IT, not merely the previous commit:
-  - the RELEASED installer's pin when the chart has one (`portal` -> files/component-pins.yaml in
+  - the RELEASED installer's pin when the chart has one (`portal` -> files/component-pins.min.yaml in
     the published chart, not installer's main), because that is the closest a CI gate can get to
     the CRD live clusters are running, and therefore the CRs that exist;
   - otherwise the latest published version of that chart, because no pin means delivery is not
@@ -91,9 +91,16 @@ def pins():
             return None, (out.stderr.strip().splitlines() or ['pull failed'])[-1]
         with open(os.path.join(work, 'installer', 'Chart.yaml'), encoding='utf-8') as fh:
             released = yaml.safe_load(fh).get('version')
-        path = os.path.join(work, 'installer', 'files', 'component-pins.yaml')
+        # The PACKAGED pins file is the data-only copy, files/component-pins.min.yaml, since
+        # installer 0.3.640 (installer#912): the annotated files/component-pins.yaml is ~98%
+        # comment prose and pushed helm's release Secret past 1 MiB, so it is no longer packaged.
+        # The annotated file stays in installer's repo (lint-pinned-crds.py reads that one); the
+        # chart itself reads the .min copy, so this reads what the released chart reads.
+        path = os.path.join(work, 'installer', 'files', 'component-pins.min.yaml')
         if not os.path.exists(path):
-            return None, f'the released installer {released} carries no pins file'
+            present = sorted(os.listdir(os.path.join(work, 'installer', 'files')))
+            return None, (f'the released installer {released} carries no files/component-pins.min.yaml '
+                          f'(files/ holds {", ".join(present) or "nothing"})')
         with open(path, encoding='utf-8') as fh:
             doc = yaml.safe_load(fh)
         return ({str(c['chart']): str(c['version'])

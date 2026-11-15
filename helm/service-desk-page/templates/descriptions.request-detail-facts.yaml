@@ -1,0 +1,30 @@
+{{/* The request's facts: Status, Priority, Kind, Zendesk #, Created, Updated, Organisation, Raised by
+     and Portal reference. Created and Updated are Zendesk's own created_at and updated_at once it
+     has them; before that, Created is when the portal saved the request. When Zendesk can't be
+     reached, Status and Updated say "(last known)".
+
+     Every value is a string, because the Descriptions CRD declares `value` as a string — so the
+     status reads as its word here, and the pill under the header carries the colour. The items,
+     their order and their wording come from zendesk-request `.items`. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-detail-facts
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    column: 4
+    bordered: false
+    size: small
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ .items // [] }'
+  resourcesRefs:
+    items: []

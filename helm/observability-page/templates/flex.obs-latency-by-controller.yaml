@@ -1,0 +1,52 @@
+{{/* GUARDED by observability.reconcileTracing, like the latency card that reaches it. */}}
+{{- if (.Values.observability | default dict).reconcileTracing }}
+{{/* The latency card's By controller body: the coverage note (only while the window reaches back */}}
+{{/* before cdc 2.13.100 tagged its spans), then ONE of the table, or the empty or unreadable */}}
+{{/* message, chosen by the RESTAction's `view`. An unreadable read is one message, never an empty */}}
+{{/* table that reads as "no reconciles". */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-latency-by-controller
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range]
+  apiRef:
+    name: obs-reconcile-by-controller
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    vertical: true
+    gap: small
+    allowedResources:
+    - alerts
+    - tables
+    - results
+    items:
+    - resourceRefId: obs-latency-controller-message
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if (.note // "") != "" then [ { resourceRefId: "obs-latency-controller-coverage" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "obs-reconcile-by-controller" } ] else [ { resourceRefId: "obs-latency-controller-message" } ] end) }'
+  resourcesRefs:
+    items:
+    - id: obs-latency-controller-coverage
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-latency-controller-coverage
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+    - id: obs-reconcile-by-controller
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-reconcile-by-controller
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: obs-latency-controller-message
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-latency-controller-message
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET
+{{- end }}

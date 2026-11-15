@@ -1,0 +1,32 @@
+{{/* Where replies will be: "Replies from Zendesk will appear here in a later version." Said
+     plainly, because the page does not read replies today (a provider surface for public comments
+     is coming), and an empty "Activity" section would look like nobody had answered. There is no
+     link to Zendesk to follow instead: the requester Zendesk records is the organisation's support
+     account, so a person could not open the request there.
+
+     THE COPY LIVES IN ONE PLACE, the paragraph below, so a line can be added under it without
+     touching anything else. No title: it is one sentence. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-replies-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    variant: outlined
+    size: small
+    allowedResources:
+    - paragraphs
+    items:
+    - resourceRefId: request-replies-text
+  resourcesRefs:
+    items:
+    - id: request-replies-text
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-replies-text
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

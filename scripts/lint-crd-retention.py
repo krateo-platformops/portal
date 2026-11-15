@@ -61,12 +61,13 @@ CHARTS = tuple(sorted(os.path.basename(os.path.dirname(p))
 # A CRD-owning chart missing from this table is a finding — the question has to be answered once
 # per chart, and the answer is not in the manifest.
 DATA_NAMESPACES = {
-    # Tickets are created by people into `namespace` (values.yaml). `raiseNamespace` holds three
-    # widgets and no data, so it is deliberately NOT kept — retention follows the data.
-    'service-desk-page': ('krateo-service-desk',),
-    # AuditRecords are written into the release namespace (settings-page's audit-log RESTAction
-    # reads /namespaces/{{ .Release.Namespace }}/auditrecords). `demo-system`, the only namespace
-    # this chart creates, is an RBAC sandbox for the demo application kinds.
+    # service-desk-page is no longer here: it stopped rendering the Ticket CRD when the service desk
+    # moved to Zendesk, so this gate no longer examines it. Its namespace still carries `keep` by the
+    # chart's own choice (namespace.yaml), because the Tickets filed before the move are still in it;
+    # test-service-desk.py asserts that, since this table can only speak for CRD-owning charts.
+    # AuditRecords land in namespaces this chart does not create (on krateo-057, 2026-11-13:
+    # krateo-system, krateo-preview, krateo-service-desk and default). `demo-system`, the only
+    # namespace this chart creates, is an RBAC sandbox for the demo application kinds.
     'portal': (),
 }
 

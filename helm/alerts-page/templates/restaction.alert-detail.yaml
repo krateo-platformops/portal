@@ -107,9 +107,11 @@ spec:
         paused: $paused,
         # State tag — same map as the /alerts table, but OK→green (palette: green=health only,
         # and a quiet-OK alert IS the healthy default), ALERT→red (failure), PENDING→orange
-        # (transitional). "OK" kept verbatim — the literal HyperDX state word.
-        stateLabel: ($state | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end),
-        stateColor: ($state | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end),
+        # (transitional). "OK" kept verbatim — the literal HyperDX state word. An alert with no
+        # HyperDX alert behind it reads "Not evaluated" in gray, as in the table, whatever its last
+        # mirrored state: the About card says why.
+        stateLabel: (if $haid == "" then "Not evaluated" else ($state | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end) end),
+        stateColor: (if $haid == "" then "gray" else ($state | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end) end),
         hyperdxAlertId: $haid,
         hyperdxDashboardId: $hdid,
         # HyperDX console deep-links — absent unless BOTH the deployer configured a console URL

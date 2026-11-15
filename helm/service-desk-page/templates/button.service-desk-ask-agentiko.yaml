@@ -1,18 +1,14 @@
-{{/* "Ask Agentiko →" on the queue — the assistant entry point for the tickets the person is looking
-     at. It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping the
-     ?state= chip, so the conversation starts on the same view: with a chip selected the prompt is
-     about that chip's tickets, not the whole desk.
+{{/* "Ask Agentiko →" on the queue — the assistant entry point for the requests the person is looking
+     at. It navigates to THIS page with an ?ask seed the rail consumes on mount, keeping the ?state=
+     chip, so the conversation starts on the same view.
 
-     Same object as ticket-detail's button.ticket-ask-autopilot — read the comment there. The label
-     and `intent: agentiko` are fixed (A4); `type` and `icon` are ignored, so they are not set. Being
-     filled does not take the header's one primary: "Raise a ticket" keeps it (P6), and this sits
-     immediately left of it.
+     THE LABEL AND THE ROLE ARE FIXED (A4): every agent entry point is a button labelled exactly
+     `Ask Agentiko →` with `intent: agentiko`; `type` and `icon` are ignored, so they are not set.
+     Being filled does not take the header's one primary: "Raise a request" keeps it (P6).
 
-     The href is built server-side (tickets-list `.askHref`, @uri-encoded), from the counts and the
-     oldest tickets the queue already read, and worded per view: the desk's queue, a requester's own
-     tickets (deskActions off), an empty queue, and a failed read, where it asks what the read error
-     means instead of describing a queue nobody managed to read. The click is a plain literal
-     navigate. */}}
+     The href is built server-side (zendesk-requests `.askHref`, @uri-encoded) from the rows the
+     queue already read, and asks what an error means instead of describing a queue nobody managed
+     to read. The click is a plain literal navigate. */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,10 +17,12 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* The extras keys that partition this widget's cache cell: the prompt differs per chip. */}}
+  {{/* The prompt differs per chip, and "Mine" per person. */}}
   keyExtras: [state]
+  identityContext:
+    - username
   apiRef:
-    name: tickets-list
+    name: zendesk-requests
     namespace: {{ $.Values.namespace }}
   widgetData:
     label: Ask Agentiko →
@@ -37,8 +35,8 @@ spec:
           type: navigate
           path: /service-desk
   widgetDataTemplate:
-    {{/* Server-built self-page href with the ?ask seed. Falls back to the queue — never a 404 —
-         if askHref is empty, which tickets-list never makes it, but a render with no data does. */}}
+    {{/* Falls back to the queue — never a 404 — if askHref is empty, which zendesk-requests never
+         makes it, but a render with no data does. */}}
     - forPath: actions
       expression: '${ { navigate: [ { id: "ask", type: "navigate", path: (if (.askHref // "") != "" then .askHref else "/service-desk" end) } ] } }'
   resourcesRefs:

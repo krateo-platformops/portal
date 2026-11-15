@@ -9,6 +9,11 @@
 {{/* carried the answer back with StatusCode Unset, "—" where there is neither. Only an Error */}}
 {{/* span is a red tag; every other row is plain text, so the failure is the one thing in the */}}
 {{/* column that stands out. */}}
+{{/* */}}
+{{/* WHY IT FAILED, on hover and on keyboard focus: an Error span's red tag carries the span's OTel */}}
+{{/* StatusMessage (obs-trace-detail's `message`, already cut to 1000 characters) as its tooltip. */}}
+{{/* Only that tag: a span with no message gets no tooltip, and a span that is not Error gets none */}}
+{{/* even if its producer wrote one. `tooltip` needs frontend-crds >= 1.8.38 (frontend #681). */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -44,6 +49,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | [ $s[] | (((if (.httpStatus // "") == "" then [] else [.httpStatus] end) + (if .status == "Error" then ["error"] else [] end)) | join(" · ")) as $st | [ {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"start",kind:"jsonSchemaType",type:"string",stringValue:(((.startUs - $t0) * 1000) | traceDuration)}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)}, (if .status == "Error" then {valueKey:"status",kind:"tag",stringValue:$st,color:"red"} else {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:(if $st == "" then "—" else $st end)} end) ] ] }'
+    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | [ $s[] | (((if (.httpStatus // "") == "" then [] else [.httpStatus] end) + (if .status == "Error" then ["error"] else [] end)) | join(" · ")) as $st | [ {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"start",kind:"jsonSchemaType",type:"string",stringValue:(((.startUs - $t0) * 1000) | traceDuration)}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)}, (if .status == "Error" then {valueKey:"status",kind:"tag",stringValue:$st,color:"red"} + (if (.message // "") != "" then {tooltip:.message} else {} end) else {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:(if $st == "" then "—" else $st end)} end) ] ] }'
   resourcesRefs:
     items: []

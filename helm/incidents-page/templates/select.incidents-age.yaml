@@ -1,0 +1,30 @@
+{{/* The Age facet: how long ago an incident was triggered, written to ?age= (24h, 7d, 30d, older),
+     in that order. The buckets are computed when incidents-list resolves, and a cached resolve keeps
+     them until it resolves again, so they are day-granular (build plan risk 4). */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-age
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: age
+    label: Age
+    queryParam: age
+    mode: multiple
+    prefix: Age
+    placeholder: All
+    size: small
+    panelFooter: Counted in incidents, under the other filters. Ages are day-granular.
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "age") | .values | sort_by({"24h": 0, "7d": 1, "30d": 2, older: 3}[.value] // 4)[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

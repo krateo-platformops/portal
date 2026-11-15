@@ -1,0 +1,65 @@
+{{/* The proposals, grouped (mockup screen 08). One antd Collapse panel per kind, or per target repo
+     (platform-reviews' group), the largest first and the first open:
+       - its count, and how many of its proposals are new today;
+       - its three newest proposals as cards: title, a PrOpen tag when a pull request is open, the
+         other axis (the target repo when grouped by kind, the kind when grouped by repo) and the day
+         it was proposed; "Decide" opens the proposal, where it is decided;
+       - past three, "See all N →" to the table view filtered to that group (decision Q1).
+     No confidence on a card (decision Q3). Then, folded, the panels that replace the old tabs:
+       - Decided: today's decided table (or its empty state), under the same filters;
+       - Runs: today's runs table, every run of every kind. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-groups
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - tables
+    - results
+    defaultActiveKey: []
+    grid: { gutter: 16, xs: 1, sm: 1, md: 2, lg: 3, xl: 3, xxl: 3 }
+    itemTemplate:
+      rowVariant: card
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      description: '{body}'
+      cardCta: Decide
+      navigateTo: '/reviews/proposals/{name}'
+      color:
+        value: '{tag}'
+        map:
+          PrOpen: blue
+    items: []
+  widgetDataTemplate:
+  - forPath: defaultActiveKey
+    expression: '${ [ (.groups // [])[0:1][] | "group/" + .key ] }'
+  - forPath: items
+    expression: '${ . as $r | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ (.groups // [])[] | { key: ("group/" + .key), label: .key, count: .count, extra: ([ (if .newToday > 0 then (.newToday | tostring) + " new today" else empty end), (if .prOpen > 0 then n(.prOpen; "pull request"; "pull requests") + " open" else empty end) ] | join(" · ")), dataSource: [ .items[0:3][] | { name: .name, title: .title, tag: (if .phase == "PrOpen" then "PrOpen" else "" end), body: ((if $r.group == "repo" then .kind else .target end) + " · proposed " + .created[0:10] + (if .superseded != "—" then " · replaces " + .superseded else "" end)) } ] } + (if .count > 3 then { footer: ("See all " + (.count | tostring) + " →"), footerNavigateTo: .seeAll } else {} end) ] + [ { key: "decided", label: "Decided", count: ($r.decidedCount // 0), extra: ($r.decidedCaption // ""), resourceRefId: (if ($r.decidedCount // 0) == 0 then "reviews-decided-empty" else "reviews-decided-table" end) } ] + (if $r.runsFailed then [ { key: "runs", label: "Runs", extra: "could not be read", status: "warning", resourceRefId: "reviews-runs-table" } ] elif ($r.runCount // 0) > 0 then [ { key: "runs", label: "Runs", count: $r.runCount, extra: $r.runCaption, resourceRefId: "reviews-runs-table" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: reviews-decided-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-decided-empty
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET
+    - id: reviews-decided-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-decided-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: reviews-runs-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-runs-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET

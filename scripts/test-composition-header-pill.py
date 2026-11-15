@@ -33,6 +33,16 @@ CASES = [
     ('True', 'Available', False, 'Degraded', 'orange'),
     ('False', 'Creating', None, 'Creating', 'orange'),
     ('False', 'Creating', False, 'Creating', 'orange'),
+    # PendingHelmOperation: core-provider writes it only inside its grace period (a helm operation in
+    # flight); past the grace it rolls the release back and normal conditions replace it. Converging,
+    # so orange Pending, never red (Diego, 2026-11-15).
+    ('False', 'PendingHelmOperation', None, 'Pending', 'orange'),
+    ('False', 'PendingHelmOperation', False, 'Pending', 'orange'),
+    # The other two Ready=False reasons core-provider's generated table marks converging.
+    ('False', 'HelmOperationInProgress', None, 'Pending', 'orange'),
+    ('False', 'HelmOperationInProgress', False, 'Pending', 'orange'),
+    ('False', 'Deleting', None, 'Deleting', 'orange'),
+    ('False', 'Deleting', False, 'Deleting', 'orange'),
     ('True', 'ReconcilePaused', True, 'Paused', 'gray'),
     ('True', 'ReconcileGracefullyPaused', None, 'Paused', 'gray'),
     ('True', 'ReconcilePaused', False, 'Paused', 'gray'),
@@ -68,8 +78,10 @@ def tags_program():
     return expr.strip().removeprefix('${').removesuffix('}').strip()
 
 
-def pill(program, status, reason, healthy):
+def pill(program, status, reason, healthy, synced=None):
     conditions = [] if status is None else [{'type': 'Ready', 'status': status, 'reason': reason}]
+    if synced is not None:
+        conditions.append({'type': 'Synced', 'status': synced[0], 'reason': synced[1]})
     data = {'detail': {'status': {'conditions': conditions}}, 'workloadHealthy': healthy}
     proc = subprocess.run([JQ, '-c', program], input=json.dumps(data), capture_output=True, text=True, check=False)
     if proc.returncode != 0:
@@ -110,11 +122,19 @@ def exception_failures():
     ra = next(d for d in render() if d.get('kind') == 'RESTAction' and d['metadata']['name'] == 'composition-architecture')
     text = ra['spec']['filter']
     start = text.index('def exception:')
-    body = text[start:text.index('end;', start) + len('end;')]
+    # exception reads the shared converging set (portal.readyReasonDefs, rendered at the filter's top).
+    defs = next(line for line in text.splitlines() if line.strip().startswith('def readyFalseConverging:'))
+    body = defs + '\n' + text[start:text.index('end;', start) + len('end;')]
     cases = [
-        ([('Synced', 'False', 'ReconcilePaused')], 'Paused'),
+        # The FlowChart CRD allows exactly NotReady and NotSynced: converging and paused carry none.
+        ([('Synced', 'False', 'ReconcilePaused')], None),
+        ([('Synced', 'False', 'ReconcileGracefullyPaused')], None),
         ([('Synced', 'False', 'ReconcileError')], 'NotSynced'),
-        ([('Ready', 'False', 'Creating')], 'Creating'),
+        ([('Ready', 'False', 'Creating')], None),
+        ([('Ready', 'False', 'PendingHelmOperation')], None),
+        ([('Ready', 'False', 'HelmOperationInProgress')], None),
+        ([('Ready', 'False', 'Deleting')], None),
+        ([('Ready', 'False', 'Creating'), ('Synced', 'False', 'ReconcileError')], 'NotSynced'),
         ([('Ready', 'False', 'Unavailable')], 'NotReady'),
         ([('Ready', 'True', 'Available'), ('Synced', 'True', 'ReconcileSuccess')], None),
     ]
@@ -139,6 +159,17 @@ def main():
             failures += 1
             print(f'FAIL Ready={status}/{reason} workloadHealthy={healthy}: '
                   f'got {got["label"]}/{got["color"]}, want {label}/{color}')
+    # An unrecognised Unknown whose reconcile fails is NotReady, not Unknown (Diego, 2026-11-14).
+    for status, reason, synced, label, color in [
+            ('Unknown', 'ObserveFailed', ('False', 'ReconcileError'), 'NotReady', 'red'),
+            ('Unknown', 'SomeNewReason', ('False', 'ReconcileError'), 'NotReady', 'red'),
+            ('Unknown', 'ObserveFailed', ('True', 'ReconcileSuccess'), 'Unknown', 'gray'),
+            ('Unknown', 'ZeroEvidence', ('False', 'ReconcileError'), 'Unknown', 'gray'),
+            ('Unknown', 'ChildrenForbidden', ('False', 'ReconcileError'), 'Unknown', 'gray')]:
+        got = pill(program, status, reason, None, synced)
+        if (got['label'], got['color']) != (label, color):
+            failures += 1
+            print(f'FAIL Ready={status}/{reason} Synced={synced}: got {got["label"]}/{got["color"]}, want {label}/{color}')
     print(f'{len(CASES)} pill cases, {failures} failure(s) in all')
     return min(failures, 125)
 

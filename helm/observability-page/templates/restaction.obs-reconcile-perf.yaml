@@ -7,7 +7,19 @@
 {{/* * step `phases` (otel_metrics_histogram): the per-PHASE mean latency (queue-wait / get / */}}
 {{/* RBAC generate / RBAC apply). Sum/Count deltas are exact regardless of bucket coarseness, */}}
 {{/* and traces can't sub-time the phases — so the histogram is the right source here. */}}
-{{/* Windowed via per-series (instance+composition-gvr) max-min deltas, summed across series. */}}
+{{/* Windowed as per-SERIES deltas, summed across series. A series is ONE cumulative counter, and */}}
+{{/* its identity is (instance, composition-gvr resource attribute, krateo.composition.gvr point */}}
+{{/* attribute, StartTimeUnix): */}}
+{{/*  - StartTimeUnix: service.instance.id is the cdc DEPLOYMENT name, so a pod restart in the */}}
+{{/*    window (every roll) used to put the old and the new process, whose counters restart at 0, */}}
+{{/*    in one group, and max-min across a reset is wrong. OTel marks each cumulative series with */}}
+{{/*    its start; grouping by it splits them exactly. */}}
+{{/*  - krateo.composition.gvr: a POOLED cdc hosts several Kinds in one process, where both */}}
+{{/*    resource attributes name the pool. cdc 2.13.100+ sets it on every point; '' before. */}}
+{{/* A series that STARTED inside the window counts from 0 (max), not from its first exported */}}
+{{/* point, or what it did before that first export is lost. Measured on krateo-057 over 1h */}}
+{{/* spanning a cdc roll: 5093 queue-wait samples vs 5073 reconcile spans in otel_traces; the old */}}
+{{/* grouping read 4796. All four metrics are cumulative (AggregationTemporality 2). */}}
 {{/* Exposes {p50,p95,p99,avg,n, phases[]}. External-fetch endpointRef, ClickHouse FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
@@ -22,7 +34,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "6h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "6%20HOUR" end) as $iv | "/?query=SELECT%20round%28quantile%280.5%29%28Duration%29%2F1e6%2C0%29%20AS%20p50_ms%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C0%29%20AS%20p95_ms%2C%20round%28quantile%280.99%29%28Duration%29%2F1e6%2C0%29%20AS%20p99_ms%2C%20round%28avg%28Duration%29%2F1e6%2C0%29%20AS%20avg_ms%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20round%28quantile%280.5%29%28Duration%29%2F1e6%2C0%29%20AS%20p50_ms%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C0%29%20AS%20p95_ms%2C%20round%28quantile%280.99%29%28Duration%29%2F1e6%2C0%29%20AS%20p99_ms%2C%20round%28avg%28Duration%29%2F1e6%2C0%29%20AS%20avg_ms%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -32,7 +44,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "6h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "6%20HOUR" end) as $iv | "/?query=SELECT%20metric%2C%20round%28sum%28dsum%29%2Fnullif%28sum%28dcount%29%2C0%29%2A1000%2C%200%29%20AS%20mean_ms%2C%20sum%28dcount%29%20AS%20samples%20FROM%20%28%20SELECT%20MetricName%20AS%20metric%2C%20ResourceAttributes%5B%27service.instance.id%27%5D%20AS%20sid%2C%20ResourceAttributes%5B%27krateo.io%2Fcomposition-gvr%27%5D%20AS%20gvr%2C%20max%28Sum%29-min%28Sum%29%20AS%20dsum%2C%20max%28Count%29-min%28Count%29%20AS%20dcount%20FROM%20otel_metrics_histogram%20WHERE%20MetricName%20IN%20%28%27unstructured_runtime.reconcile.queue.wait.duration_seconds%27%2C%27unstructured_runtime.reconcile.get.duration_seconds%27%2C%27composition_rbac_generation_duration_seconds%27%2C%27composition_rbac_apply_duration_seconds%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20metric%2C%20sid%2C%20gvr%20%29%20GROUP%20BY%20metric%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20metric%2C%20round%28sum%28dsum%29%2Fnullif%28sum%28dcount%29%2C0%29%2A1000%2C%200%29%20AS%20mean_ms%2C%20sum%28dcount%29%20AS%20samples%20FROM%20%28%20SELECT%20MetricName%20AS%20metric%2C%20ResourceAttributes%5B%27service.instance.id%27%5D%20AS%20sid%2C%20ResourceAttributes%5B%27krateo.io%2Fcomposition-gvr%27%5D%20AS%20gvr%2C%20Attributes%5B%27krateo.composition.gvr%27%5D%20AS%20pgvr%2C%20StartTimeUnix%20AS%20st%2C%20max%28Sum%29%20-%20if%28any%28StartTimeUnix%29%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%2C%200%2C%20min%28Sum%29%29%20AS%20dsum%2C%20max%28Count%29%20-%20if%28any%28StartTimeUnix%29%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%2C%200%2C%20min%28Count%29%29%20AS%20dcount%20FROM%20otel_metrics_histogram%20WHERE%20MetricName%20IN%20%28%27unstructured_runtime.reconcile.queue.wait.duration_seconds%27%2C%27unstructured_runtime.reconcile.get.duration_seconds%27%2C%27composition_rbac_generation_duration_seconds%27%2C%27composition_rbac_apply_duration_seconds%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20metric%2C%20sid%2C%20gvr%2C%20pgvr%2C%20st%20%29%20GROUP%20BY%20metric%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'

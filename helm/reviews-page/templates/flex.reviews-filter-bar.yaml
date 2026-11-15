@@ -1,0 +1,58 @@
+{{/* The /reviews filter bar: a named search landmark (Flex role/ariaLabel) holding the Kind and
+     Target repo facets, the New today toggle and the search box. A facet whose values are all one
+     (over every open proposal, decision Q2) is left out unless one of its values is applied, and so
+     is New today when every open proposal, or none, is new today: it would filter nothing. There is
+     no Confidence facet (decision Q3). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-filter-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - selects
+    - listies
+    - inputs
+    role: search
+    ariaLabel: Filter proposals
+    wrap: true
+    gap: small
+    align: center
+    items:
+    - resourceRefId: reviews-search
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ({ k: "kind", id: "reviews-kind" }, { k: "repo", id: "reviews-repo" }, { k: "today", id: "reviews-today-toggle" }) | select(.k as $k | any($shown[]; . == $k)) | { resourceRefId: .id } ] + [ { resourceRefId: "reviews-search" } ] }'
+  resourcesRefs:
+    items:
+    - id: reviews-kind
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-kind
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: reviews-repo
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-repo
+      namespace: {{ $.Values.namespace }}
+      resource: selects
+      verb: GET
+    - id: reviews-today-toggle
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-today-toggle
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: reviews-search
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-search
+      namespace: {{ $.Values.namespace }}
+      resource: inputs
+      verb: GET

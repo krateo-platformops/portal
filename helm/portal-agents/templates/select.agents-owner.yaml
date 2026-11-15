@@ -1,0 +1,30 @@
+{{/* The Owner facet, written to ?owner=: who shipped the object, the composition that rendered it
+     (krateo.io/composition-name), else app.kubernetes.io/managed-by, else "—". At most the 12
+     largest, plus any picked. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-owner
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: owner
+    label: Owner
+    queryParam: owner
+    mode: multiple
+    prefix: Owner
+    placeholder: All
+    size: small
+    panelFooter: Counted in agents and tool servers, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "owner") | .values[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,31 @@
+{{/* The Source facet: which pages' items the inbox shows, written to ?source= (comma-joined). Each
+     option's count is the number of items that source has under the other filters (portal.facets);
+     today Source is the only facet, so the counts are the unfiltered ones. Labels and order come
+     from dashboard-inbox; the largest source comes first. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-source
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: source
+    label: Source
+    queryParam: source
+    mode: multiple
+    prefix: Source
+    placeholder: All
+    size: small
+    panelFooter: Counted in items that need someone
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "source") | .values[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

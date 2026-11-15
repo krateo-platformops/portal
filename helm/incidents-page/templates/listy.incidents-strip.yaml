@@ -1,0 +1,37 @@
+{{/* The /incidents strip, over the filtered incidents (mockup screen 06): Open (and the alerts
+     behind them), Opened in the last 7 days, Open longer than 7 days (and the oldest), Analyzing,
+     Verifying. Colour is exception-only: Open is red when above zero, Open longer than 7 days is
+     orange when above zero, the rest stay neutral. Each caption carries the meaning too, so colour is
+     never the only signal.
+
+     A failed read of the incidents is an empty value (drawn as a muted "—") captioned "could not be
+     read" on every tile, never a 0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-strip
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ (.counts // {}) as $c | (.failed // false) as $failed | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ { title: "Open", v: $c.open, caption: (if ($c.open // 0) > 0 then "from " + n($c.openAlerts; "alert"; "alerts") else "" end), tone: (if ($c.open // 0) > 0 then "bad" else "" end) }, { title: "Opened in the last 7 days", v: $c.openLast7d, caption: "", tone: "" }, { title: "Open longer than 7 days", v: $c.openOver7d, caption: (if ($c.openOver7d // 0) > 0 and ($c.oldestOpenAt // "") != "" then "oldest " + $c.oldestOpenAt[0:10] else "" end), tone: (if ($c.openOver7d // 0) > 0 then "warn" else "" end) }, { title: "Analyzing", v: $c.analyzing, caption: "", tone: "" }, { title: "Verifying", v: $c.verifying, caption: "", tone: "" } ] | map(if $failed then { title: .title, value: "", caption: "could not be read", tone: "warn" } else { title: .title, value: ((.v // 0) | tostring), caption: .caption, tone: .tone } end) }'
+  resourcesRefs:
+    items: []

@@ -160,6 +160,7 @@ spec:
   {{/* The status line counts "N Ready" with the VERBATIM K8s token (capital R) — it tallies the */}}
   {{/* table's Ready pills right below it, so generic prose "ready" would read ambiguous (UX-20). */}}
   filter: >
+    {{- include "portal.readyReasonDefs" . | nindent 4 }}
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
     | ($n != "") as $named
     | (.spokeCrds != null) as $reachable
@@ -167,11 +168,11 @@ spec:
        then [ (.spokeCompositions // [])[], (.spokeCompositionDefinitions // [])[]
               | . + { readyLabel: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "Paused"
                                    elif .ready == "True" then "Ready"
-                                   elif (.ready == "False" and .reason == "Creating") then "Creating"
+                                   elif (.ready == "False" and (.reason | isConvergingFalse)) then readyFalseConverging[.reason]
                                    elif .ready == "False" then "NotReady" else "Unknown" end),
                       readyColor: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "slate"
                                    elif .ready == "True" then "green"
-                                   elif (.ready == "False" and .reason == "Creating") then "blue"
+                                   elif (.ready == "False" and (.reason | isConvergingFalse)) then "blue"
                                    elif .ready == "False" then "red" else "gray" end),
                       syncedLabel: (if .synced == "True" then "Synced" elif .synced == "False" then "Drift" else "Unknown" end),
                       syncedColor: (if .synced == "True" then "green" elif .synced == "False" then "violet" else "gray" end) } ]
@@ -227,8 +228,8 @@ spec:
          arrived. */}}
     | ([ $rows[] | select(.ready == "True" and .reason != "ReconcileGracefullyPaused") ] | length) as $ready
     | ([ $rows[] | select(.ready == "True" and .reason == "ReconcileGracefullyPaused") ] | length) as $paused
-    | ([ $rows[] | select(.ready == "False" and .reason == "Creating") ] | length) as $converging
-    | ([ $rows[] | select(.ready == "False" and .reason != "Creating") ] | length) as $notReady
+    | ([ $rows[] | select(.ready == "False" and (.reason | isConvergingFalse)) ] | length) as $converging
+    | ([ $rows[] | select(.ready == "False" and (.reason | isConvergingFalse | not)) ] | length) as $notReady
     | ([ $rows[] | select(.ready != "True" and .ready != "False") ] | length) as $unknown
     | {
         cluster: $n,

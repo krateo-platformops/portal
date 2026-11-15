@@ -1,0 +1,31 @@
+{{/* The one alert on a request's page, when there is something to say: filing (info), Zendesk
+     can't be reached (warning — the person did nothing wrong and the request is still in Zendesk),
+     Zendesk refused it (error, with the provider's message verbatim), held, or a state the portal
+     does not know (its reason verbatim, never drawn as progress). A filed request has none: the
+     page root leaves this out, so nothing marks the healthy case. Words and type come from
+     zendesk-request `.alert`. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-detail-alert
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Request
+    type: info
+    showIcon: true
+  widgetDataTemplate:
+    - forPath: type
+      expression: '${ .alert.type // "info" }'
+    - forPath: title
+      expression: '${ if (.alert.title // "") != "" then .alert.title else "Request" end }'
+    - forPath: description
+      expression: '${ .alert.description // "" }'
+  resourcesRefs:
+    items: []

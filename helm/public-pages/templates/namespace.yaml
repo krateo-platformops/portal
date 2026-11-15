@@ -1,0 +1,13 @@
+{{/* The chart creates its own target namespace, like every page chart (#261): a Helm release
+     cannot create the namespace it is installed INTO, so the release stays where the composition
+     is created and every page object renders into `.Values.namespace`.
+
+     NO `helm.sh/resource-policy: keep`. Retention follows the data (scripts/lint-crd-retention.py),
+     and this namespace holds none: two page roots and their widgets, all rebuilt from the chart on
+     reinstall. The requests themselves are identity-lifecycle's, in its own namespace. */}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    krateo.io/page-set: public

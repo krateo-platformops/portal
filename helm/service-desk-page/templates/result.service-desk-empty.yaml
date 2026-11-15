@@ -1,15 +1,10 @@
-{{/* What the queue says when there is no ticket to show, drawn by the page root IN PLACE OF the
-     table (flex.page-service-desk.yaml), because the Table hard-codes "No rows" and has no field to
-     say anything else.
+{{/* What the queue says when there is no request to show, drawn by the page root IN PLACE OF the
+     table, because the Table hard-codes "No rows".
 
-     The sentence is tickets-list's `emptyTitle`/`emptyText`, worded there per case — no ticket at
-     all, none in the selected state, a ?state= that is not a state — because what to do next
-     differs. It is never drawn on a failed read: the page root keeps the table then, and the
-     header's red tag and subtitle say what happened. The static title below is only the CR's
-     shape; the page root draws this widget only when tickets-list has a sentence for it.
-
-     Same construction as reviews-page result.reviews-decided-empty, with the words from the RA as
-     portal-agents paragraph.agent-detail-empty does. */}}
+     The sentence is zendesk-requests' `emptyTitle`/`emptyText`, worded per case — no request at all,
+     none active, none of mine, none in the selected status, a ?state= that is not one — because what
+     to do next differs. The chips stay above it, all at their counts, so the person can see that the
+     read worked. It is never drawn on a failed read: result.service-desk-unavailable is. */}}
 kind: Result
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,17 +13,18 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* The extras keys that partition this widget's cache cell: the sentence differs per chip. */}}
   keyExtras: [state]
+  identityContext:
+    - username
   apiRef:
-    name: tickets-list
+    name: zendesk-requests
     namespace: {{ $.Values.namespace }}
   widgetData:
     status: info
-    title: No tickets to show
+    title: No Zendesk requests yet.
   widgetDataTemplate:
     - forPath: title
-      expression: '${ if (.emptyTitle // "") != "" then .emptyTitle else "No tickets to show" end }'
+      expression: '${ if (.emptyTitle // "") != "" then .emptyTitle else "No Zendesk requests yet." end }'
     - forPath: subTitle
       expression: '${ .emptyText // "" }'
   resourcesRefs:

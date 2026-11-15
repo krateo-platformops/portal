@@ -14,6 +14,12 @@ like krateo-057 (admin and cyberjoker User CRs; grants as form.access-grant writ
      the prewarm (nothing served) is an empty table, never an error.
   3. No step touches secrets, and the table has no column the Secret alone could fill.
   4. The one-line note on who is listed sits right above the table, as a secondary Paragraph.
+  5. The create form's username is a DNS-1123 label of at most 63 characters, as authn's User CRD
+     requires (authn#142): checked by validating names against the form's own schema.
+  6. Settings has no audit view of its own any more: nothing it renders reads AuditRecords or names
+     the retired audit-log objects, and in their place one Markdown line links to /audit, a page
+     the rendered set actually routes. Its old panel read one namespace's records; /audit reads the
+     whole trail, so two views would disagree.
   Every resolved Table is validated against its CRD with --crds.
 
 Usage: test-settings-users.py [--crds DIR]. Exit code = failed checks.
@@ -133,7 +139,64 @@ def check_note_above_the_table():
     return f
 
 
-CHECKS = [check_who_is_listed, check_denied_reads_degrade, check_no_secret_is_read, check_note_above_the_table]
+def check_username_is_a_dns_label():
+    """The create form admits exactly what authn's User CRD admits (authn#142): a lowercase
+    DNS-1123 label of at most 63 characters. A longer name that passed the form would create the
+    <username>-password Secret, then have its User refused, and a retry would read as 409."""
+    import jsonschema
+    f = []
+    username = CHART.get('Form', 'settings-user-create')['spec']['widgetData']['schema']['properties']['username']
+    expect(f, 'maxLength', username.get('maxLength'), 63)
+    ok = ['a', 'jane-doe', 'a1', 'x' * 63, 'a' + '-' * 61 + 'b']
+    bad = ['x' * 64, 'Jane', '-a', 'a-', 'a_b', 'a.b', '']
+    valid = lambda v: jsonschema.Draft7Validator(username).is_valid(v)
+    expect(f, 'accepted', [v for v in ok if not valid(v)], [])
+    expect(f, 'refused', [v for v in bad if valid(v)], [])
+    return f
+
+
+# The retired panel: its Card, its Table and the RESTAction both were named after.
+RETIRED = ('settings-audit-log-card', 'audit-log', 'settings-audit-log')
+LINK = 'settings-audit-trail-link'
+
+
+def check_audit_trail_is_on_audit_page():
+    import json
+    import re
+    f = []
+    page = CHART.get('Flex', 'page-settings')
+    settings_ns = page['metadata']['namespace']
+    mine = [d for d in CHART.docs if (d.get('metadata') or {}).get('namespace') == settings_ns]
+    # Every object the settings chart renders, whole — names, refs, apiRefs, RESTAction paths, RBAC.
+    expect(f, 'settings objects that read AuditRecords or name the retired panel',
+           sorted(f"{d['kind']}/{d['metadata']['name']}" for d in mine
+                  if 'auditrecords' in json.dumps(d) or 'audit.krateo.io' in json.dumps(d)
+                  or any(f'"{n}"' in json.dumps(d) for n in RETIRED)), [])
+    spec = page['spec']
+    items = [i['resourceRefId'] for i in spec['widgetData']['items']]
+    expect(f, 'the page stacks header, Users, then the audit link',
+           items, ['settings-page-header', 'settings-users-card', LINK])
+    ref = {r['id']: r for r in spec['resourcesRefs']['items']}.get(LINK) or {}
+    expect(f, 'link ref', {k: ref.get(k) for k in ('name', 'namespace', 'resource', 'verb')},
+           {'name': LINK, 'namespace': settings_ns, 'resource': 'markdowns', 'verb': 'GET'})
+    if 'markdowns' not in spec['widgetData']['allowedResources']:
+        f.append('page-settings does not allow markdowns')
+    # Looked up without raising, so every other finding above and below still reports.
+    try:
+        text = tbi.resolved_widget(CHART, 'Markdown', LINK, {}, {}, LINK)['spec']['widgetData']['markdown']
+    except LookupError as exc:
+        f.append(str(exc))
+        text = ''
+    expect(f, 'the line links to /audit and nowhere else', re.findall(r'\]\(([^)]*)\)', text), ['/audit'])
+    # The referent, not just the reference: some page root in the rendered set routes /audit.
+    routed = [d['metadata']['name'] for d in CHART.docs if d.get('kind') == 'Flex'
+              and ((d['metadata'].get('annotations') or {}).get('krateo.io/nav-path')) == '/audit']
+    expect(f, 'page roots routing /audit', routed, ['page-audit'])
+    return f
+
+
+CHECKS = [check_who_is_listed, check_denied_reads_degrade, check_no_secret_is_read, check_note_above_the_table,
+          check_username_is_a_dns_label, check_audit_trail_is_on_audit_page]
 
 
 def main():

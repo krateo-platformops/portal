@@ -1,0 +1,21 @@
+# Published versions of this repo's charts that must not be pinned.
+#
+# A tag cannot be withdrawn: it stays in the registry and looks like any other release. This list is
+# how a release is marked bad where a pinning session will see it. installer's CI reads it on every
+# PR, over every pin (not only the pins a PR changes), and refuses a pin on a listed version, so a bad
+# pin resting on installer's main fails CI until it is moved, whether or not anyone was told.
+#
+# Same schema as krateo-platformops/frontend's retracted-versions.yaml. `charts` names the chart, as
+# in the `chart:` field of installer's component-pins.yaml (a helm/<dir>/Chart.yaml `name:` here), not
+# the component. `use` is the version to pin instead, and it must already be published when the entry
+# lands. scripts/test-retracted-versions.py guards both.
+retracted:
+  - version: 1.8.119
+    charts: [alerts-page]
+    use: 1.8.120
+    reason: >-
+      Renders a Select named `alerts-hasIncidents`, which is not a lowercase RFC 1123 name, so the
+      apiserver refuses it: the alerts-page composition cannot install and hot-loops (observe, helm,
+      fail, every ~3 s), as seen on krateo-057 on 2026-11-14. Fixed in 1.8.120 (#437), which also adds
+      scripts/lint-k8s-names.py so an invalid name cannot ship again. The other page charts at 1.8.119
+      render; only alerts-page is retracted.

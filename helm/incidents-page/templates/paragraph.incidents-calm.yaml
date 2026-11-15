@@ -1,0 +1,29 @@
+{{/* The calm line, under the strip. What it says, in order:
+       - the incidents could not be read (and why): nothing on the page is a count of them;
+       - no incident matches the filters, or none in view is active;
+       - the alerts could not be read, so an alert firing without an incident would not show; or,
+         when they were read and none is, "No alert is firing without an incident (N of M alerts in
+         state ALERT)." (mockup screen 06). When some are, their section replaces this clause.
+     Drawn as a warning when a read failed, muted otherwise. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-calm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ [ (if .failed then "The incidents could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.matched // 0) == 0 and .filtered then "No incident matches these filters." elif (.matched // 0) == 0 then "There are no incidents." elif ((.panels // []) | length) == 0 then "No incident in view is open, being analyzed or being verified." else empty end), (if .alertsFailed then "The alerts could not be read, so an alert firing without an incident would not show here." elif (.awaitingCount // 0) == 0 then "No alert is firing without an incident (" + ((.alertsFiring // 0) | tostring) + " of " + ((.alertsTotal // 0) | tostring) + " alerts in state ALERT)." else empty end) ] | join(" ") }'
+  - forPath: type
+    expression: '${ if .failed or .alertsFailed then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

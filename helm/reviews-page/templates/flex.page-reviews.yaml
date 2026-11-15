@@ -1,10 +1,26 @@
-{{/* Convention page root for /reviews: the nightly review's proposals and the runs that produced them. */}}
-{{/* */}}
-{{/* NOTHING HERE IS APPLIED. The review writes Proposal CRs and never opens a change request itself; */}}
-{{/* a person opens one from a proposal's page, and the pull request is where it is decided. */}}
-{{/* */}}
-{{/* Header, then a status line only when the latest run is not a clean Completed (exception-only), */}}
-{{/* then the Proposals (default) and Runs tabs. `?tab=Runs` lands on the runs. */}}
+{{/* /reviews (root-pages UX, build plan §3.3; mockup screen 08): the nightly review's proposals and
+     the runs that produced them.
+
+     NOTHING HERE IS APPLIED. The review writes Proposal CRs and never opens a change request itself;
+     a person opens one from a proposal's page, and the pull request is where it is decided.
+
+     Top to bottom: the header (Ask Agentiko, Run review now); a status line only when the latest run
+     is not a clean Completed (exception-only); then, when the proposals could be read:
+       - the filter bar (Kind, Target repo, New today, search; a facet with one value is left out)
+         and, when a filter is applied, its chips;
+     then the OVERVIEW (the default):
+       - group by kind or by target repo;
+       - the strip (no confidence: decision Q3);
+       - the calm line when no open proposal is in view;
+       - one panel per kind (or target repo), its three newest proposals, "See all N →" to the table
+         filtered to it; then Decided and Runs, folded, holding today's tables;
+       - the superseded count;
+       - "All N proposals as a table →";
+     or, with ?view=table, "← Back to the overview" and today's table, with the same filters.
+
+     krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
+     fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
+     cache a widget that receives an extra it does not declare (F6). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,8 +32,10 @@ metadata:
     "krateo.io/nav-label": "Platform review"
     "krateo.io/nav-order": "14"
     "krateo.io/nav-path": "/reviews"
+    "krateo.io/filter-keys": "projects,kind,repo,today,q,group,view"
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
   apiRef:
     name: platform-reviews
     namespace: {{ $.Values.namespace }}
@@ -25,18 +43,32 @@ spec:
     allowedResources:
     - pageheaders
     - alerts
-    - tabs
+    - flexes
+    - listies
+    - paragraphs
+    - collapses
+    - buttons
+    - tables
     vertical: true
     gap: middle
     items:
     - resourceRefId: reviews-page-header
-    - resourceRefId: reviews-tabs
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ [ { resourceRefId: "reviews-page-header" } ]
         + (if (.banner // null) != null then [ { resourceRefId: "reviews-banner" } ] else [] end)
-        + (if (.installed != false) and (.denied != true) then [ { resourceRefId: "reviews-tabs" } ] else [] end) }
+        + (if (.installed != false) and (.denied != true) then
+             [ { resourceRefId: "reviews-filter-bar" } ]
+             + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "reviews-active-filters" } ] else [] end)
+             + (if .view == "table" then [ { resourceRefId: "reviews-view-toggle" }, { resourceRefId: "platform-proposals" } ]
+                else (if (.matched // 0) > 0 then [ { resourceRefId: "reviews-group-toggle" } ] else [] end)
+                  + [ { resourceRefId: "reviews-strip" } ]
+                  + (if (.matched // 0) == 0 then [ { resourceRefId: "reviews-calm" } ] else [] end)
+                  + [ { resourceRefId: "reviews-groups" } ]
+                  + (if ((.supersededInView // 0) + (.refused // 0)) > 0 then [ { resourceRefId: "reviews-superseded" } ] else [] end)
+                  + (if (.matched // 0) > 0 then [ { resourceRefId: "reviews-view-toggle" } ] else [] end) end)
+           else [] end) }
   resourcesRefs:
     items:
     - id: reviews-page-header
@@ -51,9 +83,57 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: alerts
       verb: GET
-    - id: reviews-tabs
+    - id: reviews-filter-bar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: reviews-tabs
+      name: reviews-filter-bar
       namespace: {{ $.Values.namespace }}
-      resource: tabs
+      resource: flexes
+      verb: GET
+    - id: reviews-active-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-active-filters
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: reviews-group-toggle
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-group-toggle
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: reviews-strip
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-strip
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: reviews-calm
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-calm
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-groups
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-groups
+      namespace: {{ $.Values.namespace }}
+      resource: collapses
+      verb: GET
+    - id: reviews-superseded
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-superseded
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-view-toggle
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-view-toggle
+      namespace: {{ $.Values.namespace }}
+      resource: buttons
+      verb: GET
+    - id: platform-proposals
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: platform-proposals
+      namespace: {{ $.Values.namespace }}
+      resource: tables
       verb: GET

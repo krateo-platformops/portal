@@ -50,3 +50,25 @@ extras keys the route injects), walks each route's widget tree transitively via
 same-chart `resourcesRefs`, and **fails** if any reachable widget's `keyExtras`
 misses that route's params. It also **warns** (non-gating) for app-shell/header
 chrome widgets that do not declare `projects`.
+
+## Filtered pages: `krateo.io/filter-keys`
+
+Every URL query param reaches **every** widget on a page as an extra, not only the
+widget that reads it. A filtered overview page (root-pages UX: a filter bar writing
+`?source=`, `?kind=`, …) therefore puts its filter params on every widget in its
+tree, and each widget has to declare all of them. The page root names them once:
+
+```yaml
+metadata:
+  annotations:
+    "krateo.io/filter-keys": "projects,source"
+spec:
+  keyExtras: [projects, source]
+```
+
+`scripts/lint-keyextras.py` **fails** any widget reachable from an annotated root
+(the same same-chart `resourcesRefs` walk) whose `keyExtras` misses one of those keys.
+Unlike the route rule, it runs over every chart under `helm/` whose templates use the
+annotation, because page roots live in the page charts. A widget another chart owns
+(the shell's `new-composition` Button on /dashboard) is outside the walk and is not
+checked.

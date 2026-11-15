@@ -1,0 +1,30 @@
+{{/* The Kind facet, written to ?kind= (comma-joined spec.kind values). Each option counts the open
+     proposals of that kind under the other filters (portal.facets), largest first. Picking exactly
+     one kind regroups the page by target repo. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-kind
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: kind
+    label: Kind
+    queryParam: kind
+    mode: multiple
+    prefix: Kind
+    placeholder: All
+    size: small
+    panelFooter: Counted in open proposals, under the other filters
+    options: []
+  widgetDataTemplate:
+  - forPath: options
+    expression: '${ [ ((.facets // [])[] | select(.key == "kind") | .values[]) | { label: .label, value: .value, count: .count } ] }'
+  resourcesRefs:
+    items: []

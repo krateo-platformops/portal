@@ -1,0 +1,28 @@
+{{/* The applied filters as chips: one per picked value ("State: Open", "Alert: Pod killed for
+     memory"), each removing itself (its href is the URL without that value, computed by
+     portal.facets), then "Clear all", which keeps only the shell's ?projects. Hidden when nothing is
+     applied. The search box clears itself. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-active-filters
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    hideWhenEmpty: true
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{href}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .chips // [] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,34 @@
+{{/* Resolved and Closed, folded (mockup screen 06): one panel each, with its count, holding its six
+     newest incidents in view as cards (title, root cause, when it fired; a card opens the incident)
+     and, past six, "See all N →" to the table view of that state (decision Q1). Its own Collapse so
+     its cards carry no "Triage": a settled incident is reviewed, not triaged. */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-done
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    defaultActiveKey: []
+    grid: { gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 3 }
+    itemTemplate:
+      rowVariant: card
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      subPrimaryText: '{meta}'
+      description: '{body}'
+      subSecondaryText: '{foot}'
+      cardCta: Open
+      navigateTo: '{href}'
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ . as $r | def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end; [ ({ key: "resolved", label: "Resolved" }, { key: "closed", label: "Closed" }) | . as $s | ([ ($r.rows // [])[] | select(.stateKey == $s.key) ]) as $m | select(($m | length) > 0) | { key: .key, label: .label, count: ($m | length), extra: "newest first", dataSource: [ $m[0:6][] | { title: .title, tag: .state, meta: (if .alert != "" and .alert != .title then .alert else "" end), body: (if .cause == "" or .cause == "—" then "No root cause recorded." else (.cause | cap(220)) end), foot: ("triggered " + .triggeredAt[0:10]), href: ("/incidents/" + .namespace + "/" + .name) } ] } + (if ($m | length) > 6 then { footer: ("See all " + ($m | length | tostring) + " →"), footerNavigateTo: ($r.stateTableHrefs[$s.key] // "/incidents") } else {} end) ] }'
+  resourcesRefs:
+    items: []

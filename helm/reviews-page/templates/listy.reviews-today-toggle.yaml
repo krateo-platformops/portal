@@ -1,0 +1,26 @@
+{{/* "New today": one chip with the number of open proposals created on the server's today (UTC)
+     under the other filters. It writes ?today=1 and, when active, removes it. The mockup draws a
+     switch; a URL-bound toggle is the chip row's job (build plan §1). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-today-toggle
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, group, view]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{href}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ (.todayToggle // {}) as $t | [ { label: "New today", count: ($t.count // 0), active: ($t.active // false), href: ($t.href // "/reviews?today=1") } ] }'
+  resourcesRefs:
+    items: []

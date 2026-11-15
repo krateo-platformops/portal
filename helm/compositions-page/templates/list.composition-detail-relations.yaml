@@ -62,6 +62,16 @@ spec:
                waiting on a human, so it is red like any failure but ranks below one. */}}
           converging: orange
           terminal: red
+          {{/* Conditions present, none that says ready for this kind: not claimed broken. */}}
+          noReadiness: gray
+      {{/* The child's health as the page header's worst-child pill counts it (frontend Listy
+           itemTemplate.health). The header used to infer it from the row COLOUR, and `unread` is the
+           same grey as a genuinely unknown child, so a healthy installer opened under "└─ ReadyUnknown
+           · 3 of 137 children not Ready" naming three Secrets the portal deliberately never reads.
+           The map below is the colour map's own verdict for every state, except `unread`, which is
+           `excluded`: not judged, so not counted. scripts/test-composition-resources.py asserts it
+           covers every state the RA emits, like the colour map. */}}
+      health: '{health}'
       primaryText: '{kind}'
       subPrimaryText: '{name}'
       {{/* Single-token label computed server-side (stateLabel); a filled Tag, not bare text. */}}
@@ -73,6 +83,6 @@ spec:
            letter. Re-casing in the chart is what the status-pill rule forbids — a label describing
            a Kubernetes resource state is a single PascalCase token from the object, and
            `ReadyNotSetAfterObserve` cannot be produced by capitalising anything. */}}
-      expression: '${ (.resources // []) | map({ kind: .kind, name: .name, ns: .ns, state: .state, stateLabel: .stateLabel, navHref: .navHref }) }'
+      expression: '${ {healthy: "ready", drift: "notSynced", pending: "pending", failed: "notReady", unread: "excluded", notObserved: "unknown", readyNotSet: "pending", unknown: "unknown", converging: "pending", terminal: "notReady", noReadiness: "unknown"} as $health | (.resources // []) | map({ kind: .kind, name: .name, ns: .ns, state: .state, stateLabel: .stateLabel, navHref: .navHref, health: ($health[.state] // "") }) }'
   resourcesRefs:
     items: []

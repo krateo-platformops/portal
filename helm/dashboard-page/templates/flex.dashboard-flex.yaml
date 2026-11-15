@@ -1,3 +1,14 @@
+{{/* /dashboard: the platform's "needs you" inbox (root-pages UX, build plan §3.1; mockup screen 01).
+     Top to bottom: the greeting header with Ask Agentiko and New composition; the trial banner and
+     the first-run onboarding (each hides itself); the inbox body (filter bar, active filters, the
+     strip, "Needs you" and the calm line, all from dashboard-inbox); and Recent changes from the
+     audit trail. No table link: each card opens its page, and that page carries the table.
+
+     The body is its own Flex so the header and banners paint without waiting for the inbox's reads.
+
+     krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
+     fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
+     cache a widget that receives an extra it does not declare (F6). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,43 +20,27 @@ metadata:
     "krateo.io/nav-label": "Dashboard"
     "krateo.io/nav-order": "1"
     "krateo.io/nav-path": "/dashboard"
+    "krateo.io/filter-keys": "projects,source"
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [projects, source]
   widgetData:
     allowedResources:
     - pageheaders
     - flexes
-    - rows
-    - cards
-    - statistics
-    - tags
-    - paragraphs
-    - buttons
-    - linecharts
-    - piecharts
     - listies
+    - collapses
     vertical: true
-    {{/* Petrol density (D5/O1): tighten the inter-section vertical rhythm (stats/charts/rail/lists) */}}
-    {{/* from `middle` to `small` so the dashboard reads closer to the dense one-screen mockup. */}}
     {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
-    {{/* This root previously declared its own value; see design/03-composition.md P9. */}}
     gap: middle
     items:
     - resourceRefId: dashboard-page-header
-    - resourceRefId: dashboard-range-chips
-    {{/* Trial countdown — self-hides unless this Krateo is a trial (tenant-trial ConfigMap). */}}
+    {{/* Trial countdown: hides itself unless this Krateo is a trial (tenant-trial ConfigMap). */}}
     - resourceRefId: dashboard-trial
-    {{/* First-run onboarding — self-hides once the user owns a composition (hideWhenEmpty */}}
-    {{/* gate on compositions-list). Sits under the greeting header, above the stats. */}}
+    {{/* First-run onboarding: hides itself once the user owns a composition. */}}
     - resourceRefId: onboarding-empty
-    - resourceRefId: stats-row
-    - resourceRefId: charts-row
-    - resourceRefId: rail-row
-    - resourceRefId: lists-row
-    {{/* #14: Platform inventory (installed blueprints · composition kinds · active projects) — */}}
-    {{/* the three real obs-stat-* Statistics wrapped in a card, moved onto the dashboard (the */}}
-    {{/* observability agent removes it from the obs page). Bottom of the flow, under the lists. */}}
-    - resourceRefId: dashboard-inventory
+    - resourceRefId: dashboard-inbox-body
+    - resourceRefId: dashboard-recent-changes
   resourcesRefs:
     items:
     - id: dashboard-page-header
@@ -53,12 +48,6 @@ spec:
       name: dashboard-page-header
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
-      verb: GET
-    - id: dashboard-range-chips
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: dashboard-range-chips
-      namespace: {{ $.Values.namespace }}
-      resource: listies
       verb: GET
     - id: dashboard-trial
       apiVersion: widgets.templates.krateo.io/v1beta1
@@ -72,33 +61,15 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: stats-row
+    - id: dashboard-inbox-body
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: stats-row
+      name: dashboard-inbox-body
       namespace: {{ $.Values.namespace }}
-      resource: rows
+      resource: flexes
       verb: GET
-    - id: charts-row
+    - id: dashboard-recent-changes
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: charts-row
+      name: dashboard-recent-changes
       namespace: {{ $.Values.namespace }}
-      resource: rows
-      verb: GET
-    - id: rail-row
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: rail-row
-      namespace: {{ $.Values.namespace }}
-      resource: rows
-      verb: GET
-    - id: lists-row
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: lists-row
-      namespace: {{ $.Values.namespace }}
-      resource: rows
-      verb: GET
-    - id: dashboard-inventory
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: dashboard-inventory
-      namespace: {{ $.Values.namespace }}
-      resource: cards
+      resource: collapses
       verb: GET

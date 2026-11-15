@@ -1,0 +1,27 @@
+{{/* The applied filters as chips: one per picked value ("State: Paused", "Kind: BuilderPublish"),
+     each removing itself, then "Clear all", which keeps only the shell's ?projects (and the scope
+     resets to My workloads). Hidden when nothing is applied. The search box clears itself. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-active-filters
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    hideWhenEmpty: true
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{href}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .chips // [] }'
+  resourcesRefs:
+    items: []

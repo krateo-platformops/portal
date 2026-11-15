@@ -1,7 +1,8 @@
 {{/* The /reviews page header. The subtitle carries the page's one essential fact: nothing listed has */}}
 {{/* been applied, and a proposal becomes a change request only when someone opens one. The counter */}}
-{{/* is the undecided proposals, the only number anyone acts on. The action line on the right holds */}}
-{{/* the latest run, "Ask Agentiko →" and "Run review now" (flex.reviews-header-actions). */}}
+{{/* is the undecided proposals (all of them, whatever the filters), the only number anyone acts on. The */}}
+{{/* action line on the right holds "Ask Agentiko →" and "Run review now" (flex.reviews-header-actions); */}}
+{{/* the latest run is in the strip. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,6 +11,9 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  {{/* Every widget on /reviews receives the page's filter params (krateo.io/filter-keys on
+       page-reviews); one it does not declare makes snowplow decline to cache it (F6). */}}
+  keyExtras: [projects, kind, repo, today, q, group, view]
   apiRef:
     name: platform-reviews
     namespace: {{ $.Values.namespace }}

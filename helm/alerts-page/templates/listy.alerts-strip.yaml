@@ -1,0 +1,34 @@
+{{/* The /alerts strip, over the alerts in view (mockup screen 07): Firing (of how many), Back to OK
+     in the last 24h, With open incidents (and how many incidents), Don't open incidents (a metric or
+     value alert: its OpensIncidents condition is False). Colour is exception-only: only Firing is
+     red, above zero. A failed read of the alerts is "—" on every tile; a failed read of the
+     incidents is "—" on With open incidents only, never 0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-strip
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ (.strip // {}) as $s | (.failed // false) as $failed | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end); [ { title: "Firing", value: (($s.firing // 0) | tostring), caption: ("of " + (($s.of // 0) | tostring)), tone: (if ($s.firing // 0) > 0 then "bad" else "" end) }, { title: "Back to OK in the last 24h", value: (($s.backToOk // 0) | tostring), caption: "", tone: "" }, (if $s.withIncidents == null then { title: "With open incidents", value: "", caption: "incidents could not be read", tone: "warn" } else { title: "With open incidents", value: ($s.withIncidents | tostring), caption: n($s.openIncidents // 0; "incident"; "incidents"), tone: "" } end), { title: "Don''t open incidents", value: (($s.opensNone // 0) | tostring), caption: "a metric or a value", tone: "" } ] | map(if $failed then { title: .title, value: "", caption: "could not be read", tone: "warn" } else . end) }'
+  resourcesRefs:
+    items: []

@@ -175,7 +175,7 @@ def check_an_unknown_result_shows_what_it_printed(chart):
           'apply': {'exit': 2, 'since': '2026-10-19T15:35:00Z', 'output': 'never shown'}}
     out, w = resolve(chart, incident('u-1', state='Verifying', last_checks=lc), 'unknown')
     md2 = w['incident-rem-step-md-2']['markdown']
-    if '**Last run:** exit 2 · unknown · since 2026-10-19 15:41 UTC\n\nIt printed:\n\n```text\n' + JQ_ERROR + '\n```' not in md2:
+    if '**Last run:** unknown · since 2026-10-19 15:41 UTC\n\nIt printed:\n\n```text\n' + JQ_ERROR + '\n```' not in md2:
         f.append(f'verify does not show what its run printed: {md2[:500]!r}')
     if 'It printed' in w['incident-rem-step-md-0']['markdown']:
         f.append('a verdict shows output')

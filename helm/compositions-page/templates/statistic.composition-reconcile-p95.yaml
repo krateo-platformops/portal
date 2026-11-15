@@ -1,6 +1,7 @@
 {{/* p95 reconcile duration for THIS composition (trace-span Duration, ms). Honest-empty: */}}
-{{/* with zero reconciles in the window the value is an em dash and the unit suffix is */}}
-{{/* dropped — never a fabricated 0 ms. */}}
+{{/* with zero reconciles in the window the value is an em dash — never a fabricated 0 ms. */}}
+{{/* The value is the WHOLE label from duration.label ("830 ms", "1.2 s"), with no suffix: */}}
+{{/* antd groups a value that looks like a number, and "1,189 ms" read as 1.189 in Italian. */}}
 kind: Statistic
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,11 +18,8 @@ spec:
   widgetData:
     title: p95 duration
     value: '—'
-    suffix: ''
   widgetDataTemplate:
     - forPath: value
-      expression: '${ if .p95 == null then "—" else (.p95 | floor) end }'
-    - forPath: suffix
-      expression: '${ if .p95 == null then "" else "ms" end }'
+      expression: '${ {{ include "duration.label" . }} .p95 | durationLabel }'
   resourcesRefs:
     items: []

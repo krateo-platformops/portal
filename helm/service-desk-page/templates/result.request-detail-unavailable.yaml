@@ -1,0 +1,28 @@
+{{/* What a request's page says when the request could not be read, in place of everything under the
+     header: the kind isn't served, the caller may not read it (403), it isn't there (404 — deleting
+     it in the portal never removes it from Zendesk), or the read failed. The words are
+     zendesk-request `.unavailable`. */}}
+kind: Result
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-detail-unavailable
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    status: warning
+    title: This request could not be read
+  widgetDataTemplate:
+    - forPath: status
+      expression: '${ .unavailable.status // "warning" }'
+    - forPath: title
+      expression: '${ if (.unavailable.title // "") != "" then .unavailable.title else "This request could not be read" end }'
+    - forPath: subTitle
+      expression: '${ .unavailable.subTitle // "" }'
+  resourcesRefs:
+    items: []

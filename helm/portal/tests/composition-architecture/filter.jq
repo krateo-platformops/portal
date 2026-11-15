@@ -1,3 +1,4 @@
+def readyFalseConverging: {"Creating": "Creating", "Deleting": "Deleting", "HelmOperationInProgress": "Pending", "PendingHelmOperation": "Pending"}; def isConvergingFalse: ((. // "") as $r | readyFalseConverging | has($r));
 # Input: snowplow's resolve dict — the request extras at the top level, each stage's (step-filtered)
 # output under its name, and each stage's errors, accumulated as a list, under its errorKey.
 def truthy: . != null and . != false and . != "" and . != 0 and . != [] and . != {};  # Helm `if`
@@ -32,12 +33,20 @@ def errName:
   elif type == "string" then nameIn
   else null end;
 def errs($k): [ ($k // []) | if type == "array" then .[] else . end ];
-def exception:                                         # K8s-native tokens, exception-only
+# K8s-native tokens, exception-only: the FlowChart CRD allows exactly NotReady and NotSynced, "only
+# when something needs attention", and snowplow refuses a resolved widget that does not validate.
+# So a node that is converging (a Ready=False reason core-provider marks converging: Creating,
+# Deleting, HelmOperationInProgress, PendingHelmOperation; see _ready-reasons.tpl) or paused on purpose (Synced=False/ReconcilePaused or
+# ReconcileGracefullyPaused) carries NO exception. This emitted "Creating" and "Paused" labels,
+# which failed validation and blanked the whole architecture card.
+def exception:
   (.status.conditions // []) as $c
-  | ([ $c[] | select(.type == "Synced" and .status == "False") ][0]) as $s
-  | ([ $c[] | select((.type == "Ready" or .type == "Available") and .status == "False") ][0]) as $r
-  | if $s != null then {label: (if ($s.reason // "") == "ReconcilePaused" or ($s.reason // "") == "ReconcileGracefullyPaused" then "Paused" else "NotSynced" end), reason: ($s.reason // ""), message: ($s.message // "")}
-    elif $r != null then {label: (if ($r.reason // "") == "Creating" then "Creating" else "NotReady" end), reason: ($r.reason // ""), message: ($r.message // "")}
+  | ([ $c[] | select(.type == "Synced" and .status == "False"
+                     and (.reason // "") != "ReconcilePaused" and (.reason // "") != "ReconcileGracefullyPaused") ][0]) as $s
+  | ([ $c[] | select((.type == "Ready" or .type == "Available") and .status == "False"
+                     and (.reason | isConvergingFalse | not)) ][0]) as $r
+  | if $s != null then {label: "NotSynced", reason: ($s.reason // ""), message: ($s.message // "")}
+    elif $r != null then {label: "NotReady", reason: ($r.reason // ""), message: ($r.message // "")}
     else null end;
 
 (.arch.graph // null) as $g
@@ -90,6 +99,14 @@ def exception:                                         # K8s-native tokens, exce
                                    elif .read == "missing" then false
                                    elif $existence or $isProven then true
                                    else null end) } ] as $inst
+      # each instance's own phase, by the node-phase rules applied to that one object: the page
+      # draws one node per instance, so a sibling's state is never another sibling's
+      | [ $inst[] | . + { phase: (if ($n.present | not) then "absent"
+                                  elif .ok == true then "done"
+                                  elif .ok == null and .read == "unreadable" then "unreadable"
+                                  elif .ok == null then "unavailable"
+                                  elif .read == "withheld" then "withheld"
+                                  else "waiting" end) } ] as $inst
       | { id, kind, apiVersion, class, level, present, forEach: (.forEach // false), readyWhen: (.readyWhen // null),
           parents: [ .dependsOn[]? | select(.active) | .ref ],
           waits: [ .dependsOn[]? | select(.active and .ready) | {ref, all: (.all // false)} ],
@@ -127,7 +144,8 @@ def exception:                                         # K8s-native tokens, exce
       state: (if $level == null then null else ($g.states[$level] // null) end),
       allReady: $all,
       waitingOn: (if $all then [] else [ $nodes2[] | select(.present and .level == $cur and .satisfied < .expected)
-                   | {id, kind, pending: (.expected - .satisfied), phase, gateOpen} ] end),
+                   | {id, kind, pending: (.expected - .satisfied), phase, gateOpen,
+                      instances: [ .instances[] | select(.phase != "done") | {name, phase} ]} ] end),
       progress: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) ]
                    | {satisfied: (map(.satisfied) | add), expected: (map(.expected) | add)}) end),
       since: (if $all then null else ([ $nodes2[] | select(.present and .level == $cur) | .since | select(. != null) ] | min) end),

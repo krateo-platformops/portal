@@ -1,0 +1,40 @@
+{{/* The status pill under the header, and "Last known" beside it when Zendesk can't be reached and
+     the status shown is the last one the portal read. See pageheader.request-detail.yaml for why
+     the pill is not in the header itself. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: request-detail-pills
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: zendesk-request
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    vertical: false
+    gap: small
+    align: center
+    allowedResources:
+    - tags
+    items:
+    - resourceRefId: request-status
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ [ { resourceRefId: "request-status" } ] + (if (.lastKnown // false) then [ { resourceRefId: "request-last-known" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: request-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-status
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
+    - id: request-last-known
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: request-last-known
+      namespace: {{ $.Values.namespace }}
+      resource: tags
+      verb: GET
