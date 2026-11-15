@@ -3,7 +3,12 @@
 {{/* GETs a 10-min-bucketed throughput + p95/avg latency series over the selected window. Span */}}
 {{/* StatusCode is ALWAYS Unset, so success/failure can't come from traces — step `fail` */}}
 {{/* instead reads the platform's own reconcile counters (provider_runtime.reconcile.{failure, */}}
-{{/* success}) as a max-min delta over the same window → a REAL failure count + error rate. */}}
+{{/* success}) over the same window → a REAL failure count + error rate. Each counter is ONE series */}}
+{{/* per process: (service.instance.id, Attributes, StartTimeUnix), its increase summed across */}}
+{{/* series, and a series that started inside the window counted from 0. It used to be max-min */}}
+{{/* grouped by MetricName only, i.e. across every core-provider process in the window: on */}}
+{{/* krateo-057 over 24h, seven processes (one per roll), the old query read 160869 successes (the */}}
+{{/* first pod's lifetime counter minus the last one's start) where the processes made 52081. */}}
 {{/* Exposes {series[], current, failures, successes}. External-fetch endpointRef, FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
@@ -28,7 +33,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20MetricName%20AS%20m%2C%20round%28max%28Value%29-min%28Value%29%29%20AS%20v%20FROM%20otel_metrics_sum%20WHERE%20MetricName%20IN%20%28%27provider_runtime.reconcile.failure%27%2C%27provider_runtime.reconcile.success%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20m%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=" + "SELECT%20m%2C%20round%28sum%28d%29%29%20AS%20v%20FROM%20%28%20SELECT%20MetricName%20AS%20m%2C%20max%28Value%29%20-%20if%28any%28StartTimeUnix%29%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%2C%200%2C%20min%28Value%29%29%20AS%20d%20FROM%20otel_metrics_sum%20WHERE%20MetricName%20IN%20%28%27provider_runtime.reconcile.failure%27%2C%27provider_runtime.reconcile.success%27%29%20AND%20TimeUnix%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20m%2C%20ResourceAttributes%5B%27service.instance.id%27%5D%2C%20toString%28Attributes%29%2C%20StartTimeUnix%20%29%20GROUP%20BY%20m%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
