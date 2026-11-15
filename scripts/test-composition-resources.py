@@ -75,11 +75,12 @@ def conds(*triples):
 # One managed child, fetched, with these conditions. The shapes mirror what the upstream stages
 # project: `found[]` carries the managed entry, `resources` the fetched object.
 def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps'):
+    grp, rns = ('apiextensions.k8s.io', '') if kind == 'customresourcedefinitions' else ('core', 'ns')
     return {
-        'found': [{'_cn': 'comp', '_cns': 'ns', '_name': 'c', '_kind': kind,
-                   '_grp': '', '_ver': 'v1', '_cluster': False, '_getpath': getpath,
+        'found': [{'_cn': 'comp', '_cns': 'ns', '_rns': rns, '_name': 'c', '_kind': kind,
+                   '_grp': grp, '_ver': 'v1', '_cluster': rns == '', '_getpath': getpath,
                    '_wh': True, '_whMsg': ''}],
-        'resources': [{'rname': 'c', 'rns': 'ns', 'rkind': 'ConfigMap', 'conditions': conditions}],
+        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions}],
         'name': 'comp', 'namespace': 'ns',
     }
 
@@ -193,8 +194,91 @@ check('every mapped colour is a palette name', sorted(set(colour_map.values()) -
 expr = [e for e in relations['spec']['widgetDataTemplate'] if e['forPath'] == 'dataSource'][0]['expression']
 check('stateLabel is passed through, not re-cased', 'ascii_upcase' in expr, False)
 
+# ---------------------------------------------------------------------------------------------
+# THE JOIN: a fetched object belongs to a row by name and the CHILD's namespace.
+#
+# Not by group or kind: an informer-served object has no apiVersion/kind (snowplow
+# dispatchViaInformer), so a fixture object here carries neither, as such an object would.
+#
+# It used to join on the COMPOSITION's namespace. A page chart's composition lives in krateo-system
+# and its widgets in the page's own namespace, so on krateo-057 alerts-page read 44 of its 45
+# children "Pending" although every one was fetched; portal's 17 demo-system Roles/RoleBindings the
+# same. The cases above could not see it: their one child sits in the composition's namespace.
+# So these children do NOT, and each carries a condition that makes a joined row distinguishable
+# from an unjoined one ("pending").
+#
+# _rns comes from the found step, so that step's own jq is run over status.managed paths first.
+found_prog = named(docs, 'composition-resources')['spec']['api'][1]['filter']
+managed = [
+    {'path': '/apis/rbac.authorization.k8s.io/v1/namespaces/krateo-alerts/roles/admins-read'},   # another namespace
+    {'path': '/api/v1/namespaces/krateo-alerts'},                                                 # cluster-scoped Namespace
+    {'path': '/apis/templates.krateo.io/v1/namespaces/krateo-alerts/restactions/obs-alerts'},
+    {'path': '/api/v1/configmaps/legacy'},                                                        # old shape: no /namespaces/
+    {'path': '/apis/rbac.authorization.k8s.io/v1/clusterroles/shared'},
+]
+found_in = {'found': {'items': [{'metadata': {'name': 'alerts-page', 'namespace': 'krateo-system'},
+                                 'status': {'managed': managed, 'workloadHealthy': True}}]},
+            'extras': {'name': 'alerts-page', 'namespace': 'krateo-system'}}
+found_rows = jq(found_prog, found_in)
+check('found: child namespaces come from the path, not the composition',
+      [(r['_name'], r['_rns'], r['_grp']) for r in found_rows],
+      [('admins-read', 'krateo-alerts', 'rbac.authorization.k8s.io'),
+       ('krateo-alerts', '', 'core'),
+       ('obs-alerts', 'krateo-alerts', 'templates.krateo.io'),
+       ('legacy', 'krateo-system', 'core'),      # injected namespace = the composition's (#152 shape)
+       ('shared', '', 'rbac.authorization.k8s.io')])
+
+READY_FALSE = conds(('Ready', 'False', 'Unavailable'))
+READY_TRUE = conds(('Ready', 'True', 'Available'))
+
+
+def fetched(name, ns, c):
+    return {'rname': name, 'rns': ns, 'rkind': '', 'conditions': c}
+
+
+join_in = {
+    'found': found_rows + [
+        # A Role named like a cluster-scoped ClusterRole: only the ClusterRole is fetched below.
+        {**found_rows[0], '_name': 'shared', '_getpath': '/apis/rbac.authorization.k8s.io/v1/namespaces/krateo-alerts/roles/shared'},
+    ],
+    'resources': [
+        fetched('admins-read', 'krateo-alerts', READY_FALSE),
+        fetched('krateo-alerts', '', []),
+        fetched('obs-alerts', 'krateo-alerts', READY_TRUE),
+        fetched('legacy', 'krateo-system', READY_TRUE),
+        fetched('shared', '', READY_FALSE),
+    ],
+    'name': 'alerts-page', 'namespace': 'krateo-system',
+}
+WANT_JOIN = [
+    # (name, row ns, state, navHref)
+    ('admins-read', 'krateo-alerts', 'failed', '/resources/krateo-alerts/rbac.authorization.k8s.io/v1/roles/admins-read'),
+    ('krateo-alerts', '', 'healthy', '/resources/cluster/core/v1/namespaces/krateo-alerts'),
+    ('obs-alerts', 'krateo-alerts', 'healthy', '/resources/krateo-alerts/templates.krateo.io/v1/restactions/obs-alerts'),
+    ('legacy', 'krateo-system', 'healthy', '/resources/krateo-system/core/v1/configmaps/legacy'),
+    ('shared', '', 'failed', '/resources/cluster/rbac.authorization.k8s.io/v1/clusterroles/shared'),
+    # Not fetched: the same-named ClusterRole must not stand in for it.
+    ('shared', 'krateo-alerts', 'pending', '/resources/krateo-alerts/rbac.authorization.k8s.io/v1/roles/shared'),
+]
+
+
+def join_failures(program):
+    rows = jq(program, join_in)['resources']
+    got = [(r['name'], r['ns'], r['state'], r['navHref']) for r in rows]
+    return [f'join row {i}: {g!r} != {w!r}' for i, (g, w) in enumerate(zip(got, WANT_JOIN)) if g != w] + \
+           ([f'join: {len(got)} rows, want {len(WANT_JOIN)}'] if len(got) != len(WANT_JOIN) else [])
+
+
+NEW_JOIN = 'select(.rname == $m._name and .rns == $m._rns)'
+OLD_JOIN = 'select(.rname == $m._name and ((.rns == $m._cns) or (.rns == "")))'
+check('the join is the name+child-namespace rule exactly once', prog.count(NEW_JOIN), 1)
+# CONTROL: the old join, swapped into the same program, must fail these cases, or they do not test it.
+old_prog = prog.replace(NEW_JOIN, OLD_JOIN).replace('ns: $m._rns,', 'ns: $m._cns,')
+check('control: the old composition-namespace join fails the join cases', bool(join_failures(old_prog)), True)
+failures.extend(join_failures(prog))
+
 for f in failures:
     print(f'FAIL  {f}')
-print(f'{"FAILED" if failures else "ok"}: composition resources, {len(ALL)} condition shapes'
-      f' ({len(failures)} failure(s))')
+print(f'{"FAILED" if failures else "ok"}: composition resources, {len(ALL)} condition shapes,'
+      f' {len(WANT_JOIN)} join cases ({len(failures)} failure(s))')
 raise SystemExit(1 if failures else 0)

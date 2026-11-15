@@ -89,22 +89,31 @@ spec:
             | ($m.path | split("/")) as $p
             | ($p[-2]) as $res | ($p[-1]) as $nm | ($p[0:-2] | join("/")) as $pre
             | ($clusterKinds | index($res)) as $cluster
+            # core-provider's .status.managed[].path now ALREADY carries /namespaces/<ns>/ for
+            # namespaced kinds (verified live: /api/v1/namespaces/<ns>/serviceaccounts/<n>), so
+            # inject it ONLY when absent — else the URL doubles the namespace segment → 404, and
+            # the fetch-miss silently defaults the resource to healthy (issue #152). Idempotent
+            # for both path shapes (old omitted-ns and new included-ns).
+            | (if $cluster != null or ($m.path | contains("/namespaces/")) then $m.path
+               else ($pre + "/namespaces/" + $cns + "/" + $res + "/" + $nm) end) as $getpath
+            # THE CHILD'S OWN NAMESPACE, read from the path it is fetched at: .../namespaces/<ns>/<res>/<name>,
+            # or "" for a cluster-scoped child. It is NOT the composition's namespace. A page chart's
+            # composition lives in krateo-system and its widgets in the page's own namespace
+            # (krateo-alerts), and portal's demo-system Roles sit beside krateo-system ones. Joining the
+            # fetched objects on the composition's namespace matched none of those, so every one read
+            # "Pending" although it was fetched (alerts-page on krateo-057: 44 of 45).
+            | ($getpath | split("/")) as $q
+            | (if ($q | length) >= 4 and $q[-4] == "namespaces" then $q[-3] else "" end) as $rns
             # The parent's workload projection rides on every row (_wh/_whMsg): the final
             # aggregate folds it in, and this step filter is the only place that sees $comp.
-            | { _cn: $cn, _cns: $cns, _kind: $res, _name: $nm,
+            | { _cn: $cn, _cns: $cns, _rns: $rns, _kind: $res, _name: $nm,
                 _wh: $comp.status.workloadHealthy, _whMsg: ($comp.status.healthMessage // ""),
                 # Real group/version for the resource-view route ($p[1] = "api" for the core group
                 # → group "core", version $p[2]; "apis" → group $p[2], version $p[3]) + cluster-scope.
                 _grp: (if ($p[1] // "") == "apis" then ($p[2] // "") else "core" end),
                 _ver: (if ($p[1] // "") == "apis" then ($p[3] // "v1") else ($p[2] // "v1") end),
                 _cluster: ($cluster != null),
-                # core-provider's .status.managed[].path now ALREADY carries /namespaces/<ns>/ for
-                # namespaced kinds (verified live: /api/v1/namespaces/<ns>/serviceaccounts/<n>), so
-                # inject it ONLY when absent — else the URL doubles the namespace segment → 404, and
-                # the fetch-miss silently defaults the resource to healthy (issue #152). Idempotent
-                # for both path shapes (old omitted-ns and new included-ns).
-                _getpath: (if $cluster != null or ($m.path | contains("/namespaces/")) then $m.path
-                           else ($pre + "/namespaces/" + $cns + "/" + $res + "/" + $nm) end) } ]
+                _getpath: $getpath } ]
     - name: resources
       dependsOn:
         name: found
@@ -148,7 +157,15 @@ spec:
     | ( [ .resources ] | flatten | map(select(type == "object" and (.rname // "") != "")) ) as $fetched
     | ( $managed | map(
           . as $m
-          | ( [ $fetched[] | select(.rname == $m._name and ((.rns == $m._cns) or (.rns == ""))) ][0] ) as $obj
+          {{/* A fetched object is this row's when its name and the CHILD's namespace match. The join used
+               to take the COMPOSITION's namespace, or any cluster-scoped object of the same name: a child
+               in another namespace never matched (read "Pending" though fetched), and a ClusterRole could
+               stand in for a Role of the same name.
+               Not joined on group or kind: an object snowplow serves from an informer carries no
+               apiVersion or kind (dispatchViaInformer marshals obj.Object without TypeMeta), so either
+               would drop exactly those rows. Two children with one name in one namespace and different
+               kinds (a Role and its RoleBinding) therefore still share the first fetched object. */}}
+          | ( [ $fetched[] | select(.rname == $m._name and .rns == $m._rns) ][0] ) as $obj
           | ($obj != null) as $found
           | (($obj.conditions) // []) as $c
           | ([ $c[]? | select(.type == "Ready" or .type == "Available") ][0]) as $rc
@@ -213,7 +230,7 @@ spec:
           | {
               kind: ($kindMap[$m._kind] // (if (($obj.rkind) // "") != "" then $obj.rkind else (($m._kind | .[0:1] | ascii_upcase) + ($m._kind[1:] | sub("s$"; ""))) end)),
               name: $m._name,
-              ns: $m._cns,
+              ns: $m._rns,
               # healthy-by-presence applies ONLY to a child we actually FETCHED (a conditionless kind
               # like ServiceAccount/ConfigMap that exists). A managed child we could NOT fetch
               # ($found=false — 404 / API error) is NOT healthy: report it "pending" (issue #152), so
@@ -295,7 +312,7 @@ spec:
               navHref: (if ($readable | not) then ""
                         elif ($m._grp == "composition.krateo.io")
                         then ("/compositions/" + $m._cns + "/" + $m._name)
-                        else ("/resources/" + (if $m._cluster then "cluster" else $m._cns end) + "/" + $m._grp + "/" + $m._ver + "/" + $m._kind + "/" + $m._name) end)
+                        else ("/resources/" + (if $m._rns == "" then "cluster" else $m._rns end) + "/" + $m._grp + "/" + $m._ver + "/" + $m._kind + "/" + $m._name) end)
             } )
       ) as $rows
     | ($rows | map(select(.state != "unread"))) as $checked
