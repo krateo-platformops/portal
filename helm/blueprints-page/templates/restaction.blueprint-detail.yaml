@@ -78,7 +78,60 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: compsError
+    {{/* THE CALLER'S OWN ACCESS, asked of the authorizer, so the page leaves out the controls they
+         cannot use (Diego, 2026-11-16: hide, not disable). Each probe is the request its control
+         makes, in the same namespace and on the same name:
+           mayDelete  Uninstall        DELETE compositiondefinitions/<name> in the blueprint's ns
+           mayPatch   Update version   PATCH  compositiondefinitions/<name> in the blueprint's ns
+           mayCreate  Deploy to fleet  POST   compositiondefinitions in the blueprints-page namespace
+         A control is left out only on an explicit NO (evaluated and not allowed). When a probe
+         could not be evaluated the control stays, and the apiserver still refuses a write the
+         caller may not make: a failed probe must not hide a working action from an admin. Same
+         probe shape as blueprint-palette's mayListCrds. Gated on the route like `compdef`: no
+         name, no probe. */}}
+    - name: mayDelete
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
+      path: /apis/authorization.k8s.io/v1/selfsubjectaccessreviews
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: mayDeleteError
+      payload: '${ {apiVersion: "authorization.k8s.io/v1", kind: "SelfSubjectAccessReview", spec: {resourceAttributes: {group: "core.krateo.io", resource: "compositiondefinitions", verb: "delete", namespace: .namespace, name: .name}}} | tojson }'
+      filter: >
+        {allowed: (.mayDelete.status.allowed == true), evaluated: ((.mayDelete.status // null) != null)}
+    - name: mayPatch
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // ""), name: (.name // "") } | select(.namespace != "" and .name != "") ]'
+      path: /apis/authorization.k8s.io/v1/selfsubjectaccessreviews
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: mayPatchError
+      payload: '${ {apiVersion: "authorization.k8s.io/v1", kind: "SelfSubjectAccessReview", spec: {resourceAttributes: {group: "core.krateo.io", resource: "compositiondefinitions", verb: "patch", namespace: .namespace, name: .name}}} | tojson }'
+      filter: >
+        {allowed: (.mayPatch.status.allowed == true), evaluated: ((.mayPatch.status // null) != null)}
+    - name: mayCreate
+      path: /apis/authorization.k8s.io/v1/selfsubjectaccessreviews
+      verb: POST
+      headers:
+        - 'Content-Type: application/json'
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: mayCreateError
+      payload: '{"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":{"resourceAttributes":{"group":"core.krateo.io","resource":"compositiondefinitions","verb":"create","namespace":"{{ .Release.Namespace }}"}}}'
+      filter: >
+        {allowed: (.mayCreate.status.allowed == true), evaluated: ((.mayCreate.status // null) != null)}
   filter: |
+    # A control is left out only on an explicit no: the probe was evaluated and did not allow.
+    # A probe that was skipped or failed keeps the control (see the stages above).
+    def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
     (.name // "") as $n
     | (.namespace // "") as $ns
     | ((.compdef // {}) | del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) as $d
@@ -124,6 +177,7 @@ spec:
        else "" end) as $askHref
     | {
         askHref: $askHref,
+        may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
         detail: $d,
         compositions: $comps,
         compositionsCount: ($comps | length),
