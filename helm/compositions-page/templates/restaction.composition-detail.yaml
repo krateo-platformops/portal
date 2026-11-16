@@ -96,7 +96,20 @@ spec:
     | ($reason == "Creating") as $creating
     | ($reason == "ReconcilePaused" or $reason == "ReconcileGracefullyPaused") as $paused
     | ($ready.status == "True" and ($reason == "Available" or $reason == "AvailablePartialCoverage")) as $available
-    | ([ ($st.conditions // [])[] | select(.type == "ApiResolved" and .status == "False") ] | length > 0) as $stale
+    {{/* STALE ADDRESS. Two signs, either one suffices (Diego, 2026-11-16, with core-provider):
+         - ApiResolved=False for a WHOLE-resolve failure: no stage's data was used this pass. Every
+           False reason except ApiPartiallyResolved is one (ApiEmpty, Authn*, ResolveFailed, ...),
+           and a reason not yet known is treated as one, so a new failure never reads as fresh.
+         - `url` in status.unrefreshedFields: this pass's projection did not write the address, and
+           an old value is still there. That catches a partial failure that hit the address, and a
+           `// empty` mapping keeping an old URL even when ApiResolved is True.
+         ApiPartiallyResolved alone is NOT stale: the stages behind the address may have succeeded,
+         and unrefreshedFields says whether they did. Before core-provider ships both, the reason
+         does not occur and the list is absent, so this is exactly the old rule.
+         (A Helm comment, not jq `#`: this filter is a folded scalar, one line to jq.) */}}
+    | ([ ($st.conditions // [])[] | select(.type == "ApiResolved" and .status == "False" and (.reason // "") != "ApiPartiallyResolved") ] | length > 0) as $resolveFailed
+    | (($st.unrefreshedFields // []) | if type == "array" then any(.[]; . == "url") else false end) as $urlUnrefreshed
+    | ($resolveFailed or $urlUnrefreshed) as $stale
     | ($available and ($stale | not) and ($ended | not) and ($url | startswith("https://"))) as $open
     | (if $end == null then "" else
          (($end | strftime("%d") | ltrimstr("0")) + " " + ($end | strftime("%b, %H:%M")) + " UTC") end) as $when

@@ -10,8 +10,10 @@ on 14 of 82 compositions on krateo-057, and a paused composition reports Ready=T
 strings are the values core-provider emits.
 
 `ApiResolved` is "not False" rather than "True", because a composition with no apiRef has no such
-condition. A projected field is never cleared, so ApiResolved=False is the only sign an address is
-stale.
+condition. An address is stale when the whole resolve failed (ApiResolved=False with any reason but
+ApiPartiallyResolved) or when core-provider lists `url` in status.unrefreshedFields: the projection
+did not write it this pass and an old value is still there. A partial failure that left the address
+fresh keeps the button.
 """
 import json
 import os
@@ -71,10 +73,10 @@ def unwrap(expr):
     return expr.strip().removeprefix('${').removesuffix('}').strip()
 
 
-def access(program, ready=AVAILABLE, api=None, **status):
+def access(program, ready=AVAILABLE, api=None, api_reason='x', **status):
     conditions = [] if ready is None else [{'type': 'Ready', 'status': ready[0], 'reason': ready[1]}]
     if api is not None:
-        conditions.append({'type': 'ApiResolved', 'status': api, 'reason': 'x'})
+        conditions.append({'type': 'ApiResolved', 'status': api, 'reason': api_reason})
     composition = {'kind': 'K', 'apiVersion': 'composition.krateo.io/v1', 'metadata': {'name': 'n', 'namespace': 'ns'},
                    'status': {'conditions': conditions, **status}}
     return jq(program, {'name': 'n', 'namespace': 'ns', 'found': [composition], 'crds': []})
@@ -124,6 +126,24 @@ def main():
     state('ApiResolved True opens', {'open': True}, api='True', url=URL)
     state('no ApiResolved condition opens', {'open': True}, url=URL)
     state('ApiResolved Unknown opens: the gate is not False, not True', {'open': True}, api='Unknown', url=URL)
+
+    # Stale, by core-provider's two signals (ApiPartiallyResolved and status.unrefreshedFields ship together).
+    STALE = {'open': False, 'plainUrl': URL, 'message': 'The address couldn’t be refreshed, so this one may be out of date.'}
+    for reason in ('ApiEmpty', 'AuthnUnreachable', 'AuthnError', 'AuthnRejected', 'NoMapping', 'ResolveFailed', 'SomethingNew'):
+        state(f'a whole-resolve failure is stale: {reason}', STALE, api='False', api_reason=reason, url=URL)
+    state('a partial failure that refreshed the address opens', {'open': True, 'url': URL},
+          api='False', api_reason='ApiPartiallyResolved', url=URL, unrefreshedFields=['plan'])
+    state('a partial failure that refreshed nothing listed opens', {'open': True},
+          api='False', api_reason='ApiPartiallyResolved', url=URL, unrefreshedFields=[])
+    state('a partial failure that missed the address is stale', STALE,
+          api='False', api_reason='ApiPartiallyResolved', url=URL, unrefreshedFields=['plan', 'url'])
+    state('an address kept by `// empty` is stale even when resolved', STALE,
+          api='True', api_reason='Resolved', url=URL, unrefreshedFields=['url'])
+    state('stage outcomes unknown, address refreshed, opens', {'open': True},
+          api='Unknown', api_reason='StageOutcomesUnknown', url=URL, unrefreshedFields=[])
+    state('a nested path that merely contains url is not the address', {'open': True},
+          api='True', url=URL, unrefreshedFields=['network.url', 'urlLabel'])
+    state('a malformed unrefreshedFields is ignored', {'open': True}, api='True', url=URL, unrefreshedFields='url')
     state('a reason nobody knows blocks', {'open': False, 'plainUrl': URL}, ready=('True', 'SomethingNew'), url=URL)
     state('Ready Unknown blocks', {'open': False, 'plainUrl': URL,
                                    'message': 'This address can’t be confirmed right now.'},
@@ -160,6 +180,11 @@ def main():
 
     check('ready: meta, button, link', mounted(url=URL, plan='trial'), ['meta', 'open', 'url'])
     check('stale: no button and no link', mounted(api='False', url=URL, plan='trial'), ['meta', 'plain-url', 'message'])
+    check('url unrefreshed: no button and no link', mounted(api='True', url=URL, plan='trial', unrefreshedFields=['url']),
+          ['meta', 'plain-url', 'message'])
+    check('partial, address fresh: meta, button, link',
+          mounted(api='False', api_reason='ApiPartiallyResolved', url=URL, plan='trial', unrefreshedFields=['plan']),
+          ['meta', 'open', 'url'])
     check('ended: nothing to open', mounted(url=URL, plan='trial', expiresAt=PAST), ['meta', 'message'])
     check('setting up: no address', mounted(ready=('False', 'Creating'), plan='trial'), ['meta', 'message'])
     for kw in ({'url': URL, 'plan': 'trial'}, {'api': 'False', 'url': URL}, {'url': URL, 'expiresAt': PAST, 'plan': 'p'}):
