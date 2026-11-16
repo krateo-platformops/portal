@@ -34,6 +34,12 @@
 {{/* The old "any False" arm read a converging definition (Ready Unknown) carrying one of those as */}}
 {{/* Degraded instead of Pending. scripts/test-blueprint-header-pill.py runs this jq over each case. */}}
 {{/* */}}
+{{/* THE STATE IS cdState (_cd-ready-reasons.tpl), the same one the blueprint cards read: the Ready */}}
+{{/* reason classified by the verdict core-provider declares for it (docs/cd-ready-reasons.md, */}}
+{{/* CI-checked). So a CONVERGING Ready=False (Creating, Deleting) reads Pending, not Degraded; a */}}
+{{/* failed one (Unavailable, RemoteChartUnreachable, SchemaDefaultContradiction) reads Degraded; */}}
+{{/* Synced=False/ReconcilePaused reads Paused (gray), as a paused composition's header does. */}}
+{{/* */}}
 {{/* keyExtras is the UNION: the Tag declared [name, namespace, status] where the others declared */}}
 {{/* [name, namespace]. Union is the safe direction — an extra key that never arrives partitions */}}
 {{/* consistently, while a missing one serves another blueprint's header from this one's cache cell. */}}
@@ -68,7 +74,7 @@ spec:
       expression: '${ "CompositionDefinition · " + (.namespace // "?") + " · created " + ((.created // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end) }'
     {{/* Was the Tag's TWO templates, fused into one branch so label and colour cannot disagree. */}}
     - forPath: tags
-      expression: '${ (.detail.status.conditions // []) as $c | (($c | map(select(.type == "Ready" and .status == "True")) | length) > 0) as $ready | (($c | map(select(.type == "Synced" and .status == "False")) | length) > 0) as $unsynced | [ ( if ($c | length) == 0 then {label:"Unknown", color:"gray"} elif $ready and $unsynced then {label:"Drift", color:"violet"} elif $ready then {label:"Healthy", color:"green"} elif ($c | map(select(.type == "Ready" and .status == "False")) | length) > 0 then {label:"Degraded", color:"red"} else {label:"Pending", color:"orange"} end ) ] }'
+      expression: '${ {{ include "portal.cdReadyDefs" . }} (.detail.status.conditions // []) as $c | [ ( if ($c | length) == 0 then {label:"Unknown", color:"gray"} else {"ready": {label:"Healthy", color:"green"}, "drift": {label:"Drift", color:"violet"}, "failed": {label:"Degraded", color:"red"}, "installing": {label:"Pending", color:"orange"}, "unobserved": {label:"Pending", color:"orange"}, "paused": {label:"Paused", color:"gray"}}[$c | cdState | .state] end ) ] }'
   resourcesRefs:
     items:
     - id: blueprint-detail-actions
