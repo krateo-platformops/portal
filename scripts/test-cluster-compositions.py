@@ -96,6 +96,7 @@ def rows(*readys):
 
     return {
         'name': 'spoke-a',
+        'target': ['spoke-a'],
         'spokeCrds': {'items': []},
         'spokeCompositions': [one(r) for r in readys],
         'spokeCompositionDefinitions': [],
@@ -348,11 +349,77 @@ def ask_checks(docs, failures):
           ['clusters-ask-agentiko', 'register-cluster'])
 
 
+def gate_checks(docs, failures):
+    """The spoke stages dial ONLY a registered cluster named by the route.
+
+    snowplow's background resolve runs this RESTAction with no route extras, so `.name` is empty:
+    the endpointRef name rendered to "-endpoint", normalised to "endpoint", and every pass logged
+    a Secret miss (359 in 24 h on 057). The `target` stage lists the registered KubernetesTargets
+    and spokeCrds' iterator runs it once only when `.name` is one of them. The two spoke stages
+    after it iterate over spokeCrds' output, so they plan nothing when it was skipped.
+
+    These run the chart's OWN iterator and filter programs, as the readiness cases do.
+    """
+    def check(label, got, want):
+        if got != want:
+            failures.append(f'gate: {label}: {got!r} != {want!r}')
+
+    doc = [d for d in docs if d.get('kind') == 'RESTAction' and d['metadata']['name'] == 'cluster-compositions'][0]
+    stages = {a['name']: a for a in doc['spec']['api']}
+    order = [a['name'] for a in doc['spec']['api']]
+    check('target is the first stage', order[0], 'target')
+    check('target stage carries a userAccessFilter', bool(stages['target'].get('userAccessFilter')), True)
+    check('target stage has no endpointRef (it reads the hub)', 'endpointRef' in stages['target'], False)
+    check('spokeCrds depends on target', (stages['spokeCrds'].get('dependsOn') or {}).get('name'), 'target')
+    for name in ('spokeCompositions', 'spokeCompositionDefinitions'):
+        check(f'{name} depends on spokeCrds', (stages[name].get('dependsOn') or {}).get('name'), 'spokeCrds')
+
+    names = jq(stages['target']['filter'], {'target': {'items': [target('spoke-a'), target('hub')]}})
+    check('target keeps only names', names, ['spoke-a', 'hub'])
+
+    gate = stages['spokeCrds']['dependsOn']['iterator']
+    status = {'kind': 'Status', 'status': 'Failure', 'reason': 'Forbidden'}
+    for label, dict_, want in [
+        ('no name (the background resolve)',        {'target': ['spoke-a']},                         []),
+        ('empty name',                              {'name': '', 'target': ['spoke-a']},             []),
+        ('a name no registration has',              {'name': 'spoke-b', 'target': ['spoke-a']},      []),
+        ('the target read failed: no names',        {'name': 'spoke-a'},                             []),
+        ('the target read failed: a Status object', {'name': 'Forbidden', 'target': status},         []),
+        ('a name that sanitises to a registration', {'name': 'spoke-a/../x', 'target': ['spoke-a..x']}, [{}]),
+        ('a registered cluster',                    {'name': 'spoke-a', 'target': ['hub', 'spoke-a']}, [{}]),
+    ]:
+        check(f'spokeCrds iterator, {label}', jq(gate, dict_), want)
+
+    # A skipped spokeCrds leaves nothing for the two stages behind it to iterate.
+    check('spokeCompositions plans nothing after a skip',
+          jq(stages['spokeCompositions']['dependsOn']['iterator'], {'name': 'spoke-b'}), [])
+    check('spokeCompositionDefinitions plans nothing after a skip',
+          jq(stages['spokeCompositionDefinitions']['dependsOn']['iterator'], {'name': 'spoke-b'}), [])
+
+    final = doc['spec']['filter']
+    for label, data, want_reachable, want_color, want_text in [
+        ('no cluster', {}, False, 'gray', 'No cluster selected.'),
+        ('unregistered', {'name': 'spoke-b', 'target': ['spoke-a']}, False, 'gray',
+         'Live read-back unavailable for spoke-b — it is not a registered cluster you can see.'),
+        ('registered, spoke unreachable', {'name': 'spoke-a', 'target': ['spoke-a']}, False, 'red', None),
+        ('registered, reachable, empty', {'name': 'spoke-a', 'target': ['spoke-a'], 'spokeCrds': {}}, True, 'gray',
+         'No compositions deployed to this spoke yet.'),
+    ]:
+        got = jq(final, data)
+        check(f'{label}: reachable', got.get('reachable'), want_reachable)
+        check(f'{label}: statusColor', got.get('statusColor'), want_color)
+        if want_text is not None:
+            check(f'{label}: statusText', got.get('statusText'), want_text)
+        if not want_reachable:
+            check(f'{label}: no rows', got.get('rows'), [])
+
+
 def main():
     docs = render(CHART)
     program = restaction_filter(docs, 'cluster-compositions')
     failures = []
     ask_checks(docs, failures)
+    gate_checks(docs, failures)
     for readys, want_counts, want_color in CASES:
         got = jq(program, rows(*readys))
         label = f'ready={readys!r}'
@@ -414,8 +481,9 @@ def main():
     for f in failures:
         print(f'FAIL  {f}')
     asks = [f for f in failures if f.startswith('ask: ')]
-    print(f'{len(CASES) - len({f.split(":")[0] for f in failures if f not in asks})}/{len(CASES)} cases ok; '
-          f'Ask Agentiko: {len(asks)} failure(s)')
+    gates = [f for f in failures if f.startswith('gate: ')]
+    print(f'{len(CASES) - len({f.split(":")[0] for f in failures if f not in asks and f not in gates})}/{len(CASES)} cases ok; '
+          f'Ask Agentiko: {len(asks)} failure(s); registered-cluster gate: {len(gates)} failure(s)')
     return 1 if failures else 0
 
 
