@@ -24,7 +24,16 @@ SOURCE = os.path.join(DIR, 'SOURCE')
 REPO, PATH = 'krateo-platformops/observability', 'ops/slo-alert/sli-span-metrics.sql'
 # One name per statement, in file order. A statement added upstream fails the cut until it is named
 # here, so the tab never silently gains or loses one.
-NAMES = ['1-availability', '2-api-latency', '3-ui-latency', '4-widget-fetch', '5-burn']
+NAMES = [
+    '1-availability',
+    '2-api-latency',
+    '3-ui-latency',
+    '4-widget-fetch',
+    '5-burn',
+    '30d-1-availability-budget',
+    '30d-2-api-latency',
+    '30d-3-ui-latency',
+]
 
 
 def pinned():

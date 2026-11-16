@@ -170,6 +170,14 @@ def resolve(ra, extras, responses, caller=ADMIN):
                     return requests, d, None       # snowplow truncates the resolve (R-3)
                 d.setdefault(step.get('errorKey', 'error'), []).append(f'{path}: not found')
                 continue
+            if isinstance(resp, dict) and '__status__' in resp:
+                # A non-2xx answer from an external endpoint: snowplow records the Failure envelope
+                # it shapes from the response (external_fetch.go nonOKStatus: the status line's code,
+                # the body's first 2048 bytes as message) under the errorKey; no response is stored.
+                if not step.get('continueOnError'):
+                    return requests, d, None
+                d.setdefault(step.get('errorKey', 'error'), []).append(resp['__status__'])
+                continue
             pig = {name: refiltered(step, copy.deepcopy(resp), caller)}
             if extras:
                 pig['extras'] = extras

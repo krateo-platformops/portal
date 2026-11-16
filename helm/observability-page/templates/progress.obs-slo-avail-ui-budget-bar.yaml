@@ -1,0 +1,25 @@
+kind: Progress
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-slo-avail-ui-budget-bar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    percent: 0
+    type: line
+    size: small
+    showInfo: false
+    strokeColor: gray
+  widgetDataTemplate:
+  - forPath: percent
+    expression: '${ ([ (.availability // [])[] | select(.key == "krateo-frontend") ][0] // {}).budgetPercent // 0 }'
+  - forPath: strokeColor
+    expression: '${ ([ (.availability // [])[] | select(.key == "krateo-frontend") ][0] // {}).budgetColor // "gray" }'
+  apiRef:
+    name: obs-slo
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
