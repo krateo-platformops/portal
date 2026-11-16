@@ -96,7 +96,7 @@ def check_week(c):
     expect(p, 'the API window spans two layouts', out['layoutChanged'], True)
     rows = {r['objective']: r for r in out['latency']}
     expect(p, 'API row', (rows['API · every snowplow request']['state'], rows['API · every snowplow request']['n']), ('layoutChanged', 736961))
-    expect(p, 'form.submit has samples in one layout only', (rows['UI · submit a form']['state'], rows['UI · submit a form']['p95'], rows['UI · submit a form']['n']), ('met', '(100, 250] ms', 62))
+    expect(p, 'form.submit has samples in one layout only', (rows['UI · submit a form']['state'], rows['UI · submit a form']['p95'], rows['UI · submit a form']['n']), ('met', '(100 ms, 250 ms]', 62))
     expect(p, 'page.publish has none', (rows['UI · publish a page']['state'], rows['UI · publish a page']['n']), ('noSamples', 0))
     expect(p, 'the note names the window', '7-day figures' in out['note'], True)
     return p
@@ -106,7 +106,7 @@ def check_one_layout(c):
     p = []
     _, out = resolve(c, {'range': '24h'}, dict(WEEK, apiLat=fx('stmt2-1layout')))
     api = out['latency'][0]
-    expect(p, 'one layout: a percentile', (out['layoutChanged'], api['state'], api['p95'], api['n']), (False, 'met', '(100, 250] ms', 1614))
+    expect(p, 'one layout: a percentile', (out['layoutChanged'], api['state'], api['p95'], api['n']), (False, 'met', '(100 ms, 250 ms]', 1614))
     return p
 
 
@@ -115,11 +115,11 @@ def check_rules(c):
     bounds = [25, 50, 100, 250, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000]
     row = lambda lo, up, ok, n=10: {'bounds_ms': bounds, 'n': n, 'p95_lower_ms': lo, 'p95_upper_ms': up, 'p95_within_target': ok}
     for label, r, want in [
-        ('overflow is "> last bound"', row(10000, 'inf', 0), ('above', '> 10000 ms')),
-        ('a whole interval above the target', row(500, 750, 0), ('above', '(500, 750] ms')),
-        ('an interval that straddles the target', row(250, 1000, 0), ('atTarget', '(250, 1000] ms')),
-        ('upper equal to the target is met (le)', row(250, 500, 1), ('met', '(250, 500] ms')),
-        ('64-bit counts may arrive quoted', dict(row(0, 25, 1), n='307317'), ('met', '(0, 25] ms')),
+        ('overflow is "> last bound"', row(10000, 'inf', 0), ('above', '> 10.0 s')),
+        ('a whole interval above the target', row(500, 750, 0), ('above', '(500 ms, 750 ms]')),
+        ('an interval that straddles the target', row(250, 1000, 0), ('atTarget', '(250 ms, 1.0 s]')),
+        ('upper equal to the target is met (le)', row(250, 500, 1), ('met', '(250 ms, 500 ms]')),
+        ('64-bit counts may arrive quoted', dict(row(0, 25, 1), n='307317'), ('met', '(0 ms, 25 ms]')),
     ]:
         _, out = resolve(c, {}, dict(WEEK, apiLat=ch([r])))
         expect(p, label, (out['latency'][0]['state'], out['latency'][0]['p95']), want)

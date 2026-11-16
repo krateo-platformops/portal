@@ -17,6 +17,7 @@
 
      RULES THE SQL FILE STATES, applied here, not re-derived:
      - a percentile is the bucket interval (lower, upper] that holds the rank, never a point in it;
+       each bound reads as every duration in the portal does (durationLabel: "750 ms", "1.0 s");
      - a statement that returns more than one row for an SLI (one per bucket layout) has NO
        percentile for that window: "layout changed";
      - no row, or a NULL availability / share / burn, is "no samples", never 0 or 100 %.
@@ -91,19 +92,19 @@ spec:
       errorKey: burnError
       filter: '(.burn.data // [])'
   filter: |
+    {{ include "duration.label" . }}
     def num: if type == "string" then (tonumber? // null) elif type == "number" then . else null end;
     def failed($k): (.[$k] // null) | (. != null and . != [] and . != "");
     def commas: tostring | (if test("^[0-9]+$") then (explode | reverse | [recurse(if length > 3 then .[3:] else empty end) | .[0:3]] | map(reverse | implode) | reverse | join(",")) else . end);
     def pct: (. * 1000000 | round) / 10000 | tostring;
     def when: strftime("%d %b %H:%M") | ltrimstr("0");
-    def ms: if . == "inf" then "inf" else (num | if . == null then "?" elif . == floor then (floor | tostring) else tostring end) end;
     # One SLI's latency from the rows a statement returned for it: 0 rows no samples, >1 a layout change.
     def latency($rows; $target):
       if ($rows | length) == 0 then {state: "noSamples", p95: "No samples in this window", n: 0}
       elif ($rows | length) > 1 then {state: "layoutChanged", p95: "Bucket layout changed: no percentile", n: ([$rows[] | .n | num // 0] | add)}
       else $rows[0] as $x | ($x.p95_lower_ms | num) as $lo | ($x.p95_upper_ms) as $up
         | {n: ($x.n | num // 0),
-           p95: (if $up == "inf" then "> " + (($x.bounds_ms // []) | last | ms) + " ms" else "(" + ($lo | ms) + ", " + ($up | ms) + "] ms" end),
+           p95: (if $up == "inf" then "> " + (($x.bounds_ms // []) | last | durationLabel) else "(" + ($lo | durationLabel) + ", " + ($up | durationLabel) + "]" end),
            state: (if (($x.p95_within_target | num) == 1) then "met" elif ($lo != null and $lo >= $target) then "above" else "atTarget" end)}
       end;
     (.range // "24h") as $r
