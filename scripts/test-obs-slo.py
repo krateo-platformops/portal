@@ -42,7 +42,9 @@ gates = traces.gates
 tbi = traces.tbi
 
 RA = 'obs-slo'
-STAGES = {'avail': '1-availability', 'apiLat': '2-api-latency', 'uiLat': '3-ui-latency', 'fetch': '4-widget-fetch', 'burn': '5-burn'}
+STAGES = {'avail': '1-availability', 'apiLat': '2-api-latency', 'uiLat': '3-ui-latency', 'fetch': '4-widget-fetch', 'burn': '5-burn',
+          'avail30': '30d-1-availability-budget', 'burn1h': '5-burn'}
+FIXED = {'avail30': 2592000, 'burn1h': 3600}         # the SLO's own window and the burn line's, whatever the range
 SECONDS = {'1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800}
 
 
@@ -50,7 +52,12 @@ def fx(name):
     return json.load(open(os.path.join(FIX, name + '.json'), encoding='utf-8'))
 
 
-WEEK = {'avail': fx('stmt1-7d'), 'apiLat': fx('stmt2-7d'), 'uiLat': fx('stmt3-7d'), 'fetch': fx('stmt4-7d'), 'burn': fx('stmt5-7d')}
+# krateo-057 today: krateo_slo_daily does not exist, and ClickHouse answers 404 with this body (read by
+# observability, 2026-11-16). snowplow records it as a Failure envelope under the errorKey.
+UNKNOWN_TABLE = {'__status__': {'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'code': 404,
+                                'message': open(os.path.join(FIX, '057-unknown-table.body.txt'), encoding='utf-8').read()}}
+WEEK = {'avail': fx('stmt1-7d'), 'apiLat': fx('stmt2-7d'), 'uiLat': fx('stmt3-7d'), 'fetch': fx('stmt4-7d'), 'burn': fx('stmt5-7d'),
+        'avail30': UNKNOWN_TABLE, 'burn1h': fx('stmt5-7d')}
 
 
 def ch(rows):
@@ -79,7 +86,7 @@ def check_requests(c):
             expect(p, f'{rng} {name}: settings', (q.get('default_format'), q.get('output_format_json_quote_denormals')), (['JSON'], ['1']))
             import datetime
             start, end = (datetime.datetime.strptime(q[k][0], '%Y-%m-%d %H:%M:%S') for k in ('param_start', 'param_end'))
-            expect(p, f'{rng} {name}: window = range + 1 s (end exclusive)', int((end - start).total_seconds()), SECONDS[rng or '24h'] + 1)
+            expect(p, f'{rng} {name}: window (end exclusive, +1 s)', int((end - start).total_seconds()), FIXED.get(name, SECONDS[rng or '24h']) + 1)
             expect(p, f'{rng} {name}: nothing else on the request', sorted(q), ['default_format', 'output_format_json_quote_denormals', 'param_end', 'param_start', 'query'])
     return p
 
@@ -136,6 +143,48 @@ def check_rules(c):
     return p
 
 
+def check_30d(c):
+    """Board 3, once krateo_slo_daily exists: observability's fixtures from the chart's real DDL."""
+    p = []
+    av = lambda out: {a['key']: a for a in out['availability']}
+    # Two days of data: figures, no bar yet, and an overspent UI budget.
+    _, out = resolve(c, {'range': '7d'}, dict(WEEK, avail30=fx('30d-1-two-classes')))
+    a = av(out)
+    expect(p, '30d mode', (out['mode'], out['availTitle']), ('30d', 'Availability · target ≥ 99.9 % over 30 days'))
+    expect(p, 'API over 30 days', (a['snowplow']['value'], a['snowplow']['below'], a['snowplow']['showBar']), ('99.9867 %', False, False))
+    expect(p, 'fewer than 30 days: the count, no bar', a['snowplow']['budget'], 'Budget from 30 days of data: 2 of 30 so far.')
+    expect(p, 'an overspent budget says so, in red', (a['krateo-frontend']['budget'], a['krateo-frontend']['budgetColor'], a['krateo-frontend']['below']),
+           ('Error budget spent: availability below 99.9 % over 30 days.', 'red', True))
+    expect(p, 'the note names the days with data', '2 of them have data so far' in out['note'], True)
+    # A full month: the bar appears.
+    full = fx('30d-1-two-classes')
+    full['data'] = [dict(r, days_with_data=30) for r in full['data']]
+    _, out = resolve(c, {}, dict(WEEK, avail30=full))
+    a = av(out)
+    expect(p, '30 days: the bar and the remaining budget', (a['snowplow']['showBar'], a['snowplow']['budgetPercent'], a['snowplow']['budget']),
+           (True, 87, 'Error budget left 86.7 %'))
+    # No calls, and a class with no row at all, are both "no samples", never 100 %.
+    _, out = resolve(c, {}, dict(WEEK, avail30=fx('30d-1-calls-zero')))
+    a = av(out)
+    expect(p, 'calls = 0 is no samples', (a['krateo-frontend']['value'], a['krateo-frontend']['detail'], a['krateo-frontend']['budget']),
+           ('—', 'No interactions in the last 30 days.', ''))
+    expect(p, 'a class with no row is no samples', (a['snowplow']['value'], a['snowplow']['detail']), ('—', 'No calls in the last 30 days.'))
+    _, out = resolve(c, {}, dict(WEEK, avail30=fx('30d-1-empty-window')))
+    expect(p, 'an empty window', [x['value'] for x in out['availability']], ['—', '—'])
+    # The last hour burning past the alerts' line.
+    hot = {'meta': [], 'data': [{'sli_service': 'snowplow', 'calls': 1000, 'sli_errors': 16, 'burn_rate': 16.0}], 'rows': 1}
+    _, out = resolve(c, {}, dict(WEEK, avail30=full, burn1h=hot))
+    a = av(out)
+    expect(p, 'fast burn is named', (a['snowplow']['burning'], a['snowplow']['detail'].endswith('above the 14.4× line the alerts page on')), (True, True))
+    # The table missing falls back to the range's figures (board 1); any other failure says so.
+    _, out = resolve(c, {'range': '7d'})
+    expect(p, 'UNKNOWN_TABLE falls back to the range', (out['mode'], av(out)['snowplow']['value']), ('range', '99.9845 %'))
+    other = {'__status__': {'kind': 'Status', 'status': 'Failure', 'code': 500, 'message': 'Code: 241. DB::Exception: Memory limit exceeded'}}
+    _, out = resolve(c, {}, dict(WEEK, avail30=other))
+    expect(p, 'another failure is reported, not hidden', (out['mode'], av(out)['snowplow']['detail']), ('error', 'Couldn’t read this from ClickHouse.'))
+    return p
+
+
 def check_widgets(c):
     p = []
     _, week = resolve(c, {'range': '7d'})
@@ -150,6 +199,21 @@ def check_widgets(c):
     expect(p, 'no samples is gray', cell['UI · publish a page']['p95'].get('color'), 'var(--gray-color)')
     stat = tbi.resolved_widget(c, 'Statistic', 'obs-slo-avail-api-value', week, {'range': 'x'}, 'api value')['spec']['widgetData']
     expect(p, 'the tile value', (stat['value'], stat.get('valueStyle')), ('99.9845 %', {}))
+    full = fx('30d-1-two-classes')
+    full['data'] = [dict(r, days_with_data=30) for r in full['data']]
+    _, month = resolve(c, {}, dict(WEEK, avail30=full))
+    _, early = resolve(c, {}, dict(WEEK, avail30=fx('30d-1-two-classes')))
+    tile = lambda out: [i['resourceRefId'].removeprefix('obs-slo-avail-api-') for i in
+                        tbi.resolved_widget(c, 'Card', 'obs-slo-avail-api', out, {'range': 'x'}, 'api tile')['spec']['widgetData']['items']]
+    expect(p, 'range mode: value and detail only', tile(week), ['value', 'detail'])
+    expect(p, 'under 30 days: the budget line, no bar', tile(early), ['value', 'budget', 'detail'])
+    expect(p, '30 days: the bar and the budget line', tile(month), ['value', 'budget-bar', 'budget', 'detail'])
+    title = lambda out: tbi.resolved_widget(c, 'Card', 'obs-slo-avail-card', out, {'range': 'x'}, 'avail card')['spec']['widgetData']['title']
+    expect(p, 'the card title follows the window', (title(week), title(month)), ('Availability · target ≥ 99.9 %', 'Availability · target ≥ 99.9 % over 30 days'))
+    bar = tbi.resolved_widget(c, 'Progress', 'obs-slo-avail-api-budget-bar', month, {'range': 'x'}, 'bar')['spec']['widgetData']
+    expect(p, 'the bar', (bar['percent'], bar['strokeColor']), (87, 'gray'))
+    for kind, name in [('Paragraph', 'obs-slo-avail-api-budget'), ('Paragraph', 'obs-slo-avail-ui-budget'), ('Progress', 'obs-slo-avail-ui-budget-bar'), ('Card', 'obs-slo-avail-ui')]:
+        tbi.resolved_widget(c, kind, name, month, {'range': 'x'}, name)
     for kind, name in [('Paragraph', 'obs-slo-window'), ('Paragraph', 'obs-slo-note'), ('Paragraph', 'obs-slo-avail-api-detail'),
                        ('Paragraph', 'obs-slo-avail-ui-detail'), ('Statistic', 'obs-slo-avail-ui-value')]:
         tbi.resolved_widget(c, kind, name, week, {'range': 'x'}, name)
@@ -183,6 +247,7 @@ def main():
         ('the real 7-day responses from krateo-057 give the mockup\'s figures', lambda: check_week(c)),
         ('a one-layout window gives a percentile', lambda: check_one_layout(c)),
         ('the SQL file\'s rules: overflow, straddle, le, no samples, unreadable', lambda: check_rules(c)),
+        ('board 3: 30 days and the error budget, or the range while the rollup table is missing', lambda: check_30d(c)),
         ('the widgets: explanation or table, exception-only colour, the tab', lambda: check_widgets(c)),
     ]
     if crds_dir:
