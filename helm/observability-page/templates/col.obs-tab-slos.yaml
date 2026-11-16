@@ -1,0 +1,53 @@
+{{/* THE SLOs TAB (Diego, 2026-11-16: the approved mockup, a tab on /observability, admins only like
+     every observability widget since OTEL-11). Data: restaction.obs-slo, which runs the SLI statements
+     from observability's sli-span-metrics.sql verbatim. */}}
+kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tab-slos
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - cards
+    items:
+    - resourceRefId: obs-slo-desc
+    - resourceRefId: obs-slo-window
+    - resourceRefId: obs-slo-note
+    - resourceRefId: obs-slo-avail-card
+    - resourceRefId: obs-slo-latency-card
+  resourcesRefs:
+    items:
+    - id: obs-slo-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-desc
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-slo-window
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-window
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-slo-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-note
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-slo-avail-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-avail-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-slo-latency-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-latency-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

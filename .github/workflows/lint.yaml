@@ -959,6 +959,21 @@ jobs:
           set -euo pipefail
           python3 scripts/test-obs-latency-by-controller.py --pinned
 
+      # The SLOs tab (Diego, 2026-11-16). Its statements are vendored byte-exact from observability's
+      # sli-span-metrics.sql (the alerts' and HyperDX's source) at the commit in files/slo/SOURCE: a
+      # change there turns this red until the tab re-vendors, so the views cannot drift apart.
+      - name: SLOs tab statements equal their pinned source
+        run: |
+          set -euo pipefail
+          python3 scripts/vendor-sli-sql.py --check
+
+      # Each stage sends its statement verbatim; the filter over krateo-057's real responses gives the
+      # mockup's figures and the SQL file's rules; widgets validated against the pinned CRDs.
+      - name: SLOs tab, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 scripts/test-obs-slo.py --pinned
+
   # The /audit page (AUDIT-9, installer#415) reads an audit trail, so a row in the wrong reader's table
   # is a disclosure. This resolves audit-records and audit-facets as a team member, an admin and a
   # caller with no namespace: every stage path rendered by snowplow's own renderer, every

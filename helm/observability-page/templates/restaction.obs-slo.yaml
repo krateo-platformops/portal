@@ -1,0 +1,143 @@
+{{/* THE SLOs TAB'S DATA (Diego, 2026-11-16: mockup approved, a tab on /observability, admins only).
+
+     ONE SOURCE. Every figure comes from a statement in krateo-platformops/observability
+     ops/slo-alert/sli-span-metrics.sql, the file the cmp-slo-* alerts and the HyperDX dashboard read.
+     Each is vendored byte-exact under files/slo/ (scripts/vendor-sli-sql.py; SOURCE names the commit),
+     and CI re-cuts the pinned file and fails on any difference. A stage sends its statement VERBATIM:
+     the text is percent-encoded into the path's string literal at render time (a literal is the
+     author's template to snowplow's path renderer, never re-escaped), and the window rides as the
+     statement's own ClickHouse query parameters, param_start / param_end, which ARE values and so are
+     escaped as query values. default_format=JSON instead of a FORMAT clause, so nothing is appended to
+     the statement; output_format_json_quote_denormals=1 so an overflow bucket's `inf` arrives as the
+     string "inf" rather than an ambiguous null.
+
+     THE WINDOW is the page's range chip, [now - range, now + 1 s): `end` is exclusive and a delta
+     point is stamped with its flush time, so the second keeps the latest flush in. 7 days is the
+     longest window until krateo-slo-rollup's daily table is enabled; the tab says so.
+
+     RULES THE SQL FILE STATES, applied here, not re-derived:
+     - a percentile is the bucket interval (lower, upper] that holds the rank, never a point in it;
+       each bound reads as every duration in the portal does (durationLabel: "750 ms", "1.0 s");
+     - a statement that returns more than one row for an SLI (one per bucket layout) has NO
+       percentile for that window: "layout changed";
+     - no row, or a NULL availability / share / burn, is "no samples", never 0 or 100 %.
+     ClickHouse quotes 64-bit integers in JSON by default, so counts arrive as strings: tonumber. */}}
+{{- $q := dict -}}
+{{- range $name := list "1-availability" "2-api-latency" "3-ui-latency" "4-widget-fetch" "5-burn" -}}
+{{- $_ := set $q $name ($.Files.Get (printf "files/slo/%s.sql" $name) | urlquery | replace "+" "%20") -}}
+{{- end -}}
+{{- define "obs-slo.window" -}}(.range // "24h") as $r | (if $r=="1h" then 3600 elif $r=="6h" then 21600 elif $r=="7d" then 604800 else 86400 end) as $s | (now | floor) as $t | "/?default_format=JSON&output_format_json_quote_denormals=1&param_start=" + (($t - $s) | strftime("%Y-%m-%d %H:%M:%S")) + "&param_end=" + (($t + 1) | strftime("%Y-%m-%d %H:%M:%S")) + "&query="{{- end }}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: obs-slo
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: avail
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ include "obs-slo.window" . }} + "{{ index $q "1-availability" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: availError
+      filter: '(.avail.data // [])'
+    - name: apiLat
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ include "obs-slo.window" . }} + "{{ index $q "2-api-latency" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: apiLatError
+      filter: '(.apiLat.data // [])'
+    - name: uiLat
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ include "obs-slo.window" . }} + "{{ index $q "3-ui-latency" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: uiLatError
+      filter: '(.uiLat.data // [])'
+    - name: fetch
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ include "obs-slo.window" . }} + "{{ index $q "4-widget-fetch" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: fetchError
+      filter: '(.fetch.data // [])'
+    - name: burn
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ include "obs-slo.window" . }} + "{{ index $q "5-burn" }}" }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: burnError
+      filter: '(.burn.data // [])'
+  filter: |
+    {{ include "duration.label" . }}
+    def num: if type == "string" then (tonumber? // null) elif type == "number" then . else null end;
+    def failed($k): (.[$k] // null) | (. != null and . != [] and . != "");
+    def commas: tostring | (if test("^[0-9]+$") then (explode | reverse | [recurse(if length > 3 then .[3:] else empty end) | .[0:3]] | map(reverse | implode) | reverse | join(",")) else . end);
+    def pct: (. * 1000000 | round) / 10000 | tostring;
+    def when: strftime("%d %b %H:%M") | ltrimstr("0");
+    # One SLI's latency from the rows a statement returned for it: 0 rows no samples, >1 a layout change.
+    def latency($rows; $target):
+      if ($rows | length) == 0 then {state: "noSamples", p95: "No samples in this window", n: 0}
+      elif ($rows | length) > 1 then {state: "layoutChanged", p95: "Bucket layout changed: no percentile", n: ([$rows[] | .n | num // 0] | add)}
+      else $rows[0] as $x | ($x.p95_lower_ms | num) as $lo | ($x.p95_upper_ms) as $up
+        | {n: ($x.n | num // 0),
+           p95: (if $up == "inf" then "> " + (($x.bounds_ms // []) | last | durationLabel) else "(" + ($lo | durationLabel) + ", " + ($up | durationLabel) + "]" end),
+           state: (if (($x.p95_within_target | num) == 1) then "met" elif ($lo != null and $lo >= $target) then "above" else "atTarget" end)}
+      end;
+    (.range // "24h") as $r
+    | ({"1h": "last hour", "6h": "last 6 hours", "7d": "last 7 days"}[$r] // "last 24 hours") as $span
+    | ({"1h": "1-hour", "6h": "6-hour", "7d": "7-day"}[$r] // "24-hour") as $adj
+    | (now | floor) as $t
+    | ({"1h": 3600, "6h": 21600, "7d": 604800}[$r] // 86400) as $s
+    | ([ (.burn // [])[] | {key: .sli_service, value: (.burn_rate | num)} ] | from_entries) as $burn
+    | ((.fetch // [])[0] // {}) as $f
+    | [ {key: "snowplow", label: "API · snowplow", unit: "calls"}, {key: "krateo-frontend", label: "UI · krateo-frontend", unit: "interactions"} ] as $classes
+    | [ $classes[] as $c
+        | (if failed("availError") then null else ([ (.avail // [])[] | select(.sli_service == $c.key) ][0] // null) end) as $row
+        | ($row.availability | num) as $a
+        | {key: $c.key, title: $c.label,
+           value: (if failed("availError") then "—" elif $a == null then "—" else ($a | pct) + " %" end),
+           below: ($a != null and $a < 0.999),
+           detail: (if failed("availError") then "Couldn’t read this from ClickHouse."
+                    elif $a == null then "No " + $c.unit + " in this window."
+                    else (($row.sli_errors | num // 0) | commas) + " failed of " + (($row.calls | num // 0) | commas) + " " + $c.unit
+                         + (if $burn[$c.key] != null then " · " + $adj + " burn " + (($burn[$c.key] * 100 | round) / 100 | tostring) + "×" else "" end)
+                         + (if $c.key == "krateo-frontend" and (($f.fetches | num) // 0) > 0 then " · widget fetches: " + (($f.failed | num // 0) | commas) + " failed of " + (($f.fetches | num) | commas) else "" end)
+                    end)} ] as $avail
+    | (if failed("apiLatError") then {state: "error", p95: "Couldn’t read this from ClickHouse.", n: 0} else latency(.apiLat // []; 500) end) as $api
+    | [ {key: "krateo.page.load", label: "UI · page load"}, {key: "krateo.composition.open", label: "UI · open a composition"},
+        {key: "krateo.form.submit", label: "UI · submit a form"}, {key: "krateo.page.publish", label: "UI · publish a page"} ] as $ui
+    | (.uiLat // []) as $uiRows
+    | {
+        window: {range: $r, label: ("WINDOW · " + $span + " · " + (($t - $s) | when) + " → " + ($t | when) + " UTC")},
+        note: ("Availability is judged over 30 days. Until the daily rollup is enabled the longest window is 7 days, so these are " + $adj + " figures and the error budget is not shown yet."),
+        availability: $avail,
+        layoutChanged: ($api.state == "layoutChanged"),
+        latency: ([ {objective: "API · every snowplow request", target: "≤ 500 ms"} + $api ]
+                  + [ $ui[] as $u | {objective: $u.label, target: "≤ 2 s"}
+                      + (if failed("uiLatError") then {state: "error", p95: "Couldn’t read this from ClickHouse.", n: 0}
+                         else latency([ $uiRows[] | select(.interaction == $u.key) ]; 2000) end) ])
+      }
