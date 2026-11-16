@@ -1,0 +1,19 @@
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-slo-avail-ui-detail
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    text: ''
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ ([ (.availability // [])[] | select(.key == "krateo-frontend") ][0] // {}).detail // "" }'
+  apiRef:
+    name: obs-slo
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

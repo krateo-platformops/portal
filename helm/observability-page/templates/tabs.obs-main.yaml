@@ -37,6 +37,8 @@ spec:
       {{/* query string remounts this widget and it opens on ?tab= (else the first tab). */}}
       - label: Traces
         resourceRefId: obs-tab-traces
+      - label: SLOs
+        resourceRefId: obs-tab-slos
       {{/* Snowplow SLI tabs (portal#201). Every panel is a ClickHouse query over the OTel tables,
            filtered to ServiceName='snowplow'. Guarded so an install without the snowplow metrics
            pipeline does not render six tabs of empty charts — an empty panel reads as a broken
@@ -74,6 +76,12 @@ spec:
       - id: obs-tab-traces
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: obs-tab-traces
+        namespace: {{ $.Values.namespace }}
+        resource: cols
+        verb: GET
+      - id: obs-tab-slos
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: obs-tab-slos
         namespace: {{ $.Values.namespace }}
         resource: cols
         verb: GET
