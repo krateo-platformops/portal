@@ -37,11 +37,17 @@ spec:
     {{/* re-emitted server-side, so the field order survives (the CRD's openAPIV3Schema, by */}}
     {{/* contrast, is a Go map serialized alphabetically). continueOnError: a blueprint without */}}
     {{/* the CM simply yields no stringSchema and the Form falls back to the (alphabetical) schemaSpec. */}}
-    {{/* #66 (tenant self-service): the CM is co-located with its CompositionDefinition (the cdc */}}
-    {{/* writes it into the compdef's OWN namespace), so read it from `.compdef.metadata.namespace` */}}
-    {{/* — NOT the portal release namespace. On the platform install the two are identical */}}
-    {{/* (blueprints in krateo-system); for a tenant whose blueprints live in krateo-blueprints this */}}
-    {{/* is what stops the CM GET 404 → null stringSchema → the Form's "stringSchema Invalid value null". */}}
+    {{/* WHERE THE CM IS. It is read from the CompositionDefinition's own namespace */}}
+    {{/* (`.compdef.metadata.namespace`), as the CALLER. #66 said core-provider writes it there; for */}}
+    {{/* a LOCAL CD that was never true. core-provider (internal/tools/deploy, controllerObjectName) */}}
+    {{/* puts every per-CD object, this CM included, in the CONTROLLER namespace: the CD's own for a */}}
+    {{/* remote deploy, ManagementNamespace (krateo-system) otherwise. On 057 every CD lives in */}}
+    {{/* krateo-system, so the two coincide. On demo a blueprint outside it 404s here, and a tenant */}}
+    {{/* (no CRD read) gets the "still being registered" state: acmp, 2026-11-16. */}}
+    {{/* Diego's decision the same day: core-provider writes the CM NEXT TO its CD (it is the CD's */}}
+    {{/* published schema; nothing else reads it), and installer's readerGroups grants the readers */}}
+    {{/* `get` on it by resourceNames. So this read stays where it is: the fix is upstream of it. */}}
+    {{/* Do not "fix" it by reading krateo-system: tenants have, and should get, no grant there. */}}
     {{/* GATED ON the compdef's status (the input gate, scripts/lint-ra-paths.py): an unreconciled */}}
     {{/* CD, or none, makes no call — it used to GET `…/configmaps/--jsonschema-configmap`. */}}
     - name: jsonschema
