@@ -3,6 +3,9 @@
 {{/* + Delete (danger, uninstall), side by side. The version update is a separate Form lower */}}
 {{/* on the page. "Ask Agentiko →" sits immediately left of Create: filled like every agent entry */}}
 {{/* point (A4), it does not take the container's one primary (P6). */}}
+{{/* Deploy to fleet and Uninstall are mounted only for a caller allowed to make their request */}}
+{{/* (blueprint-detail's `may`, SelfSubjectAccessReview): a tenant sees Marketplace, Ask Agentiko */}}
+{{/* and Create. resourcesRefs stay static; an unmounted child is never fetched. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,6 +16,9 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
   widgetData:
     allowedResources:
       - buttons
@@ -24,6 +30,13 @@ spec:
       - resourceRefId: blueprint-detail-ask-agentiko
       - resourceRefId: blueprint-detail-create
       - resourceRefId: blueprint-detail-delete
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ [ { resourceRefId: "blueprint-detail-marketplace" } ]
+        + (if (.may.fleet != false) then [ { resourceRefId: "blueprint-detail-fleet" } ] else [] end)
+        + [ { resourceRefId: "blueprint-detail-ask-agentiko" }, { resourceRefId: "blueprint-detail-create" } ]
+        + (if (.may.uninstall != false) then [ { resourceRefId: "blueprint-detail-delete" } ] else [] end) }
   resourcesRefs:
     items:
       - id: blueprint-detail-marketplace
