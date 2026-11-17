@@ -1,0 +1,44 @@
+{{/* Opened (by triggeredAt) and resolved (by resolution.at) per bucket over the range: per hour for
+     24h, per day for 7d and 30d, the newest bucket the current one. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-trend
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      Opened: red
+      Resolved: green
+    shapeField: smooth
+    legend: true
+    height: 180
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 5
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ if .failed then [] else (.trend // []) end }'
+  - forPath: xTimeUnit
+    expression: '${ if .trendUnit == "hour" then "hour" else "day" end }'
+  resourcesRefs:
+    items: []

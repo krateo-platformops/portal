@@ -1,0 +1,38 @@
+{{/* Firing alerts with no incident — firing Alerts (state ALERT, not paused) with no open incident,
+     off incidents-list's `awaiting`: the alert and why it has none, off alert-provider's
+     OpensIncidents condition (a metric or value Alert opens no incidents, a counting Alert has not
+     opened one yet, listed first). A row opens the Agentiko rail seeded to investigate that alert
+     ({askHref}). With the alerts unread, the header says so instead of an empty list. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-awaiting
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: true
+    header: ""
+    itemTemplate:
+      iconVariant: dot
+      color:
+        value: red
+      primaryText: '{name}'
+      subPrimaryText: '{why}'
+      secondaryText: Investigate →
+      navigateTo: '{askHref}'
+      ellipsis: true
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .awaiting // [] }'
+  - forPath: header
+    expression: '${ if .alertsFailed then "The alerts could not be read, so an alert firing without an incident would not show here." else "" end }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,34 @@
+{{/* The five figures over every incident: Open, Analyzing, Verifying (now), Resolved and the median
+     Time to resolve (in the range). Colour is exception-only: Open is red above zero, Verifying
+     orange above zero, the rest stay neutral; each caption carries the meaning too, so colour is
+     never the only signal. A failed read of the incidents is an empty value (drawn as a muted "—")
+     captioned "could not be read" on every tile, never a 0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

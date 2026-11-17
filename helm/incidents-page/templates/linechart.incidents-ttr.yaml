@@ -1,0 +1,41 @@
+{{/* The median time to resolve (triggered to resolution.at, Resolved incidents) of each of the last
+     8 weeks, in minutes; a week with nothing resolved has no point. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-ttr
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    shapeField: smooth
+    area: true
+    point: true
+    legend: false
+    height: 160
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 4
+      "y":
+        tickCount: 4
+        title: minutes
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ if .failed then [] else (.ttrWeekly // []) end }'
+  resourcesRefs:
+    items: []
