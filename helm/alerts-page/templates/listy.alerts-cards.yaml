@@ -1,0 +1,53 @@
+{{/* One card per alert in the picked state, triage order then by name: the alert's name, its state
+     as a coloured tag (gray while paused), its signal, its description, and since when and how
+     often it is evaluated. A red triangle top right marks an alert with open incidents (how many,
+     on hover). The whole card opens the alert. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-bell
+      iconVariant: tile
+      primaryText: '{name}'
+      secondaryText: '{stateLabel}'
+      subPrimaryText: '{type}'
+      subSecondaryText: '{foot}'
+      description: '{description}'
+      cardCta: Open alert
+      navigateTo: '/alerts/{routeNs}/{routeName}'
+      color:
+        value: '{tone}'
+        map:
+          alert: red
+          not-evaluated: orange
+          pending: blue
+          ok: green
+          paused: gray
+        default: gray
+      status:
+        icon: '{incidentIcon}'
+        color: red
+        tooltip: '{incidentTip}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | . + { description: (if (.description // "") == "" then "—" else .description end) } ] }'
+  resourcesRefs:
+    items: []

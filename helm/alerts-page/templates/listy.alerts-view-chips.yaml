@@ -1,0 +1,25 @@
+{{/* "Cards | Table · all columns", top right of the alerts card: the same alerts as cards or as the
+     full table (?view=table). Each route keeps ?status, ?range and ?projects. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-view-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .viewChips // [] }'
+  resourcesRefs:
+    items: []

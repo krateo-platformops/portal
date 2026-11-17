@@ -1,0 +1,26 @@
+{{/* "By signal": the alerts by what they watch (Logs, Metric, Traces, ...), as a donut. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-by-signal-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  widgetData:
+    title: "By signal"
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: alerts-by-signal
+  resourcesRefs:
+    items:
+    - id: alerts-by-signal
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-by-signal
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

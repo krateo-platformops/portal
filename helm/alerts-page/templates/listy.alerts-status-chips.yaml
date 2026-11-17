@@ -1,24 +1,22 @@
-{{/* The applied filters as chips: one per picked value ("State: Alert", "Signal: Logs"), each
-     removing itself, then "Clear all", which keeps only the shell's ?projects. Hidden when nothing
-     is applied. The search box clears itself. */}}
+{{/* The state chips, the page's filter: Firing (the default), Not evaluated, Pending, OK, All,
+     each with its count over every alert. Each route keeps ?range, ?view and the ?projects= scope. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: alerts-active-filters
+  name: alerts-status-chips
   namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  keyExtras: [projects, status, range, view]
   apiRef:
     name: obs-alerts
     namespace: {{ $.Values.namespace }}
   widgetData:
-    hideWhenEmpty: true
     itemTemplate:
       rowVariant: chip
       primaryText: '{label}'
-      navigateTo: '{href}'
+      navigateTo: '{route}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

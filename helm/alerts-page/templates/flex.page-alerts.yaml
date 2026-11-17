@@ -1,11 +1,12 @@
-{{/* /alerts (root-pages UX slice 3a, build plan §3.4; mockup screen 07; decisions of 2026-11-14).
-     The alerting configuration surface, as an overview. Top to bottom: the header (Ask Agentiko,
-     Author with Autopilot, New alert); the filter bar (Signal, State, Has open incidents, search; a
-     facet with one value is left out) and, when a filter is applied, its chips; then the OVERVIEW:
-     the strip, the calm line when nothing needs anyone, the alerts grouped by what they need (Firing,
-     Not evaluated, Pending, Back to OK in the last 24 hours, OK with open incidents, then the rest of
-     the OK ones by signal, folded) and "All N alerts as a table →"; or, with ?view=table, "← Back to
-     the overview" and today's table with the same filters.
+{{/* /alerts (alerts dashboard, the incidents dashboard's layout, mockup A4). Top to bottom:
+       - the header, with Ask Agentiko and New alert (no subtitle: the breadcrumb above it says
+         where this is);
+       - the time range (24h, 7d, 30d): the window of the incidents-opened chart and of "Most
+         incidents";
+       - the five figures: Firing, Not evaluated, Pending, OK, With open incidents;
+       - one row: the alerts on the left two thirds (the state chips, Firing by default, then one
+         card per alert, or with ?view=table the full table), the charts on the right third (by
+         state, by signal, incidents opened, the alerts that opened the most).
 
      krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
      fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
@@ -21,31 +22,23 @@ metadata:
     "krateo.io/nav-label": "Alerts"
     "krateo.io/nav-order": "13"
     "krateo.io/nav-path": "/alerts"
-    "krateo.io/filter-keys": "projects,status,signal,hasIncidents,q,view"
+    "krateo.io/filter-keys": "projects,status,range,view"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, signal, hasIncidents, q, view]
-  apiRef:
-    name: obs-alerts
-    namespace: {{ $.Values.namespace }}
+  keyExtras: [projects, status, range, view]
   widgetData:
     allowedResources:
     - pageheaders
     - flexes
     - listies
-    - paragraphs
-    - collapses
-    - buttons
-    - tables
+    - rows
     vertical: true
     gap: middle
     items:
     - resourceRefId: alerts-page-header
-    - resourceRefId: alerts-filter-bar
-    - resourceRefId: obs-alerts
-  widgetDataTemplate:
-  - forPath: items
-    expression: '${ [ { resourceRefId: "alerts-page-header" }, { resourceRefId: "alerts-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "alerts-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "alerts-view-toggle" }, { resourceRefId: "obs-alerts" } ] else [ { resourceRefId: "alerts-strip" } ] + (if .failed or .incidentsFailed or (.matched // 0) == 0 or ((.strip.firing // 0) == 0 and ((.groups.notEvaluated // []) | length) == 0 and ((.groups.pending // []) | length) == 0) then [ { resourceRefId: "alerts-calm" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "alerts-groups" }, { resourceRefId: "alerts-view-toggle" } ] else [] end) end) }'
+    - resourceRefId: alerts-range-group
+    - resourceRefId: alerts-stats
+    - resourceRefId: alerts-main
   resourcesRefs:
     items:
     - id: alerts-page-header
@@ -54,45 +47,21 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: alerts-filter-bar
+    - id: alerts-range-group
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-filter-bar
+      name: alerts-range-group
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET
-    - id: alerts-active-filters
+    - id: alerts-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-active-filters
+      name: alerts-stats
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: alerts-strip
+    - id: alerts-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-strip
+      name: alerts-main
       namespace: {{ $.Values.namespace }}
-      resource: listies
-      verb: GET
-    - id: alerts-calm
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-calm
-      namespace: {{ $.Values.namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: alerts-groups
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-groups
-      namespace: {{ $.Values.namespace }}
-      resource: collapses
-      verb: GET
-    - id: alerts-view-toggle
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-view-toggle
-      namespace: {{ $.Values.namespace }}
-      resource: buttons
-      verb: GET
-    - id: obs-alerts
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-alerts
-      namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: rows
       verb: GET

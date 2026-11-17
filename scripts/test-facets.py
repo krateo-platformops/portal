@@ -7,9 +7,9 @@ themselves, and "See all N →" into the table view. A `define` cannot cross cha
 cannot ship a snowplow jq module, so each chart that filters carries its own copy of _facets.tpl
 (the _duration.tpl precedent). This checks:
   - the copies are byte-for-byte the same (every chart under helm/ that has the file, and
-    the filtered pages' charts must have it: dashboard-page, reviews-page, alerts-page,
-    portal-agents, and portal for /compositions' compositions-list; /incidents filters by state
-    alone since its dashboard, so incidents-page has none);
+    the filtered pages' charts must have it: dashboard-page, reviews-page, portal-agents, and
+    portal for /compositions' compositions-list; /incidents and /alerts filter by state alone since
+    their dashboards, so incidents-page and alerts-page have none);
   - the semantics, run through each chart's RENDERED copy (lifted out of a RESTAction that includes
     it, not read from the .tpl) under jq and, with JQ=gojq, under snowplow's engine:
       a facet's counts ignore its own filter and apply every other one;
@@ -39,10 +39,10 @@ REPO = os.path.dirname(HERE)
 JQ = os.environ.get('JQ', 'jq')
 FIRST = 'dashboard-page'
 # Every chart that filters an overview page, so a chart losing its copy fails here too.
-EXPECTED = sorted(['dashboard-page', 'reviews-page', 'alerts-page', 'portal-agents', 'portal'])
+EXPECTED = sorted(['dashboard-page', 'reviews-page', 'portal-agents', 'portal'])
 # Where each chart's rendered copy is lifted from: a RESTAction whose filter includes portal.facets.
 LIFT_FROM = {'dashboard-page': 'dashboard-inbox', 'reviews-page': 'platform-reviews',
-             'alerts-page': 'obs-alerts', 'portal-agents': 'agents-list', 'portal': 'compositions-list'}
+             'portal-agents': 'agents-list', 'portal': 'compositions-list'}
 
 failures = []
 
