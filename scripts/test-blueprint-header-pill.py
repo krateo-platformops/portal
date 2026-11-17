@@ -16,7 +16,7 @@ Unknown, or no Ready yet) carrying one of these as Degraded instead of Pending.
 The pill reads cdState (helm/portal/templates/_cd-ready-reasons.tpl), which classifies the Ready
 reason by the verdict core-provider declares for it (docs/cd-ready-reasons.md). Ready=False is no
 longer Degraded by itself: Creating and Deleting are CONVERGING (Pending), and only a failed reason
-(Unavailable, RemoteChartUnreachable, SchemaDefaultContradiction) reads Degraded. Synced=False/
+(Unavailable, RemoteChartUnreachable, SchemaDefaultContradiction, ValuesSchemaMissing) reads Degraded. Synced=False/
 ReconcilePaused reads Paused. The run starts with a control: with the verdict table emptied, every
 Ready=False falls back to failed (the "any Ready=False" rule), and that must FAIL exactly the
 CONVERGING cases, or the cases are not testing the table.
@@ -72,6 +72,8 @@ CASES = [
     ('schema default contradiction', [c('Ready', 'False', 'SchemaDefaultContradiction'),
                                       c('Synced', 'False', 'ReconcileError')], 'Degraded', 'red'),
     ('remote chart unreachable', [c('Ready', 'False', 'RemoteChartUnreachable'), c('Synced', 'True', 'ReconcileSuccess')],
+     'Degraded', 'red'),
+    ('values schema missing', [c('Ready', 'False', 'ValuesSchemaMissing'), c('Synced', 'True', 'ReconcileSuccess')],
      'Degraded', 'red'),
     ('paused', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ReconcilePaused')], 'Paused', 'gray'),
     ('not observed, error on Synced', [c('Ready', 'Unknown', 'NotObserved'), c('Synced', 'False', 'ReconcileError')],

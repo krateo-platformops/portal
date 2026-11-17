@@ -17,9 +17,9 @@
   The first state that applies:
     paused      Synced=False with a cdSyncedPaused reason. Never a failure; reason names Ready's.
     failed      a Ready reason whose verdict is failed (Unavailable, RemoteChartUnreachable,
-                SchemaDefaultContradiction). reason = Ready's reason and message, which say what is
-                broken (each JSON pointer, for SchemaDefaultContradiction); Synced=False only repeats
-                it as "observe failed: ...".
+                SchemaDefaultContradiction, ValuesSchemaMissing). reason = Ready's reason and
+                message, which say what is broken (each JSON pointer, for SchemaDefaultContradiction);
+                Synced=False only repeats it as "observe failed: ...".
     drift       Ready=True and Synced=False: still serving, but the last pass failed. reason = Synced's.
     failed      otherwise Synced=False: the pass failed. reason = Synced's reason and message.
     ready       Ready=True.
@@ -35,5 +35,5 @@
   (scripts/test-copied-helpers.py), because a define lives in the chart that declares it.
 */}}
 {{- define "portal.cdReadyDefs" -}}
-def cdReadyVerdict: {"Available": "healthy", "ScaledToZero": "healthy", "Creating": "converging", "Unavailable": "failed", "RemoteChartUnreachable": "failed", "SchemaDefaultContradiction": "failed", "Deleting": "converging", "NotObserved": "unevaluated"}; def cdSyncedPaused: ["ReconcilePaused"]; def cdWithMessage($x): ($x.reason // "") + (if ($x.message // "") != "" then " · " + $x.message else "" end); def cdState: (. // []) as $c | ([ $c[]? | select(.type == "Ready") ][0] // {}) as $r | ([ $c[]? | select(.type == "Synced") ][0] // {}) as $s | (cdReadyVerdict[$r.reason // ""] // (if $r.status == "False" then "failed" elif $r.status == "True" then "healthy" elif $r == {} then "converging" else "unevaluated" end)) as $v | (if $s.status == "False" and (cdSyncedPaused | index($s.reason // "")) != null then "paused" elif $v == "failed" then "failed" elif $s.status == "False" and $r.status == "True" then "drift" elif $s.status == "False" then "failed" elif $r.status == "True" then "ready" elif $v == "converging" then "installing" else "unobserved" end) as $st | {state: $st, reason: (if $st == "paused" then "Paused" + (if ($r.reason // "") != "" then " · Ready: " + $r.reason else "" end) elif $st == "failed" and $v == "failed" then cdWithMessage($r) elif $st == "failed" or $st == "drift" then cdWithMessage($s) else ($r.reason // "") end)};
+def cdReadyVerdict: {"Available": "healthy", "ScaledToZero": "healthy", "Creating": "converging", "Unavailable": "failed", "RemoteChartUnreachable": "failed", "SchemaDefaultContradiction": "failed", "ValuesSchemaMissing": "failed", "Deleting": "converging", "NotObserved": "unevaluated"}; def cdSyncedPaused: ["ReconcilePaused"]; def cdWithMessage($x): ($x.reason // "") + (if ($x.message // "") != "" then " · " + $x.message else "" end); def cdState: (. // []) as $c | ([ $c[]? | select(.type == "Ready") ][0] // {}) as $r | ([ $c[]? | select(.type == "Synced") ][0] // {}) as $s | (cdReadyVerdict[$r.reason // ""] // (if $r.status == "False" then "failed" elif $r.status == "True" then "healthy" elif $r == {} then "converging" else "unevaluated" end)) as $v | (if $s.status == "False" and (cdSyncedPaused | index($s.reason // "")) != null then "paused" elif $v == "failed" then "failed" elif $s.status == "False" and $r.status == "True" then "drift" elif $s.status == "False" then "failed" elif $r.status == "True" then "ready" elif $v == "converging" then "installing" else "unobserved" end) as $st | {state: $st, reason: (if $st == "paused" then "Paused" + (if ($r.reason // "") != "" then " · Ready: " + $r.reason else "" end) elif $st == "failed" and $v == "failed" then cdWithMessage($r) elif $st == "failed" or $st == "drift" then cdWithMessage($s) else ($r.reason // "") end)};
 {{- end -}}
