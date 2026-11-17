@@ -11,15 +11,22 @@ False on a healthy definition, so they must never make the pill read Degraded:
   ApiRefRBACComplete   False only explains a Synced=False, which Ready/Synced already carry
 
 The old rule was "any condition False -> Degraded", which read a converging definition (Ready
-Unknown, or no Ready yet) carrying one of these as Degraded instead of Pending. The cases below pin
-the new rule, and the run starts with a control: the old rule, swapped into the same rendered
-expression, must FAIL the informational cases, or the cases are not testing the change.
+Unknown, or no Ready yet) carrying one of these as Degraded instead of Pending.
+
+The pill reads cdState (helm/portal/templates/_cd-ready-reasons.tpl), which classifies the Ready
+reason by the verdict core-provider declares for it (docs/cd-ready-reasons.md). Ready=False is no
+longer Degraded by itself: Creating and Deleting are CONVERGING (Pending), and only a failed reason
+(Unavailable, RemoteChartUnreachable, SchemaDefaultContradiction) reads Degraded. Synced=False/
+ReconcilePaused reads Paused. The run starts with a control: with the verdict table emptied, every
+Ready=False falls back to failed (the "any Ready=False" rule), and that must FAIL exactly the
+CONVERGING cases, or the cases are not testing the table.
 
 THE STRINGS ARE THE VALUES core-provider EMITS (its condition types and reasons, as core-provider
 listed them for this change). A misspelt type would pass silently, because an unknown type is simply
 ignored by the new rule.
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -32,8 +39,8 @@ REPO = os.path.dirname(HERE)
 CHART = os.path.join(REPO, 'helm', 'blueprints-page')
 JQ = os.environ.get('JQ', 'jq')
 
-NEW_ARM = '($c | map(select(.type == "Ready" and .status == "False")) | length) > 0'
-OLD_ARM = '($c | map(select(.status == "False")) | length) > 0'
+VERDICTS = re.compile(r'def cdReadyVerdict: \{[^}]*\};')
+NO_VERDICTS = 'def cdReadyVerdict: {};'
 
 
 def c(type_, status, reason=''):
@@ -61,6 +68,17 @@ CASES = [
     ('INFORMATIONAL converging + schema not fully enforced', [c('Ready', 'Unknown', 'NotObserved'),
                                                              c('SchemaFullyEnforced', 'False', 'ConstraintsNotEnforced')], 'Pending', 'orange'),
     ('INFORMATIONAL no Ready yet + delegation unsupported', [c('AuthnDelegation', 'False', 'DelegationUnsupported')], 'Pending', 'orange'),
+    # --- core-provider's verdicts (docs/cd-ready-reasons.md) ---
+    ('schema default contradiction', [c('Ready', 'False', 'SchemaDefaultContradiction'),
+                                      c('Synced', 'False', 'ReconcileError')], 'Degraded', 'red'),
+    ('remote chart unreachable', [c('Ready', 'False', 'RemoteChartUnreachable'), c('Synced', 'True', 'ReconcileSuccess')],
+     'Degraded', 'red'),
+    ('paused', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ReconcilePaused')], 'Paused', 'gray'),
+    ('not observed, error on Synced', [c('Ready', 'Unknown', 'NotObserved'), c('Synced', 'False', 'ReconcileError')],
+     'Degraded', 'red'),
+    ('a reason this portal does not know, False', [c('Ready', 'False', 'SomethingNew2028')], 'Degraded', 'red'),
+    ('CONVERGING creating', [c('Ready', 'False', 'Creating'), c('Synced', 'True', 'ReconcileSuccess')], 'Pending', 'orange'),
+    ('CONVERGING deleting', [c('Ready', 'False', 'Deleting')], 'Pending', 'orange'),
 ]
 
 
@@ -110,16 +128,16 @@ def failures(program, verbose):
 
 def main():
     program = tags_program()
-    if program.count(NEW_ARM) != 1:
-        print(f'FAIL the Degraded arm is not the Ready=False rule exactly once: {NEW_ARM}')
+    if len(VERDICTS.findall(program)) != 1:
+        print('FAIL the pill does not read cdState\'s verdict table exactly once')
         return 1
-    # Control: the old rule in the same expression must fail every INFORMATIONAL case and nothing else.
-    old = failures(program.replace(NEW_ARM, OLD_ARM), verbose=False)
-    informational = [name for name, *_ in CASES if name.startswith('INFORMATIONAL')]
-    if old != informational:
-        print(f'FAIL control: the old "any False" rule failed {old}, expected exactly {informational}')
+    # Control: with no verdicts, every Ready=False is failed. That must fail exactly the CONVERGING cases.
+    old = failures(VERDICTS.sub(NO_VERDICTS, program), verbose=False)
+    converging = [name for name, *_ in CASES if name.startswith('CONVERGING')]
+    if old != converging:
+        print(f'FAIL control: without the verdict table the pill failed {old}, expected exactly {converging}')
         return 1
-    print(f'[PASS] control: the old "any False" rule fails the {len(informational)} informational cases')
+    print(f'[PASS] control: without core-provider\'s verdicts, the {len(converging)} converging cases read Degraded')
     bad = failures(program, verbose=True)
     print(f'{len(CASES) - len(bad)}/{len(CASES)} blueprint pill cases ok')
     return min(len(bad), 125)

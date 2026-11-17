@@ -1,5 +1,6 @@
-# The portal's Ready-reason classification against core-provider's generated table
-# (docs/ready-reasons.md on core-provider main). On every PR and push, and DAILY: core-provider can add
+# The portal's Ready-reason classification against core-provider's generated tables
+# (docs/ready-reasons.md for a composition, docs/cd-ready-reasons.md for a CompositionDefinition, both
+# on core-provider main). On every PR and push, and DAILY: core-provider can add
 # or reclassify a reason without touching this repo, and a reason the portal does not know renders as a
 # failure. The daily run is how that is noticed even when no portal PR is open. See ready-reasons.yaml.
 name: ready-reasons
@@ -21,6 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Install Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.19.0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -31,3 +37,8 @@ jobs:
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-ready-reasons.py
+
+      - name: A blueprint's state matches core-provider's CompositionDefinition table
+        run: |
+          set -euo pipefail
+          python3 scripts/test-cd-ready-reasons.py
