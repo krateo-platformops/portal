@@ -1,6 +1,6 @@
-{{/* Subtitle for the Tool servers table. Says exactly where each column comes from, because the two */}}
-{{/* most surprising numbers on the page (Discovered vs In use) are only meaningful if the reader */}}
-{{/* knows one is the server's own report and the other is the union of what agents bind. */}}
+{{/* Subtitle for the Tool servers table. One sentence on the two columns that need it (Discovered is */}}
+{{/* the server's own report, In use what agents bind). An unreadable routing is said by */}}
+{{/* paragraph.agents-servers-notice, not here. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,15 +9,11 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
   widgetData:
     text: >-
-      Every MCP server the agents on this cluster can reach — endpoint, protocol and timeout from the
-      RemoteMCPServer spec, Discovered from the tools that server reports, In use from how many of
-      them at least one agent binds. Status fills in only when something needs attention: a
-      RemoteMCPServer that is not Accepted, an endpoint that leaves the cluster, or an in-cluster
-      endpoint with no agentgateway route in front of it. Where the routing cannot be read at all,
-      Status stays silent and a line above says so rather than calling the server unrouted.
+      Every tool server the agents can reach: Discovered is how many tools it offers, In use how
+      many of them an agent calls, and Status appears only when a server needs attention.
     type: secondary
   resourcesRefs:
     items: []

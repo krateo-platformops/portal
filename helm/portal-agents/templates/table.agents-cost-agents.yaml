@@ -1,0 +1,37 @@
+{{/* Spend per agent, for the agents the caller can read, plus the incident comparison (the model */}}
+{{/* call the alert provider makes per firing without an agent) and the gateway's other calls, so */}}
+{{/* the rows add up to the Spend figure. An agent row opens the agent; the other two have no */}}
+{{/* route and do not navigate. Cells are plain numbers so the columns sort numerically; tokens */}}
+{{/* are in thousands. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-agents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    rowNavigateTo: /agents/{routeNs}/{routeName}
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: name
+      title: Agent
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: columns
+    expression: '${ [ {valueKey:"name",title:"Agent"}, {valueKey:"calls",title:"Calls"}, {valueKey:"input",title:"Input (k)"}, {valueKey:"cached",title:"Cached (k)"}, {valueKey:"output",title:"Output (k)"}, {valueKey:"spend",title:"Spend ($)"}, {valueKey:"share",title:"Share (%)"} ] }'
+  - forPath: dataSource
+    expression: '${ [ (.agents // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"calls",kind:"jsonSchemaType",type:"string",stringValue:(.calls // "")}, {valueKey:"input",kind:"jsonSchemaType",type:"string",stringValue:(.input // "")}, {valueKey:"cached",kind:"jsonSchemaType",type:"string",stringValue:(.cached // "")}, {valueKey:"output",kind:"jsonSchemaType",type:"string",stringValue:(.output // "")}, {valueKey:"spend",kind:"jsonSchemaType",type:"string",stringValue:(.spend // "")}, {valueKey:"share",kind:"jsonSchemaType",type:"string",stringValue:(.share // "")}, {valueKey:"routeNs",kind:"jsonSchemaType",type:"string",stringValue:(.routeNs // "")}, {valueKey:"routeName",kind:"jsonSchemaType",type:"string",stringValue:(.routeName // "")} ] ] }'
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

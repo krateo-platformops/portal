@@ -179,7 +179,6 @@ spec:
     | ( reduce ((.models.items // [])[]) as $m ({}; .[$m.metadata.name] = ($m.spec.model // "")) ) as $modelOf
     | ( if $srvErr != "" then null
         else ( [ (.servers.items // [])[] | (.status.discoveredTools // []) | length ] | add // 0 ) end ) as $toolsDiscovered
-    | ( (.servers.items // []) | length ) as $serverCount
     # The tool servers as overview items: Accepted is the condition kagent writes once it has
     # connected and listed the server's tools.
     | ( [ (.servers.items // [])[]
@@ -322,19 +321,9 @@ spec:
                   ( "Some of this page's reads FAILED — " + ($failed | join("; "))
                     + ". What is missing from the table below is missing because a read failed, not because it is not there." )
                 else
-                  ( "Every agent you can read on this cluster, the model it resolves to, the tools and tool servers it may call, and who it delegates to — read from the Agent, ModelConfig and RemoteMCPServer resources. "
-                    + (.rows | length | tostring) + " readable; "
-                    + ($toolsDiscovered | tostring) + " tools discovered across "
-                    + ($serverCount | tostring) + " tool servers."
-                    # The fan-out shape is the first thing worth knowing about a fleet, so it is
-                    # stated here rather than left to be inferred from the Delegates column. Names
-                    # the orchestrators explicitly: "one orchestrator" and "three" are different
-                    # clusters, and so is a cluster where nothing delegates at all.
-                    + ( if ($orch | length) == 0
-                        then " No agent you can read delegates to another — each one works alone."
-                        else ( " " + ($orch | length | tostring)
-                               + ( if ($orch | length) == 1 then " agent hands work to others: " else " agents hand work to others: " end )
-                               + ( [ $orch[] | (.name + " → " + (.delegates | tostring)) ] | join(", ") ) + "." ) end ) )
+                  # One sentence and no counts: the strip below carries the counts, and the
+                  # orchestrators are their own group.
+                  "Every agent you have access to, the model it runs on, the tools it can call and the agents it hands work to."
                 end )
               # Appended, never substituted: a gateway finding does not replace a failed read, and a
               # withheld verdict has to be SAID. Silence here would let an unchecked fleet read as a

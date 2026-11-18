@@ -1,0 +1,33 @@
+{{/* Spend per caller, as the gateway saw them: a person, or a service such as the alert provider */}}
+{{/* (whose calls include the analyses agents run on its behalf). */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-users
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: name
+      title: User
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: columns
+    expression: '${ [ {valueKey:"name",title:"User"}, {valueKey:"kind",title:"Kind"}, {valueKey:"calls",title:"Calls"}, {valueKey:"input",title:"Input (k)"}, {valueKey:"cached",title:"Cached (k)"}, {valueKey:"output",title:"Output (k)"}, {valueKey:"spend",title:"Spend ($)"}, {valueKey:"share",title:"Share (%)"} ] }'
+  - forPath: dataSource
+    expression: '${ [ (.users // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:(.kind // "")}, {valueKey:"calls",kind:"jsonSchemaType",type:"string",stringValue:(.calls // "")}, {valueKey:"input",kind:"jsonSchemaType",type:"string",stringValue:(.input // "")}, {valueKey:"cached",kind:"jsonSchemaType",type:"string",stringValue:(.cached // "")}, {valueKey:"output",kind:"jsonSchemaType",type:"string",stringValue:(.output // "")}, {valueKey:"spend",kind:"jsonSchemaType",type:"string",stringValue:(.spend // "")}, {valueKey:"share",kind:"jsonSchemaType",type:"string",stringValue:(.share // "")} ] ] }'
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

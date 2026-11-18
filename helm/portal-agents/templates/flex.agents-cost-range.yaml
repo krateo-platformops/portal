@@ -1,0 +1,43 @@
+{{/* "Time range": the preset chips (the last 1h to 7d), as on /incidents and /observability, then a */}}
+{{/* day picker for any span of days. The access log and the agents' spans are kept 7 days. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-range
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    - rangepickers
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: agents-cost-range-label
+    - resourceRefId: agents-cost-range-chips
+    - resourceRefId: agents-cost-days
+  resourcesRefs:
+    items:
+    - id: agents-cost-range-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-range-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agents-cost-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-range-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-cost-days
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-days
+      namespace: {{ $.Values.namespace }}
+      resource: rangepickers
+      verb: GET

@@ -1,0 +1,24 @@
+{{/* The range chips; restaction.agents-cost builds each route (this tab, ?range=<k>). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-range-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .rangeChips // [] }'
+  resourcesRefs:
+    items: []

@@ -32,7 +32,7 @@ tbi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tbi)
 
 NS = 'krateo-system'
-KX = ['projects', 'kind', 'status', 'owner', 'q', 'view']
+KX = ['projects', 'kind', 'status', 'owner', 'q', 'view', 'range', 'from', 'to']
 
 
 def agent(name, delegates=0, ready=True, owner='agentiko', description=None):

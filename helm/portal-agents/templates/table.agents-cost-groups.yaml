@@ -1,0 +1,33 @@
+{{/* Spend per group: a call counts for every group its caller is in, so shares can add up past */}}
+{{/* 100%. "Users" is how many callers of that group made calls in the range. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-groups
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    fitContent: true
+    pagination:
+      defaultPageSize: 20
+      hideOnSinglePage: true
+    columns:
+    - valueKey: name
+      title: Group
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: columns
+    expression: '${ [ {valueKey:"name",title:"Group"}, {valueKey:"members",title:"Users"}, {valueKey:"calls",title:"Calls"}, {valueKey:"spend",title:"Spend ($)"}, {valueKey:"share",title:"Share (%)"} ] }'
+  - forPath: dataSource
+    expression: '${ [ (.groups // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"members",kind:"jsonSchemaType",type:"string",stringValue:(.members // "")}, {valueKey:"calls",kind:"jsonSchemaType",type:"string",stringValue:(.calls // "")}, {valueKey:"spend",kind:"jsonSchemaType",type:"string",stringValue:(.spend // "")}, {valueKey:"share",kind:"jsonSchemaType",type:"string",stringValue:(.share // "")} ] ] }'
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
