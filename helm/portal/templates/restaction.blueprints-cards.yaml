@@ -27,11 +27,17 @@ spec:
         group: core.krateo.io
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
+      {{/* A CARD'S STATE is cdState (_cd-ready-reasons.tpl): the CompositionDefinition's Ready reason
+           classified by the verdict core-provider declares for it, CI-checked against core-provider's
+           generated table. ready green, failed and drift red (drift: still serving, last pass failed),
+           installing and unobserved orange (unobserved follows a composition's ObserveFailed:
+           pending, and failed once Synced=False, which is where NotObserved puts its error), paused gray. The tooltip is cdState's reason: for a
+           failure, the reason AND message core-provider wrote, which say what is broken. */}}
       filter: >
+        {{ include "portal.cdReadyDefs" . }}
         [.compdefs.items[]?
          | ((.metadata.labels // {})["krateo.io/tier"] // "blueprint") as $cat
-         | (([.status.conditions[]? | select(.type == "Ready") | .status][0]) // "Unknown") as $ready
-         | (([.status.conditions[]? | select(.type == "Synced") | .status][0]) // "Unknown") as $synced
+         | (.status.conditions | cdState) as $st
          | {
              apiVersion,
              kind,
@@ -45,11 +51,10 @@ spec:
              version: (.spec.chart.version // ""),
              chart: (.spec.chart.url // ""),
              provisions: (.status.kind // .status.managed.kind // ""),
-             # green = Ready/Available; red = a genuine reconcile FAILURE (Synced=False); orange = still
-             # installing / not yet Ready (a transient Ready=False during reconcile is NOT a failure).
-             readyReason: (if $synced == "False" then (([.status.conditions[]? | select(.type == "Synced") | .reason][0]) // "ReconcileError") else (([.status.conditions[]? | select(.type == "Ready") | .reason][0]) // "") end),
-             readyIcon: (if $ready == "True" then "fa-circle-check" elif $synced == "False" then "fa-circle-xmark" else "fa-clock" end),
-             readyColor: (if $ready == "True" then "green" elif $synced == "False" then "red" else "orange" end),
+             readyState: (if $st.state == "drift" then "failed" else $st.state end),
+             readyReason: $st.reason,
+             readyIcon: {"ready": "fa-circle-check", "failed": "fa-circle-xmark", "drift": "fa-circle-xmark", "installing": "fa-clock", "paused": "fa-circle-pause", "unobserved": "fa-clock"}[$st.state],
+             readyColor: {"ready": "green", "failed": "red", "drift": "red", "installing": "orange", "paused": "gray", "unobserved": "orange"}[$st.state],
              category: $cat,
              tags: [ $cat ]
            }]
@@ -59,8 +64,8 @@ spec:
   {{/* "Top blueprints" reuse passes no ?category, so $sel defaults to "all" → unfiltered. */}}
   {{/* ASK AGENTIKO (blueprints-page button.blueprints-ask-agentiko): `askHref` is /blueprints with
        the current ?category, ?q and ?projects kept and an @uri-encoded ?ask seed about the cards in
-       view — how many, how many are ready, which are failing to reconcile (Synced=False, with the
-       reason) and how many are still installing. `readError` is the compdefs step's error, which
+       view — how many, how many are ready, which are failing (with the reason and message
+       core-provider wrote) and how many are still installing, paused or not observed (readyState). `readError` is the compdefs step's error, which
        continueOnError used to hide: a refused list looked like a platform with no blueprints. With
        nothing read the prompt asks what the error means instead of saying there are none. The
        dashboard's "Top blueprints" reads only `.cards` and is unchanged. */}}
@@ -80,7 +85,8 @@ spec:
     | ([ (if $sel != "all" then "category " + ($sel | tostring) else empty end),
          (if ($projects | length) > 0 then ("namespace" + (if ($projects | length) > 1 then "s " else " " end) + ($projects | join(", "))) else empty end),
          (if $q != "" then "name or kind matching \"" + ((.q // "") | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
-    | ([ $cards[] | select(.readyColor == "red") ]) as $failing
+    | ([ $cards[] | select(.readyState == "failed") ]) as $failing
+    | (def n($st): [ $cards[] | select(.readyState == $st) ] | length; {ready: n("ready"), installing: n("installing"), paused: n("paused"), unobserved: n("unobserved")}) as $n
     | (if $readError != "" and ($all | length) == 0 then
          "The blueprints on this platform could not be read (" + $readError + "). Explain what that error means and what to check."
        elif ($cards | length) == 0 then
@@ -89,10 +95,12 @@ spec:
        else
          "Review the blueprints installed on this platform" + (if $view != "" then " (" + $view + ")" else "" end) + ": "
          + ($cards | length | tostring) + (if ($cards | length) == 1 then " blueprint — " else " blueprints — " end)
-         + ([ $cards[] | select(.readyColor == "green") ] | length | tostring) + " ready, "
+         + ($n.ready | tostring) + " ready, "
          + ($failing | length | tostring) + " failing to reconcile"
-         + (if ($failing | length) > 0 then " (" + ($failing | .[0:8] | map((.metadata.name // "") + " · " + (.metadata.namespace // "") + " — " + (if (.readyReason // "") != "" then .readyReason else "Synced=False" end)) | join("; ")) + ")" else "" end)
-         + ", " + ([ $cards[] | select(.readyColor == "orange") ] | length | tostring) + " still installing."
+         + (if ($failing | length) > 0 then " (" + ($failing | .[0:8] | map((.metadata.name // "") + " · " + (.metadata.namespace // "") + " — " + (if (.readyReason // "") != "" then (.readyReason | cap(200)) else "Synced=False" end)) | join("; ")) + ")" else "" end)
+         + ", " + ($n.installing | tostring) + " still installing"
+         + (if $n.paused > 0 then ", " + ($n.paused | tostring) + " paused" else "" end)
+         + (if $n.unobserved > 0 then ", " + ($n.unobserved | tostring) + " not observed by core-provider" else "" end) + "."
          + (if ($failing | length) > 0 then " Explain what the failing ones are stuck on and how to fix them."
             else " None is failing to reconcile. Tell me whether any still installing looks stuck, and what each blueprint lets me create." end)
        end

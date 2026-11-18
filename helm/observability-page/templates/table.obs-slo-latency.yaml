@@ -1,0 +1,34 @@
+{{/* p95 is the bucket interval that holds the rank, with its sample count beside it (a p95 of n=3 must
+     read as one). Colour is exception-only: orange when the whole interval lies above the target, gray
+     when it straddles the target or there is no figure, nothing when the target is met. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-slo-latency
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    allowedResources: []
+    bordered: false
+    size: small
+    columns:
+    - valueKey: objective
+      title: Objective
+    - valueKey: target
+      title: Target
+    - valueKey: p95
+      title: p95 falls in
+    - valueKey: samples
+      title: Samples
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.latency // [])[] | [ {valueKey:"objective",kind:"jsonSchemaType",type:"string",stringValue:.objective}, {valueKey:"target",kind:"jsonSchemaType",type:"string",stringValue:.target,color:"var(--gray-color)"}, ({valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:(.p95 + (if .state == "above" then " · above target" elif .state == "atTarget" then " · at the target, cannot tell" else "" end))} + (if .state == "above" then {color:"var(--orange-color)"} elif .state == "met" then {} else {color:"var(--gray-color)"} end)), {valueKey:"samples",kind:"jsonSchemaType",type:"string",stringValue:(.n | tostring),color:"var(--gray-color)"} ] ] }'
+  apiRef:
+    name: obs-slo
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

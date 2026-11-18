@@ -1,0 +1,52 @@
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-slo-avail-ui
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    variant: outlined
+    allowedResources:
+    - statistics
+    - paragraphs
+    - progresses
+    items:
+    - resourceRefId: obs-slo-avail-ui-value
+    - resourceRefId: obs-slo-avail-ui-detail
+  {{/* Board 3: the budget line once the 30-day window is read, and the bar only once 30 days of data
+       exist ("the bar stays hidden until 30 days exist"). */}}
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ([ (.availability // [])[] | select(.key == "krateo-frontend") ][0] // {}) as $a | [ { resourceRefId: "obs-slo-avail-ui-value" } ] + (if $a.showBar == true then [ { resourceRefId: "obs-slo-avail-ui-budget-bar" } ] else [] end) + (if ($a.budget // "") != "" then [ { resourceRefId: "obs-slo-avail-ui-budget" } ] else [] end) + [ { resourceRefId: "obs-slo-avail-ui-detail" } ] }'
+  apiRef:
+    name: obs-slo
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items:
+    - id: obs-slo-avail-ui-budget-bar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-avail-ui-budget-bar
+      namespace: {{ $.Values.namespace }}
+      resource: progresses
+      verb: GET
+    - id: obs-slo-avail-ui-budget
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-avail-ui-budget
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-slo-avail-ui-value
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-avail-ui-value
+      namespace: {{ $.Values.namespace }}
+      resource: statistics
+      verb: GET
+    - id: obs-slo-avail-ui-detail
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-slo-avail-ui-detail
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

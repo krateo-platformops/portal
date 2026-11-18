@@ -1,0 +1,23 @@
+kind: Statistic
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-slo-avail-ui-value
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [range]
+  widgetData:
+    title: 'UI · krateo-frontend'
+    value: '—'
+  widgetDataTemplate:
+  - forPath: value
+    expression: '${ ([ (.availability // [])[] | select(.key == "krateo-frontend") ][0] // {}).value // "—" }'
+  {{/* Exception-only: the figure is plain while it meets 99.9 %, orange only below it. */}}
+  - forPath: valueStyle
+    expression: '${ if ([ (.availability // [])[] | select(.key == "krateo-frontend") ][0] // {}).below == true then {color: "var(--orange-color)"} else {} end }'
+  apiRef:
+    name: obs-slo
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []

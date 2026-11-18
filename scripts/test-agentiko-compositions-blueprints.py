@@ -210,13 +210,14 @@ check('compositions header: Ask, then Create', items_of(named(cpage, 'PageHeader
 cards_prog = named(portal, 'RESTAction', 'blueprints-cards')['spec']['filter']
 
 
-def card(name, ns, color, reason='', category='blueprint'):
-    return {'metadata': {'name': name, 'namespace': ns}, 'provisions': name.title(), 'readyColor': color,
-            'readyReason': reason, 'category': category, 'version': '1.0.0'}
+def card(name, ns, state, reason='', category='blueprint'):
+    color = {'ready': 'green', 'failed': 'red', 'installing': 'orange', 'paused': 'gray', 'unobserved': 'gray'}[state]
+    return {'metadata': {'name': name, 'namespace': ns}, 'provisions': name.title(), 'readyState': state,
+            'readyColor': color, 'readyReason': reason, 'category': category, 'version': '1.0.0'}
 
 
-CARDS = [card('web-app', 'krateo-system', 'green'), card('redis', 'team-alpha', 'red', 'ReconcileError'),
-         card('kafka', 'krateo-system', 'orange', category='platform')]
+CARDS = [card('web-app', 'krateo-system', 'ready'), card('redis', 'team-alpha', 'failed', 'ReconcileError'),
+         card('kafka', 'krateo-system', 'installing', category='platform')]
 out = jq(cards_prog, {'compdefs': CARDS})
 check('blueprints: cards unchanged', [c['metadata']['name'] for c in out['cards']], ['kafka', 'redis', 'web-app'])
 href, prompt = ask(out['askHref'])
@@ -224,6 +225,12 @@ check('blueprints: unfiltered -> self page', href, '/blueprints')
 check('blueprints: unfiltered -> the prompt', prompt,
       'Review the blueprints installed on this platform: 3 blueprints — 1 ready, 1 failing to reconcile '
       '(redis · team-alpha — ReconcileError), 1 still installing. Explain what the failing ones are stuck on and how to fix them.')
+_, prompt = ask(jq(cards_prog, {'compdefs': CARDS + [card('vault', 'krateo-system', 'paused', 'Paused'),
+                                                     card('nats', 'krateo-system', 'unobserved', 'NotObserved')]})['askHref'])
+check('blueprints: paused and not-observed are counted apart, never as installing or failing', prompt,
+      'Review the blueprints installed on this platform: 5 blueprints — 1 ready, 1 failing to reconcile '
+      '(redis · team-alpha — ReconcileError), 1 still installing, 1 paused, 1 not observed by core-provider. '
+      'Explain what the failing ones are stuck on and how to fix them.')
 href, prompt = ask(jq(cards_prog, {'compdefs': CARDS, 'category': 'platform', 'q': 'kaf'})['askHref'])
 check('blueprints: filtered -> keeps category and q', href, '/blueprints?category=platform&q=kaf')
 check('blueprints: filtered -> the filtered view', prompt,

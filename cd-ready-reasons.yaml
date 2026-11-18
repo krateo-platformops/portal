@@ -1,0 +1,37 @@
+# core-provider's table of a CompositionDefinition's condition reasons, as this portal was written
+# against it, and how the portal shows each one. A composition's reasons are ready-reasons.yaml; the
+# two are separate sets.
+#
+# core-provider GENERATES the complete, closed list (docs/cd-ready-reasons.md on its main, from code:
+# core-provider#557). The portal reads a blueprint's state from it in ONE place, cdState in
+# helm/portal/templates/_cd-ready-reasons.tpl (copied byte-identical into blueprints-page): the
+# blueprint cards (marketplace grid, dashboard "Top blueprints", their Ask-Agentiko prompt) and the
+# blueprint detail header pill. Before it, a card was red only on Synced=False, so a failed Ready
+# (SchemaDefaultContradiction) read "still installing", and the pill read every Ready=False Degraded,
+# so Creating and Deleting read as failures. scripts/test-cd-ready-reasons.py (the ready-reasons
+# workflow: every PR, main and daily) fails when:
+#   - core-provider's table differs from `table` below in any row (a reason added, removed, or given a
+#     new status or parent verdict). Decide how the portal shows the change, update cdState, then
+#     update this file;
+#   - cdReadyVerdict in _cd-ready-reasons.tpl does not map every Ready reason to its verdict, or
+#     cdSyncedPaused names a Synced reason the table does not have;
+#   - the cards, run over one CompositionDefinition per Ready row, do not show the state its verdict
+#     means.
+#
+# `portal` says what the portal shows, for the reader of this file; it is not parsed.
+source: https://raw.githubusercontent.com/krateo-platformops/core-provider/main/docs/cd-ready-reasons.md
+table:
+  - {condition: Ready, reason: Available, status: "True", writer: core-provider, verdict: healthy, portal: ready (green) / Healthy}
+  - {condition: Ready, reason: ScaledToZero, status: "True", writer: core-provider, verdict: healthy, portal: ready (green) / Healthy}
+  - {condition: Ready, reason: Creating, status: "False", writer: core-provider, verdict: converging, portal: still installing (orange) / Pending}
+  - {condition: Ready, reason: Unavailable, status: "False", writer: core-provider, verdict: failed, portal: failed (red) / Degraded, Ready's message}
+  - {condition: Ready, reason: RemoteChartUnreachable, status: "False", writer: core-provider, verdict: failed, portal: failed (red) / Degraded, Ready's message}
+  - {condition: Ready, reason: SchemaDefaultContradiction, status: "False", writer: core-provider, verdict: failed, portal: failed (red) / Degraded, Ready's message (the JSON pointers)}
+  - {condition: Ready, reason: ValuesSchemaMissing, status: "False", writer: core-provider, verdict: failed, portal: failed (red) / Degraded, Ready's message (the chart has no values.schema.json)}
+  - {condition: Ready, reason: Deleting, status: "False", writer: core-provider, verdict: converging, portal: still installing (orange) / Pending}
+  - {condition: Ready, reason: NotObserved, status: Unknown, writer: provider-runtime, verdict: "unevaluated (rolls up as healthy)", portal: "pending (orange); failed when Synced=False, where its error is"}
+  - {condition: Ready, reason: Creating, status: "False", writer: provider-runtime, verdict: converging, portal: still installing (orange) / Pending}
+  - {condition: Ready, reason: Deleting, status: "False", writer: provider-runtime, verdict: converging, portal: still installing (orange) / Pending}
+  - {condition: Synced, reason: ReconcileSuccess, status: "True", writer: provider-runtime, verdict: "—", portal: no effect}
+  - {condition: Synced, reason: ReconcileError, status: "False", writer: provider-runtime, verdict: "—", portal: "failed (red) / Degraded, or Drift when Ready=True; Synced's message unless Ready's verdict is failed"}
+  - {condition: Synced, reason: ReconcilePaused, status: "False", writer: provider-runtime, verdict: "—", portal: paused (gray) / Paused}

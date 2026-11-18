@@ -170,6 +170,14 @@ def resolve(ra, extras, responses, caller=ADMIN):
                     return requests, d, None       # snowplow truncates the resolve (R-3)
                 d.setdefault(step.get('errorKey', 'error'), []).append(f'{path}: not found')
                 continue
+            if isinstance(resp, dict) and '__status__' in resp:
+                # A non-2xx answer from an external endpoint: snowplow records the Failure envelope
+                # it shapes from the response (external_fetch.go nonOKStatus: the status line's code,
+                # the body's first 2048 bytes as message) under the errorKey; no response is stored.
+                if not step.get('continueOnError'):
+                    return requests, d, None
+                d.setdefault(step.get('errorKey', 'error'), []).append(resp['__status__'])
+                continue
             pig = {name: refiltered(step, copy.deepcopy(resp), caller)}
             if extras:
                 pig['extras'] = extras
@@ -210,6 +218,32 @@ EMPTY = {'items': []}
 # RESTAction -> {gated: its gated steps, free: responses of its input-free steps,
 #                cases: [(label, extras, responses of the gated steps, the gated requests expected)]}
 # A request is (step, path) or (step, path, payload).
+SAR_PATH = '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews'
+
+
+def sar(allowed):
+    """A SelfSubjectAccessReview response."""
+    return {'apiVersion': 'authorization.k8s.io/v1', 'kind': 'SelfSubjectAccessReview', 'status': {'allowed': allowed}}
+
+
+def sar_body(verb, ns, name):
+    return {'apiVersion': 'authorization.k8s.io/v1', 'kind': 'SelfSubjectAccessReview',
+            'spec': {'resourceAttributes': {'group': 'core.krateo.io', 'resource': 'compositiondefinitions',
+                                            'verb': verb, 'namespace': ns, 'name': name}}}
+
+
+def blueprint_controls(ra, extras, out, caller=ADMIN):
+    """blueprint-detail's `may`: a control is hidden only on an explicit no from its probe."""
+    if ra != 'blueprint-detail':
+        return None
+    want = {'uninstall': True, 'update': True, 'fleet': True}
+    if extras.get('namespace') == 'krateo-bp-x':
+        want = {'uninstall': False, 'update': False, 'fleet': False}
+    if out.get('may') != want:
+        return f'may {out.get("may")} != {want}'
+    return None
+
+
 GATES = {
     'review-proposal': {
         'gated': ['proposal', 'claim'],
@@ -242,15 +276,36 @@ GATES = {
                    [('alert', '/apis/observability.krateo.io/v1alpha1/namespaces/team-a/alerts/a1')])],
     },
     'blueprint-detail': {
-        'gated': ['compdef', 'comps'],
-        'free': {'catalog': tbi.catalog_configmap()},
+        'gated': ['compdef', 'comps', 'mayDelete', 'mayPatch'],
+        'free': {'catalog': tbi.catalog_configmap(), 'mayCreate': sar(True)},
+        'check': blueprint_controls,
         'cases': [
-            ('named', {'namespace': NS, 'name': 'keystone'}, {'compdef': CD, 'comps': EMPTY}, [
+            ('named', {'namespace': NS, 'name': 'keystone'},
+             {'compdef': CD, 'comps': EMPTY, 'mayDelete': sar(True), 'mayPatch': sar(True)}, [
                 ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
-                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes')]),
+                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes'),
+                ('mayDelete', SAR_PATH, sar_body('delete', NS, 'keystone')),
+                ('mayPatch', SAR_PATH, sar_body('patch', NS, 'keystone'))]),
+            # The tenant on demo (acmp, 2026-11-16): may read the blueprint, may not change it.
+            ('tenant: may not uninstall, update or deploy to fleet', {'namespace': 'krateo-bp-x', 'name': 'keystone'},
+             {'compdef': CD, 'comps': EMPTY, 'mayDelete': sar(False), 'mayPatch': sar(False), 'mayCreate': sar(False)}, [
+                ('compdef', '/apis/core.krateo.io/v1alpha1/namespaces/krateo-bp-x/compositiondefinitions/keystone'),
+                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes'),
+                ('mayDelete', SAR_PATH, sar_body('delete', 'krateo-bp-x', 'keystone')),
+                ('mayPatch', SAR_PATH, sar_body('patch', 'krateo-bp-x', 'keystone'))]),
+            # A probe that fails is not a no: the controls stay, and the apiserver still decides.
+            ('the probes failed: every control stays', {'namespace': NS, 'name': 'keystone'},
+             {'compdef': CD, 'comps': EMPTY, 'mayCreate': None}, [
+                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
+                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes'),
+                ('mayDelete', SAR_PATH, sar_body('delete', NS, 'keystone')),
+                ('mayPatch', SAR_PATH, sar_body('patch', NS, 'keystone'))]),
             ('unreconciled CD: no instances to list, and no /apis/none.krateo.io/v1/none',
-             {'namespace': NS, 'name': 'keystone'}, {'compdef': CD_UNRECONCILED}, [
-                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone')])],
+             {'namespace': NS, 'name': 'keystone'},
+             {'compdef': CD_UNRECONCILED, 'mayDelete': sar(True), 'mayPatch': sar(True)}, [
+                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
+                ('mayDelete', SAR_PATH, sar_body('delete', NS, 'keystone')),
+                ('mayPatch', SAR_PATH, sar_body('patch', NS, 'keystone'))])],
     },
     'blueprint-formdef': {
         'gated': ['compdef', 'jsonschema', 'crd'],

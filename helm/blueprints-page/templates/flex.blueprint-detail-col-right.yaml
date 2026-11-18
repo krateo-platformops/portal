@@ -3,6 +3,8 @@
 {{/* installed one — nothing to update to ⇒ no preview chrome) + Metadata. Items are templated */}}
 {{/* off the same blueprint-detail RA the column's cards already read; resourcesRefs stay */}}
 {{/* static (unmounted children are never fetched — page-incident-detail pattern). */}}
+{{/* Both cards belong to the update flow, so both are mounted only for a caller allowed to PATCH */}}
+{{/* the CompositionDefinition (blueprint-detail's `may.update`, SelfSubjectAccessReview). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -26,8 +28,9 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "card-blueprint-detail-update" } ]
-        + (if (((.availableVersions // []) - [(.currentVersion // "")]) | length) > 0 then [ { resourceRefId: "card-blueprint-impact-picker" } ] else [] end) }
+        ${ if .may.update == false then []
+        else [ { resourceRefId: "card-blueprint-detail-update" } ]
+        + (if (((.availableVersions // []) - [(.currentVersion // "")]) | length) > 0 then [ { resourceRefId: "card-blueprint-impact-picker" } ] else [] end) end }
   resourcesRefs:
     items:
       - id: card-blueprint-detail-update

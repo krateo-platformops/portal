@@ -290,6 +290,16 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-k8s-names.py
 
+      # observability-page 1.8.131 shipped `valueKey: n`; helm and the apiserver read YAML 1.1, where a
+      # bare n is false, so the Table CRD refused it at the 1.8.135 roll on krateo-057. Every schema
+      # test here parses with PyYAML, which reads n/y as strings, so none of them could see it. This
+      # refuses any unquoted y/n/yes/no/on/off in a rendered chart, in the same flag states.
+      - name: No chart renders an unquoted YAML 1.1 boolean word
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-yaml11-booleans.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A
@@ -710,6 +720,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-blueprint-header-pill.py
 
+      # The blueprint page shows a caller only the controls they may use: each probe in
+      # blueprint-detail must ask about its control's own request, and the two Flexes must mount
+      # what `may` allows. Runs the chart's own jq; a probe left unevaluated keeps every control.
+      - name: Blueprint page controls follow the caller's access, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-blueprint-detail-controls.py
+
       # The Access card's gate lives in composition-detail's `access` object, so this runs that
       # filter over every state in the approved mockup, plus the gate's edges.
       - name: Composition Access card, over the chart's own jq
@@ -949,6 +968,21 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/test-obs-latency-by-controller.py --pinned
+
+      # The SLOs tab (Diego, 2026-11-16). Its statements are vendored byte-exact from observability's
+      # sli-span-metrics.sql (the alerts' and HyperDX's source) at the commit in files/slo/SOURCE: a
+      # change there turns this red until the tab re-vendors, so the views cannot drift apart.
+      - name: SLOs tab statements equal their pinned source
+        run: |
+          set -euo pipefail
+          python3 scripts/vendor-sli-sql.py --check
+
+      # Each stage sends its statement verbatim; the filter over krateo-057's real responses gives the
+      # mockup's figures and the SQL file's rules; widgets validated against the pinned CRDs.
+      - name: SLOs tab, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 scripts/test-obs-slo.py --pinned
 
   # The /audit page (AUDIT-9, installer#415) reads an audit trail, so a row in the wrong reader's table
   # is a disclosure. This resolves audit-records and audit-facets as a team member, an admin and a
