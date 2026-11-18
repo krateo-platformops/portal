@@ -1,7 +1,7 @@
-{{/* The incident table (?view=table, today's list) — one row per Incident, off incidents-list, which */}}
-{{/* applies the page's filters server-side: severity dot, title, root cause, state, age. The root cause */}}
-{{/* tells apart incidents of one alert that are open at once. Row click → the incident detail */}}
-{{/* page; the {namespace}/{name} placeholders fill from hidden cells. */}}
+{{/* The full table (?view=table) — one row per Incident in the picked state, off incidents-list: */}}
+{{/* severity dot, title, root cause, category, target, state, age. The root cause tells apart */}}
+{{/* incidents of one alert that are open at once. Row click → the incident detail page; the */}}
+{{/* {namespace}/{name} placeholders fill from hidden cells. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,8 +10,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell: every filter param. */}}
-  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell: every page param. */}}
+  keyExtras: [projects, status, range, view]
   widgetData:
     {{/* fitContent: shrink columns to the container instead of the default horizontal scrollbar. */}}
     {{/* A wide cell ellipsis-truncates and carries its full value on hover (P19), which reads far */}}
@@ -31,6 +31,10 @@ spec:
       title: Incident
     - valueKey: cause
       title: Root cause
+    - valueKey: category
+      title: Category
+    - valueKey: target
+      title: Target
     - valueKey: state
       title: State
     - valueKey: age
@@ -40,7 +44,7 @@ spec:
   {{/* The title and the root cause can be long sentences; each is capped at ~110 chars so they do */}}
   {{/* not crush the trailing columns (the Table columns carry no width knobs). */}}
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:"●",color:(.sevColor // "var(--gray-color)")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:((.title // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"cause",kind:"jsonSchemaType",type:"string",stringValue:((.cause // "—") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Analyzing"),color:({ Open: "red", Verifying: "orange", Resolved: "green" }[.state // ""] // "gray")}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
+    expression: '${ [ (.rows // [])[] | [ {valueKey:"sev",kind:"jsonSchemaType",type:"string",stringValue:"●",color:(.sevColor // "var(--gray-color)")}, {valueKey:"title",kind:"jsonSchemaType",type:"string",stringValue:((.title // "") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"cause",kind:"jsonSchemaType",type:"string",stringValue:((.cause // "—") | if length > 110 then (.[0:109] + "…") else . end)}, {valueKey:"category",kind:"jsonSchemaType",type:"string",stringValue:(if (.category // "") == "" then "—" else .category end)}, {valueKey:"target",kind:"jsonSchemaType",type:"string",stringValue:(if (.target // "") == "" then "—" else .target end)}, {valueKey:"state",kind:"tag",stringValue:(.state // "Analyzing"),color:({ Open: "red", Verifying: "orange", Resolved: "green" }[.state // ""] // "gray")}, {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:(.age // ""),format:"relative"}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
   apiRef:
     name: incidents-list
     namespace: {{ $.Values.namespace }}

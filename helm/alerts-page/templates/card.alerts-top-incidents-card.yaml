@@ -1,0 +1,34 @@
+{{/* "Most incidents": the five alerts that opened the most incidents in the range; alerts-side shows
+     it only while there are any. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-top-incidents-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: "Most incidents"
+    titleVariant: eyebrow
+    variant: outlined
+    extra: ""
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: alerts-top-incidents
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ "in " + (.rangeText // "the last 7 days") }'
+  resourcesRefs:
+    items:
+    - id: alerts-top-incidents
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-top-incidents
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

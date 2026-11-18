@@ -484,12 +484,12 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-platform-review.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-      # /incidents: the overview (facets with their counts and hiding, ?status= back-compat, the
-      # strip, one card per alert or age, the caps and "See all" hrefs, Resolved and Closed folded,
-      # the table view), and its "Ask Agentiko →", which keeps every filter and names the view; a
-      # failed read of the incidents or of the alerts is said, never drawn as a quiet platform.
-      # Reuses the CRDs above.
-      - name: Incidents overview and Agentiko prompt, evaluated and validated
+      # /incidents: the dashboard (the state filter, Open by default, with its counts; the five
+      # figures and the range; the opened-vs-resolved and time-to-resolve series; the cards, the
+      # table view and the routes that keep every param), and its "Ask Agentiko →", about the state
+      # on screen; a failed read of the incidents or of the alerts is said, never drawn as a quiet
+      # platform. Reuses the CRDs above.
+      - name: Incidents dashboard and Agentiko prompt, evaluated and validated
         run: python3 scripts/test-incidents-list.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
       # /alerts' state chips: counts over the full set, "Not evaluated" for an alert with no HyperDX
@@ -911,8 +911,8 @@ jobs:
 
       # Root-pages slice 3a: /compositions (a ReconcilePaused composition is Paused, never Ready; State
       # and Kind facets over the scope; the exception groups, Pending folded, Ready by kind; the
-      # server-paged table at ?view=table), /alerts (the narrowed incidents read and "has open
-      # incidents"; Firing, Not evaluated and Pending first; Ask, Author and New in the header) and the
+      # server-paged table at ?view=table), /alerts (the dashboard: the narrowed incidents read, the
+      # figures, the charts, the state chips with Firing first; Ask and New in the header) and the
       # /agents Overview tab (agents and tool servers as one set; no Status on an unchecked gateway;
       # Needs attention, Orchestrators, Specialists; every widget in every tab declaring the filter
       # keys). Reuses the CRDs above.

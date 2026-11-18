@@ -1,0 +1,33 @@
+{{/* The alerts by signal (.status.type: Logs, Metric, Traces, LogValue, TraceValue), every alert. */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-by-signal
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    angleField: count
+    colorField: signal
+    colorMap:
+      Logs: blue
+      Metric: cyan
+      Traces: purple
+      LogValue: geekblue
+      TraceValue: magenta
+      Unknown: gray
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .bySignal // [] }'
+  resourcesRefs:
+    items: []

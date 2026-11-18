@@ -1,0 +1,32 @@
+{{/* The five alerts that opened the most incidents in the range, most first, each a bar against the
+     first and its count; a row opens the alert. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-top-incidents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{href}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: red
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .topIncidents // [] }'
+  resourcesRefs:
+    items: []

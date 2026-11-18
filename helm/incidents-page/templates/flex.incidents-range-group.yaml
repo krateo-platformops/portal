@@ -1,0 +1,36 @@
+{{/* The /incidents time range: "Time range" and the 24h / 7d / 30d chips, as on /observability
+     (obs-range-group). It sets the window of the Resolved and Time to resolve figures and of the
+     opened-vs-resolved chart; the state chips, the cards and the table are not windowed. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-range-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: incidents-range-label
+    - resourceRefId: incidents-range-chips
+  resourcesRefs:
+    items:
+    - id: incidents-range-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-range-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: incidents-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-range-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
