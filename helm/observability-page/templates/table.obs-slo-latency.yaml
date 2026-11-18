@@ -21,12 +21,12 @@ spec:
       title: Target
     - valueKey: p95
       title: p95 falls in
-    - valueKey: n
+    - valueKey: samples
       title: Samples
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.latency // [])[] | [ {valueKey:"objective",kind:"jsonSchemaType",type:"string",stringValue:.objective}, {valueKey:"target",kind:"jsonSchemaType",type:"string",stringValue:.target,color:"var(--gray-color)"}, ({valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:(.p95 + (if .state == "above" then " · above target" elif .state == "atTarget" then " · at the target, cannot tell" else "" end))} + (if .state == "above" then {color:"var(--orange-color)"} elif .state == "met" then {} else {color:"var(--gray-color)"} end)), {valueKey:"n",kind:"jsonSchemaType",type:"string",stringValue:(.n | tostring),color:"var(--gray-color)"} ] ] }'
+    expression: '${ [ (.latency // [])[] | [ {valueKey:"objective",kind:"jsonSchemaType",type:"string",stringValue:.objective}, {valueKey:"target",kind:"jsonSchemaType",type:"string",stringValue:.target,color:"var(--gray-color)"}, ({valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:(.p95 + (if .state == "above" then " · above target" elif .state == "atTarget" then " · at the target, cannot tell" else "" end))} + (if .state == "above" then {color:"var(--orange-color)"} elif .state == "met" then {} else {color:"var(--gray-color)"} end)), {valueKey:"samples",kind:"jsonSchemaType",type:"string",stringValue:(.n | tostring),color:"var(--gray-color)"} ] ] }'
   apiRef:
     name: obs-slo
     namespace: {{ $.Values.namespace }}

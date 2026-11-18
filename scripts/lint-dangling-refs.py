@@ -97,10 +97,11 @@ def gate_flags(chart):
     return out
 
 
-def render(chart, sets=()):
+def render_text(chart, sets=()):
     """CHART_VERSION is a placeholder stamped at release, so a bare `helm template` of any chart
     here FAILS -- and a parser reading its stdout then reports a confident zero. Stamp a version
-    into a copy, and assert the exit status rather than trusting the output."""
+    into a copy, and assert the exit status rather than trusting the output. Returns the rendered
+    YAML text, or None when helm failed."""
     with tempfile.TemporaryDirectory() as tmp:
         dst = os.path.join(tmp, os.path.basename(chart))
         subprocess.run(['cp', '-R', chart, dst], check=True)
@@ -117,8 +118,16 @@ def render(chart, sets=()):
                   f'{proc.stderr.strip().splitlines()[0] if proc.stderr.strip() else "?"}',
                   file=sys.stderr)
             return None
-        return [d for d in yaml.safe_load_all(proc.stdout)
-                if isinstance(d, dict) and d.get('kind')]
+        return proc.stdout
+
+
+def render(chart, sets=()):
+    """The rendered documents that have a kind, parsed; None when helm failed (see render_text)."""
+    text = render_text(chart, sets)
+    if text is None:
+        return None
+    return [d for d in yaml.safe_load_all(text)
+            if isinstance(d, dict) and d.get('kind')]
 
 
 def find_api_refs(node):

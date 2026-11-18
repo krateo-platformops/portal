@@ -195,7 +195,7 @@ def check_widgets(c):
     table = tbi.resolved_widget(c, 'Table', 'obs-slo-latency', one, {'range': 'x'}, 'latency table')['spec']['widgetData']['dataSource']
     cell = {row[0]['stringValue']: {d['valueKey']: d for d in row} for row in table}
     expect(p, 'a met row has no colour', 'color' in cell['API · every snowplow request']['p95'], False)
-    expect(p, 'every row shows its samples', cell['API · every snowplow request']['n']['stringValue'], '1614')
+    expect(p, 'every row shows its samples', cell['API · every snowplow request']['samples']['stringValue'], '1614')
     expect(p, 'no samples is gray', cell['UI · publish a page']['p95'].get('color'), 'var(--gray-color)')
     stat = tbi.resolved_widget(c, 'Statistic', 'obs-slo-avail-api-value', week, {'range': 'x'}, 'api value')['spec']['widgetData']
     expect(p, 'the tile value', (stat['value'], stat.get('valueStyle')), ('99.9845 %', {}))
