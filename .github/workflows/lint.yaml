@@ -290,6 +290,16 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/lint-k8s-names.py
 
+      # observability-page 1.8.131 shipped `valueKey: n`; helm and the apiserver read YAML 1.1, where a
+      # bare n is false, so the Table CRD refused it at the 1.8.135 roll on krateo-057. Every schema
+      # test here parses with PyYAML, which reads n/y as strings, so none of them could see it. This
+      # refuses any unquoted y/n/yes/no/on/off in a rendered chart, in the same flag states.
+      - name: No chart renders an unquoted YAML 1.1 boolean word
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/lint-yaml11-booleans.py
+
   # Route-derivation fixtures for Table rowNavigateTo. This existed for months and NOTHING ran it,
   # so its model of Table.tsx buildRowPath silently fell behind the real one — it lacked the
   # whole-placeholder branch and modelled a pre-built route as a percent-encoded dead link. A
