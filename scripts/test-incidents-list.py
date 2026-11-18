@@ -334,8 +334,8 @@ def check_routes():
             ('7d', False, '/incidents?projects=team-a&status=resolved&view=table'),
             ('30d', True, '/incidents?projects=team-a&status=resolved&range=30d&view=table')])
     expect(f, 'view chips: cards drops ?view, table sets it', [(c['label'], c['active'], c['route']) for c in out['viewChips']],
-           [('Cards', False, '/incidents?projects=team-a&status=resolved&range=30d'),
-            ('Table · all columns', True, '/incidents?projects=team-a&status=resolved&range=30d&view=table')])
+           [('Summary', False, '/incidents?projects=team-a&status=resolved&range=30d'),
+            ('Full list', True, '/incidents?projects=team-a&status=resolved&range=30d&view=table')])
     expect(f, 'state chips keep range and view', [c['route'] for c in out['chips']][:2],
            ['/incidents?projects=team-a&range=30d&view=table', '/incidents?projects=team-a&status=analyzing&range=30d&view=table'])
     href, _ = ask(out['askHref'])
@@ -356,7 +356,7 @@ def check_layout():
     expect(f, 'two thirds and one third, stacked when narrow', [(i['resourceRefId'], i['size'], i['xs']) for i in row['items']],
            [('incidents-list-card', 16, 24), ('incidents-side', 8, 24)])
     card = widget_data('Card', 'incidents-list-card', out)
-    expect(f, 'the incidents card: chips, then the cards; Cards | Table top right',
+    expect(f, 'the incidents card: chips, then the cards; Summary | Full list top right',
            ([i['resourceRefId'] for i in card['items']], card['extraRefId']),
            (['incidents-status-chips', 'incidents-cards'], 'incidents-view-chips'))
     tbl = resolve(responses(), {'view': 'table'})

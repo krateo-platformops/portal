@@ -173,7 +173,7 @@ def check_cards():
     out = resolve({}, many)
     expect(f, 'past 48: the first 48, and a line for the rest',
            (len(out['rows']), out['more'], items(w('Card', 'compositions-list-card', out)), w('Paragraph', 'compositions-more', out)['text']),
-           (48, 7, ['compositions-state-chips', 'compositions-cards', 'compositions-more'], '48 of 55 shown. Table · all columns lists all 55.'))
+           (48, 7, ['compositions-state-chips', 'compositions-cards', 'compositions-more'], '48 of 55 shown here. Full list has all 55.'))
     return f
 
 
@@ -230,8 +230,8 @@ def check_table_view():
     expect(f, '?view=table: the server-paged table holds what the state matches', sorted({c['valueKey']: c['stringValue'] for c in r}['name'] for r in rows), ['orders', 'web'])
     expect(f, 'the view chips keep every param (the states normalized: deduplicated, sorted)',
            [(c['label'], c['active'], c['route']) for c in w('Listy', 'compositions-view-chips', out, ex)['dataSource']],
-           [('Cards', False, '/compositions?projects=team-a&status=degraded%2Cfailed'),
-            ('Table · all columns', True, '/compositions?projects=team-a&status=degraded%2Cfailed&view=table')])
+           [('Summary', False, '/compositions?projects=team-a&status=degraded%2Cfailed'),
+            ('Full list', True, '/compositions?projects=team-a&status=degraded%2Cfailed&view=table')])
     chips_ = w('Listy', 'compositions-scope-chips', out, ex)['dataSource']
     expect(f, 'the scope chips keep every param', [c['route'] for c in chips_],
            ['/compositions?projects=team-a&status=degraded%2Cfailed&view=table', '/compositions?projects=team-a&scope=platform&status=degraded%2Cfailed&view=table',

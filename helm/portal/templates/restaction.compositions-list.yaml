@@ -276,8 +276,8 @@ spec:
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($stateCounts[$k] // 0) > 0 or any($statusSel[]; . == $k)))
                      | map({ key: ., label: $stateNames[.], count: ($stateCounts[.] // 0), active: (if . == "all" then $status == "all" else ($statusSel == [.]) end), route: go(.; $tableView) })),
-        viewChips: [ { label: "Cards", active: ($tableView | not), route: fx_href("/compositions"; fx_set($p; "view"; "")) },
-                     { label: "Table · all columns", active: $tableView, route: fx_href("/compositions"; fx_set($p; "view"; "table")) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: fx_href("/compositions"; fx_set($p; "view"; "")) },
+                     { label: "Full list", active: $tableView, route: fx_href("/compositions"; fx_set($p; "view"; "table")) } ],
         matched: ($filtered | length),
         more: (if ($filtered | length) > $cardCap then (($filtered | length) - $cardCap) else 0 end),
         rows: [ $sorted[0:$cardCap][] | (stateAt | utcstamp) as $at | {

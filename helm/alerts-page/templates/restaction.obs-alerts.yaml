@@ -198,8 +198,8 @@ spec:
         stats: $stats,
         chips: ([ ($keys[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
                 | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
-        viewChips: [ { label: "Cards", active: ($tableView | not), route: href($sel; $range; false) },
-                     { label: "Table · all columns", active: $tableView, route: href($sel; $range; true) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
+                     { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
         byState: (if $failed then [] else [ $keys[] | { state: $stateNames[.], count: $counts[.] } | select(.count > 0) ] end),
         bySignal: (if $failed then [] else [ $rows | group_by(.type)[] | { signal: (if .[0].type == "" then "Unknown" else .[0].type end), count: length } ] | sort_by(-.count, .signal) end),

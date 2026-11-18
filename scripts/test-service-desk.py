@@ -374,7 +374,7 @@ def check_dashboard(chart):
     expect(f, '?view=table: the table', ids(widget(chart, 'Card', 'service-desk-list-card', outT, exT, 'list card (table)')['items']),
            ['service-desk-state-chips', 'service-desk-requests'])
     expect(f, 'the view chips', [(c['label'], c['active'], c['route']) for c in outT['viewChips']],
-           [('Cards', False, '/service-desk'), ('Table · all columns', True, '/service-desk?view=table')])
+           [('Summary', False, '/service-desk'), ('Full list', True, '/service-desk?view=table')])
     expect(f, 'by status, largest first', [(b['status'], b['count']) for b in widget(chart, 'PieChart', 'service-desk-by-status', out, ex, 'by status')['data']],
            [('Closed', 1), ('New', 1), ('Pending', 1), ('Refused by Zendesk', 1), ('Solved', 1)])
     expect(f, 'active by priority, Urgent first, none left out', [(b['name'], b['count'], b['percent']) for b in out['byPriority']],

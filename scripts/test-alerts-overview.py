@@ -171,7 +171,7 @@ def check_layout():
     expect(f, 'two thirds and one third', [(i['resourceRefId'], i['size'], i['xs']) for i in row['items']],
            [('alerts-list-card', 16, 24), ('alerts-side', 8, 24)])
     card = w('Card', 'alerts-list-card', out)
-    expect(f, 'the alerts card: chips then cards; Cards | Table top right', ([i['resourceRefId'] for i in card['items']], card['extraRefId']),
+    expect(f, 'the alerts card: chips then cards; Summary | Full list top right', ([i['resourceRefId'] for i in card['items']], card['extraRefId']),
            (['alerts-status-chips', 'alerts-cards'], 'alerts-view-chips'))
     expect(f, 'the charts, "Most incidents" while there are any', items('Flex', 'alerts-side', out),
            ['alerts-by-state-card', 'alerts-by-signal-card', 'alerts-incident-trend-card', 'alerts-top-incidents-card'])
