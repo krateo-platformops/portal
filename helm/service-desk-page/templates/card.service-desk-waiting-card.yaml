@@ -1,0 +1,26 @@
+{{/* "Waiting for your reply": the requests Zendesk is waiting on someone here for (status Pending); service-desk-side shows it only while there are any. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-waiting-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view]
+  widgetData:
+    title: "Waiting for your reply"
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: service-desk-waiting
+  resourcesRefs:
+    items:
+    - id: service-desk-waiting
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-waiting
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

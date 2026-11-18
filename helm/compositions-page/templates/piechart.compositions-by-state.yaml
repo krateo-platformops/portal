@@ -1,0 +1,34 @@
+{{/* The compositions in scope by state, a slice per state that has any, coloured as the cards. */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-by-state
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    angleField: count
+    colorField: state
+    colorMap:
+      NotReady: red
+      Degraded: magenta
+      Children unreadable: orange
+      Drift: gold
+      Paused: gray
+      Pending: blue
+      Ready: green
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .byState // [] }'
+  resourcesRefs:
+    items: []

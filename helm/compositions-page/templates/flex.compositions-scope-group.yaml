@@ -1,0 +1,36 @@
+{{/* The /compositions scope: "Show" and My workloads / Platform / Everything
+     (listy.compositions-scope-chips), where /incidents has its time range. The figures, the state
+     chips, the cards and the charts all count within it. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-scope-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: compositions-scope-label
+    - resourceRefId: compositions-scope-chips
+  resourcesRefs:
+    items:
+    - id: compositions-scope-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-scope-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: compositions-scope-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-scope-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

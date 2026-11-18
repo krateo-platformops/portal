@@ -1,0 +1,46 @@
+{{/* Requests opened (Zendesk's created_at, else when raised here) and solved (now Solved or
+     Closed, at their last update) per bucket of the range. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-trend
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      Opened: blue
+      Solved: teal
+    shapeField: smooth
+    legend: true
+    height: 180
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 5
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .trend // [] }'
+  - forPath: xTimeUnit
+    expression: '${ if .trendUnit == "hour" then "hour" else "day" end }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,36 @@
+{{/* The eight largest kinds in scope, largest first, each a bar against the first with its count
+     and how many need attention (red then, neutral otherwise); a row narrows the page to that kind,
+     in every state. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-by-kind
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{href}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: '{tone}'
+          map:
+            bad: red
+            ok: blue
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .byKind // [] }'
+  resourcesRefs:
+    items: []

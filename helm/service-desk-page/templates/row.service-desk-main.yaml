@@ -1,0 +1,40 @@
+{{/* The /service-desk body: the requests on the left two thirds, the charts on the right third.
+     At narrow widths, or with the Agentiko rail open, both take the full width and the charts go
+     below. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view]
+  widgetData:
+    allowedResources:
+    - cards
+    - flexes
+    alignment: top
+    items:
+    - resourceRefId: service-desk-list-card
+      size: 16
+      xs: 24
+      lg: 16
+    - resourceRefId: service-desk-side
+      size: 8
+      xs: 24
+      lg: 8
+  resourcesRefs:
+    items:
+    - id: service-desk-list-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-list-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: service-desk-side
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-side
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

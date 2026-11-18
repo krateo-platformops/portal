@@ -1,17 +1,19 @@
-{{/* Page root for /service-desk: the header, then the queue of Zendesk requests — or a sentence in
-     place of the queue when there is nothing to show or nothing could be read.
+{{/* Page root for /service-desk (the /incidents dashboard's layout, mockup A4): the header, then
+     the time range, the five figures and one row: the requests on the left two thirds (the chips,
+     Active by default, then one card per request, or with ?view=table the table), the charts on the
+     right third — or a sentence in place of all of it when nothing could be read.
 
-     IT READS zendesk-requests AND TEMPLATES ITS ITEMS, as reviews-page flex.reviews-decided does,
-     because the Table hard-codes "No rows" and has no field to say anything else. The choice is
-     made from the same RESTAction, with the same keyExtras and identity, as the chips and the table,
-     so the three cannot disagree about which requests there are:
-       read failed    → header, result.service-desk-unavailable. No chips: their zeros would
-                        describe a quiet desk. For a cluster that does not serve the kind the header
-                        also drops "Raise a request" (pageheader.service-desk.yaml).
-       nothing shown  → header, [warning], chips, result.service-desk-empty.
-       otherwise      → header, [warning], chips, table.
+     IT READS zendesk-requests AND TEMPLATES ITS ITEMS, from the same RESTAction, with the same
+     keyExtras and identity, as every widget below, so none can disagree about which requests there
+     are:
+       read failed    → header, result.service-desk-unavailable. No figures and no chips: their
+                        zeros would describe a quiet desk. For a cluster that does not serve the kind
+                        the header also drops "Raise a request" (pageheader.service-desk.yaml).
+       otherwise      → header, [warning], range, figures, the row; inside the requests card the
+                        chips, then the cards, the table, or result.service-desk-empty when the chip
+                        holds none (card.service-desk-list-card).
      The warning (alert.service-desk-unreachable) is drawn only when some organisation's requests
-     can't be read from Zendesk, and then once, above the table.
+     can't be read from Zendesk, and then once, above everything else.
 
      THE NAV ANNOTATIONS ARE HALF THE RBAC STORY. The portal discovers the namespaces where the
      CALLER may `list` page roots and lists the roots in each as that caller, so a group with no
@@ -36,11 +38,12 @@ metadata:
     "krateo.io/nav-label": "Service desk"
     "krateo.io/nav-order": "40"
     "krateo.io/nav-path": "/service-desk"
+    "krateo.io/filter-keys": "state,range,view"
     "krateo.io/verbose": "true"
 spec:
   {{/* The extras keys that partition this widget's cache cell: which child is drawn depends on
        the ?state= chip. */}}
-  keyExtras: [state]
+  keyExtras: [state, range, view]
   identityContext:
     - username
   apiRef:
@@ -50,15 +53,17 @@ spec:
     allowedResources:
     - pageheaders
     - alerts
+    - flexes
     - listies
-    - tables
+    - rows
     - results
     vertical: true
     gap: middle
     items:
     - resourceRefId: service-desk-header
-    - resourceRefId: service-desk-state-chips
-    - resourceRefId: service-desk-requests
+    - resourceRefId: service-desk-range-group
+    - resourceRefId: service-desk-stats
+    - resourceRefId: service-desk-main
   widgetDataTemplate:
     - forPath: items
       expression: >-
@@ -66,8 +71,7 @@ spec:
         + (if (.failed // false) then [ { resourceRefId: "service-desk-unavailable" } ]
            else
              (if (.unreachable.show // false) then [ { resourceRefId: "service-desk-unreachable" } ] else [] end)
-             + [ { resourceRefId: "service-desk-state-chips" } ]
-             + (if ((.rows // []) | length) == 0 then [ { resourceRefId: "service-desk-empty" } ] else [ { resourceRefId: "service-desk-requests" } ] end)
+             + [ { resourceRefId: "service-desk-range-group" }, { resourceRefId: "service-desk-stats" }, { resourceRefId: "service-desk-main" } ]
            end) }
   resourcesRefs:
     items:
@@ -83,23 +87,23 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: alerts
       verb: GET
-    - id: service-desk-state-chips
+    - id: service-desk-range-group
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: service-desk-state-chips
+      name: service-desk-range-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: service-desk-stats
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-stats
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: service-desk-requests
+    - id: service-desk-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: service-desk-requests
+      name: service-desk-main
       namespace: {{ $.Values.namespace }}
-      resource: tables
-      verb: GET
-    - id: service-desk-empty
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: service-desk-empty
-      namespace: {{ $.Values.namespace }}
-      resource: results
+      resource: rows
       verb: GET
     - id: service-desk-unavailable
       apiVersion: widgets.templates.krateo.io/v1beta1

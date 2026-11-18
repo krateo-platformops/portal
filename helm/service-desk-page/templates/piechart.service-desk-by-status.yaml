@@ -1,0 +1,41 @@
+{{/* Every request by its status as the queue words it: Zendesk's six, and the portal's own before a
+     request is in Zendesk (Filing…, Refused by Zendesk, Held, Not filed). A status outside these
+     takes the chart's own palette. */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-by-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    angleField: count
+    colorField: status
+    colorMap:
+      New: blue
+      Open: cyan
+      Pending: gold
+      On-hold: orange
+      Solved: teal
+      Closed: gray
+      Filing…: amber
+      Refused by Zendesk: red
+      Held: magenta
+      Not filed: slate
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .byStatus // [] }'
+  resourcesRefs:
+    items: []

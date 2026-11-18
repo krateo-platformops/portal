@@ -1,10 +1,21 @@
-{{/* Convention page root for /compositions — header (H1 + subtitle) above the */}}
-{{/* compositions table. The nav (`menu.sidebar-nav`) points its `compositions` ref here */}}
-{{/* (was the bare table) so the page gains a header like the mockup. */}}
-{{/* #68: this page-root is tenant-readable — a namespace-scoped tenant must see the Compositions */}}
-{{/* menu item and its OWN Krateos, so it may never move to an admin-only namespace (#261). */}}
-{{/* Safe: its children (compositions-header/toolbar/table) already live here, and compositions-table */}}
-{{/* is server-side tenant-scoped (compositions-list RA), so a tenant sees only its own compositions. */}}
+{{/* /compositions (compositions dashboard, the /incidents dashboard's layout, mockup A4). Top to
+     bottom:
+       - the header, with Ask Agentiko and Create composition (no subtitle: the breadcrumb above it
+         says where this is);
+       - the scope (My workloads, Platform, Everything), and the kind or search a link narrowed it
+         to, as removable chips;
+       - the five figures: NotReady, Degraded, Drift, Paused, Ready;
+       - one row: the compositions on the left two thirds (the state chips, Needs attention by
+         default, then one card per composition, or with ?view=table the server-paged table), the
+         charts on the right third (by state, by kind, needing attention longest).
+
+     #68: this page-root is tenant-readable — a namespace-scoped tenant must see the Compositions
+     menu item and its OWN Krateos, so it may never move to an admin-only namespace (#261). Every
+     figure, chip and card comes from compositions-list, server-side tenant-scoped.
+
+     krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
+     fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
+     cache a widget that receives an extra it does not declare (F6). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -29,19 +40,19 @@ spec:
     - pageheaders
     - flexes
     - listies
-    - paragraphs
-    - collapses
-    - buttons
-    - tables
+    - rows
     vertical: true
     gap: middle
     items:
     - resourceRefId: compositions-page-header
-    - resourceRefId: compositions-filter-bar
-    - resourceRefId: compositions-table
+    - resourceRefId: compositions-scope-group
+    - resourceRefId: compositions-stats
+    - resourceRefId: compositions-main
+  {{/* A link that narrows the page by kind or search (Observability's by-kind rows, this page's
+       By kind chart) gets its removable chips under the scope; nothing else does. */}}
   widgetDataTemplate:
   - forPath: items
-    expression: '${ [ { resourceRefId: "compositions-page-header" }, { resourceRefId: "compositions-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "compositions-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "compositions-view-toggle" }, { resourceRefId: "compositions-table" } ] else [ { resourceRefId: "compositions-strip" } ] + (if (.readError // "") != "" or (.matched // 0) == 0 or (((.strip.notReady // 0) + (.strip.degraded // 0) + (.strip.drift // 0)) == 0) then [ { resourceRefId: "compositions-calm" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "compositions-groups" }, { resourceRefId: "compositions-view-toggle" } ] else [] end) end) }'
+    expression: '${ [ { resourceRefId: "compositions-page-header" }, { resourceRefId: "compositions-scope-group" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "compositions-active-filters" } ] else [] end) + [ { resourceRefId: "compositions-stats" }, { resourceRefId: "compositions-main" } ] }'
   resourcesRefs:
     items:
     - id: compositions-page-header
@@ -50,9 +61,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: compositions-filter-bar
+    - id: compositions-scope-group
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-filter-bar
+      name: compositions-scope-group
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET
@@ -62,36 +73,15 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: compositions-strip
+    - id: compositions-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-strip
+      name: compositions-stats
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: compositions-calm
+    - id: compositions-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-calm
+      name: compositions-main
       namespace: {{ $.Values.namespace }}
-      resource: paragraphs
+      resource: rows
       verb: GET
-    - id: compositions-groups
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-groups
-      namespace: {{ $.Values.namespace }}
-      resource: collapses
-      verb: GET
-    - id: compositions-view-toggle
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-view-toggle
-      namespace: {{ $.Values.namespace }}
-      resource: buttons
-      verb: GET
-    - id: compositions-table
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-table
-      namespace: {{ $.Values.namespace }}
-      resource: tables
-      verb: GET
-      slice:
-        page: 1
-        perPage: 50

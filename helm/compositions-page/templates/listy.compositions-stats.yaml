@@ -1,0 +1,35 @@
+{{/* The five figures over the compositions in scope (narrowed by kind or search when a link
+     carries them): NotReady (of how many), Degraded (workload unhealthy), Drift (Synced=False),
+     Paused (ReconcilePaused) and Ready (in how many kinds). Colour is exception-only: NotReady and
+     Degraded red above zero, Drift and Paused orange above zero; each caption carries the meaning
+     too. A failed read with nothing read is an empty value (a muted "—") captioned "could not be
+     read" on every tile, never a 0. A paused composition is Paused, never Ready. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          bad: red
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,51 @@
+{{/* One card per composition in the picked state, triage order, then by kind and name: the name,
+     its state as a coloured tag, its kind, what is wrong (the controller's message on the first
+     condition that is not True, or the refused children), and where it lives and since when it is
+     in that state. The whole card opens the composition. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-cubes
+      iconVariant: tile
+      primaryText: '{name}'
+      secondaryText: '{stateLabel}'
+      subPrimaryText: '{kind}'
+      subSecondaryText: '{foot}'
+      description: '{description}'
+      cardCta: Open composition
+      navigateTo: '/compositions/{routeNs}/{routeName}'
+      color:
+        value: '{tone}'
+        map:
+          failed: red
+          degraded: red
+          unreadable: orange
+          drift: orange
+          paused: gray
+          pending: blue
+          healthy: green
+        default: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .rows // [] }'
+  resourcesRefs:
+    items: []

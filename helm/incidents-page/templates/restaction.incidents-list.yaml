@@ -17,7 +17,7 @@
        counts    per state, over every incident (the chips, the donut, the figures);
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
                  to resolve in the range; a failed read is "—", never 0;
-       chips / viewChips / rangeChips   the state chips, Cards | Table, the range chips: each a
+       chips / viewChips / rangeChips   the state chips, Summary | Full list, the range chips: each a
                  label, a count where it has one, active, and the route that keeps the other params;
        byState   the donut: one slice per state that has incidents;
        trend     opened and resolved per hour (24h) or per day (7d, 30d), one point per bucket;
@@ -237,8 +237,8 @@ spec:
         stats: $stats,
         chips: ([ ($states[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
                 | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
-        viewChips: [ { label: "Cards", active: ($tableView | not), route: href($sel; $range; false) },
-                     { label: "Table · all columns", active: $tableView, route: href($sel; $range; true) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
+                     { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
         byState: ([ $states[] | { state: $stateNames[.], count: $counts[.] } | select(.count > 0) ]),
         trend: $trend,
