@@ -1,0 +1,27 @@
+{{/* The state chips, the page's filter: Needs attention (the default: NotReady, Degraded,
+     Children unreadable, Drift, Paused), then each state some composition is in, in triage order,
+     then All, each with its count over the compositions in scope. Each route keeps ?scope, ?kind,
+     ?q, ?view and the ?projects= scope; compositions-list builds them. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-state-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stateChips // [] }'
+  resourcesRefs:
+    items: []

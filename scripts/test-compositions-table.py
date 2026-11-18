@@ -243,14 +243,12 @@ check('?status=unreadable lists exactly the unreadable ones',
       [i['name'] for i in listing(MIX, status='unreadable')['filtered']], ['forbidden'])
 check('?status=all still lists every composition', len(listing(MIX, status='all')['filtered']), len(MIX))
 
-# The State facet replaced the status chips (root-pages slice 3a): its options are the states some
-# composition is in, in triage order, each counted under the other filters.
-state_doc = named(render('compositions-page'), 'compositions-status')
-state_expr = unwrap(next(e['expression'] for e in state_doc['spec']['widgetDataTemplate'] if e['forPath'] == 'options'))
+# The state chips (the /incidents dashboard's layout): the states some composition is in, in triage
+# order, each with its count, plus Needs attention and All around them.
 
 
 def states(out):
-    return [(o['label'], o['value'], o['count']) for o in jq(state_expr, out)]
+    return [(c['label'], c['key'], c['count']) for c in out['stateChips'] if c['key'] not in ('attention', 'all')]
 
 
 check('State: Children unreadable is offered with its count while some are unreadable, in triage order',

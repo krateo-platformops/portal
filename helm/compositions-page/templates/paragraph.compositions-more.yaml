@@ -1,0 +1,22 @@
+{{/* Under the cards when the state holds more than the 48 drawn: how many more, and that the
+     table has them all. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-more
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ "48 of " + ((.matched // 0) | tostring) + " shown. Table · all columns lists all " + ((.matched // 0) | tostring) + "." }'
+  resourcesRefs:
+    items: []

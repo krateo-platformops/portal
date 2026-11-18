@@ -1,0 +1,26 @@
+{{/* "By state": the compositions in scope in each state, as a donut (piechart.compositions-by-state). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-by-state-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  widgetData:
+    title: "By state"
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: compositions-by-state
+  resourcesRefs:
+    items:
+    - id: compositions-by-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-by-state
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

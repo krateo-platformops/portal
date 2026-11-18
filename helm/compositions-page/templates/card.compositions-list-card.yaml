@@ -1,0 +1,73 @@
+{{/* The compositions, two thirds of the row: "Cards | Table · all columns" top right, then the
+     state chips (the page's filter, Needs attention by default), then one card per composition in
+     that state (the first 48, and a line saying how many more the table holds), or with
+     ?view=table today's server-paged table. When there is nothing to list, or the read failed, a
+     line says so. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    title: Compositions
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: compositions-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: compositions-state-chips
+    - resourceRefId: compositions-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "compositions-state-chips" } ] + (if .failed or (.matched // 0) == 0 then [ { resourceRefId: "compositions-empty" } ] elif .view == "table" then [ { resourceRefId: "compositions-table" } ] else [ { resourceRefId: "compositions-cards" } ] + (if (.more // 0) > 0 then [ { resourceRefId: "compositions-more" } ] else [] end) end) }'
+  resourcesRefs:
+    items:
+    - id: compositions-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: compositions-state-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-state-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: compositions-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: compositions-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+      slice:
+        page: 1
+        perPage: 50
+    - id: compositions-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: compositions-more
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-more
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

@@ -1,0 +1,24 @@
+{{/* In place of the cards or the table when they would be empty: the compositions could not be
+     read (and why), or none is in the picked state. Drawn as a warning when the read failed. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ ({ workloads: "My workloads", platform: "the platform components", all: "any composition" }[.scope // "workloads"] // "My workloads") as $where | if .failed then "The compositions could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.counts.all // 0) == 0 then "There are no compositions in " + $where + "." elif .status == "attention" then "Nothing needs attention in " + $where + ": none is NotReady, Degraded, drifting, paused or with unreadable children." else "No composition in " + $where + " is in this state." end }'
+  - forPath: type
+    expression: '${ if .failed then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []
