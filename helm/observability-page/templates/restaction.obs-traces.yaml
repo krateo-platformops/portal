@@ -64,14 +64,71 @@ spec:
       errorKey: spansError
   {{/* ClickHouse FORMAT JSON => {meta, data: [...], rows}. 64-bit integers (ts_ms, dur_ns) arrive as */}}
   {{/* JSON STRINGS, so they are converted here; display formatting is the table's. */}}
+  {{/* THE TRACES TAB (the A4 dashboard layout) reads the rest: the figures (`stats`: spans, errors —
+       red, the Error pill's colour — services and users, neutral; a failed read is "" captioned
+       "could not be read", orange), one card per span (`cards`, the first 24), Summary | Full list
+       (`viewChips`), the spans by status, by service and the slowest (`byStatus`, `byService`,
+       `slowest`), and `emptyText`. THE SEARCH (?q=, case-insensitive, trimmed) keeps the spans whose
+       service, name, user, status or trace id contains it, among the 200 read: it narrows the rows,
+       it never reaches the SQL. Every route keeps every other page param (obs.traces.route). */}}
   filter: >
     {{ include "obs.traces.valid" . }}
-    { rows: [ ((.spans.data) // [])[]
+    {{ include "obs.traces.route" . }}
+    {{ include "obs.traces.format" . }}
+    {{ include "obs.search" . }}
+    . as $x
+    | qRaw as $qRaw
+    | ($qRaw | ascii_downcase) as $q
+    | ((($x.view // "") | tostring) == "table") as $tableView
+    | ([ (if ((.traceService // "") | tostring | okService) then empty else "service" end),
+         (if ((.traceUser // "") | tostring | okUser) then empty else "user" end),
+         (if ((.traceStatus // "") | tostring | okStatus) then empty else "status" end) ]) as $rejected
+    | (.spansError != null) as $failed
+    | [ ((.spans.data) // [])[]
         | { tsMs: (.ts_ms | tonumber? // 0), service: (.svc // ""), span: (.span // ""),
             durationNs: (.dur_ns | tonumber? // 0), user: (.sub // ""), status: (.status // ""),
-            traceId: (.trace_id // "") } ],
-      rejected: ([ (if ((.traceService // "") | tostring | okService) then empty else "service" end),
-                   (if ((.traceUser // "") | tostring | okUser) then empty else "user" end),
-                   (if ((.traceStatus // "") | tostring | okStatus) then empty else "status" end) ]),
-      hidden: (if ((.traceService // "") | tostring) == "" then {{ include "obs.traces.hidden" . }} else "" end),
-      failed: (.spansError != null) }
+            traceId: (.trace_id // "") } ] as $read
+    | [ $read[] | select([ .service, .span, .user, .status, .traceId ] | hits($q)) ] as $rows
+    | ($rows | map(select(.status == "Error")) | length) as $errors
+    | ([ $rows[] | .service | select(. != "") ] | group_by(.) | map({ name: .[0], n: length }) | sort_by(-.n, .name)) as $svcN
+    | ([ $rows[] | .user | select(. != "") ] | unique | length) as $users
+    | ($failed or ($rejected | length) > 0) as $unread
+    | { rows: $rows,
+        rejected: $rejected,
+        hidden: (if ((.traceService // "") | tostring) == "" then {{ include "obs.traces.hidden" . }} else "" end),
+        failed: $failed,
+        q: $qRaw,
+        read: ($read | length),
+        matched: ($rows | length),
+        more: (if ($rows | length) > 24 then ($rows | length) - 24 else 0 end),
+        view: (if $tableView then "table" else "" end),
+        stats: ([ { title: "Spans", value: ($rows | length),
+                    caption: (if $q != "" then "matching the search, of " + (($read | length) | tostring) + " read" elif ($read | length) >= 200 then "the newest 200 in the time range" else "in the time range" end), tone: "spans" },
+                  { title: "Errors", value: $errors, caption: "spans with StatusCode Error", tone: "error" },
+                  { title: "Services", value: ($svcN | length), caption: (if ($svcN | length) > 0 then "most: " + $svcN[0].name else "none" end), tone: "services" },
+                  { title: "Users", value: $users, caption: "with a jwt.sub (AI calls)", tone: "users" } ]
+                | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" }
+                      elif ($rejected | length) > 0 then { title, value: "", caption: "a filter was refused", tone: "unread" }
+                      else . + { value: (.value | tostring) } end)),
+        cards: [ $rows[0:24][] | (.status | traceStatusTag) as $st
+                 | { span: (if .span == "" then "—" else .span end), tone: (if .status == "" then "Unset" else .status end), stateLabel: $st.label,
+                     service: (if .service == "" then "—" else .service end),
+                     foot: ((.tsMs | traceUtc) + " UTC · " + (.durationNs | traceDuration)),
+                     description: ((if .user != "" then "User " + .user + " · " else "" end) + "trace " + (.traceId | traceShort)),
+                     traceId } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: ($x | tracesRoute({ q: $qRaw, view: "" })) },
+                     { label: "Full list", active: $tableView, route: ($x | tracesRoute({ q: $qRaw, view: "table" })) } ],
+        byStatus: (if $unread then [] else [ { status: "Error", count: $errors }, { status: "OK", count: ($rows | map(select(.status == "Ok")) | length) },
+                                             { status: "Unset", count: ($rows | map(select(.status != "Ok" and .status != "Error")) | length) } ] | map(select(.count > 0)) end),
+        byService: (if $unread then [] else ($svcN[0:8] | (.[0].n // 1) as $max
+                    | map(. as $s | { name, count: ((.n | tostring) + (([ $rows[] | select(.service == $s.name and .status == "Error") ] | length) as $e | if $e > 0 then " · " + ($e | tostring) + " in error" else "" end)),
+                                      percent: (.n * 100 / $max | floor),
+                                      tone: (if any($rows[]; .service == $s.name and .status == "Error") then "bad" else "ok" end),
+                                      route: ($x | tracesRoute({ traceService: $s.name, q: $qRaw })) })) end),
+        slowest: (if $unread then [] else ($rows | sort_by(-.durationNs) | .[0:5] | (.[0].durationNs // 1) as $max
+                  | map({ name: ((if .service == "" then "—" else .service end) + " · " + .span), count: (.durationNs | traceDuration),
+                          percent: (if $max > 0 then (.durationNs * 100 / $max | floor) else 0 end), route: ("/observability/traces/" + .traceId) })) end),
+        emptyText: (if $failed then "The spans could not be read, so nothing on this tab counts them."
+                    elif ($rejected | length) > 0 then "The " + ($rejected | join(" and ")) + " filter holds a character it may not, so no span was read."
+                    elif $qRaw != "" and ($read | length) > 0 then "No span matches \"" + $qRaw + "\"."
+                    else "No span in the time range" + (if ((.traceStatus // "") | tostring) != "" then " with status " + ((.traceStatus // "") | tostring) else "" end) + "." end) }

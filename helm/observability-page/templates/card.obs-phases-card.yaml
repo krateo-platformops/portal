@@ -1,9 +1,11 @@
-{{/* GUARDED by observability.reconcileTracing, matching col.obs-tab-telemetry.yaml, which wraps */}}
+{{/* GUARDED by observability.reconcileTracing, matching the Reconciliation tab (col.obs-tab-reconciliation, flex.obs-recon-side), which wraps */}}
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* Titled panel around the reconcile phase-breakdown list. The `extra` shows the overall */}}
-{{/* reconcile mean + sample count (from the RA's pctl step) — e.g. "avg 1.2 s · 42 reconciles" (duration.label). */}}
+{{/* "Where reconcile time goes", a side card of the Reconciliation tab: the exact p50 / p95 / p99 */}}
+{{/* of the reconcile spans in the range (obs-perf-stat-row) over the mean of each reconcile phase */}}
+{{/* (obs-reconcile-phases). The `extra` shows the overall reconcile mean + sample count (from the */}}
+{{/* RA's pctl step) — e.g. "avg 1.2 s · 42 reconciles" (duration.label). */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,13 +16,17 @@ metadata:
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
-  keyExtras: [range]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     title: Where reconcile time goes
     titleVariant: eyebrow
     variant: outlined
     extra: 'mean per phase'
+    allowedResources:
+    - rows
+    - listies
     items:
+    - resourceRefId: obs-perf-stat-row
     - resourceRefId: obs-reconcile-phases
   widgetDataTemplate:
   - forPath: extra
@@ -30,6 +36,12 @@ spec:
     namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items:
+    - id: obs-perf-stat-row
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-perf-stat-row
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
     - id: obs-reconcile-phases
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-reconcile-phases

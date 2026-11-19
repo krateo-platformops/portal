@@ -1,6 +1,6 @@
-{{/* Titled panel around the top-pods resource table. The `extra` shows the live cluster totals */}}
-{{/* (pod CPU cores + memory GiB + pod count) from the RA's totals step — e.g. */}}
-{{/* "<cores> cores · <mem> GiB · <n> pods". */}}
+{{/* "Top pods by memory", a side card of the Telemetry tab: the bars (listy.obs-top-pods). The `extra`
+     shows the live cluster totals (pod CPU cores + memory GiB + pod count) from the RA's totals step —
+     e.g. "<cores> cores · <mem> GiB · <n> pods". */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,13 +10,16 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
-    title: Resource usage
+    title: Top pods by memory
     titleVariant: eyebrow
     variant: outlined
     extra: 'top pods · live'
+    allowedResources:
+    - listies
     items:
-    - resourceRefId: obs-resource-table
+    - resourceRefId: obs-top-pods
   widgetDataTemplate:
   - forPath: extra
     expression: '${ ((.cpu // 0)|tostring) + " cores · " + ((.mem // 0)|tostring) + " GiB · " + ((.pods // 0)|tostring) + " pods" }'
@@ -25,9 +28,9 @@ spec:
     namespace: {{ $.Values.namespace }}
   resourcesRefs:
     items:
-    - id: obs-resource-table
+    - id: obs-top-pods
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-resource-table
+      name: obs-top-pods
       namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: listies
       verb: GET

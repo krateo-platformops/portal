@@ -1,0 +1,26 @@
+{{/* "Proposed vs decided": per hour (24h) or per day (7d, 30d) over the range, with the failed review runs (linechart.reviews-trend). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-trend-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  widgetData:
+    title: Proposed vs decided
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: reviews-trend
+  resourcesRefs:
+    items:
+    - id: reviews-trend
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-trend
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET

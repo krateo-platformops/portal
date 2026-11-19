@@ -1,0 +1,22 @@
+{{/* Under the cards when more than the 24 drawn match: how many, and that the full list has them all. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-more
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ "24 of " + ((.matched // 0) | tostring) + " shown here. Full list has all " + ((.matched // 0) | tostring) + "." }'
+  resourcesRefs:
+    items: []

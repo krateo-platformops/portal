@@ -1,0 +1,45 @@
+{{/* "Token usage": the tokens through the gateway over the range (24h unless the Token usage tab
+     picked another), input, cached and output, as on the Token usage tab (linechart.agents-token-
+     totals, the same widget). With no LLM call in the range, or ClickHouse unreadable, a line says so
+     instead of an empty chart. Top right, the range. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-token-trend-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-token-timeseries
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Token usage
+    titleVariant: eyebrow
+    variant: outlined
+    extra: ""
+    allowedResources:
+    - linecharts
+    - paragraphs
+    items:
+    - resourceRefId: agents-token-totals
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ if .failed or (.buckets // 0) == 0 then [ { resourceRefId: "agents-token-none" } ] else [ { resourceRefId: "agents-token-totals" } ] end }'
+  - forPath: extra
+    expression: '${ .rangeLabel // "" }'
+  resourcesRefs:
+    items:
+    - id: agents-token-totals
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-totals
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET
+    - id: agents-token-none
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-none
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

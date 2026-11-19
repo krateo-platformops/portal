@@ -1,0 +1,40 @@
+{{/* The Token usage tab, top to bottom: the toolbar (the time range), the figures, the main row. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-usage
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - rows
+    - listies
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-usage-toolbar
+    - resourceRefId: agents-usage-stats
+    - resourceRefId: agents-usage-main
+  resourcesRefs:
+    items:
+    - id: agents-usage-toolbar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-toolbar
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: agents-usage-stats
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-stats
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-usage-main
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-main
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET

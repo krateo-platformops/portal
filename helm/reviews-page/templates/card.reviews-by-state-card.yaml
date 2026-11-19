@@ -1,0 +1,26 @@
+{{/* "By state": the proposals the filters match in each state, as a donut (piechart.reviews-by-state). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-by-state-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  widgetData:
+    title: By state
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: reviews-by-state
+  resourcesRefs:
+    items:
+    - id: reviews-by-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-by-state
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

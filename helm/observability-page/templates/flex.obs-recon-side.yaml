@@ -1,0 +1,61 @@
+{{/* The Reconciliation charts, one third of the row, top to bottom: the compositions by state; with
+     reconcile tracing, the reconcile throughput and where reconcile time goes (p50/p95/p99 and the
+     phases); the largest kinds and namespaces. A card whose data is empty is left out. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-recon-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: obs-recon-by-state-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.byState // []) | length) > 0 then [ { resourceRefId: "obs-recon-by-state-card" } ] else [] end) + (if .tracing then [ { resourceRefId: "obs-throughput-card" }, { resourceRefId: "obs-phases-card" } ] else [] end) + (if ((.byKind // []) | length) > 0 then [ { resourceRefId: "obs-by-kind-card" } ] else [] end) + (if ((.byNamespace // []) | length) > 0 then [ { resourceRefId: "obs-by-namespace-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: obs-recon-by-state-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-recon-by-state-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    {{- if (.Values.observability | default dict).reconcileTracing }}
+    - id: obs-throughput-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-throughput-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    {{- end }}
+    {{- if (.Values.observability | default dict).reconcileTracing }}
+    - id: obs-phases-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-phases-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    {{- end }}
+    - id: obs-by-kind-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-by-kind-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-by-namespace-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-by-namespace-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

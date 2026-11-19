@@ -1,0 +1,25 @@
+{{/* In place of the error cards when there are none: the telemetry could not be read (and why), nothing
+     matches the search, or no error was logged in the window. A warning when the read failed. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tel-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-error-log-digest
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .emptyText // "" }'
+  - forPath: type
+    expression: '${ if .failed then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

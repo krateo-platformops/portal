@@ -1,0 +1,36 @@
+{{/* The eight Deployments that want the most replicas: a bar of ready over wanted ("1/2"), in its
+     state's colour. A row opens the component page. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-components-readiness
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-components
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{route}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: '{tone}'
+          map:
+            ready: green
+            notready: red
+            scaled: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .readiness // [] }'
+  resourcesRefs:
+    items: []

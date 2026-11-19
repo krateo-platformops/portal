@@ -1,0 +1,24 @@
+{{/* In place of a token chart with nothing to draw: ClickHouse could not be read (and why), or no LLM
+     call went through the gateway in the range. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-token-none
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-token-timeseries
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .emptyText // "" }'
+  - forPath: type
+    expression: '${ if .failed then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

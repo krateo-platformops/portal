@@ -20,7 +20,7 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `limit` drives */}}
   {{/* the active flag, `range`/`svc`/`projects` are carried into the routes. */}}
-  keyExtras: [projects, range, serviceName, limit, latencyBy]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     itemTemplate:
       rowVariant: chip
@@ -31,6 +31,6 @@ spec:
   {{/* widgetDataTemplate data source (same mechanism the range chips use). */}}
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.limit // "40") | tostring) as $sel | ((.range // "24h") | tostring) as $range | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.projects // "") | tostring) as $projects | (if $svc != "" then ("&serviceName=" + ($svc | @uri)) else "" end) as $svcCarry | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $projCarry | (if .latencyBy == "controller" then "&latencyBy=controller" else "" end) as $latCarry | [{key: "40", label: "40"}, {key: "100", label: "100"}, {key: "200", label: "200"}, {key: "500", label: "500"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + ($range | @uri) + "&limit=" + .key + $svcCarry + $projCarry + $latCarry + "&tab=Telemetry")}) }'
+      expression: '${ (. as $x | ["traceService", "traceUser", "traceStatus", "status", "componentStatus", "q", "view"] | map(. as $k | (($x[$k] // "") | tostring) as $v | select($v != "") | "&" + $k + "=" + ($v | @uri)) | join("")) as $rest | ((.limit // "40") | tostring) as $sel | ((.range // "24h") | tostring) as $range | ((.serviceName // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $svc | ((.projects // "") | tostring) as $projects | (if $svc != "" then ("&serviceName=" + ($svc | @uri)) else "" end) as $svcCarry | (if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) as $projCarry | (if .latencyBy == "controller" then "&latencyBy=controller" else "" end) as $latCarry | [{key: "40", label: "40"}, {key: "100", label: "100"}, {key: "200", label: "200"}, {key: "500", label: "500"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + ($range | @uri) + "&limit=" + .key + $svcCarry + $projCarry + $latCarry + $rest + "&tab=Telemetry")}) }'
   resourcesRefs:
     items: []

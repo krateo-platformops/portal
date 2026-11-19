@@ -1,24 +1,35 @@
-{{/* Token usage panel. Titled here rather than in the table so the pane reads as a section. */}}
-apiVersion: widgets.templates.krateo.io/v1beta1
+{{/* "By consumer": the token usage per consumer (jwt.sub), team, model and provider over the range
+     (table.agents-token-usage); top right, the range. A failed ClickHouse read, or no call in the
+     range, is a line instead of an empty table. `tooltip`, not `subtitle`: the Card CRD has no
+     subtitle field. */}}
 kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-token-usage
   namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
-  {{/* `tooltip`, not `subtitle` — the Card CRD has no subtitle field and the widget schemas are */}}
-  {{/* STRICT, so a subtitle key is rejected at apply with "unknown field". helm template does not */}}
-  {{/* catch it; a server dry-run does. */}}
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-token-usage
+    namespace: {{ $.Values.namespace }}
   widgetData:
-    title: Token usage by consumer
-    tooltip: Last 24 hours, from the gateway's own LLM spans. "Cached" is input served from the provider's context cache — it is already counted in Input.
+    title: By consumer
+    titleVariant: eyebrow
+    tooltip: From the gateway's own LLM spans. "Cached" is input served from the provider's context cache — it is already counted in Input.
     variant: outlined
+    extra: ""
     allowedResources:
     - tables
+    - paragraphs
     items:
     - resourceRefId: agents-token-usage-table
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ if .failed or ((.rows // []) | length) == 0 then [ { resourceRefId: "agents-token-usage-empty" } ] else [ { resourceRefId: "agents-token-usage-table" } ] end }'
+  - forPath: extra
+    expression: '${ .rangeLabel // "" }'
   resourcesRefs:
     items:
     - id: agents-token-usage-table
@@ -26,4 +37,10 @@ spec:
       name: agents-token-usage
       namespace: {{ $.Values.namespace }}
       resource: tables
+      verb: GET
+    - id: agents-token-usage-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-usage-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
       verb: GET

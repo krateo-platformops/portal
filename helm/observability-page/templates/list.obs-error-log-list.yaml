@@ -1,8 +1,8 @@
-{{/* "What's going wrong" — the ERROR-log digest as an antd List. Fed by obs-error-log-digest */}}
-{{/* (ClickHouse otel_logs, grouped service+msg). Each row = a red dot + the error message + */}}
-{{/* the component (mono) + an occurrence badge (×N) + last-seen (relative). Same itemTemplate */}}
-{{/* grammar as obs-activity-list; the colour maps off the parsed log level (ERROR=crimson, */}}
-{{/* WARN=orange) so it stays honest if WARN is ever surfaced too. */}}
+{{/* "What's going wrong": one card per DISTINCT error in the window (obs-error-log-digest, otel_logs
+     grouped by service and message, most frequent first; the search narrows them): the service, how
+     many times (×N), when it was last seen, and the message. Red, the colour of an ERROR line. The whole
+     card opens the full list (the chronological stream) scoped to that service; a group with no
+     ServiceName has no route and stays inert. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,36 +12,37 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
-  keyExtras: [range]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   apiRef:
     name: obs-error-log-digest
     namespace: {{ $.Values.namespace }}
   widgetData:
-    dataSource: []
-    itemLayout: horizontal
+    grid:
+      gutter: 12
+      column: 1
     split: false
+    pagination:
+      pageSize: 8
     itemTemplate:
-      {{/* Whole-row click → the log stream scoped to this row's component */}}
-      {{/* (/observability?serviceName=…). `route` is baked SERVER-SIDE by obs-error-log-digest; */}}
-      {{/* rows with no ServiceName carry route:"" and stay inert. */}}
+      rowVariant: card
+      icon: fa-bug
+      iconVariant: tile
+      primaryText: '{title}'
+      secondaryText: '{occ}'
+      subPrimaryText: ERROR
+      subSecondaryText: '{seen}'
+      description: '{msg}'
+      cardCta: Open its logs
       navigateTo: '{route}'
-      iconVariant: dot
       color:
         value: '{level}'
         map:
           ERROR: red
           WARN: orange
-      primaryText: '{msg}'
-      subPrimaryText: '{service}'
-      subPrimaryTextMono: true
-      secondaryText: '{occ}'
-      secondaryTextAsTag: true
-      subSecondaryText: '{ts}'
-      formats:
-        subSecondaryText: relative
+        default: red
+    dataSource: []
   widgetDataTemplate:
-    - forPath: dataSource
-      expression: '${ [ (.rows // [])[] | { msg: (.msg // ""), service: (.service // ""), level: "ERROR", occ: ("×" + ((.occurrences // 0)|tostring)), ts: (.last_ts // ""), route: (.route // "") } ] }'
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | { title: (if (.service // "") == "" then "unknown service" else .service end), msg: (.msg // ""), level: (.level // "ERROR"), occ: (.occ // ""), seen: (.seen // ""), route: (.route // "") } ] }'
   resourcesRefs:
     items: []

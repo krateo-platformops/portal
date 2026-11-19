@@ -261,11 +261,22 @@ check('State: no Children unreadable option when none is', [c[0] for c in states
 check('State: kept while it is the selected filter, even at 0',
       [c for c in states(listing([MIX[0]], status='unreadable')) if c[1] == 'unreadable'], [('Children unreadable', 'unreadable', 0)])
 
-obs_pending = named(render('observability-page'), 'obs-stat-pending')
-obs_expr = unwrap(next(e['expression'] for e in obs_pending['spec']['widgetDataTemplate'] if e['forPath'] == 'value'))
-check('observability Pending leaves children unreadable out (ZeroEvidence and InventoryNotRecorded stay)',
-      jq(obs_expr, out), 2)
-check('observability Pending is unchanged without an unreadable composition', jq(obs_expr, none_out), 2)
+# /observability's Reconciliation tab reads the compositions itself (obs-reconciliation) and states them
+# as compositions-list does, so its Pending figure is /compositions' Pending: Creating, ZeroEvidence and
+# InventoryNotRecorded, never Children unreadable.
+obs_filter = named(render('observability-page'), 'obs-reconciliation')['spec']['filter']
+
+
+def obs_figure(items, title):
+    return next(s['value'] for s in jq(obs_filter, {'comps': items})['stats'] if s['title'] == title)
+
+
+check('observability Pending leaves children unreadable out (Creating, ZeroEvidence and InventoryNotRecorded stay)',
+      obs_figure(MIX, 'Pending'), str(out['counts']['pending']))
+check('observability Pending is unchanged without an unreadable composition',
+      obs_figure([i for i in MIX if i['name'] != 'forbidden'], 'Pending'), str(out['counts']['pending']))
+check('observability Needs attention counts the unreadable one, as /compositions does',
+      obs_figure(MIX, 'Needs attention'), str(len(listing(MIX, status='attention')['filtered'])))
 
 for line in failures:
     print(f'FAIL  {line}')

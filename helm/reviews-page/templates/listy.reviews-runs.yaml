@@ -1,0 +1,44 @@
+{{/* The six newest review runs of every kind, newest first: the run, its phase in the colour its
+     tag has on the run page (rv_run_color: Failed red, PartiallyCompleted orange, Running blue,
+     else gray), and when it started, how long it took and what it wrote (a Failed run's
+     status.error). A row opens the run. With the runs unread, the header says so instead. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-runs
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: true
+    header: ""
+    itemTemplate:
+      iconVariant: dot
+      color:
+        value: '{phase}'
+        map:
+          Completed: gray
+          PartiallyCompleted: orange
+          Running: blue
+          Pending: gray
+          Failed: red
+        default: gray
+      primaryText: '{name}'
+      secondaryText: '{phase}'
+      subPrimaryText: '{caption}'
+      navigateTo: '/reviews/runs/{name}'
+      ellipsis: true
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .recentRuns // [] }'
+  - forPath: header
+    expression: '${ if .runsFailed then "The review runs could not be read, so a run that failed would not show here." else "" end }'
+  resourcesRefs:
+    items: []

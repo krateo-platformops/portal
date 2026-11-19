@@ -1,0 +1,39 @@
+{{/* The Telemetry body: the recurring errors on the left two thirds, the charts on the right third. At
+     narrow widths both take the full width and the charts go below. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tel-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    allowedResources:
+    - cards
+    - flexes
+    alignment: top
+    items:
+    - resourceRefId: obs-errors-card
+      size: 16
+      xs: 24
+      lg: 16
+    - resourceRefId: obs-tel-side
+      size: 8
+      xs: 24
+      lg: 8
+  resourcesRefs:
+    items:
+    - id: obs-errors-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-errors-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-tel-side
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-tel-side
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

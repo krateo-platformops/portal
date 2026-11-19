@@ -1,6 +1,8 @@
-{{/* The /audit filter bar: time range, namespace, outcome and user, each an eyebrow label beside its
-     chips, as on the Traces tab. Every chip is a link to /audit with one filter changed and the
-     others kept (_audit.tpl, audit.route), so the whole view is in the URL and can be shared. */}}
+{{/* The /audit filters, the left of the toolbar (row.audit-toolbar): time range, namespace and user,
+     each an eyebrow label beside its chips, as on the Traces tab; wrapped when narrow. The outcome
+     chips sit at the top of the records card instead (the A4 state chips). Every chip is a link to
+     /audit with one filter changed and the others, the view and the search kept (_audit-a4.tpl,
+     audit.href), so the whole view is in the URL and can be shared. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,8 +11,8 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
-  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
   widgetData:
     allowedResources:
     - flexes
@@ -20,7 +22,6 @@ spec:
     items:
     - resourceRefId: audit-range-group
     - resourceRefId: audit-namespace-group
-    - resourceRefId: audit-outcome-group
     - resourceRefId: audit-user-group
   resourcesRefs:
     items:
@@ -33,12 +34,6 @@ spec:
     - id: audit-namespace-group
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: audit-namespace-group
-      namespace: {{ $.Values.namespace }}
-      resource: flexes
-      verb: GET
-    - id: audit-outcome-group
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-outcome-group
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET

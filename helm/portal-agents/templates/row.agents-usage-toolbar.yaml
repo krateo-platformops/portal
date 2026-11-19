@@ -1,0 +1,28 @@
+{{/* The Token usage toolbar: the time range, the whole row (the tab has no search, see col.agents-tab-
+     usage). */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-usage-toolbar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - flexes
+    alignment: middle
+    items:
+    - resourceRefId: agents-usage-range-group
+      size: 24
+      xs: 24
+      lg: 24
+  resourcesRefs:
+    items:
+    - id: agents-usage-range-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-range-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

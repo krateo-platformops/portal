@@ -1,0 +1,33 @@
+{{/* The five longest spans read (service · span), each a bar against the longest with its duration. A
+     row opens the span's trace. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-slowest
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{route}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .slowest // [] }'
+  resourcesRefs:
+    items: []

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test-obs-latency-by-controller — the Telemetry tab's Reconcile latency card, By composition | By
+test-obs-latency-by-controller — the Reconciliation tab's Reconcile latency card, By composition | By
 controller (Diego, 2026-11-15; mockup approved), evaluated end to end.
 
 WHAT IT GUARDS, each through the chart's own jq (widgets via test-ra-input-gates' model of snowplow,
@@ -89,7 +89,9 @@ def check_card(c):
     expect(f, 'title', card['spec']['widgetData']['title'], 'Reconcile latency')
     expect(f, 'every view is a declared ref', sorted(r['id'] for r in card['spec']['resourcesRefs']['items']),
            ['obs-latency-by-controller', 'obs-latency-chips', 'obs-reconcile-by-composition'])
-    expect(f, 'keyExtras partitions on latencyBy', card['spec'].get('keyExtras'), ['latencyBy'])
+    expect(f, 'keyExtras: every page param, latencyBy among them', card['spec'].get('keyExtras'),
+           ['projects', 'range', 'tab', 'serviceName', 'limit', 'traceService', 'traceUser', 'traceStatus', 'latencyBy',
+            'status', 'componentStatus', 'q', 'view'])
     return f
 
 
@@ -101,21 +103,26 @@ def check_chips(c):
     f = []
     ex = {'range': '7d', 'limit': '100', 'serviceName': 'snowplow', 'projects': 'team a', 'latencyBy': 'controller'}
     got = chips(c, 'Listy', 'obs-latency-chips', ex, 'latency chips (controller)')
-    base = '/observability?tab=Telemetry&range=7d&limit=100&serviceName=snowplow&projects=team%20a'
+    base = '/observability?tab=Reconciliation&range=7d&limit=100&serviceName=snowplow&projects=team%20a'
     expect(f, 'chips', [(x['label'], x['active'], x['route']) for x in got],
            [('By composition', False, base), ('By controller', True, base + '&latencyBy=controller')])
     got = chips(c, 'Listy', 'obs-latency-chips', {}, 'latency chips (default)')
     expect(f, 'default: By composition active, range 24h',
            [(x['active'], x['route']) for x in got],
-           [(True, '/observability?tab=Telemetry&range=24h'), (False, '/observability?tab=Telemetry&range=24h&latencyBy=controller')])
+           [(True, '/observability?tab=Reconciliation&range=24h'), (False, '/observability?tab=Reconciliation&range=24h&latencyBy=controller')])
     bad = chips(c, 'Listy', 'obs-latency-chips', {'serviceName': "x' OR 1=1", 'limit': '5;0'}, 'latency chips (hostile)')
-    expect(f, 'hostile inputs are stripped', bad[0]['route'], '/observability?tab=Telemetry&range=24h&limit=50&serviceName=xOR11')
+    expect(f, 'hostile inputs are stripped', bad[0]['route'], '/observability?tab=Reconciliation&range=24h&limit=50&serviceName=xOR11')
     rng = chips(c, 'Listy', 'obs-range-chips', {'latencyBy': 'controller'}, 'range chips (controller)')
     expect(f, 'range chips keep latencyBy', rng[0]['route'], '/observability?range=1h&latencyBy=controller')
     rng = chips(c, 'Listy', 'obs-range-chips', {}, 'range chips (default)')
     expect(f, 'range chips add nothing by default', rng[0]['route'], '/observability?range=1h')
     lim = chips(c, 'Listy', 'obs-limit-chips', {'latencyBy': 'controller'}, 'limit chips (controller)')
     expect(f, 'limit chips keep latencyBy', lim[0]['route'], '/observability?range=24h&limit=40&latencyBy=controller&tab=Telemetry')
+    got = chips(c, 'Listy', 'obs-latency-chips', {'q': 'fire', 'view': 'table', 'status': 'attention'}, 'latency chips (searched)')
+    expect(f, 'the latency chips keep the search, the state and the view', got[1]['route'],
+           '/observability?tab=Reconciliation&range=24h&status=attention&q=fire&view=table&latencyBy=controller')
+    lim = chips(c, 'Listy', 'obs-limit-chips', {'view': 'table', 'q': 'x'}, 'limit chips (full list)')
+    expect(f, 'the limit chips keep the full list and the search', lim[1]['route'], '/observability?range=24h&limit=100&q=x&view=table&tab=Telemetry')
     return f
 
 

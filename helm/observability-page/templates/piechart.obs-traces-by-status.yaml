@@ -1,0 +1,32 @@
+{{/* The spans read (the search narrows them) by status, a slice per status that has any, coloured as the
+     table's pills and the cards: Error red, OK green, Unset gray. */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-by-status
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    angleField: count
+    colorField: status
+    colorMap:
+      Error: red
+      OK: green
+      Unset: gray
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .byStatus // [] }'
+  resourcesRefs:
+    items: []

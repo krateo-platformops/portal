@@ -1,9 +1,10 @@
-{{/* The Traces tab's filter bar (installer#404): time range, service, user and status, each an */}}
+{{/* The Traces tab's filter bar (installer#404): service and user, each an */}}
 {{/* eyebrow label beside its chips, as the page's own range and row-limit groups are. Chips, not */}}
 {{/* Selects: a Select writes only its own query param, and the Tabs widget remounts on any query */}}
 {{/* change and opens on ?tab= — so a Select would drop the reader back on the first tab. Every chip */}}
 {{/* route carries ?tab=Traces and the other filters (_traces.tpl, obs.traces.route). Last, the */}}
-{{/* "HyperDX internals hidden" note, shown only while that service is left out. */}}
+{{/* "HyperDX internals hidden" note, shown only while that service is left out. The time range is */}}
+{{/* the page's (above the tabs), and the status chips are the spans card's state chips. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,7 +13,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     allowedResources:
     - flexes
@@ -21,19 +22,11 @@ spec:
     align: center
     wrap: true
     items:
-    - resourceRefId: obs-traces-range-group
     - resourceRefId: obs-traces-service-group
     - resourceRefId: obs-traces-user-group
-    - resourceRefId: obs-traces-status-group
     - resourceRefId: obs-traces-hidden-note
   resourcesRefs:
     items:
-    - id: obs-traces-range-group
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-traces-range-group
-      namespace: {{ $.Values.namespace }}
-      resource: flexes
-      verb: GET
     - id: obs-traces-service-group
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-traces-service-group
@@ -43,12 +36,6 @@ spec:
     - id: obs-traces-user-group
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-traces-user-group
-      namespace: {{ $.Values.namespace }}
-      resource: flexes
-      verb: GET
-    - id: obs-traces-status-group
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-traces-status-group
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET

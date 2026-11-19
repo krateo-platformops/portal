@@ -1,0 +1,47 @@
+{{/* Per bucket over the range (per hour for 24h, per day for 7d and 30d, the newest bucket the
+     current one): Proposed (by creationTimestamp) and Decided (Merged or Rejected, at the
+     decision) over the proposals the filters match, and Runs failed (by startedAt, every kind).
+     The colours are the states': Proposed's gray, Merged's green, a failed run's red. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-trend
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      Proposed: gray
+      Decided: green
+      Runs failed: red
+    shapeField: smooth
+    legend: true
+    height: 180
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 5
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ if .failed then [] else (.trend // []) end }'
+  - forPath: xTimeUnit
+    expression: '${ if .trendUnit == "hour" then "hour" else "day" end }'
+  resourcesRefs:
+    items: []

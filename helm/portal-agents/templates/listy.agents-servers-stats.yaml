@@ -1,0 +1,36 @@
+{{/* The five Tool servers figures (agents-servers `stats`): Tool servers and Tools discovered (blue),
+     Accepted (green), NotAccepted (red), Advisories (orange: an external endpoint, no gateway route, a
+     condition Unknown). Every tile wears the colour the cards give the state it counts, zero or not; a
+     failed server read is "—", "could not be read", in orange. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-servers
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          all: blue
+          ok: green
+          bad: red
+          warn: orange
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

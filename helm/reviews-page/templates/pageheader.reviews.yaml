@@ -1,8 +1,7 @@
-{{/* The /reviews page header. The subtitle carries the page's one essential fact: nothing listed has */}}
-{{/* been applied, and a proposal becomes a change request only when someone opens one. The counter */}}
-{{/* is the undecided proposals (all of them, whatever the filters), the only number anyone acts on. The */}}
-{{/* action line on the right holds "Ask Agentiko →" and "Run review now" (flex.reviews-header-actions); */}}
-{{/* the latest run is in the strip. */}}
+{{/* The /reviews page header. No subtitle: the breadcrumb says where this is, as on /incidents. The */}}
+{{/* counter is the undecided proposals (all of them, whatever the filters), the only number anyone */}}
+{{/* acts on. The action line on the right holds "Ask Agentiko →" and "Run review now" */}}
+{{/* (flex.reviews-header-actions); the latest run is the last figure. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,17 +12,13 @@ metadata:
 spec:
   {{/* Every widget on /reviews receives the page's filter params (krateo.io/filter-keys on
        page-reviews); one it does not declare makes snowplow decline to cache it (F6). */}}
-  keyExtras: [projects, kind, repo, today, q, group, view]
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
   apiRef:
     name: platform-reviews
     namespace: {{ $.Values.namespace }}
   widgetData:
     title: Platform review
     counterLabel: open
-    subtitle: >-
-      Changes the nightly review suggests after reading this platform's telemetry and agent
-      sessions. Nothing here has been applied. A proposal becomes a change request only when someone
-      opens one from it, and its pull request is where the change is decided.
     allowedResources:
     - flexes
     items:

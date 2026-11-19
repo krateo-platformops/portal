@@ -59,8 +59,17 @@ spec:
               | map(select(. != "")) | join(","))
         end;
     def num: if . == null then 0 else (tonumber? // 0) end;
-    ((.usage.data) // []) as $rows
-    | { rows: [ $rows[]
+    def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
+    # The A4 Token usage tab: the window this table covers (rangeLabel, top right of its card), and
+    # what to say in place of an empty table (a failed ClickHouse read, or no call in the range).
+    (((.range // "") | tostring) | if IN("1h", "6h", "7d") then . else "24h" end) as $range
+    | ({ "1h": "last hour", "6h": "last 6 hours", "24h": "last 24 hours", "7d": "last 7 days" }[$range]) as $rangeLabel
+    | ((.usageError // null) | errtext) as $err
+    | ((.usage.data) // []) as $rows
+    | { range: $range, rangeLabel: $rangeLabel, failed: ($err != ""), readError: $err,
+        emptyText: (if $err != "" then "The token usage could not be read from ClickHouse (" + $err + ")."
+                    else "No LLM call went through the gateway in the " + $rangeLabel + "." end),
+        rows: [ $rows[]
         | (.input_tokens | num) as $in
         | (.cached_input_tokens | num) as $cached
         | {

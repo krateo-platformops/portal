@@ -1,9 +1,24 @@
-{{/* /audit (AUDIT-9, installer#415): who changed what, to which object, when, and with what outcome.
-     Its own page rather than a tab of /observability, because that page is admin-only and this one
-     is not: whoever may open it sees the records of the namespaces whose audit trail they have been
-     granted (restaction.audit-records.yaml), and a cluster-wide reader sees all of them.
+{{/* /audit (AUDIT-9, installer#415; dashboard mockup A4): who changed what, to which object, when,
+     and with what outcome. Its own page rather than a tab of /observability, because that page is
+     admin-only and this one is not: whoever may open it sees the records of the namespaces whose
+     audit trail they have been granted (restaction.audit-records.yaml), and a cluster-wide reader
+     sees all of them. Top to bottom:
+       - the header, with Ask Agentiko (no subtitle: the breadcrumb above it says where this is);
+       - the toolbar: the time range, namespace and user chips on the left, the search on the right,
+         which narrows the whole page;
+       - the five figures: Records, Success, Failure, Denied, Untraced;
+       - one row: the records on the left two thirds (the outcome chips, then one card per record,
+         or with ?view=table the full table; the note, whose records these are and the trail's
+         completeness under them), the charts on the right third (activity by outcome, outcomes,
+         top users, top namespaces).
+     Every count on it follows the range, the chips and the search, except the chips' own counts,
+     which ignore the chips so each stays on the bar (restaction.audit-facets.yaml).
      In the sidebar's Observability group, after the entries already there (an integer order: the
-     Menu CRD types `order` as an integer, so it cannot sit between Observability's 11 and 12). */}}
+     Menu CRD types `order` as an integer, so it cannot sit between Observability's 11 and 12).
+
+     krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
+     fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
+     cache a widget that receives an extra it does not declare (F6). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,26 +30,24 @@ metadata:
     "krateo.io/nav-icon": "fa-clipboard-list"
     "krateo.io/nav-group": "Observability"
     "krateo.io/nav-order": "15"
+    "krateo.io/filter-keys": "projects,range,auditNamespace,auditUser,auditOutcome,q,view"
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): every filter rides the URL, so every widget on /audit declares all five. */}}
-  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome]
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
   widgetData:
     allowedResources:
-    - flexes
     - pageheaders
-    - paragraphs
-    - tables
+    - rows
+    - listies
     vertical: true
     {{/* P9: page-root section rhythm is one step, `middle`, across every nav-declared root. */}}
     gap: middle
     items:
     - resourceRefId: audit-page-header
-    - resourceRefId: audit-filters
-    - resourceRefId: audit-completeness
-    - resourceRefId: audit-table-caption
-    - resourceRefId: audit-records
-    - resourceRefId: audit-note
+    - resourceRefId: audit-toolbar
+    - resourceRefId: audit-stats
+    - resourceRefId: audit-main
   resourcesRefs:
     items:
     - id: audit-page-header
@@ -43,33 +56,21 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: audit-filters
+    - id: audit-toolbar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-filters
+      name: audit-toolbar
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: rows
       verb: GET
-    - id: audit-completeness
+    - id: audit-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-completeness
+      name: audit-stats
       namespace: {{ $.Values.namespace }}
-      resource: paragraphs
+      resource: listies
       verb: GET
-    - id: audit-table-caption
+    - id: audit-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-table-caption
+      name: audit-main
       namespace: {{ $.Values.namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: audit-records
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-records
-      namespace: {{ $.Values.namespace }}
-      resource: tables
-      verb: GET
-    - id: audit-note
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: audit-note
-      namespace: {{ $.Values.namespace }}
-      resource: paragraphs
+      resource: rows
       verb: GET

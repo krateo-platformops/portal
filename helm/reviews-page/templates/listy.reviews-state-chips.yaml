@@ -1,0 +1,27 @@
+{{/* The state chips, which proposals the card lists: Open (the default: Proposed and PR open), then
+     Proposed, PR open, Merged, Rejected, Failed and All, each with its count over every proposal
+     the filters and the search match. The Merged and Rejected chips are where the decided
+     proposals are read. Each route keeps every other param; platform-reviews builds them. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-state-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stateChips // [] }'
+  resourcesRefs:
+    items: []

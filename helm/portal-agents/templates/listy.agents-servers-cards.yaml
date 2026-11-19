@@ -1,0 +1,47 @@
+{{/* One card per tool server in the picked state, Needs attention first (NotAccepted before the
+     advisories): the name, the state as a coloured tag (red NotAccepted, orange an advisory, green
+     Accepted), protocol and timeout, the description and the endpoint, and how many tools it serves
+     and which agents bind it. A tool server has no page, so the card is inert. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-servers
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-server
+      iconVariant: tile
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      subPrimaryText: '{kind}'
+      subSecondaryText: '{foot}'
+      description: '{body}'
+      color:
+        value: '{tone}'
+        map:
+          all: blue
+          ok: green
+          bad: red
+          warn: orange
+          unread: orange
+        default: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .cards // [] }'
+  resourcesRefs:
+    items: []

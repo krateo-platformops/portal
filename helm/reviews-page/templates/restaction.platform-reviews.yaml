@@ -1,5 +1,5 @@
-{{/* /reviews (root-pages UX, build plan §3.3; mockup screen 08): the nightly review's Proposals and */}}
-{{/* ReviewRuns (review.krateo.io), filtered by the page's facets. Every join, sort and derivation is */}}
+{{/* /reviews data source (Platform review dashboard, mockup A4): the nightly review's Proposals and */}}
+{{/* ReviewRuns (review.krateo.io), filtered by the page's params. Every join, sort and derivation is */}}
 {{/* here; the widgets only place values. */}}
 {{/* */}}
 {{/* GROUPED BY FINDING, NEWEST FIRST. spec.subject (0.1.21) names what a finding is about; a later */}}
@@ -12,17 +12,41 @@
 {{/* appear on the detail page, labelled as the model's own claim. Refused is historical (no longer */}}
 {{/* written) and is excluded everywhere. */}}
 {{/* */}}
-{{/* THE FILTERS (portal.facets, _facets.tpl), one URL param per facet, values comma-joined: */}}
+{{/* THE PARAMS. The filters (portal.facets, _facets.tpl), one URL param per facet, values comma-joined: */}}
 {{/*   kind   spec.kind; */}}
 {{/*   repo   spec.target.repo, "(no target repo)" when it names none; */}}
 {{/*   today  1 for a proposal created on the server's today (UTC), 0 otherwise: the "New today" */}}
 {{/*          toggle writes ?today=1. Day-granular: a cached resolve keeps its day (plan risk 4); */}}
-{{/*   q      search: title and subject, case-insensitive. */}}
-{{/* Not filters: group (kind or repo; absent, kind, and repo when exactly one kind is picked, */}}
-{{/* because a single-kind group would only repeat the filter) and view (`table`). */}}
-{{/* The facets are counted over the OPEN proposals (Proposed, PrOpen). The same filters narrow the */}}
-{{/* decided proposals and the superseded count; the runs are every kind's (the review runs once */}}
-{{/* for all of them). */}}
+{{/*   q      search: title, subject, kind and target repo, case-insensitive, trimmed. */}}
+{{/* The facets and the search narrow the WHOLE page: the state chips' counts, the figures, the */}}
+{{/* charts, the cards and the table. The runs are every kind's (the review runs once for all). */}}
+{{/* Not filters: */}}
+{{/*   state  open (absent: Proposed and PrOpen, what needs someone), proposed, propen, merged, */}}
+{{/*          rejected, failed or all: which proposals the cards and the table list. Read */}}
+{{/*          case-insensitively; a value that is no state lists nothing, its chips still drawn; */}}
+{{/*   range  24h, 7d (absent) or 30d: the window of the Merged and Rejected figures and the trend; */}}
+{{/*   view   `table`: the full table instead of the cards. */}}
+{{/* The facets count the proposals in the picked state under every OTHER filter. */}}
+{{/* */}}
+{{/* OUTPUT. */}}
+{{/*   rows       the proposals in the picked state the filters match (the table; the cards take */}}
+{{/*              the first 24 as `cards`, `more` the rest); matched / total (every state); */}}
+{{/*   open       every open proposal, whatever the filters (the header counter); */}}
+{{/*   counts     per state, over every proposal the filters match (the chips, the donut); */}}
+{{/*   stats      the five figures: Waiting for a decision (Proposed), Pull request open (PrOpen), */}}
+{{/*              Merged and Rejected in the range, the last run. Each tile's tone is the phase it */}}
+{{/*              counts, so it wears the colour the cards (or the run rows) give that phase; */}}
+{{/*              `unread` on a failed read (value "", drawn as "—"), `none` when no run is recorded; */}}
+{{/*   chips / viewChips / rangeChips   the state chips (label, count, active, route), Summary | */}}
+{{/*              Full list, 24h | 7d | 30d: each route keeps every other param; */}}
+{{/*   byState    the donut: a slice per state with proposals; */}}
+{{/*   byKind     the open proposals per kind (every filter but kind), a bar against the largest, */}}
+{{/*              each narrowing the page to its kind; */}}
+{{/*   trend      per hour (24h) or day (7d, 30d), the newest bucket now: Proposed (created), */}}
+{{/*              Decided (Merged or Rejected, at their decision) and Runs failed (started); */}}
+{{/*   recentRuns the six newest runs: phase, when, how long, what it wrote; runCount, runsFailed; */}}
+{{/*   lastRun, banner, reviewCronJob, askHref (the header's Ask Agentiko, every param kept), and */}}
+{{/*   the superseded / Refused counts. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -72,21 +96,38 @@ spec:
     {{- include "portal.reviewDefs" . | nindent 4 }}
     {{- include "portal.facets" . | nindent 4 }}
     . as $in
-    | ["projects", "kind", "repo", "today", "q", "group", "view"] as $keys
+    | ["projects", "kind", "repo", "today", "q", "view", "state", "range"] as $keys
     | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "")) as $qraw
     | ($qraw | ascii_downcase) as $q
     # Search is one more filter on each row's `f` (f.q is "1" on a match), so the facet counts
-    # follow it and facet visibility stays over every open proposal.
+    # follow it.
     | (($in | fx_filters(["kind", "repo", "today"])) + { q: (if $q == "" then [] else ["1"] end) }) as $flt
-    | ($in | fx_params($keys)) as $p
+    # The params every link carries, in the page order; the search trimmed, as it is applied.
+    | ($in | fx_params($keys) | map(if .[0] == "q" then ["q", $qraw] else . end)) as $p
     | ((($in.view // "") | tostring) == "table") as $tableView
+    # The state chips, in the order they are drawn: what needs someone first.
+    | [ { key: "open", label: "Open", phases: ["Proposed", "PrOpen"] },
+        { key: "proposed", label: "Proposed", phases: ["Proposed"] },
+        { key: "propen", label: "PR open", phases: ["PrOpen"] },
+        { key: "merged", label: "Merged", phases: ["Merged"] },
+        { key: "rejected", label: "Rejected", phases: ["Rejected"] },
+        { key: "failed", label: "Failed", phases: ["Failed"] },
+        { key: "all", label: "All", phases: ["Proposed", "PrOpen", "Merged", "Rejected", "Failed"] } ] as $states
+    | ((($in.state // "") | tostring | ascii_downcase) | if . == "" then "open" else . end) as $sel
+    | (([ $states[] | select(.key == $sel) ][0].phases) // []) as $selPhases
+    | ((($in.range // "") | tostring) | if . == "24h" or . == "30d" then . else "7d" end) as $range
+    | ({ "24h": 86400, "7d": 604800, "30d": 2592000 }[$range]) as $window
+    | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
     | (now | todate | .[0:10]) as $today
+    | now as $now
     # A proposal's facet values. A comma would split a value in the URL, so it is dropped.
     | def rowf:
         { kind: ((.spec.kind // "—") | tostring | gsub(","; "")),
           repo: ((.spec.target.repo // "") | tostring | gsub(","; "") | if . == "" then "(no target repo)" else . end),
           today: (if ((.metadata.creationTimestamp // "") | .[0:10]) == $today then "1" else "0" end),
-          q: (if $q == "" then "" elif (((.spec.title // .metadata.name // "") + " " + (.spec.subject // "")) | ascii_downcase | contains($q)) then "1" else "0" end) };
+          q: (if $q == "" then ""
+              elif ([ (.spec.title // .metadata.name // ""), (.spec.subject // ""), (.spec.kind // ""), (.spec.target.repo // "") ]
+                    | map(tostring | ascii_downcase) | any(contains($q))) then "1" else "0" end) };
       rv_served_gvs as $served
     | rv_kinds_by_gv as $kinds
     | ((.proposalsError // null) | if . == null then "" else tostring end) as $perr
@@ -101,6 +142,7 @@ spec:
                          or (((.metadata.name | rv_root($up; 0)) as $r | $live | rv_has($r)) | not)) ]) as $visible
     | def row:
         rv_phase as $ph | rv_decision as $d
+        | (($under[.metadata.name] // 0) | if . == 0 then "—" else (tostring + " earlier") end) as $sup
         | { name: .metadata.name,
             title: (.spec.title // .metadata.name),
             subject: (.spec.subject // "—"),
@@ -108,44 +150,76 @@ spec:
             sources: (rv_sources | if . == "" then "—" else . end),
             checks: (rv_pills($served; $kinds) | tojson),
             phase: $ph,
+            phaseLabel: (if $ph == "PrOpen" then "PR open" else $ph end),
             phaseColor: ($ph | rv_phase_color),
-            superseded: (($under[.metadata.name] // 0) | if . == 0 then "—" else (tostring + " earlier") end),
+            superseded: $sup,
             created: (.metadata.creationTimestamp // ""),
             target: (.spec.target.repo // "—"),
             decidedBy: (if $d.by == "" then "—" else $d.by end),
-            decidedAt: $d.at,
+            # When it was decided, for the figures and the trend: a merge is the service's (status,
+            # or the pull request's merge), never the PrOpen decision spec.decision still carries.
+            decidedAt: (if $ph == "Merged" then (.status.decidedAt // .status.pullRequest.mergedAt // $d.at // "") else $d.at end),
             outcome: (if (.status.pullRequest.url // "") != "" then .status.pullRequest.url
                       elif $d.reason != "" then $d.reason else (.status.error // "—") end),
+            # The card: the finding, the day it was proposed, what it replaces.
+            body: ([ (if (.spec.subject // "") != "" then .spec.subject else empty end),
+                     "proposed " + ((.metadata.creationTimestamp // "") | .[0:10]),
+                     (if $sup != "—" then "replaces " + $sup else empty end) ] | join(" · ")),
+            cta: (if $ph == "Proposed" or $ph == "PrOpen" then "Decide" else "Open proposal" end),
             f: rowf };
       def grouped:
         group_by(.spec.subject // ("~" + .metadata.name))
         | map(sort_by(.metadata.creationTimestamp // "") | reverse)
         | sort_by(.[0].metadata.creationTimestamp // "") | reverse | add // [];
-      ([ $visible[] | select(rv_phase as $p | $p == "Proposed" or $p == "PrOpen") ] | grouped | map(row)) as $open
-    | ([ $visible[] | select(rv_phase as $p | $p == "Merged" or $p == "Rejected" or $p == "Failed") ] | grouped | map(row)) as $decidedAll
-    | ($open | fx_apply($flt)) as $shown
-    | ($decidedAll | fx_apply($flt)) as $decided
+      ([ $visible[] | select(rv_phase as $ph | ["Proposed", "PrOpen", "Merged", "Rejected", "Failed"] | rv_has($ph)) ] | grouped | map(row)) as $allRows
+    | ([ $allRows[] | select(.phase == "Proposed" or .phase == "PrOpen") ]) as $open
+    | ($allRows | fx_apply($flt)) as $matchedAll
+    | ([ $allRows[] | select(.phase as $ph | $selPhases | rv_has($ph)) ]) as $inState
+    | ([ $matchedAll[] | select(.phase as $ph | $selPhases | rv_has($ph)) ]) as $shown
     | ([ $all[] | select((.status.phase // "") == "Superseded") | { f: rowf } ] | fx_apply($flt) | length) as $supersededInView
-    | [ fx_facet($open; $flt; "kind"; "Kind"; {}),
-        fx_facet($open; $flt; "repo"; "Target repo"; {}),
-        fx_facet($open; $flt; "today"; "New today"; { "1": "yes", "0": "no" }) ] as $facets
-    # The grouping axis: ?group= when it names one, else kind, and repo when exactly one kind is
-    # picked (a single-kind group would only repeat the filter).
-    | (($in.group // "") | tostring) as $g0
-    | (if $g0 == "kind" or $g0 == "repo" then $g0 elif ($flt.kind | length) == 1 then "repo" else "kind" end) as $group
-    # Each group: its proposals newest first (subject chains kept together, as `grouped` left them),
-    # how many are new today, and seeAll, the table view filtered to that group (decision Q1).
-    | ($shown | group_by(.f[$group]) | map({ key: .[0].f[$group], count: length,
-          newToday: ([ .[] | select(.f.today == "1") ] | length),
-          prOpen: ([ .[] | select(.phase == "PrOpen") ] | length),
-          seeAll: fx_seeall("/reviews"; $p; $group; .[0].f[$group]),
-          items: [ .[] | { name, title, kind, phase, phaseColor, created, target, superseded } ] })
-       | sort_by(-.count, .key)) as $groups
+    | [ fx_facet($inState; $flt; "kind"; "Kind"; {}),
+        fx_facet($inState; $flt; "repo"; "Target repo"; {}),
+        fx_facet($inState; $flt; "today"; "New today"; { "1": "yes", "0": "no" }) ] as $facets
+    | ($states | map(. as $s | { key: $s.key, value: ([ $matchedAll[] | select(.phase as $ph | $s.phases | rv_has($ph)) ] | length) }) | from_entries) as $counts
     | ([ ((.runs.items) // [])[] ] | sort_by(.status.startedAt // .metadata.creationTimestamp // "") | reverse) as $runs
     | ($runs[0] // null) as $last
     | ((.cronjob // {}) | if type == "object" and (.kind // "") == "CronJob" and ((.metadata.name // "") != "") and (.spec.jobTemplate.spec != null) then . else null end) as $cron
     | ((.proposalsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $perrText
     | ((.runsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $rerr
+    | ($perr != "") as $failed
+    # THE FIGURES. Waiting and Pull request open count now; Merged and Rejected count the decisions
+    # in the range. A proposals read that failed is "—" on those four, never 0; a runs read that
+    # failed is "—" on the last.
+    | ([ $matchedAll[] | select(.decidedAt != "") | { phase, at: (.decidedAt | rv_epoch) } | select(.at != null) ]) as $decisions
+    | ([ $matchedAll[] | select(.phase == "Proposed" and .f.today == "1") ] | length) as $newToday
+    | ([ { title: "Waiting for a decision", value: $counts.proposed,
+          caption: (if $newToday > 0 then ($newToday | tostring) + " new today" else "no pull request yet" end), tone: "Proposed" },
+        { title: "Pull request open", value: $counts.propen, caption: "waiting for its merge", tone: "PrOpen" },
+        { title: "Merged", value: ([ $decisions[] | select(.phase == "Merged" and .at >= $now - $window) ] | length), caption: ("in " + $rangeText), tone: "Merged" },
+        { title: "Rejected", value: ([ $decisions[] | select(.phase == "Rejected" and .at >= $now - $window) ] | length), caption: ("in " + $rangeText), tone: "Rejected" } ]
+      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)
+      | . + [ (if $rerr != "" then { title: "Last run (all kinds)", value: "", caption: "could not be read", tone: "unread" }
+               elif $last == null then { title: "Last run (all kinds)", value: "", caption: "no review has run yet", tone: "none" }
+               else ($last.status.phase // "Pending") as $lp
+                 | { title: "Last run (all kinds)", value: $lp,
+                     caption: ($last.metadata.name + " · " + ($last.status.startedAt | rv_when | .[11:])), tone: $lp } end) ]) as $stats
+    # THE TREND: per bucket, the newest bucket the current hour or day, so the chart ends now.
+    | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
+    | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
+    | def bucket: select(. != null and . >= $start) | ((. - $start) / $b.size | floor);
+      ([ $matchedAll[] | .created | rv_epoch | bucket ]) as $proposedB
+    | ([ $decisions[] | select(.phase == "Merged" or .phase == "Rejected") | .at | bucket ]) as $decidedB
+    | ([ $runs[] | select((.status.phase // "") == "Failed") | (.status.startedAt // .metadata.creationTimestamp // "") | rv_epoch | bucket ]) as $runsFailedB
+    | ([ range(0; $b.n) as $i | ($start + $i * $b.size) as $t
+         | { t: $t, series: "Proposed", v: ([ $proposedB[] | select(. == $i) ] | length) },
+           { t: $t, series: "Decided", v: ([ $decidedB[] | select(. == $i) ] | length) },
+           { t: $t, series: "Runs failed", v: ([ $runsFailedB[] | select(. == $i) ] | length) } ]) as $trend
+    # OPEN BY KIND: every filter but kind, so the bars stay a choice; a bar opens the open ones of its kind.
+    | ([ $open[] | select(fx_pass($flt; "kind")) ] | group_by(.f.kind)
+       | map({ name: .[0].f.kind, count: length }) | sort_by(-.count, .name) | .[0:8]) as $kindRows
+    | (($kindRows[0].count // 0)) as $kindMax
+    | ([ $kindRows[] | . + { percent: (if $kindMax > 0 then (.count * 100 / $kindMax | floor) else 0 end),
+                              href: fx_href("/reviews"; fx_set(fx_set($p; "kind"; .name); "state"; "")) } ]) as $byKind
     | def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end;
       def numbered: .[0:8] | to_entries
         | map(((.key + 1) | tostring) + ". \"" + (.value.title | cap(110)) + "\" (" + .value.kind + ", " + .value.phase + ")") | join(" ");
@@ -162,11 +236,21 @@ spec:
          (if $rerr != "" then " The review runs could not be read (" + ($rerr | cap(300)) + ")."
           elif $last == null then " No review run is recorded."
           else " The last review run is " + $last.metadata.name + " (" + ($last.status.phase // "Pending") + ", started " + ($last.status.startedAt | rv_when) + ")." end) as $lastLine
-         | ([ $facets[] | select((.active | length) > 0)
+         | ([ (if $sel != "open" then "state: " + (([ $states[] | select(.key == $sel) ][0].label) // ($sel | cap(40))) else empty end) ]
+            + [ $facets[] | select((.active | length) > 0)
               | if .key == "today" then (if any(.active[]; . == "1") then "new today" else "not new today" end)
                 else .label + ": " + (.active | join(", ")) end ]
             + (if $q != "" then [ "search \"" + ($qraw | cap(80)) + "\"" ] else [] end) | join("; ")) as $desc
-         | if ($open | length) == 0 then
+         | if $sel != "open" then
+             (if ($shown | length) == 0 then
+                "No nightly-review proposal is in the view on screen (" + $desc + "), of " + (($allRows | length) | tostring) + " in all." + $lastLine
+                + " Tell me whether that filter hides anything I should look at."
+              else
+                "Review the nightly-review proposals in the view on screen (" + $desc + "): " + (($shown | length) | tostring)
+                + " of " + (($allRows | length) | tostring) + " — " + ($shown | numbered) + "." + $lastLine
+                + " Tell me what they say about the review's suggestions: which were worth acting on, and whether any should be revisited."
+              end)
+           elif ($open | length) == 0 then
              "The nightly review has no open proposals." + $lastLine
              + (if $last == null and $rerr == "" then " Explain what the nightly review reads, and when its first proposals will appear."
                 else " Check the platform's telemetry and tell me whether that matches what you see, or whether the review missed something." end)
@@ -186,37 +270,42 @@ spec:
     | { askHref: fx_href("/reviews"; $p + [["ask", $prompt]]),
         installed: ($perr | test("404|not found|could not find"; "i") | not),
         denied: ($perr | test("403|forbidden"; "i")),
-        readError: $perr,
+        failed: $failed,
+        readError: $perrText,
         open: ($open | length),
-        {{/* The open proposals the filters match: today's table (?view=table) and the groups. */}}
+        {{/* The proposals in the picked state the filters match: the table and (capped) the cards. */}}
         rows: $shown,
+        cards: $shown[0:24],
+        more: ([ ($shown | length) - 24, 0 ] | max),
         matched: ($shown | length),
+        total: ($matchedAll | length),
+        state: $sel,
+        q: $qraw,
+        range: $range,
+        view: (if $tableView then "table" else "" end),
         facets: $facets,
         filtered: ([ $flt[] | select(length > 0) ] | length > 0),
-        group: $group,
-        view: (if $tableView then "table" else "" end),
-        groups: $groups,
-        {{/* The strip, over the filtered set. */}}
-        counts: { waiting: ($shown | length), newToday: ([ $shown[] | select(.f.today == "1") ] | length),
-                  prOpen: ([ $shown[] | select(.phase == "PrOpen") ] | length) },
+        counts: $counts,
+        stats: $stats,
         chips: fx_chips("/reviews"; $p; $facets),
+        stateChips: [ $states[] | { label, count: ($counts[.key] // 0), active: (.key == $sel),
+                                    route: fx_href("/reviews"; fx_set($p; "state"; (if .key == "open" then "" else .key end))) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: fx_href("/reviews"; fx_set($p; "view"; "")) },
+                     { label: "Full list", active: $tableView, route: fx_href("/reviews"; fx_set($p; "view"; "table")) } ],
+        rangeChips: [ ("24h", "7d", "30d") | { label: ., active: (. == $range), route: fx_href("/reviews"; fx_set($p; "range"; (if . == "7d" then "" else . end))) } ],
         todayToggle: ([ $facets[] | select(.key == "today") ][0] as $t
                       | { show: $t.show, active: any($t.active[]; . == "1"),
                           count: ([ $t.values[] | select(.value == "1") | .count ][0] // 0),
                           href: (if any($t.active[]; . == "1") then fx_href("/reviews"; fx_without($p; "today"; "1"))
                                  else fx_href("/reviews"; fx_set($p; "today"; "1")) end) }),
-        groupHrefs: { kind: fx_href("/reviews"; fx_set($p; "group"; "kind")), repo: fx_href("/reviews"; fx_set($p; "group"; "repo")) },
-        tableHref: fx_href("/reviews"; fx_set($p; "view"; "table")),
-        cardsHref: fx_href("/reviews"; fx_set($p; "view"; "")),
-        decided: $decided,
-        decidedCount: ($decided | length),
+        byState: [ $states[] | select(.key != "open" and .key != "all") | { state: .label, count: ($counts[.key] // 0) } | select(.count > 0) ],
+        byKind: $byKind,
+        trend: $trend,
+        trendUnit: $b.unit,
         refused: $refused,
         supersededHidden: ([ $under[] ] | add // 0),
         supersededInView: $supersededInView,
-        decidedCaption: ([ ([ $decided[] | select(.phase == "Merged") ] | length | tostring) + " merged"
-                         , ([ $decided[] | select(.phase == "Rejected") ] | length | tostring) + " rejected"
-                         , ([ $decided[] | select(.phase == "Failed") ] | length | tostring) + " failed" ] | join(" · ")),
-        runRows: [ $runs[] | (.status.phase // "Pending") as $ph
+        recentRuns: [ $runs[0:6][] | (.status.phase // "Pending") as $ph
                    | { name: .metadata.name,
                        phase: $ph,
                        phaseColor: ($ph | rv_run_color),
@@ -227,9 +316,8 @@ spec:
                                 else (((.status.proposals.created // 0) | tostring) + " proposed"
                                       + (if (.status.proposals.superseded // 0) > 0 then " · " + (.status.proposals.superseded | tostring) + " superseded" else "" end)
                                       + (if (.status.proposals.deduplicated // 0) > 0 then " · " + (.status.proposals.deduplicated | tostring) + " duplicate" else "" end)) end),
-                       notRead: (rv_not_read | if . == "" then "—" else . end) } ],
-        runCaption: (([ $runs | group_by(.status.phase // "Pending")[] | ((length | tostring) + " " + (.[0].status.phase // "Pending")) ] | join(" · "))
-                     + (if ($runs | length) > 0 then " · since " + ($runs[-1].status.startedAt | rv_when) else "" end)),
+                       notRead: (rv_not_read | if . == "" then "—" else . end) }
+                   | . + { caption: ((.started | rv_when) + " · " + .took + " · " + .result) } ],
         runCount: ($runs | length),
         lastRun: (if $last == null then null else { name: $last.metadata.name, phase: ($last.status.phase // "Pending"), started: ($last.status.startedAt | rv_when) } end),
         runsFailed: ($rerr != ""),

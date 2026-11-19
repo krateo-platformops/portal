@@ -1,0 +1,26 @@
+{{/* "By service": the services with the most spans read (listy.obs-traces-by-service). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-by-service-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    title: By service
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: obs-traces-by-service
+  resourcesRefs:
+    items:
+    - id: obs-traces-by-service
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-by-service
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

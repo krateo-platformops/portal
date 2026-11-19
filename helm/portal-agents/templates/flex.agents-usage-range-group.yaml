@@ -1,0 +1,36 @@
+{{/* "Time range" and the 1h / 6h / 24h / 7d chips (24h when ?range is absent), as on /incidents
+     (flex.incidents-range-group). It sets the window of every figure, the table and both charts on
+     this tab, and of the Overview's token card. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-usage-range-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: agents-usage-range-label
+    - resourceRefId: agents-usage-range-chips
+  resourcesRefs:
+    items:
+    - id: agents-usage-range-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-range-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agents-usage-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-range-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

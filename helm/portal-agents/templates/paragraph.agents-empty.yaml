@@ -1,0 +1,25 @@
+{{/* In place of the cards or the table when they would be empty: the agents could not be read (and
+     why), nothing matches the search or the filters, or nothing is in the picked group. A warning when
+     the read failed, muted otherwise; agents-list writes it. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .emptyText // "" }'
+  - forPath: type
+    expression: '${ .emptyType // "secondary" }'
+  resourcesRefs:
+    items: []

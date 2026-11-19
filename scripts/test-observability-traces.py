@@ -30,12 +30,8 @@ snowplow-path.py), runs the widgets' own jq over the result, and checks what a r
   - HyperDX's own spans (`tracesHiddenService`) are left out until chosen, and the bar says so;
   - 64-bit integers read the same whether the server quotes them in FORMAT JSON or not;
   - every new object lives in the chart's namespace, which only `admins` can read;
-  - "Last reconcile by composition" (obs-composition-staleness, Reconciliation tab, only with
-    observability.reconcileTracing): one bounded ClickHouse aggregate joined to the LIVE
-    composition list on kind|ns|name, trace-only rows dropped, compositions with no reconcile in the
-    trace window first as a "none in the trace window" pill, then the oldest reconcile first; the
-    header names the trace window; an unreadable or empty trace store shows one message and never
-    a flag on every row; nothing overdue shows the all-clear; colours are design tokens only;
+  - (the Reconciliation tab's last-reconcile dating, once "Last reconcile by composition", is
+    obs-reconciliation's now and is guarded by test-observability-a4.py);
   - "Ask Agentiko →": ONE entry point on /observability, in the header, whose prompt is the error
     digest's (top errors, a clean window, or a read that FAILED — obs-error-log-digest's `failed`,
     never "no errors" on a failure) and whose link keeps the page's filters; the trace page's prompt
@@ -85,11 +81,9 @@ CONSOLE = 'https://hdx.example.test/'
 
 NEW_WIDGETS = [
     ('Col', 'obs-tab-traces'), ('Paragraph', 'obs-sec-traces-desc'), ('Flex', 'obs-traces-filters'),
-    ('Flex', 'obs-traces-range-group'), ('Flex', 'obs-traces-service-group'),
-    ('Flex', 'obs-traces-user-group'), ('Flex', 'obs-traces-status-group'),
+    ('Flex', 'obs-traces-service-group'), ('Flex', 'obs-traces-user-group'),
     ('Paragraph', 'obs-traces-service-label'), ('Paragraph', 'obs-traces-user-label'),
-    ('Paragraph', 'obs-traces-status-label'),
-    ('Listy', 'obs-traces-range-chips'), ('Listy', 'obs-traces-service-chips'),
+    ('Listy', 'obs-traces-service-chips'),
     ('Listy', 'obs-traces-user-chips'), ('Listy', 'obs-traces-status-chips'), ('Listy', 'obs-traces-hidden-note'),
     ('Table', 'obs-traces'),
     ('Flex', 'page-trace-detail'), ('PageHeader', 'trace-detail-page-header'), ('Row', 'trace-detail-grid'),
@@ -601,13 +595,14 @@ def check_filter_chips_keep_the_tab_and_the_other_filters(c):
     expect(p, 'an active value outside the top 12 keeps its chip', (rare[-1]['label'], rare[-1]['active']), ('krateo-bff', True))
     bad = tbi.widget(c, 'Listy', 'obs-traces-service-chips', 'dataSource', facets, {'traceService': "x' OR 1=1"})
     expect(p, 'a refused value gets no chip', [x['label'] for x in bad], ['All', 'agentgateway', 'snowplow', 'composition-dynamic-controller'])
-    rng = tbi.resolved_widget(c, 'Listy', 'obs-traces-range-chips', {}, ex, 'range chips')['spec']['widgetData']['dataSource']
+    # The time range is the page's (obs-range-chips, above the tabs): it keeps the Traces filters.
+    rng = tbi.resolved_widget(c, 'Listy', 'obs-range-chips', {}, ex, 'range chips')['spec']['widgetData']['dataSource']
     expect(p, 'range chips', [(x['label'], x['active']) for x in rng], [('1h', False), ('6h', True), ('24h', False), ('7d', False)])
-    expect(p, 'a range chip route', rng[3]['route'], '/observability?range=7d&traceUser=admin&projects=team-a&tab=Traces')
+    expect(p, 'a range chip route keeps the Traces filters', rng[3]['route'], '/observability?range=7d&projects=team-a&traceUser=admin')
     st = tbi.resolved_widget(c, 'Listy', 'obs-traces-status-chips', {}, {'traceStatus': 'Error'}, 'status chips')['spec']['widgetData']['dataSource']
     expect(p, 'status chips', [(x['label'], x['active']) for x in st], [('All', False), ('Error', True), ('OK', False), ('Unset', False)])
     expect(p, 'a status chip route', st[2]['route'], '/observability?range=24h&traceStatus=Ok&tab=Traces')
-    for kind, name in [('Listy', 'obs-traces-range-chips'), ('Listy', 'obs-traces-status-chips')]:
+    for kind, name in [('Listy', 'obs-range-chips'), ('Listy', 'obs-traces-status-chips')]:
         tbi.resolved_widget(c, kind, name, {}, {}, f'{name} (no extras)')
     _, _, empty = resolve(c, 'obs-trace-facets', {}, {})
     tbi.resolved_widget(c, 'Listy', 'obs-traces-service-chips', empty, {}, 'service chips (ClickHouse down)')
@@ -800,18 +795,9 @@ def check_authored_widgets_validate(c, with_console, crds_dir):
     return []
 
 # ---------------------------------------------------------------------------------------------
-# "Last reconcile by composition" (obs-composition-staleness)
+# Composition fixtures, shared with test-observability-a4.py (the Reconciliation tab)
 # ---------------------------------------------------------------------------------------------
 
-STALE_RA = 'obs-composition-staleness'
-STALE_WIDGETS = [('Row', 'obs-staleness-row'), ('Card', 'obs-staleness-card'),
-                 ('Table', 'obs-composition-staleness'), ('Result', 'obs-staleness-allclear'),
-                 ('Result', 'obs-staleness-unavailable'), ('Alert', 'obs-staleness-list-error')]
-STALE_SQL = ("SELECT SpanAttributes['k8s.object.kind'] AS kind, SpanAttributes['k8s.object.namespace'] AS ns, "
-             "SpanAttributes['k8s.object.name'] AS name, toUnixTimestamp(max(Timestamp)) AS last, "
-             "toUnixTimestamp(min(Timestamp)) AS first, toUnixTimestamp(now()) AS now FROM otel_traces "
-             "WHERE ServiceName = 'composition-dynamic-controller' AND SpanName = 'reconcile' "
-             "AND Timestamp > now() - INTERVAL 7 DAY GROUP BY kind, ns, name FORMAT JSON")
 NOW_S = 1794319200            # 2026-11-10 14:00:00 UTC, ClickHouse's now()
 SINCE_S = 1793714520          # 2026-11-03 14:02:00 UTC, the oldest reconcile span held
 
@@ -820,209 +806,6 @@ def cdef(name, ns, api, plural, kind):
     return {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
             'metadata': {'name': name, 'namespace': ns},
             'status': {'apiVersion': api, 'resource': plural, 'kind': kind}}
-
-
-def comp(kind, api, ns, name, created):
-    return {'apiVersion': api, 'kind': kind,
-            'metadata': {'name': name, 'namespace': ns, 'creationTimestamp': created}}
-
-
-STALE_CDS = {'items': [cdef('portal', 'krateo-system', 'composition.krateo.io/v1-8-106', 'portals', 'Portal'),
-                       cdef('fireworks', 'krateo-blueprints', 'composition.krateo.io/v0-3-0', 'fireworksapps', 'FireworksApp'),
-                       # A definition its controller has not reconciled yet: no GVR, no list.
-                       {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
-                        'metadata': {'name': 'pending', 'namespace': 'krateo-system'}}]}
-PORTALS = '/apis/composition.krateo.io/v1-8-106/portals'
-FIREWORKS = '/apis/composition.krateo.io/v0-3-0/fireworksapps'
-STALE_LISTS = {
-    PORTALS: {'items': [comp('Portal', 'composition.krateo.io/v1-8-106', 'krateo-system', 'portal', '2026-08-25T10:00:00Z')]},
-    FIREWORKS: {'items': [
-        comp('FireworksApp', 'composition.krateo.io/v0-3-0', 'team-a', 'fresh', '2026-11-01T09:00:00Z'),
-        comp('FireworksApp', 'composition.krateo.io/v0-3-0', 'team-a', 'stuck', '2026-11-02T09:00:00Z'),
-        comp('FireworksApp', 'composition.krateo.io/v0-3-0', 'team-b', 'never-new', '2026-11-10T13:50:00Z'),
-        comp('FireworksApp', 'composition.krateo.io/v0-3-0', 'team-b', 'never-old', '2026-11-10T11:00:00Z')]},
-}
-
-
-def recon(kind, ns, name, last, first):
-    # As FORMAT JSON sends it: toUnixTimestamp is UInt32, so unquoted.
-    return {'kind': kind, 'ns': ns, 'name': name, 'last': last, 'first': first, 'now': NOW_S}
-
-
-STALE_SPANS = [
-    recon('Portal', 'krateo-system', 'portal', NOW_S - 70, SINCE_S),
-    recon('FireworksApp', 'team-a', 'fresh', NOW_S - 30, SINCE_S + 3600),
-    recon('FireworksApp', 'team-a', 'stuck', NOW_S - 7200, SINCE_S + 7200),
-    # Deleted since: spans, no live composition. Must not appear.
-    recon('FireworksApp', 'team-a', 'deleted', NOW_S - 86400, SINCE_S + 60),
-    # Same namespace/name, another kind: must not date team-b/never-old.
-    recon('Portal', 'team-b', 'never-old', NOW_S - 10, SINCE_S + 120),
-]
-
-
-def staleness_chart():
-    return render(values={'observability': {'reconcileTracing': True}})
-
-
-def stale_resolve(c, spans=None, lists=None, ch_down=False):
-    responses = {'crds': STALE_CDS, 'comps': STALE_LISTS if lists is None else lists}
-    if not ch_down:
-        responses['last'] = ch(STALE_SPANS if spans is None else spans)
-    return gates.resolve(c.get('RESTAction', STALE_RA), {}, responses)
-
-
-def stale_view(c, out, label):
-    card = tbi.resolved_widget(c, 'Card', 'obs-staleness-card', out, {}, f'obs-staleness-card ({label})')['spec']['widgetData']
-    return card, [i['resourceRefId'] for i in card['items']]
-
-
-def check_staleness_gated_on_reconcile_tracing(c, on):
-    p = []
-    for kind, name in STALE_WIDGETS + [('RESTAction', STALE_RA)]:
-        try:
-            c.get(kind, name)
-            p.append(f'{kind} {name} renders with reconcileTracing off')
-        except LookupError:
-            pass
-        on.get(kind, name)
-    for chart, want in ((c, False), (on, True)):
-        col = chart.get('Col', 'obs-tab-reconciliation')['spec']
-        items = [i['resourceRefId'] for i in col['widgetData']['items']]
-        refs = [r['id'] for r in col['resourcesRefs']['items']]
-        expect(p, f'reconcileTracing={want}: the tab lists the row', 'obs-staleness-row' in items, want)
-        expect(p, f'reconcileTracing={want}: the tab refs the row', 'obs-staleness-row' in refs, want)
-        if want:
-            expect(p, 'the row is below the existing cards', items[-1], 'obs-staleness-row')
-    card = on.get('Card', 'obs-staleness-card')['spec']['widgetData']
-    expect(p, 'card title', card['title'], 'Last reconcile by composition')
-    return p
-
-
-def check_staleness_query_is_one_bounded_aggregate(c):
-    p = []
-    reqs, _, _ = stale_resolve(c)
-    by = {}
-    for name, path, _ in reqs:
-        by.setdefault(name, []).append(path)
-    expect(p, 'one CompositionDefinition list', by.get('crds'), ['/apis/core.krateo.io/v1alpha1/compositiondefinitions'])
-    expect(p, 'one cluster-scope list per composition kind', sorted(by.get('comps') or []), sorted([FIREWORKS, PORTALS]))
-    expect(p, 'one ClickHouse request', len(by.get('last') or []), 1)
-    raw = (by.get('last') or [''])[0]
-    expect(p, 'the SQL, decoded once', sql_of(raw), STALE_SQL)
-    if unquote(sql_of(raw)) != sql_of(raw):
-        p.append('the ClickHouse request is encoded twice')
-    for bad, why in [('%25', 'an escaped %'), (' ', 'a space'), ('+', 'a bare +')]:
-        if bad in raw:
-            p.append(f'the request carries {why}')
-    if 'ParentSpanId' in sql_of(raw):
-        p.append('the SQL filters on ParentSpanId: traceparent-stamped compositions reconcile as child spans')
-    ra = c.get('RESTAction', STALE_RA)['spec']['api']
-    for step in ra:
-        if step.get('endpointRef'):
-            expect(p, f'{step["name"]} endpoint', step['endpointRef'], {'name': 'clickhouse-endpoint', 'namespace': RELEASE_NS})
-        else:
-            if not step.get('userAccessFilter'):
-                p.append(f'{step["name"]}: an apiserver stage with no userAccessFilter (dialled as the caller)')
-        if not step.get('continueOnError') or not step.get('errorKey'):
-            p.append(f'{step["name"]}: needs continueOnError and an errorKey')
-    return p
-
-
-def stale_rows(c, out, label):
-    return tbi.resolved_widget(c, 'Table', 'obs-composition-staleness', out, {}, f'obs-composition-staleness ({label})')['spec']['widgetData']['dataSource']
-
-
-def check_staleness_joins_live_compositions(c):
-    p = []
-    _, _, out = stale_resolve(c)
-    card, items = stale_view(c, out, 'mixed')
-    expect(p, 'the body is the table', items, ['obs-composition-staleness'])
-    expect(p, 'header right: the trace window', card['extra'], 'trace window: since 3 Nov, 14:02 (7 days)')
-    rows = stale_rows(c, out, 'mixed')
-    got = [(cells(r)['composition']['stringValue'], cells(r)['kind']['stringValue'],
-            cells(r)['last']['kind'], cells(r)['last']['stringValue'], cells(r)['utc']['stringValue'],
-            cells(r)['age']['stringValue']) for r in rows]
-    expect(p, 'rows: none-in-window first (oldest created first), then oldest reconcile first; trace-only dropped', got, [
-        ('team-b/never-old', 'FireworksApp', 'tag', 'none in the trace window', '—', 'created 3h ago'),
-        ('team-b/never-new', 'FireworksApp', 'tag', 'none in the trace window', '—', 'created 10m ago'),
-        ('team-a/stuck', 'FireworksApp', 'jsonSchemaType', '2026-11-10T12:00:00Z', '2026-11-10 12:00:00 UTC', 'created 8d ago'),
-        ('krateo-system/portal', 'Portal', 'jsonSchemaType', '2026-11-10T13:58:50Z', '2026-11-10 13:58:50 UTC', 'created 77d ago'),
-        ('team-a/fresh', 'FireworksApp', 'jsonSchemaType', '2026-11-10T13:59:30Z', '2026-11-10 13:59:30 UTC', 'created 9d ago'),
-    ])
-    first = cells(rows[0])
-    expect(p, 'the pill is the warning token', first['last'].get('color'), 'warning')
-    expect(p, 'a reconciled row shows relative time', cells(rows[2])['last'].get('format'), 'relative')
-    expect(p, 'Kind and UTC are faint (token)', (first['kind'].get('color'), cells(rows[2])['utc'].get('color')),
-           ('var(--faint-color)', 'var(--faint-color)'))
-    table = c.get('Table', 'obs-composition-staleness')['spec']['widgetData']
-    expect(p, 'columns', [col['title'] for col in table['columns']], ['Composition', 'Kind', 'Last reconcile', 'UTC', 'Age'])
-    expect(p, 'paginated like its sibling', table.get('pagination'), {'defaultPageSize': 10})
-    expect(p, 'a row opens its composition', rownav.build_row_path(table['rowNavigateTo'], rows[2]), '/compositions/team-a/stuck')
-    expect(p, 'counts', out['counts'], {'live': 5, 'never': 2, 'overdue': 3})
-    _, _, unq = stale_resolve(c, spans=[{k: (str(v) if isinstance(v, int) else v) for k, v in r.items()} for r in STALE_SPANS])
-    expect(p, 'quoted integers read the same', stale_rows(c, unq, 'quoted ints'), rows)
-    return p
-
-
-def check_staleness_all_clear(c):
-    p = []
-    lists = {PORTALS: STALE_LISTS[PORTALS],
-             FIREWORKS: {'items': [i for i in STALE_LISTS[FIREWORKS]['items'] if i['metadata']['name'] == 'fresh']}}
-    _, _, out = stale_resolve(c, lists=lists)
-    card, items = stale_view(c, out, 'all clear')
-    expect(p, 'nothing overdue: the all-clear', items, ['obs-staleness-allclear'])
-    expect(p, 'the header still names the window', card['extra'], 'trace window: since 3 Nov, 14:02 (7 days)')
-    res = tbi.resolved_widget(c, 'Result', 'obs-staleness-allclear', out, {}, 'all clear')['spec']['widgetData']
-    expect(p, 'all-clear text', (res['title'], res['subTitle']),
-           ('All 2 compositions reconciled within the last 5 min', 'Nothing is overdue.'))
-    # 6 minutes is overdue.
-    late = [dict(r, last=NOW_S - 360) if r['name'] == 'fresh' else r for r in STALE_SPANS]
-    _, _, out = stale_resolve(c, spans=late, lists=lists)
-    expect(p, 'a reconcile 6 min ago is overdue', stale_view(c, out, 'six minutes')[1], ['obs-composition-staleness'])
-    return p
-
-
-UNAVAILABLE = ("The reconcile traces could not be read, so last-reconcile times can't be shown right now. "
-               "The compositions themselves are not affected.")
-
-
-def check_staleness_never_flags_every_row(c):
-    p = []
-    for label, kw, want, title in [('ClickHouse down', {'ch_down': True}, UNAVAILABLE, 'Telemetry unavailable'),
-                                   ('no reconcile span at all', {'spans': []}, None, 'No reconcile traces')]:
-        _, _, out = stale_resolve(c, **kw)
-        card, items = stale_view(c, out, label)
-        expect(p, f'{label}: one message, no table', items, ['obs-staleness-unavailable'])
-        expect(p, f'{label}: header', card['extra'], 'trace window: unavailable')
-        expect(p, f'{label}: no rows', out['rows'], [])
-        expect(p, f'{label}: no composition counted as never reconciled or overdue', out['counts'],
-               {'live': 5, 'never': 0, 'overdue': 0})
-        res = tbi.resolved_widget(c, 'Result', 'obs-staleness-unavailable', out, {}, label)['spec']['widgetData']
-        expect(p, f'{label}: the bold title', res.get('title'), title)
-        if want:
-            expect(p, f'{label}: the message', res['subTitle'], want)
-        elif 'not affected' not in res['subTitle'] or 'tracing' not in res['subTitle']:
-            p.append(f'{label}: the message should say tracing looks off: {res["subTitle"]!r}')
-        stale_rows(c, out, label)
-    _, _, out = stale_resolve(c, lists={PORTALS: STALE_LISTS[PORTALS]})      # the FireworksApp list fails
-    expect(p, 'a failed composition list: alert above the table', stale_view(c, out, 'list error')[1],
-           ['obs-staleness-list-error', 'obs-composition-staleness'])
-    alert = tbi.resolved_widget(c, 'Alert', 'obs-staleness-list-error', out, {}, 'list error')['spec']['widgetData']
-    if 'missing' not in alert['description']:
-        p.append(f'the list-error alert: {alert["description"]!r}')
-    return p
-
-
-def check_staleness_admins_only_and_tokens(c):
-    p = []
-    for kind, name in STALE_WIDGETS + [('RESTAction', STALE_RA)]:
-        doc = c.get(kind, name)
-        expect(p, f'{kind} {name} namespace', doc['metadata']['namespace'], NS)
-        if re.search(r'#[0-9A-Fa-f]{3,8}\b', json.dumps(doc['spec'])):
-            p.append(f'{kind} {name}: a literal hex colour (use a design token)')
-        if kind != 'RESTAction' and sorted(doc['spec'].get('keyExtras') or []) != ['projects', 'range']:
-            p.append(f'{kind} {name}: keyExtras {doc["spec"].get("keyExtras")}')
-    return p
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1091,8 +874,8 @@ def check_page_ask_agentiko_reads_the_digest(c, with_console):
         expect(p, f'failed ({label}): says the read failed',
                prompt.startswith('The telemetry for this page could not be read (') and
                prompt.endswith('). Explain what that means and what to check.'), True)
-        expect(p, f'failed ({label}): card does not count zero',
-               tbi.widget(c, 'Card', 'obs-errors-card', 'extra', down, {}), 'telemetry could not be read')
+        expect(p, f'failed ({label}): the figures do not count zero',
+               [s_['caption'] for s_ in tbi.widget(c, 'Listy', 'obs-tel-stats', 'dataSource', down, {})][:3], ['could not be read'] * 3)
     # The error text, as snowplow puts it under the errorKey, is named in the prompt (cut at 300).
     timed_out = tbi.jq(c.get('RESTAction', 'obs-error-log-digest')['spec']['filter'],
                        {'range': '24h', 'digestError': 'context deadline exceeded', 'tot': ch([{'total': '0', 'distinct_problems': '0'}])})
@@ -1107,7 +890,7 @@ def check_page_ask_agentiko_reads_the_digest(c, with_console):
                         {'range': '24h', 'digestError': value, 'tot': ch([{'total': '0', 'distinct_problems': '0'}])})
         expect(p, f'failed: errorKey {shape} -> the message, not the list', ask_of(listed['askHref']), ask_of(timed_out['askHref']))
     _, _, down = resolve(c, 'obs-error-log-digest', {}, {})
-    expect(p, 'card: the healthy headline', tbi.widget(c, 'Card', 'obs-errors-card', 'extra', out, ex), '1495 errors · 10 distinct · grouped')
+    expect(p, 'figures: the healthy headline', [s_['value'] for s_ in tbi.widget(c, 'Listy', 'obs-tel-stats', 'dataSource', out, ex)][:2], ['1495', '10'])
 
     # The Button: the digest's link, or the page — never a 404. Every param the link keeps is a key.
     btn = tbi.resolved_widget(c, 'Button', 'observability-ask-agentiko', out, ex, 'observability-ask-agentiko (errors)')
@@ -1115,8 +898,9 @@ def check_page_ask_agentiko_reads_the_digest(c, with_console):
     expect(p, 'button -> askHref', nav['path'], out['askHref'])
     expect(p, 'button, no data -> the page', tbi.widget(c, 'Button', 'observability-ask-agentiko', 'actions', {}, {})['navigate'][0]['path'], '/observability')
     tbi.resolved_widget(c, 'Button', 'observability-ask-agentiko', down, {}, 'observability-ask-agentiko (failed)')
-    expect(p, 'button keyExtras', sorted(btn['spec']['keyExtras']),
-           sorted(['projects', 'range', 'tab', 'serviceName', 'limit', 'traceService', 'traceUser', 'traceStatus']))
+    expect(p, 'button keyExtras: every page param', btn['spec']['keyExtras'],
+           ['projects', 'range', 'tab', 'serviceName', 'limit', 'traceService', 'traceUser', 'traceStatus', 'latencyBy',
+            'status', 'componentStatus', 'q', 'view'])
     wd = btn['spec']['widgetData']
     expect(p, 'button label and intent', (wd['label'], wd['intent']), ('Ask Agentiko →', 'agentiko'))
 
@@ -1133,8 +917,8 @@ def check_page_ask_agentiko_reads_the_digest(c, with_console):
         except LookupError:
             pass
     card = c.get('Card', 'obs-errors-card')['spec']
-    expect(p, 'card: the list only', [i['resourceRefId'] for i in card['widgetData']['items']], ['obs-error-log-list'])
-    expect(p, 'card: no templated items', [e['forPath'] for e in card['widgetDataTemplate']], ['extra'])
+    expect(p, 'card: the error cards, no button', [i['resourceRefId'] for i in card['widgetData']['items']], ['obs-error-log-list'])
+    expect(p, 'card: no button among its refs', [r['id'] for r in card['resourcesRefs']['items'] if 'diagnose' in r['id'] or 'agentiko' in r['id']], [])
     tbi.resolved_widget(c, 'Card', 'obs-errors-card', down, {}, 'obs-errors-card (failed)')
     return p
 
@@ -1209,12 +993,6 @@ def check_component_ask_agentiko(c):
     return p
 
 
-def check_staleness_widgets_validate(c):
-    for kind, name in STALE_WIDGETS:
-        tbi.RESOLVED.append((f'{kind} {name} as rendered (reconcileTracing)', copy.deepcopy(c.get(kind, name))))
-    return []
-
-
 
 def main():
     args = sys.argv[1:]
@@ -1231,7 +1009,6 @@ def main():
         crds_dir = pinned.unpack(version)
         source = f'frontend-crds {version} ({why})'
     c, with_console = render(), render(CONSOLE)
-    stale = staleness_chart()
     checks = [
         ('span list is newest first and bounded', lambda: check_span_list_is_newest_first_and_bounded(c)),
         ('an Error span shows as an error', lambda: check_error_status_shows_as_an_error(c)),
@@ -1249,15 +1026,6 @@ def main():
         ('the User column and filter say "AI calls"', lambda: check_user_is_labelled_ai_calls(c)),
         ('64-bit integers read the same quoted or not', lambda: check_64bit_integers_quoted_or_not(c)),
         ('admins only: new objects sit in the page namespace', lambda: check_admins_only(c, with_console)),
-        ('staleness: renders only with reconcileTracing, below the Reconciliation cards',
-         lambda: check_staleness_gated_on_reconcile_tracing(c, stale)),
-        ('staleness: one bounded ClickHouse aggregate, kinds listed under a userAccessFilter',
-         lambda: check_staleness_query_is_one_bounded_aggregate(stale)),
-        ('staleness: live compositions joined on kind|ns|name, none-in-window first',
-         lambda: check_staleness_joins_live_compositions(stale)),
-        ('staleness: nothing overdue shows the all-clear', lambda: check_staleness_all_clear(stale)),
-        ('staleness: unreadable or empty traces never flag every row', lambda: check_staleness_never_flags_every_row(stale)),
-        ('staleness: admins only, design tokens only', lambda: check_staleness_admins_only_and_tokens(stale)),
         ('Ask Agentiko: one entry point in the page header, from the digest; a failed read says so',
          lambda: check_page_ask_agentiko_reads_the_digest(c, with_console)),
         ('Ask Agentiko: the trace page', lambda: check_trace_ask_agentiko(c)),
@@ -1265,7 +1033,6 @@ def main():
     ]
     if crds_dir:
         checks.append(('(authored widgets queued for validation)', lambda: check_authored_widgets_validate(c, with_console, crds_dir)))
-        checks.append(('(staleness widgets queued for validation)', lambda: check_staleness_widgets_validate(stale)))
     failed = 0
     for label, run in checks:
         try:

@@ -1,0 +1,31 @@
+{{/* The agents and tool servers in view: Healthy (an agent registered and Ready, a tool server
+     Accepted) and Needs attention, coloured as the cards and the figures colour those states (green,
+     red). */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-health
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    angleField: count
+    colorField: state
+    colorMap:
+      Healthy: green
+      Needs attention: red
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .byHealth // [] }'
+  resourcesRefs:
+    items: []
