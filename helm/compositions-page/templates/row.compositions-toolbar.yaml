@@ -1,0 +1,38 @@
+{{/* The row under the header: the scope on the left, the search on the right in a quarter of the row,
+     as on /marketplace (row.marketplace-filters-row); stacked when narrow. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-toolbar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  widgetData:
+    allowedResources:
+    - flexes
+    alignment: middle
+    items:
+    - resourceRefId: compositions-scope-group
+      size: 18
+      xs: 24
+      lg: 18
+    - resourceRefId: compositions-search-wrap
+      size: 6
+      xs: 24
+      lg: 6
+  resourcesRefs:
+    items:
+    - id: compositions-scope-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-scope-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: compositions-search-wrap
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-search-wrap
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

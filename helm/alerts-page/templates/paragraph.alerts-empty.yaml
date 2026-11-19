@@ -8,7 +8,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, range, view]
+  keyExtras: [projects, status, range, view, q]
   apiRef:
     name: obs-alerts
     namespace: {{ $.Values.namespace }}
@@ -17,7 +17,7 @@ spec:
     type: secondary
   widgetDataTemplate:
   - forPath: text
-    expression: '${ if .failed then "The alerts could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.total // 0) == 0 or .status == "all" then "There are no alerts." else ({ alert: ("Nothing is firing: all " + ((.total // 0) | tostring) + " alerts are quiet."), "not-evaluated": "Every alert is evaluated.", pending: "No alert is pending.", ok: "No alert is OK." }[.status] // "No alert is in this state.") end }'
+    expression: '${ if .failed then "The alerts could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.q // "") != "" and (.total // 0) == 0 then "No alert matches \"" + .q + "\"." elif (.total // 0) == 0 or .status == "all" then "There are no alerts." else ({ alert: ("Nothing is firing: all " + ((.total // 0) | tostring) + " alerts are quiet."), "not-evaluated": "Every alert is evaluated.", pending: "No alert is pending.", ok: "No alert is OK." }[.status] // "No alert is in this state.") end }'
   - forPath: type
     expression: '${ if .failed then "warning" else "secondary" end }'
   resourcesRefs:

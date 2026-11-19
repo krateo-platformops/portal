@@ -2,7 +2,7 @@
        - the header, with Ask Agentiko and New alert (no subtitle: the breadcrumb above it says
          where this is);
        - the time range (24h, 7d, 30d): the window of the incidents-opened chart and of "Most
-         incidents";
+         incidents"; the search on the same row, which narrows the whole page;
        - the five figures: Firing, Not evaluated, Pending, OK, With open incidents;
        - one row: the alerts on the left two thirds (the state chips, Firing by default, then one
          card per alert, or with ?view=table the full table), the charts on the right third (by
@@ -22,10 +22,10 @@ metadata:
     "krateo.io/nav-label": "Alerts"
     "krateo.io/nav-order": "13"
     "krateo.io/nav-path": "/alerts"
-    "krateo.io/filter-keys": "projects,status,range,view"
+    "krateo.io/filter-keys": "projects,status,range,view,q"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, range, view]
+  keyExtras: [projects, status, range, view, q]
   widgetData:
     allowedResources:
     - pageheaders
@@ -36,7 +36,7 @@ spec:
     gap: middle
     items:
     - resourceRefId: alerts-page-header
-    - resourceRefId: alerts-range-group
+    - resourceRefId: alerts-toolbar
     - resourceRefId: alerts-stats
     - resourceRefId: alerts-main
   resourcesRefs:
@@ -47,11 +47,11 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: alerts-range-group
+    - id: alerts-toolbar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alerts-range-group
+      name: alerts-toolbar
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: rows
       verb: GET
     - id: alerts-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
