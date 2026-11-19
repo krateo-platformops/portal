@@ -44,7 +44,8 @@
                   inside the window, count of the spans ending inside it
            FROM (<agent spans ending within a minute of the window> AS s
                  INNER JOIN <gateway rows within a minute of the window> AS g ON same model, input and
-                 output tokens WHERE the two ends within a minute ORDER BY the gap LIMIT 1 BY s.SpanId)
+                 output tokens WHERE the two ends within a minute ORDER BY the gap LIMIT 1 BY s.SpanId,
+                 then ORDER BY the gap LIMIT 1 BY the gateway row: one row, one span)
            GROUP BY app, model, provider, tier
            UNION ALL SELECT 's', app, …, uniqExact(SpanId) FROM <spans ending inside the window> GROUP BY app
      The DISTINCT is there because a retried OTLP export stores a row twice (seen on kind). */}}
