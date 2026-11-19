@@ -21,8 +21,9 @@ spec:
     items:
     - resourceRefId: obs-recon-by-state-card
   widgetDataTemplate:
+  {{- /* The tracing cards are named only where their refs are rendered (design lint X4). */}}
   - forPath: items
-    expression: '${ (if ((.byState // []) | length) > 0 then [ { resourceRefId: "obs-recon-by-state-card" } ] else [] end) + (if .tracing then [ { resourceRefId: "obs-throughput-card" }, { resourceRefId: "obs-phases-card" } ] else [] end) + (if ((.byKind // []) | length) > 0 then [ { resourceRefId: "obs-by-kind-card" } ] else [] end) + (if ((.byNamespace // []) | length) > 0 then [ { resourceRefId: "obs-by-namespace-card" } ] else [] end) }'
+    expression: '${ (if ((.byState // []) | length) > 0 then [ { resourceRefId: "obs-recon-by-state-card" } ] else [] end) {{- if (.Values.observability | default dict).reconcileTracing }} + (if .tracing then [ { resourceRefId: "obs-throughput-card" }, { resourceRefId: "obs-phases-card" } ] else [] end){{- end }} + (if ((.byKind // []) | length) > 0 then [ { resourceRefId: "obs-by-kind-card" } ] else [] end) + (if ((.byNamespace // []) | length) > 0 then [ { resourceRefId: "obs-by-namespace-card" } ] else [] end) }'
   resourcesRefs:
     items:
     - id: obs-recon-by-state-card
