@@ -14,9 +14,10 @@
          call, and the agent is charged that row (_agents-cost.tpl, agentsCost.sql.ag*). The
          gateway's calls no readable agent matches are one "Other calls" row, so the table adds
          up to the Spend figure; agent calls the gateway's log lacks are counted and said.
-       - Prices: the gateway's own price list, the agentgateway-policies model catalog ConfigMap,
-         priced the way the gateway prices a call (_agents-cost.tpl). One price list, so the
-         portal and the gateway's own cost metrics agree. A model missing from it is counted as
+       - Prices: what the gateway charged each call when it made it (`cost_usd` on its row), so a
+         price change never reprices the past. A call the gateway could not price then is priced
+         with its price list as it is now, the agentgateway-policies model catalog ConfigMap, the
+         way the gateway prices a call (_agents-cost.tpl). A model missing from it is counted as
          unpriced and named, never priced at 0.
 
      WHO SEES WHAT. Three apiserver stages, each dispatched by snowplow's ServiceAccount and
@@ -164,8 +165,9 @@ spec:
             principal: ((.principal // "") | tostring), model: ((.model // "") | tostring),
             provider: ((.provider // "") | tostring), cmp: ((.cmp | tostring) == "1" or .cmp == true),
             tier: (.tier | num), calls: (.calls | num), i: (.inp | num), c: (.cached | num),
-            o: (.outp | num), r: (.reas | num) } ] as $g0
-    | [ $g0[] | . + {usd: costOf($cat; .provider; .)} ] as $g
+            o: (.outp | num), r: (.reas | num), hc: ((.hc | tostring) == "1" or .hc == true), rec: (.rec | num) } ] as $g0
+    # What the gateway charged the call; today's price only for a call it could not price then.
+    | [ $g0[] | . + {usd: (if .hc then .rec else costOf($cat; .provider; .) end)} ] as $g
     # The agents' calls: k "m" are the gateway rows matched to an agent's span, priced like any
     # gateway row (`calls` and the tokens: rows inside the window; `spans`: matched spans ending
     # inside it); k "s" is each agent's count of spans ending inside the window, so unmatched calls
@@ -174,14 +176,19 @@ spec:
         | { k: ((.k // "") | tostring), app: ((.app // "") | tostring), model: ((.model // "") | tostring),
             provider: ((.provider // "") | tostring), tier: (.tier | num),
             calls: (.calls | num), i: (.inp | num), c: (.cached | num), o: (.outp | num), r: (.reas | num),
-            spans: (.spans | num) } ] as $a0
-    | [ $a0[] | select(.k == "m" and .calls > 0) | . + {usd: costOf($cat; .provider; .)} ] as $a
+            spans: (.spans | num), hc: ((.hc | tostring) == "1" or .hc == true), rec: (.rec | num) } ] as $a0
+    | [ $a0[] | select(.k == "m" and .calls > 0) | . + {usd: (if .hc then .rec else costOf($cat; .provider; .) end)} ] as $a
     | (reduce ($a0[] | select(.k == "s")) as $x ({}; .[$x.app] = ((.[$x.app] // 0) + $x.calls))) as $spanCalls
     | (reduce ($a0[] | select(.k == "m")) as $x ({}; .[$x.app] = ((.[$x.app] // 0) + $x.spans))) as $matchedSpans
     | ($g | sums) as $tot
     | ([ $g[] | select(.cmp) ] | sums) as $cmp
     | ([ $g[] | select(.usd == null) | .model ] | unique | map(if . == "" then "an unnamed model" else . end)) as $unpricedModels
-    | (($cat | length) > 0) as $priced
+    # Spend can be shown when either price source is there: the price list, or a cost the gateway
+    # recorded on a call.
+    | (($cat | length) > 0) as $catOk
+    | ($catOk or any($g[], $a[]; .hc)) as $priced
+    # The gateway query stops at 20,000 rows (agentsCost.sql.gw4); ClickHouse says when it did.
+    | ([ .gw | objects | (.rows_before_limit_at_least | num) > (.rows | num) ] | any) as $capped
     | (if $priced then $tot.usd else null end) as $total
     # Spend over time: the five biggest spenders by name, the rest as "others", every bucket of
     # the window present (zero where nothing ran), so the axis is time and not just the busy hours.
@@ -225,8 +232,12 @@ spec:
                      (if $accErr != "" then "Your access to the agent gateway could not be checked, so no spend is shown."
                       else "Spend is shown only to people who can read the agent gateway. Ask an administrator for read access to Gateways in the {{ $ns }} namespace." end)
                    else empty end),
-                  (if $access and ($priced | not) then
-                     ("The gateway's price list could not be read" + (if $catErr != "" then " (" + $catErr + ")" else "" end) + ", so calls are counted but not priced.")
+                  (if $access and ($catOk | not) then
+                     ("The gateway's price list could not be read" + (if $catErr != "" then " (" + $catErr + ")" else "" end)
+                      + (if $priced then ", so only the calls the gateway priced when it made them are in the spend." else ", so calls are counted but not priced." end))
+                   else empty end),
+                  (if $access and $capped then
+                     "This range has too much activity to show in full, so every figure here is lower than it should be. Pick a shorter range."
                    else empty end),
                   (if $access and ($gwErr != "" or $gwMissing) then
                      ("The gateway's call log could not be read" + (if $gwErr != "" then " (" + $gwErr + ")" else "" end) + ".")
@@ -241,7 +252,7 @@ spec:
                       + " the agents made in this range never reached the gateway's log, so "
                       + (if $unmatched == 1 then "it is" else "they are" end) + " missing from every figure on this page.")
                    else empty end),
-                  (if $priced and ($unpricedModels | length) > 0 then
+                  (if $catOk and ($unpricedModels | length) > 0 then
                      ($g | map(select(.usd == null) | .calls) | add // 0) as $n
                      | ($unpricedModels | join(" and ")) + (if ($unpricedModels | length) == 1 then " is not on the gateway's price list, so its " else " are not on the gateway's price list, so their " end)
                        + ($n | commas) + (if $n == 1 then " call is" else " calls are" end) + " not counted in the spend."
@@ -266,7 +277,7 @@ spec:
               caption: (($cmp.calls | commas) + (if $cmp.calls == 1 then " call" else " calls" end) + " by the alert provider, without an agent"), tone: "" } ]
           + (if $priced and $tot.unpriced > 0 then
                [ { title: "Not priced", value: (($tot.unpriced | commas) + (if $tot.unpriced == 1 then " call" else " calls" end)),
-                   caption: (($unpricedModels | join(", ")) + " not on the price list"), tone: "warn" } ]
+                   caption: (if $catOk then (($unpricedModels | join(", ")) + " not on the price list") else "the price list could not be read" end), tone: "warn" } ]
              else [] end)
         end ),
       series: (if $priced then $series else [] end),

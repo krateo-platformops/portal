@@ -8,8 +8,11 @@ WHAT IT GUARDS:
     ask for;
   - spend over time with five callers or fewer, and with more (the five biggest by name, the rest as
     "others"); every bucket adds up to the Spend figure;
-  - pricing the way the gateway prices a call: cached input at the cache rate, the context tier, and
-    a model missing from the price list counted and named, never priced at 0;
+  - a call costs what the gateway charged it when it made it (its recorded cost), whatever the price
+    list says now; a call with no recorded cost is priced the way the gateway prices a call: cached
+    input at the cache rate, the context tier, and a model missing from the price list counted and
+    named, never priced at 0;
+  - a gateway query cut at its row limit says so;
   - spend per agent: the agents table (readable agents, the incident comparison, "Other calls") adds
     up to the Spend figure; an agent call with no gateway row is counted from the spans that END
     inside the window, so a call whose gateway row fell just outside it is not called missing;
@@ -49,22 +52,25 @@ def agent(name):
 
 
 def row(usr, calls=1, inp=1000, cached=0, outp=100, team='devs', principal='human', model='gemini-4-hydrogen',
-        cmp=0, tier=0, t=T):
-    # ClickHouse FORMAT JSON writes UInt64 as strings.
+        cmp=0, tier=0, t=T, rec=None):
+    # ClickHouse FORMAT JSON writes UInt64 as strings, UInt8 and Float64 as numbers. `rec` is the cost the
+    # gateway recorded on the calls; None = it priced none of them.
     return {'t': str(t), 'usr': usr, 'team': team, 'principal': principal, 'model': model, 'provider': 'gcp.gemini',
-            'cmp': cmp, 'tier': tier, 'calls': str(calls), 'inp': str(inp), 'cached': str(cached), 'outp': str(outp), 'reas': '0'}
+            'cmp': cmp, 'tier': tier, 'hc': 0 if rec is None else 1, 'calls': str(calls), 'inp': str(inp), 'cached': str(cached),
+            'outp': str(outp), 'reas': '0', 'rec': 0 if rec is None else rec}
 
 
-def agent_row(k, app, calls=0, inp=0, cached=0, outp=0, spans=0):
+def agent_row(k, app, calls=0, inp=0, cached=0, outp=0, spans=0, rec=None):
     return {'k': k, 'app': app, 'model': 'gemini-4-hydrogen' if k == 'm' else '', 'provider': 'gcp.gemini' if k == 'm' else '',
-            'tier': 0, 'calls': str(calls), 'inp': str(inp), 'cached': str(cached), 'outp': str(outp), 'reas': '0', 'spans': str(spans)}
+            'tier': 0, 'hc': 0 if rec is None else 1, 'calls': str(calls), 'inp': str(inp), 'cached': str(cached), 'outp': str(outp),
+            'reas': '0', 'rec': 0 if rec is None else rec, 'spans': str(spans)}
 
 
-def responses(gw_rows, ag_rows=(), agents=('agentiko', 'k8s-agent'), access=True, catalog=CATALOG):
+def responses(gw_rows, ag_rows=(), agents=('agentiko', 'k8s-agent'), access=True, catalog=CATALOG, before_limit=None):
     r = {'gatewayAccess': {'metadata': {'name': NS}} if access is True else access,
          'agents': {'items': [agent(a) for a in agents]}, 'catalog': configmap(catalog)}
     if access is True:
-        r['gw'] = {'data': list(gw_rows)}
+        r['gw'] = {'data': list(gw_rows), 'rows': len(gw_rows), 'rows_before_limit_at_least': before_limit or len(gw_rows)}
         r['ag'] = {'data': list(ag_rows)}
     return r
 
@@ -158,6 +164,42 @@ def check_pricing():
     return f
 
 
+def check_recorded_cost():
+    f = []
+    # The gateway charged $0.50 for a call today's list would price at $0.0023: the charge stands.
+    out = resolve(responses([row('admin', rec=0.5)]))
+    close(f, 'a recorded cost is what the call cost', out['totals']['usd'], 0.5)
+    # Recorded and unrecorded calls together: the recorded charge plus today's price for the rest.
+    out = resolve(responses([row('admin', rec=0.5), row('admin', inp=20922, cached=17831, outp=221)]))
+    close(f, 'recorded plus priced today', out['totals']['usd'], 0.5 + 0.007631325)
+    # A model gone from today's list keeps the cost it was charged.
+    out = resolve(responses([row('admin', model='retired-model', rec=0.25)]))
+    close(f, 'a retired model keeps its charge', out['totals']['usd'], 0.25)
+    expect(f, 'a retired model is not called unpriced', 'retired-model' in out['notice'], False)
+    # The price list cannot be read: the recorded calls are still spend, the rest are counted.
+    out = resolve(responses([row('admin', rec=0.5), row('bob', calls=2)], catalog={}))
+    expect(f, 'no price list, recorded costs: Spend', out['stats'][0]['value'], '$0.50')
+    expect(f, 'no price list, recorded costs: said',
+           "could not be read, so only the calls the gateway priced when it made them are in the spend" in out['notice'], True)
+    expect(f, 'no price list, recorded costs: the rest counted',
+           [(s['value'], s['caption']) for s in out['stats'] if s['title'] == 'Not priced'], [('2 calls', 'the price list could not be read')])
+    # An agent's call costs what the gateway charged it, too.
+    out = resolve(responses([row('admin', rec=0.5)], [agent_row('m', 'krateo_system__NS__agentiko', calls=1, inp=1000, outp=100, spans=1, rec=0.5),
+                                                       agent_row('s', 'krateo_system__NS__agentiko', calls=1)]))
+    expect(f, 'an agent charged what the gateway charged', [a['spend'] for a in out['agents'] if a['name'] == 'agentiko'], ['0.50'])
+    expect(f, 'nothing left over', [a['name'] for a in out['agents']], ['agentiko'])
+    return f
+
+
+def check_row_limit():
+    f = []
+    out = resolve(responses([row('admin')]))
+    expect(f, 'under the limit: nothing said', 'too much activity' in out['notice'], False)
+    out = resolve(responses([row('admin')], before_limit=25000))
+    expect(f, 'cut at the limit: said', 'This range has too much activity to show in full' in out['notice'], True)
+    return f
+
+
 def check_agents():
     f = []
     agentiko = 'krateo_system__NS__agentiko'
@@ -197,7 +239,7 @@ def check_widgets():
     return f
 
 
-CHECKS = [check_no_access, check_spend_over_time, check_pricing, check_agents, check_widgets]
+CHECKS = [check_no_access, check_spend_over_time, check_pricing, check_recorded_cost, check_row_limit, check_agents, check_widgets]
 
 
 def main():
