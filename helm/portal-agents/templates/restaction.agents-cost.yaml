@@ -39,12 +39,14 @@
            FROM (SELECT DISTINCT <the call's time, client address, identity, model, tokens>
                  FROM otel_logs WHERE ScopeName = 'request' AND <has tokens> AND <window>)
            GROUP BY t, usr, team, principal, model, provider, cmp, tier
-       ag: SELECT 'm', app, model, provider, <tier> AS tier, count(), sums of the GATEWAY row's tokens
-           FROM (<agent spans in the window, app IN (<readable>)> AS s
-                 INNER JOIN <gateway rows in the window> AS g ON same model, input and output tokens
-                 WHERE within 10 minutes ORDER BY the gap LIMIT 1 BY s.SpanId)
+       ag: WITH <from> AS wf, <to> AS wt, [<readable>] AS apps
+           SELECT 'm', app, model, provider, <tier> AS tier, count and token sums of the GATEWAY rows
+                  inside the window, count of the spans ending inside it
+           FROM (<agent spans ending within a minute of the window> AS s
+                 INNER JOIN <gateway rows within a minute of the window> AS g ON same model, input and
+                 output tokens WHERE the two ends within a minute ORDER BY the gap LIMIT 1 BY s.SpanId)
            GROUP BY app, model, provider, tier
-           UNION ALL SELECT 's', app, …, uniqExact(SpanId) FROM <the same spans> GROUP BY app
+           UNION ALL SELECT 's', app, …, uniqExact(SpanId) FROM <spans ending inside the window> GROUP BY app
      The DISTINCT is there because a retried OTLP export stores a row twice (seen on kind). */}}
 {{- $ns := include "agentsCost.namespace" . -}}
 {{- $cm := include "agentsCost.catalogConfigMap" . -}}
@@ -117,7 +119,7 @@ spec:
     endpointRef:
       name: clickhouse-endpoint
       namespace: {{ .Release.Namespace }}
-    path: '${ "/?query={{ include "agentsCost.enc" (include "agentsCost.sql.ag1" .) }}" + (.tier | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.ag2" .) }}" + (.from | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.until" .) }}" + (.to | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.ag3" .) }}" + (.apps | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.ag4" .) }}" + (.from | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.until" .) }}" + (.to | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.ag5" .) }}" + (.from | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.until" .) }}" + (.to | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.ag6" .) }}" + (.apps | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.ag7" .) }}" }'
+    path: '${ "/?query={{ include "agentsCost.enc" (include "agentsCost.sql.agA" .) }}" + (.from | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agB" .) }}" + (.to | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agC" .) }}" + (.apps | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agD" .) }}" + (.tier | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agE" .) }}" }'
     verb: GET
     headers:
     - 'Accept: application/json'
@@ -164,13 +166,17 @@ spec:
             o: (.outp | num), r: (.reas | num) } ] as $g0
     | [ $g0[] | . + {usd: costOf($cat; .provider; .)} ] as $g
     # The agents' calls: k "m" are the gateway rows matched to an agent's span, priced like any
-    # gateway row; k "s" is each agent's span count, so unmatched calls are counted.
+    # gateway row (`calls` and the tokens: rows inside the window; `spans`: matched spans ending
+    # inside it); k "s" is each agent's count of spans ending inside the window, so unmatched calls
+    # are counted.
     | [ ((.ag | objects | .data) // [])[] | objects
         | { k: ((.k // "") | tostring), app: ((.app // "") | tostring), model: ((.model // "") | tostring),
             provider: ((.provider // "") | tostring), tier: (.tier | num),
-            calls: (.calls | num), i: (.inp | num), c: (.cached | num), o: (.outp | num), r: (.reas | num) } ] as $a0
-    | [ $a0[] | select(.k == "m") | . + {usd: costOf($cat; .provider; .)} ] as $a
+            calls: (.calls | num), i: (.inp | num), c: (.cached | num), o: (.outp | num), r: (.reas | num),
+            spans: (.spans | num) } ] as $a0
+    | [ $a0[] | select(.k == "m" and .calls > 0) | . + {usd: costOf($cat; .provider; .)} ] as $a
     | (reduce ($a0[] | select(.k == "s")) as $x ({}; .[$x.app] = ((.[$x.app] // 0) + $x.calls))) as $spanCalls
+    | (reduce ($a0[] | select(.k == "m")) as $x ({}; .[$x.app] = ((.[$x.app] // 0) + $x.spans))) as $matchedSpans
     | ($g | sums) as $tot
     | ([ $g[] | select(.cmp) ] | sums) as $cmp
     | ([ $g[] | select(.usd == null) | .model ] | unique | map(if . == "" then "an unnamed model" else . end)) as $unpricedModels
@@ -187,13 +193,13 @@ spec:
         | $seriesNames[] as $s
         | { x: ($b | strftime($xfmt)),
             series: (if $s == "" then "(no identity)" else $s end),
-            v: ([ $g[] | select(.t == $b) | select(if $s == "others" then (($top | index(.usr)) == null) else .usr == $s end) | (.usd // 0) ] | add // 0 | (. * 10000 | round) / 10000) } ] as $series
+            v: ([ $g[] | select(.t == $b) | select(if $s == "others" then (.usr as $u | $top | all(. != $u)) else .usr == $s end) | (.usd // 0) ] | add // 0 | (. * 10000 | round) / 10000) } ] as $series
     | [ $g | group_by(.model)[] | {model: (if .[0].model == "" then "(unnamed)" else .[0].model end), usd: (map(.usd // 0) | add)} | select(.usd > 0) | .usd = ((.usd * 10000 | round) / 10000) ] as $byModel
     # Per agent, for the agents the caller can read; then the comparison, which no agent makes;
     # then the rest of the gateway's calls, so the table adds up to the Spend figure.
     | [ $a | group_by(.app)[] | ($appIdx[.[0].app]) as $ag | select($ag != null) | sums + {name: $ag.name, ns: $ag.ns} ] as $perAgent
     | ([ $readable[] | ((.ns | gsub("-"; "_")) + "__NS__" + (.name | gsub("-"; "_"))) as $k
-         | (($spanCalls[$k] // 0) - ([ $a[] | select(.app == $k) | .calls ] | add // 0)) | select(. > 0) ] | add // 0) as $unmatched
+         | (($spanCalls[$k] // 0) - ($matchedSpans[$k] // 0)) | select(. > 0) ] | add // 0) as $unmatched
     | ($perAgent + [ $cmp ] | sums) as $named
     | { calls: ([$tot.calls - $named.calls, 0] | max), i: ([$tot.i - $named.i, 0] | max), c: ([$tot.c - $named.c, 0] | max),
         o: ([$tot.o - $named.o, 0] | max), usd: ([$tot.usd - $named.usd, 0] | max) } as $other

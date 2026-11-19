@@ -75,17 +75,23 @@
      it reports no cached tokens (0 on every kagent span), while the gateway sees most agent input
      served from cache. So each span (`kagent.app_name` = <namespace>__NS__<name>, `-` written `_`)
      is matched to the gateway's row for the SAME call: same model, same input and output token
-     counts, within 10 minutes, the nearest one. The matched rows carry the gateway's own tokens
-     and provider, and are priced like every other gateway row. A second part counts each agent's
-     spans, so the calls with no gateway row are counted and said, not guessed. Only the agents the
-     caller can read are asked for. Split around $tier, the window and the agent list. */}}
-{{- define "agentsCost.sql.ag1" }}SELECT 'm' AS k, app, model, provider, {{ end }}
-{{- define "agentsCost.sql.ag2" }} AS tier, count() AS calls, sum(i) AS inp, sum(c) AS cached, sum(o) AS outp, sum(r) AS reas FROM (SELECT s.app AS app, g.model AS model, g.provider AS provider, g.i AS i, g.c AS c, g.o AS o, g.r AS r FROM (SELECT DISTINCT SpanId AS sid, Timestamp AS ts, SpanAttributes['kagent.app_name'] AS app, SpanAttributes['gen_ai.request.model'] AS model, toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens']) AS i, toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens']) AS o FROM otel_traces WHERE has(mapKeys(SpanAttributes), 'kagent.app_name') AND has(mapKeys(SpanAttributes), 'gen_ai.usage.input_tokens') AND Timestamp >= toDateTime({{ end }}
-{{- define "agentsCost.sql.ag3" }}) AND SpanAttributes['kagent.app_name'] IN ({{ end }}
-{{- define "agentsCost.sql.ag4" }})) AS s INNER JOIN (SELECT DISTINCT Timestamp AS ts, LogAttributes['src.addr'] AS src, if(LogAttributes['model'] != '', LogAttributes['model'], LogAttributes['gen_ai.request.model']) AS model, LogAttributes['gen_ai.provider.name'] AS provider, toUInt64OrZero(LogAttributes['gen_ai.usage.input_tokens']) AS i, toUInt64OrZero(LogAttributes['gen_ai.usage.cache_read.input_tokens']) AS c, toUInt64OrZero(LogAttributes['gen_ai.usage.output_tokens']) AS o, toUInt64OrZero(LogAttributes['gen_ai.usage.reasoning_tokens']) AS r FROM otel_logs WHERE ScopeName = 'request' AND has(mapKeys(LogAttributes), 'gen_ai.usage.input_tokens') AND Timestamp >= toDateTime({{ end }}
-{{- define "agentsCost.sql.ag5" }})) AS g ON s.model = g.model AND s.i = g.i AND s.o = g.o WHERE abs(toUnixTimestamp64Milli(g.ts) - toUnixTimestamp64Milli(s.ts)) < 600000 ORDER BY abs(toUnixTimestamp64Milli(g.ts) - toUnixTimestamp64Milli(s.ts)) LIMIT 1 BY s.sid) GROUP BY app, model, provider, tier UNION ALL SELECT 's' AS k, SpanAttributes['kagent.app_name'] AS app, '' AS model, '' AS provider, 0 AS tier, uniqExact(SpanId) AS calls, 0 AS inp, 0 AS cached, 0 AS outp, 0 AS reas FROM otel_traces WHERE has(mapKeys(SpanAttributes), 'kagent.app_name') AND has(mapKeys(SpanAttributes), 'gen_ai.usage.input_tokens') AND Timestamp >= toDateTime({{ end }}
-{{- define "agentsCost.sql.ag6" }}) AND SpanAttributes['kagent.app_name'] IN ({{ end }}
-{{- define "agentsCost.sql.ag7" }}) GROUP BY app FORMAT JSON{{ end }}
+     counts, the nearest within a minute. The matched rows carry the gateway's own tokens and
+     provider, and are priced like every other gateway row.
+
+     Both sides are timed at the call's END. The gateway logs a call when it completes; a span is
+     stamped when it starts, seconds to minutes earlier, so its end is Timestamp + Duration. A
+     matched call counts in the window its gateway row is in, the rule every other figure follows,
+     so the agents never add up to more than the Spend figure. The match itself looks a minute past
+     both edges, so a call that straddles one is still found. `spans` counts the matched spans that
+     end inside the window and the second part counts every such span, so a call with no gateway
+     row is counted and said, not guessed. Spans are read from 15 minutes before the window, longer
+     than the gateway lets a model call run (10 minutes). Only the agents the caller can read are
+     asked for. Split around the window, the agent list and $tier. */}}
+{{- define "agentsCost.sql.agA" }}WITH toDateTime({{ end }}
+{{- define "agentsCost.sql.agB" }}) AS wf, toDateTime({{ end }}
+{{- define "agentsCost.sql.agC" }}) AS wt, [{{ end }}
+{{- define "agentsCost.sql.agD" }}] AS apps SELECT 'm' AS k, app, model, provider, {{ end }}
+{{- define "agentsCost.sql.agE" }} AS tier, countIf(gin) AS calls, sumIf(i, gin) AS inp, sumIf(c, gin) AS cached, sumIf(o, gin) AS outp, sumIf(r, gin) AS reas, countIf(sin) AS spans FROM (SELECT s.app AS app, g.model AS model, g.provider AS provider, g.i AS i, g.c AS c, g.o AS o, g.r AS r, (g.ts >= wf AND g.ts < wt) AS gin, (s.te >= wf AND s.te < wt) AS sin FROM (SELECT DISTINCT SpanId AS sid, addNanoseconds(Timestamp, Duration) AS te, SpanAttributes['kagent.app_name'] AS app, SpanAttributes['gen_ai.request.model'] AS model, toUInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens']) AS i, toUInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens']) AS o FROM otel_traces WHERE has(mapKeys(SpanAttributes), 'kagent.app_name') AND has(mapKeys(SpanAttributes), 'gen_ai.usage.input_tokens') AND has(apps, SpanAttributes['kagent.app_name']) AND Timestamp >= wf - INTERVAL 15 MINUTE AND Timestamp < wt + INTERVAL 1 MINUTE AND te >= wf - INTERVAL 1 MINUTE AND te < wt + INTERVAL 1 MINUTE) AS s INNER JOIN (SELECT DISTINCT Timestamp AS ts, LogAttributes['src.addr'] AS src, if(LogAttributes['model'] != '', LogAttributes['model'], LogAttributes['gen_ai.request.model']) AS model, LogAttributes['gen_ai.provider.name'] AS provider, toUInt64OrZero(LogAttributes['gen_ai.usage.input_tokens']) AS i, toUInt64OrZero(LogAttributes['gen_ai.usage.cache_read.input_tokens']) AS c, toUInt64OrZero(LogAttributes['gen_ai.usage.output_tokens']) AS o, toUInt64OrZero(LogAttributes['gen_ai.usage.reasoning_tokens']) AS r FROM otel_logs WHERE ScopeName = 'request' AND has(mapKeys(LogAttributes), 'gen_ai.usage.input_tokens') AND Timestamp >= wf - INTERVAL 1 MINUTE AND Timestamp < wt + INTERVAL 1 MINUTE) AS g ON s.model = g.model AND s.i = g.i AND s.o = g.o WHERE abs(toUnixTimestamp64Milli(g.ts) - toUnixTimestamp64Milli(s.te)) < 60000 ORDER BY abs(toUnixTimestamp64Milli(g.ts) - toUnixTimestamp64Milli(s.te)) LIMIT 1 BY s.sid) GROUP BY app, model, provider, tier UNION ALL SELECT 's' AS k, app, '' AS model, '' AS provider, 0 AS tier, uniqExact(sid) AS calls, 0 AS inp, 0 AS cached, 0 AS outp, 0 AS reas, 0 AS spans FROM (SELECT SpanId AS sid, SpanAttributes['kagent.app_name'] AS app, addNanoseconds(Timestamp, Duration) AS te FROM otel_traces WHERE has(mapKeys(SpanAttributes), 'kagent.app_name') AND has(mapKeys(SpanAttributes), 'gen_ai.usage.input_tokens') AND has(apps, SpanAttributes['kagent.app_name']) AND Timestamp >= wf - INTERVAL 15 MINUTE AND Timestamp < wt AND te >= wf AND te < wt) GROUP BY app FORMAT JSON{{ end }}
 
 {{/* Number handling, pricing and display, for the filter.
 
