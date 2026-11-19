@@ -1,0 +1,35 @@
+{{/* The four Policies figures (agents-policies `stats`): Policies (blue), Healthy (green), Not healthy
+     (red, as the role tables tag a False condition), Not attached (orange). Every tile is coloured,
+     zero or not; an unread policy list is "—", "could not be read", in orange. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-policies
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          all: blue
+          ok: green
+          bad: red
+          warn: orange
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

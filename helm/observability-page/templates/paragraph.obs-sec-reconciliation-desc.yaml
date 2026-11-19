@@ -1,4 +1,7 @@
-{{/* Observability section header — obs-sec-reconciliation-desc */}}
+{{/* Caption of the Reconciliation tab. With reconcile traces read, it names the trace window the
+     last-reconcile times, the p95s and Overdue are judged over (obs-reconciliation's `extra`):
+     "since <the oldest reconcile span held> (7 days)", so "none in the trace window" reads honestly
+     while retention is shorter than the otel_traces TTL. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -7,8 +10,15 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
   widgetData:
-    text: 'Composition health from live cluster snapshots — totals, drift, coverage and distribution.'
+    text: 'Every live composition, its state and how its reconciles are going — from the cluster, and from the reconcile traces when tracing is on.'
     type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ "Every live composition, its state and how its reconciles are going — from the cluster, and from the reconcile traces when tracing is on." + (if .telemetry == "ok" then " Reconcile " + .extra + "." else "" end) }'
   resourcesRefs:
     items: []

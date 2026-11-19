@@ -1,0 +1,40 @@
+{{/* The /reviews body: the proposals on the left two thirds, the charts on the right third (mockup
+     A4). At narrow widths, or with the Agentiko rail open, both take the full width and the charts
+     go below the list. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  widgetData:
+    allowedResources:
+    - cards
+    - flexes
+    alignment: top
+    items:
+    - resourceRefId: reviews-list-card
+      size: 16
+      xs: 24
+      lg: 16
+    - resourceRefId: reviews-side
+      size: 8
+      xs: 24
+      lg: 8
+  resourcesRefs:
+    items:
+    - id: reviews-list-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-list-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: reviews-side
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-side
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

@@ -1,0 +1,22 @@
+{{/* Under the cards when the state holds more than the 24 drawn: how many, and that the full list has
+     them all. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-recon-more
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ "24 of " + ((.matched // 0) | tostring) + " shown here. Full list has all " + ((.matched // 0) | tostring) + "." }'
+  resourcesRefs:
+    items: []

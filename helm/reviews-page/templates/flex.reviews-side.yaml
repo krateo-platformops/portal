@@ -1,0 +1,52 @@
+{{/* The charts, one third of the row (mockup A4), top to bottom: proposed vs decided per day (or
+     hour) over the range, the proposals by state, the open proposals by kind (while there are
+     any), and the recent review runs (while there are any, or their read failed). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: reviews-trend-card
+    - resourceRefId: reviews-by-state-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "reviews-trend-card" } ] + (if ((.byState // []) | length) > 0 then [ { resourceRefId: "reviews-by-state-card" } ] else [] end) + (if ((.byKind // []) | length) > 0 then [ { resourceRefId: "reviews-by-kind-card" } ] else [] end) + (if (.runCount // 0) > 0 or .runsFailed then [ { resourceRefId: "reviews-runs-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: reviews-trend-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-trend-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: reviews-by-state-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-by-state-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: reviews-by-kind-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-by-kind-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: reviews-runs-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-runs-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

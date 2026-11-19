@@ -22,7 +22,7 @@ metadata:
 spec:
   {{/* Every widget on /reviews receives the page's filter params (krateo.io/filter-keys on
        page-reviews); one it does not declare makes snowplow decline to cache it (F6). */}}
-  keyExtras: [projects, kind, repo, today, q, group, view]
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
   apiRef:
     name: platform-reviews
     namespace: {{ $.Values.namespace }}
@@ -52,7 +52,7 @@ spec:
                                              annotations: (($c.jobTemplate.metadata.annotations // {}) + { "cronjob.kubernetes.io/instantiate": "manual" }),
                                              ownerReferences: [ { apiVersion: "batch/v1", kind: "CronJob", name: ($c.name // ""), uid: ($c.uid // ""), controller: true } ] },
                                  spec: ($c.jobTemplate.spec // {}) },
-                      successMessage: "${ \"Started \" + (.response.metadata.name // \"the review\") + \". Its run appears under Runs once it starts.\" }",
+                      successMessage: "${ \"Started \" + (.response.metadata.name // \"the review\") + \". Its run appears under Recent runs once it starts.\" }",
                       errorMessage: "The review could not be started. Starting it needs permission to create Jobs in this namespace.",
                       loading: { display: true } } ] } }
   resourcesRefs:

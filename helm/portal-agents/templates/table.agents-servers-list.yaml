@@ -1,10 +1,6 @@
-{{/* The tool-server inventory, from restaction.agents-servers (`.servers`). */}}
-{{/* */}}
-{{/* WHY A TABLE AND NOT CARDS: a Card's content is fixed in its own CR — there is no way to fan one */}}
-{{/* Card out per row of an apiRef result, so "a card per server" would mean nine hand-written CRs */}}
-{{/* carrying this cluster's server list inside the chart. The chart must render whatever servers a */}}
-{{/* cluster actually has, so the list has to be data-driven, and Table is the only data-driven */}}
-{{/* container in the widget set. */}}
+{{/* The tool-server inventory, from restaction.agents-servers (`.tableRows`, the servers of the */}}
+{{/* picked state chip; `.servers` before the A4 layout): the Tool servers tab's Full list */}}
+{{/* (?view=table), in place of the cards (listy.agents-servers-cards) on the list card. */}}
 {{/* */}}
 {{/* `Discovered` is what the server reports it serves (.status.discoveredTools). `In use` is how many */}}
 {{/* of those at least one agent actually binds. The gap is the point of the column: kagent-tool-server */}}
@@ -53,7 +49,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
   widgetData:
     allowedResources: []
     bordered: false
@@ -82,7 +78,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
-    expression: '${ [ (.servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.name // "—")}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(.endpoint // "—"),color:"var(--gray-color)"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"var(--gray-color)"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"var(--gray-color)"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:(.discovered // "—")}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:(.inUse // "—")}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(.agents // "—")}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end) ] ] }'
+    expression: '${ [ (.tableRows // .servers // [])[] | [ {valueKey:"server",kind:"jsonSchemaType",type:"string",stringValue:(.name // "—")}, {valueKey:"endpoint",kind:"jsonSchemaType",type:"string",stringValue:(.endpoint // "—"),color:"var(--gray-color)"}, {valueKey:"protocol",kind:"jsonSchemaType",type:"string",stringValue:(.protocol // "—"),color:"var(--gray-color)"}, {valueKey:"timeout",kind:"jsonSchemaType",type:"string",stringValue:(.timeout // "—"),color:"var(--gray-color)"}, {valueKey:"discovered",kind:"jsonSchemaType",type:"string",stringValue:(.discovered // "—")}, {valueKey:"inUse",kind:"jsonSchemaType",type:"string",stringValue:(.inUse // "—")}, {valueKey:"agents",kind:"jsonSchemaType",type:"string",stringValue:(.agents // "—")}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end) ] ] }'
   apiRef:
     name: agents-servers
     namespace: {{ $.Values.namespace }}

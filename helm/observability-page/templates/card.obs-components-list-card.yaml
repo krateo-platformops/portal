@@ -1,0 +1,81 @@
+{{/* The components, two thirds of the row: "Summary | Full list" top right, then the state chips (All
+     by default), then one card per Deployment in that state, or with ?view=table the runtime table
+     (obs-components) and, under it, the versions the platform declares (platform-pins): what is running,
+     then what is declared. When there is nothing to list, or the read failed, a line says so. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-components-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-components
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Components
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: obs-components-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: obs-components-state-chips
+    - resourceRefId: obs-components-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "obs-components-state-chips" } ] + (if .failed or (.matched // 0) == 0 then [ { resourceRefId: "obs-components-empty" } ] elif .view == "table" then [ { resourceRefId: "obs-components" }, { resourceRefId: "obs-sec-pins-label" }, { resourceRefId: "obs-sec-pins-desc" }, { resourceRefId: "platform-pins" } ] else [ { resourceRefId: "obs-components-cards" } ] end) }'
+  resourcesRefs:
+    items:
+    - id: obs-components-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-components-state-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components-state-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-components-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-components-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-components
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: obs-sec-pins-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-pins-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-sec-pins-desc
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-sec-pins-desc
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: platform-pins
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: platform-pins
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET

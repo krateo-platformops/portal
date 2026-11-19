@@ -1,8 +1,8 @@
-{{/* The /reviews filter bar: a named search landmark (Flex role/ariaLabel) holding the Kind and
-     Target repo facets, the New today toggle and the search box. A facet whose values are all one
-     (over every open proposal, decision Q2) is left out unless one of its values is applied, and so
-     is New today when every open proposal, or none, is new today: it would filter nothing. There is
-     no Confidence facet (decision Q3). */}}
+{{/* The /reviews filters, left of the search (row.reviews-toolbar): a named search landmark (Flex
+     role/ariaLabel) holding the Kind and Target repo facets, the New today toggle and the time
+     range. A facet whose values are all one (over the proposals in the picked state, decision Q2)
+     is left out unless one of its values is applied, and so is New today when every such proposal,
+     or none, is new today: it would filter nothing. There is no Confidence facet (decision Q3). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,7 +11,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, repo, today, q, group, view]
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
   apiRef:
     name: platform-reviews
     namespace: {{ $.Values.namespace }}
@@ -19,17 +19,17 @@ spec:
     allowedResources:
     - selects
     - listies
-    - inputs
+    - flexes
     role: search
     ariaLabel: Filter proposals
     wrap: true
     gap: small
     align: center
     items:
-    - resourceRefId: reviews-search
+    - resourceRefId: reviews-range-group
   widgetDataTemplate:
   - forPath: items
-    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ({ k: "kind", id: "reviews-kind" }, { k: "repo", id: "reviews-repo" }, { k: "today", id: "reviews-today-toggle" }) | select(.k as $k | any($shown[]; . == $k)) | { resourceRefId: .id } ] + [ { resourceRefId: "reviews-search" } ] }'
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ({ k: "kind", id: "reviews-kind" }, { k: "repo", id: "reviews-repo" }, { k: "today", id: "reviews-today-toggle" }) | select(.k as $k | any($shown[]; . == $k)) | { resourceRefId: .id } ] + [ { resourceRefId: "reviews-range-group" } ] }'
   resourcesRefs:
     items:
     - id: reviews-kind
@@ -50,9 +50,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: reviews-search
+    - id: reviews-range-group
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: reviews-search
+      name: reviews-range-group
       namespace: {{ $.Values.namespace }}
-      resource: inputs
+      resource: flexes
       verb: GET

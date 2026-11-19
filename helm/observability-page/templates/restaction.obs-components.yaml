@@ -20,12 +20,75 @@ spec:
       headers:
         - 'Accept: application/json'
       continueOnError: true
+      errorKey: deploymentsError
       userAccessFilter:
         verb: list
         group: apps
         resource: deployments
         namespaceFrom: .metadata.namespace
+  {{/* THE COMPONENTS TAB (the A4 dashboard layout) reads all of it. A Deployment's state: Scaled to
+       zero (no replica wanted, gray), Ready (every wanted replica ready, green) or Not ready (red).
+       THE PARAMS: ?componentStatus= (all — absent —, ready, notready, scaled; a value that is no
+       state matches nothing, the chips still drawn), ?q= (the search: name, image or state,
+       case-insensitive, trimmed) and ?view=table (the full list).
+       OUTPUT: `list` (the Deployments in the picked state, for the full table, as before), `stats`
+       (Deployments, neutral; Ready, Not ready, Scaled to zero, each its state's colour; a failed read
+       is "" captioned "could not be read", orange), `chips` / `viewChips` (routes keep every page
+       param, obs.href), `cards` (one per Deployment, Not ready first), `byState` and `readiness`
+       (the side charts), `failed`, `emptyText`. */}}
   filter: >
-    {
-      list: [ .deployments.items[]? | del(.metadata.managedFields) ]
-    }
+    {{ include "obs.href" . }}
+    {{ include "obs.search" . }}
+    def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
+    . as $x
+    | qRaw as $qRaw
+    | ($qRaw | ascii_downcase) as $q
+    | ((($x.componentStatus // "") | tostring | ascii_downcase) | if . == "" then "all" else . end) as $sel
+    | ((($x.view // "") | tostring) == "table") as $tableView
+    | { ready: "Ready", notready: "Not ready", scaled: "Scaled to zero", all: "All" } as $names
+    | ((.deploymentsError // null) | errtext) as $err
+    | [ .deployments.items[]? | del(.metadata.managedFields) ] as $deps
+    | ($err != "" and ($deps | length) == 0) as $failed
+    | [ $deps[]
+        | ((.spec.replicas // 1) | tonumber? // 1) as $want
+        | ((.status.readyReplicas // 0) | tonumber? // 0) as $ready
+        | (if $want == 0 then "scaled" elif $ready >= $want then "ready" else "notready" end) as $st
+        | ((.spec.template.spec.containers[0].image // "") | split("/") | last) as $image
+        | ([ (.status.conditions // [])[] | select(.status != "True") | (.message // .reason // "") | select(. != "") ] | first // "") as $why
+        | { dep: ., name: (.metadata.name // ""), state: $st, stateLabel: $names[$st], image: $image, want: $want, ready: $ready, why: $why } ] as $all
+    | ($all | map(select([ .name, .image, .stateLabel ] | hits($q)))) as $base
+    | ($base | map(select($sel == "all" or .state == $sel))) as $shown
+    | ([ "ready", "notready", "scaled" ] | map(. as $k | { key: $k, value: ($base | map(select(.state == $k)) | length) }) | from_entries + { all: ($base | length) }) as $counts
+    | ($shown | sort_by((if .state == "notready" then 0 elif .state == "ready" then 1 else 2 end), .name)) as $sorted
+    | (if $sel == "all" then "" else $sel end) as $selParam
+    | { list: [ $sorted[] | .dep ],
+        failed: $failed,
+        readError: $err,
+        q: $qRaw,
+        status: $sel,
+        view: (if $tableView then "table" else "" end),
+        total: ($base | length),
+        matched: ($shown | length),
+        counts: $counts,
+        stats: ([ { title: "Deployments", value: $counts.all, caption: "in {{ $.Release.Namespace }}", tone: "total" },
+                  { title: "Ready", value: $counts.ready, caption: "every wanted replica ready", tone: "ready" },
+                  { title: "Not ready", value: $counts.notready, caption: "a wanted replica is not ready", tone: "notready" },
+                  { title: "Scaled to zero", value: $counts.scaled, caption: "no replica wanted", tone: "scaled" } ]
+                | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)),
+        chips: ([ "all", "notready", "ready", "scaled" ] | map(select(. == "all" or . == "notready" or ($counts[.] // 0) > 0 or . == $sel))
+                | map(. as $k | { key: $k, label: $names[$k], count: ($counts[$k] // 0), active: ($k == $sel),
+                                  route: ($x | obsHref({ componentStatus: (if $k == "all" then "" else $k end), q: $qRaw }; "Components")) })),
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: ($x | obsHref({ componentStatus: $selParam, q: $qRaw, view: "" }; "Components")) },
+                     { label: "Full list", active: $tableView, route: ($x | obsHref({ componentStatus: $selParam, q: $qRaw, view: "table" }; "Components")) } ],
+        cards: [ $sorted[] | { name, tone: .state, stateLabel, image: (if .image == "" then "—" else .image end),
+                               foot: ((.ready | tostring) + "/" + (.want | tostring) + " ready"),
+                               description: (if .why != "" then .why elif .state == "ready" then "Every wanted replica is ready." elif .state == "scaled" then "No replica is wanted." else "Waiting for replicas." end) } ],
+        byState: (if $failed then [] else [ { state: "Not ready", count: $counts.notready }, { state: "Ready", count: $counts.ready }, { state: "Scaled to zero", count: $counts.scaled } ] | map(select(.count > 0)) end),
+        readiness: (if $failed then [] else [ $base[] | select(.want > 0) ] | sort_by(-.want, .name) | .[0:8]
+                    | map({ name, count: ((.ready | tostring) + "/" + (.want | tostring)), percent: ([.ready * 100 / .want | floor, 100] | min),
+                            tone: .state, route: ("/observability/components/" + .name) }) end),
+        emptyText: (if $failed then "The Deployments could not be read (" + $err + "), so nothing on this tab counts them."
+                    elif $qRaw != "" and ($base | length) == 0 then "No component matches \"" + $qRaw + "\"."
+                    elif ($base | length) == 0 then "There are no Deployments in {{ $.Release.Namespace }}."
+                    elif $names[$sel] != null then "No component is " + ($names[$sel] | ascii_downcase) + "."
+                    else "No component is in this state." end) }

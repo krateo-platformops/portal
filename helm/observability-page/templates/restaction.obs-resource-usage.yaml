@@ -33,9 +33,24 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: totalsError
-  {{/* pods => {data:[{ns,pod,cpu_m,mem_mib}]}; totals => {data:[{cpu_cores,mem_gib,pods}]}. */}}
+  {{/* pods => {data:[{ns,pod,cpu_m,mem_mib}]}; totals => {data:[{cpu_cores,mem_gib,pods}]}.
+       `top` is the Telemetry side card's bars: the eight pods with the most memory among the 25 read
+       (the search, ?q= over pod and namespace, narrows them), each a bar against the first, tinted by
+       size (over 1 GiB red, over 512 MiB orange), opening the full log list scoped to the pod. */}}
   filter: >
-    { rows: ((.pods.data) // []),
+    {{ include "obs.href" . }}
+    {{ include "obs.search" . }}
+    . as $x
+    | qRaw as $qRaw
+    | ($qRaw | ascii_downcase) as $q
+    | [ ((.pods.data) // [])[] | select([ (.pod // ""), (.ns // "") ] | hits($q)) ] as $rows
+    | ([ $rows[] | (.mem_mib | tonumber? // 0) ] | max // 0) as $max
+    | { rows: $rows,
+      top: [ $rows[0:8][] | (.mem_mib | tonumber? // 0) as $m | . as $r
+             | { name: (.pod // ""), count: (($m | tostring) + " MiB · " + ((.cpu_m // 0) | tostring) + " m CPU"),
+                 percent: (if $max > 0 then ($m * 100 / $max | floor) else 0 end),
+                 tone: (if $m > 1024 then "high" elif $m > 512 then "mid" else "low" end),
+                 route: (if (.pod // "") == "" then "" else ($x | obsHref({ serviceName: $r.pod, q: "", view: "table" }; "Telemetry")) end) } ],
       cpu:  (((.totals.data) // [])[0].cpu_cores // 0),
       mem:  (((.totals.data) // [])[0].mem_gib // 0),
       pods: (((.totals.data) // [])[0].pods // 0) }

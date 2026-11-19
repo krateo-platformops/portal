@@ -1,0 +1,39 @@
+{{/* The row under the header: the filters (range, namespace, user) on the left, the search on the right
+     in a quarter of the row, as on /incidents (row.incidents-toolbar); stacked when narrow. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-toolbar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  widgetData:
+    allowedResources:
+    - flexes
+    alignment: middle
+    items:
+    - resourceRefId: audit-filters
+      size: 18
+      xs: 24
+      lg: 18
+    - resourceRefId: audit-search-wrap
+      size: 6
+      xs: 24
+      lg: 6
+  resourcesRefs:
+    items:
+    - id: audit-filters
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-filters
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: audit-search-wrap
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-search-wrap
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

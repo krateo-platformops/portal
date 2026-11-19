@@ -1,0 +1,43 @@
+{{/* The full list (?view=table): every composition in the picked state, in the cards' order. Composition
+     (ns/name), Kind (faint), State (a tag in the cards' colour) and Created; with reconcile traces also
+     Last reconcile (relative, or a "none in the trace window" warning pill) and p95 over the trace window.
+     The columns follow the data, so an install without tracing has no column of dashes. A row opens the
+     composition (hidden ns and name cells). Colours are palette names and theme tokens only. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-recon-table
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /compositions/{ns}/{name}
+    pagination:
+      defaultPageSize: 15
+    columns:
+    - valueKey: composition
+      title: Composition
+    - valueKey: kind
+      title: Kind
+    - valueKey: state
+      title: State
+    - valueKey: age
+      title: Created
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: columns
+    expression: '${ [ { valueKey: "composition", title: "Composition" }, { valueKey: "kind", title: "Kind" }, { valueKey: "state", title: "State" } ] + (if .telemetry == "ok" then [ { valueKey: "last", title: "Last reconcile" }, { valueKey: "p95", title: "p95" } ] else [] end) + [ { valueKey: "age", title: "Created" } ] }'
+  - forPath: dataSource
+    expression: '${ (.telemetry == "ok") as $t | [ (.table // [])[] | [ {valueKey:"composition",kind:"jsonSchemaType",type:"string",stringValue:(.ns + "/" + .name)}, {valueKey:"ns",kind:"jsonSchemaType",type:"string",stringValue:.ns}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:.name}, {valueKey:"kind",kind:"jsonSchemaType",type:"string",stringValue:.kind,color:"var(--faint-color)"}, {valueKey:"state",kind:"tag",stringValue:.state,color:({ failed: "red", degraded: "red", unreadable: "orange", drift: "orange", paused: "gray", pending: "blue", healthy: "green" }[.tone] // "gray")} ] + (if $t then [ (if .never then {valueKey:"last",kind:"tag",stringValue:"none in the trace window",color:"warning"} else {valueKey:"last",kind:"jsonSchemaType",type:"string",stringValue:.lastIso,format:"relative"} end), {valueKey:"p95",kind:"jsonSchemaType",type:"string",stringValue:.p95} ] else [] end) + [ {valueKey:"age",kind:"jsonSchemaType",type:"string",stringValue:.createdText} ] ] }'
+  resourcesRefs:
+    items: []

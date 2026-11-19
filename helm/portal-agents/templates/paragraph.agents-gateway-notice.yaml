@@ -1,0 +1,24 @@
+{{/* Above the Overview toolbar, as a warning, only while the gateway registration could not be checked
+     (no route or no Allow policy visible to the caller): no agent is shown as unreachable, and this
+     says why. Was the second half of the calm line (paragraph.agents-calm), whose first half the
+     figures and the empty line now say. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-gateway-notice
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: warning
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .gatewayNotice // "" }'
+  resourcesRefs:
+    items: []

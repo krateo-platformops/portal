@@ -1,0 +1,33 @@
+{{/* The eight largest kinds among the open proposals (every filter applied but Kind, so the bars
+     stay a choice), largest first, each a bar against the first with its count, in the gray of a
+     proposal waiting for a decision. A row narrows the page to that kind's open proposals. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-by-kind
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{href}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .byKind // [] }'
+  resourcesRefs:
+    items: []

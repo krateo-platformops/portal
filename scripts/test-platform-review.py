@@ -13,15 +13,18 @@ reader would see:
     and diff read "Kind check n/a"; an unanswered discovery read renders nothing;
   - TargetResolved=False/NotFoundOrPrivate reads "Target unverified", never as a missing repository;
   - Refused (historical) is excluded from every list, and the superseded line says so;
-  - THE OVERVIEW (root-pages UX, build plan §3.3, mockup screen 08; decisions of 2026-11-13): Kind,
-    Target repo and New today facets count the open proposals under every OTHER filter, and search
-    narrows them all; a facet with one value over every open proposal is left out unless applied
-    (Q2); no confidence anywhere, neither facet nor statistic (Q3); grouped by kind, by target repo
-    when exactly one kind is picked, or as ?group= says; a group's three newest as cards, then "See
-    all N →" to the table view filtered to that group (Q1); the strip counts the filtered set and
-    names the last run of every kind (red only when Failed); Decided (under the same filters) and
-    Runs are folded panels holding today's tables; the superseded count follows the filters;
-    ?view=table swaps in today's table, filtered; Ask Agentiko keeps every filter and names the view;
+  - THE DASHBOARD (mockup A4; decisions of 2026-11-13): the header (no subtitle), the toolbar (Kind,
+    Target repo, New today and the 24h / 7d / 30d range on 18/24, the search on 6/24), the five
+    figures, then the proposals card (2/3) beside the charts (1/3). Kind, Target repo and New today
+    count the proposals in the picked state under every OTHER filter, and the search (title,
+    subject, kind, target repo) narrows the whole page; a facet with one value is left out unless
+    applied (Q2); no confidence anywhere, neither facet nor statistic (Q3). The state chips (Open
+    by default = Proposed + PR open, Proposed, PR open, Merged, Rejected, Failed, All) count every
+    proposal the filters match and pick what the cards (or, ?view=table, the Full list) show; each
+    figure and card wears its phase's colour (the figures' map is the cards'), the last run its
+    run colour; Merged and Rejected count the decisions in the range; the trend has one point per
+    bucket and series (hourly for 24h, daily otherwise, ending now); the side cards are left out
+    when empty; every route keeps every other param; Ask Agentiko keeps them and names the view;
   - a Failed run's Result is status.error; evidence[].query is never rendered;
   - "Run review now" POSTs the Job `kubectl create job --from=cronjob/nightly-review` creates: the
     CronJob's jobTemplate.spec verbatim, cronjob.kubernetes.io/instantiate: manual, the CronJob as
@@ -338,8 +341,9 @@ def check_list_groups_by_finding_newest_first(chart):
            'Superseded: 2 proposals replaced by a newer one for the same finding. 1 historical Refused record is not listed.')
     expect(f, 'page items (no banner on a Completed latest run)',
            [i['resourceRefId'] for i in w['page-reviews']['items']],
-           ['reviews-page-header', 'reviews-filter-bar', 'reviews-group-toggle', 'reviews-strip', 'reviews-groups',
-            'reviews-superseded', 'reviews-view-toggle'])
+           ['reviews-page-header', 'reviews-toolbar', 'reviews-stats', 'reviews-main'])
+    expect(f, 'the superseded line sits under the cards', [i['resourceRefId'] for i in w['reviews-list-card']['items']],
+           ['reviews-state-chips', 'reviews-cards', 'reviews-superseded'])
     return f
 
 
@@ -361,18 +365,34 @@ def check_kind_and_target_checks(chart):
     return f
 
 
-def check_runs_tab(chart):
+def check_recent_runs(chart):
     f = []
     out = resolved(chart, 'platform-reviews', list_responses(), {})
-    rows = {r['name']: r for r in out['runRows']}
-    expect(f, 'runs newest first', [r['name'] for r in out['runRows']],
+    rows = {r['name']: r for r in out['recentRuns']}
+    expect(f, 'runs newest first', [r['name'] for r in out['recentRuns']],
            ['rr-20260929-1933', 'rr-20260928-0849', 'rr-20260926-0200'])
     expect(f, 'a Failed run shows status.error', rows['rr-20260926-0200']['result'], RUNS[2]['status']['error'])
     expect(f, 'a Completed run shows its count', rows['rr-20260929-1933']['result'], '2 proposed')
     expect(f, 'took', rows['rr-20260929-1933']['took'], '1 m 19 s')
     expect(f, 'sources not read', rows['rr-20260928-0849']['notRead'],
            'clickhouse: errorPatternsByService: Read timed out. (read timeout=120) · kagent-sessions: kagent returned an empty session list')
-    expect(f, 'no ValidationNotes column on the list', any('otes' in k for k in out['runRows'][0]), False)
+    expect(f, 'no ValidationNotes on the list', any('otes' in k for k in out['recentRuns'][0]), False)
+    expect(f, 'a row\'s caption: when, how long, what it wrote', rows['rr-20260929-1933']['caption'],
+           '2026-09-29 19:33 UTC · 1 m 19 s · 2 proposed')
+    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'recent-runs')
+    tpl = w['reviews-runs']['itemTemplate']
+    expect(f, 'a row opens its run', tpl['navigateTo'], '/reviews/runs/{name}')
+    expect(f, 'a row wears its run colour (rv_run_color)', {r['phase']: tpl['color']['map'][r['phase']] for r in out['recentRuns']},
+           {r['phase']: r['phaseColor'] for r in out['recentRuns']})
+    expect(f, 'the card is drawn', 'reviews-runs-card' in items(w, 'reviews-side'), True)
+    many = [run(f'rr-2026092{i}-0200', 'Completed', f'2026-09-2{i}T02:00:00+00:00', f'2026-09-2{i}T02:01:00+00:00') for i in range(9)]
+    expect(f, 'the six newest', len(resolved(chart, 'platform-reviews', list_responses(runs={'items': many}), {})['recentRuns']), 6)
+    out = resolved(chart, 'platform-reviews', list_responses(runs={'items': []}), {})
+    expect(f, 'no run: no card', 'reviews-runs-card' in items(resolve_widgets(chart, 'platform-reviews', out, {}, 'no-runs'), 'reviews-side'), False)
+    out = resolved(chart, 'platform-reviews', list_responses(runs='ERROR:dial tcp: i/o timeout'), {})
+    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'runs-unread')
+    expect(f, 'runs unread: the card says so', ('reviews-runs-card' in items(w, 'reviews-side'), w['reviews-runs']['header']),
+           (True, 'The review runs could not be read, so a run that failed would not show here.'))
     return f
 
 
@@ -392,20 +412,28 @@ def check_banner_and_empty_states(chart):
     expect(f, 'no run yet', out['banner']['title'], 'No review has run yet')
     out = resolved(chart, 'platform-reviews', list_responses(runs={'items': [RUNS[2]]}), {})
     expect(f, 'latest failed', (out['banner']['type'], out['banner']['title']), ('error', 'The last review failed: rr-20260926-0200'))
-    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'failed-latest')
-    panel = lambda w, k: [p for p in w['reviews-groups']['items'] if p['key'] == k][0]
-    expect(f, 'decided empty state, in the folded Decided panel', (panel(w, 'decided')['resourceRefId'], panel(w, 'decided')['count']),
-           ('reviews-decided-empty', 0))
+    out = resolved(chart, 'platform-reviews', list_responses(runs={'items': [RUNS[2]]}), {'state': 'merged'})
+    w = resolve_widgets(chart, 'platform-reviews', out, {'state': 'merged'}, 'failed-latest')
+    expect(f, 'nothing merged: said in place of the cards', (items(w, 'reviews-list-card')[:2], w['reviews-empty']['text']),
+           (['reviews-state-chips', 'reviews-empty'], 'No proposal is merged.'))
     decided = PROPOSALS + [proposal('p-1111000000000010', '2026-09-29T20:00:00Z', 'Merged one', phase='Merged',
                                     decidedBy='admin', decidedAt='2026-09-29T21:00:00Z',
                                     pullRequest={'url': 'https://github.com/o/r/pull/7', 'number': 7, 'state': 'merged'})]
-    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': decided}), {})
-    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'decided')
-    expect(f, 'decided rows', [cells(r)['outcome']['stringValue'] for r in w['reviews-decided-table']['dataSource']],
-           ['https://github.com/o/r/pull/7'])
-    expect(f, 'decided panel: today\'s table, counted, its caption as the header meta',
-           (panel(w, 'decided')['resourceRefId'], panel(w, 'decided')['count'], panel(w, 'decided')['extra']),
-           ('reviews-decided-table', 1, '1 merged · 0 rejected · 0 failed'))
+    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': decided}), {'state': 'merged'})
+    w = resolve_widgets(chart, 'platform-reviews', out, {'state': 'merged'}, 'decided')
+    expect(f, 'the Merged chip: the merged proposal, its pull request the outcome', [(r['name'], r['outcome']) for r in out['rows']],
+           [('p-1111000000000010', 'https://github.com/o/r/pull/7')])
+    expect(f, 'a decided card opens the proposal', [(c['phaseLabel'], c['cta']) for c in w['reviews-cards']['dataSource']],
+           [('Merged', 'Open proposal')])
+    # A proposals read that failed for any other reason: the page is drawn, and says so, never 0.
+    out = resolved(chart, 'platform-reviews', list_responses(proposals='ERROR:dial tcp: i/o timeout'), {})
+    w = resolve_widgets(chart, 'platform-reviews', out, {}, 'proposals-unread')
+    expect(f, 'proposals unread: the figures are "—", in orange',
+           [(t['value'], t['caption'], t['tone']) for t in w['reviews-stats']['dataSource'][:4]], [('', 'could not be read', 'unread')] * 4)
+    expect(f, 'proposals unread: the card says why', (items(w, 'reviews-list-card'), w['reviews-empty']['text'], w['reviews-empty']['type']),
+           (['reviews-state-chips', 'reviews-empty'], 'The proposals could not be read (dial tcp: i/o timeout), so nothing on this page counts them.', 'warning'))
+    expect(f, 'proposals unread: no chart data', (w['reviews-trend']['data'], items(w, 'reviews-side')),
+           ([], ['reviews-trend-card', 'reviews-runs-card']))
     return f
 
 
@@ -434,8 +462,8 @@ def check_run_review_now(chart):
     # "Ask Agentiko →" sits immediately left of the primary it does not take (P6).
     expect(f, 'header actions', [i['resourceRefId'] for i in w['reviews-header-actions']['items']],
            ['reviews-ask-agentiko', 'reviews-run-now'])
-    expect(f, 'the last run is the strip\'s last tile', w['reviews-strip']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': 'Completed', 'caption': 'rr-20260929-1933 · 19:33 UTC', 'tone': ''})
+    expect(f, 'the last run is the last figure', w['reviews-stats']['dataSource'][-1],
+           {'title': 'Last run (all kinds)', 'value': 'Completed', 'caption': 'rr-20260929-1933 · 19:33 UTC', 'tone': 'Completed'})
     act = w['reviews-run-now']['actions']['rest'][0]
     body = act['payload']
     expect(f, 'a batch/v1 Job', (body['apiVersion'], body['kind']), ('batch/v1', 'Job'))
@@ -447,7 +475,7 @@ def check_run_review_now(chart):
     expect(f, 'sent as JSON', act['headers'], ['Content-Type: application/json'])
     expect(f, 'targets the create-job ref', act['resourceRefId'], 'create-review-job')
     expect(f, 'success names the Job', tbi.jq(expr(act['successMessage']), {'response': {'metadata': {'name': 'nightly-review-manual-1'}}}),
-           'Started nightly-review-manual-1. Its run appears under Runs once it starts.')
+           'Started nightly-review-manual-1. Its run appears under Recent runs once it starts.')
     t = chart.get('Button', 'reviews-run-now')['spec']['resourcesRefsTemplate'][0]
     els = tbi.jq(expr(t['iterator']), out)
     expect(f, 'one ref with the CronJob', len(els), 1)
@@ -797,14 +825,15 @@ def check_decisions(chart):
     out, _, _ = actions_for(chart, detail_responses(ex['name'], proposal=p), ex)
     expect(f, 'status is the fallback', {x['label']: x['value'] for x in out['facts']}['Decision'], 'Rejected by mirror · from status')
 
-    # Tabs: a spec.decision moves the row at once, before nightly-review mirrors it.
-    items = [with_decision(cases[2][1]) if x['metadata']['name'] == ex['name'] else x for x in PROPOSALS]
-    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': items}), {})
-    expect(f, 'Rejected moves to Decided', [r['name'] for r in out['decided']], [ex['name']])
-    expect(f, 'decided row', (out['decided'][0]['decidedBy'], out['decided'][0]['outcome']), ('admin', 'not here'))
-    resolve_widgets(chart, 'platform-reviews', out, {}, 'rejected-list')
-    items = [with_decision(cases[1][1]) if x['metadata']['name'] == ex['name'] else x for x in PROPOSALS]
-    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': items}), {})
+    # The state chips: a spec.decision moves the row at once, before nightly-review mirrors it.
+    props = [with_decision(cases[2][1]) if x['metadata']['name'] == ex['name'] else x for x in PROPOSALS]
+    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': props}), {'state': 'rejected'})
+    expect(f, 'Rejected moves to the Rejected chip', [r['name'] for r in out['rows']], [ex['name']])
+    expect(f, 'decided row', (out['rows'][0]['decidedBy'], out['rows'][0]['outcome']), ('admin', 'not here'))
+    expect(f, 'and out of Open', ex['name'] in [r['name'] for r in resolved(chart, 'platform-reviews', list_responses(proposals={'items': props}), {})['rows']], False)
+    resolve_widgets(chart, 'platform-reviews', out, {'state': 'rejected'}, 'rejected-list')
+    props = [with_decision(cases[1][1]) if x['metadata']['name'] == ex['name'] else x for x in PROPOSALS]
+    out = resolved(chart, 'platform-reviews', list_responses(proposals={'items': props}), {})
     row = [r for r in out['rows'] if r['name'] == ex['name']][0]
     expect(f, 'PrOpen stays Open', (row['phase'], row['phaseColor']), ('PrOpen', 'blue'))
 
@@ -842,11 +871,11 @@ def check_decisions(chart):
 
 
 # ---------------------------------------------------------------------------------------------
-# The overview: facets, grouping, caps, strip, Decided and Runs, the table view
+# The dashboard: layout, facets, states and cards, figures, search, charts, the table view
 # ---------------------------------------------------------------------------------------------
 
 TODAY = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
-RKX = ['projects', 'kind', 'repo', 'today', 'q', 'group', 'view']
+RKX = ['projects', 'kind', 'repo', 'today', 'q', 'view', 'state', 'range']
 MD = {'fmt': 'markdown', 'content': '# notes\n'}
 OVP = [
     proposal('p-a1', TODAY + 'T01:00:00Z', 'Alert on kagent upsert failures', kind='Alert', repo='org/obs', subject='s/a1'),
@@ -884,10 +913,6 @@ def items(w, name):
     return [i['resourceRefId'] for i in w[name]['items']]
 
 
-def panels(w):
-    return w['reviews-groups']['items']
-
-
 def check_overview_facets(chart):
     f = []
     out, w = ov(chart)
@@ -896,8 +921,8 @@ def check_overview_facets(chart):
            {'org/obs': 4, 'org/agent': 1, 'org/portal': 1, '(no target repo)': 1})
     expect(f, 'new today counts', fcounts(out, 'today'), {'1': 2, '0': 5})
     expect(f, 'no Confidence facet (Q3)', [x['key'] for x in out['facets']], ['kind', 'repo', 'today'])
-    expect(f, 'the bar: Kind, Target repo, New today, search', items(w, 'reviews-filter-bar'),
-           ['reviews-kind', 'reviews-repo', 'reviews-today-toggle', 'reviews-search'])
+    expect(f, 'the bar: Kind, Target repo, New today, the range', items(w, 'reviews-filter-bar'),
+           ['reviews-kind', 'reviews-repo', 'reviews-today-toggle', 'reviews-range-group'])
     expect(f, 'the Kind Select', [(o['value'], o['count']) for o in w['reviews-kind']['options']], [('Alert', 4), ('Documentation', 2), ('Widget', 1)])
     expect(f, 'the Kind Select is URL-bound and multiple', (w['reviews-kind']['queryParam'], w['reviews-kind']['mode']), ('kind', 'multiple'))
     out, w = ov(chart, {'kind': 'Alert'})
@@ -905,87 +930,244 @@ def check_overview_facets(chart):
     expect(f, '?kind=Alert: the repo counts apply it', fcounts(out, 'repo'), {'org/obs': 3, 'org/agent': 1, 'org/portal': 0, '(no target repo)': 0})
     expect(f, '?kind=Alert: the today counts apply it', fcounts(out, 'today'), {'1': 1, '0': 3})
     expect(f, '?kind=Alert: the rows', [r['name'] for r in out['rows']], ['p-a1', 'p-a2', 'p-a3', 'p-a4'])
-    out, w = ov(chart, {'q': 'DOCUMENT  '})
-    expect(f, 'search: title and subject, any case', [r['name'] for r in out['rows']], ['p-d1', 'p-d2'])
-    expect(f, 'search: the facet counts follow it', fcounts(out, 'kind'), {'Alert': 0, 'Documentation': 2, 'Widget': 0})
     # Hidden: one kind over every open proposal; every one new today.
     one = [proposal(f'p-o{i}', TODAY + f'T0{i}:00:00Z', f'Alert {i}', kind='Alert', repo=f'org/{i % 2}', subject=f's/o{i}') for i in range(4)]
     out, w = ov(chart, proposals={'items': one})
     expect(f, 'one kind, all new today: Kind and New today hidden', [(x['key'], x['show']) for x in out['facets']],
            [('kind', False), ('repo', True), ('today', False)])
-    expect(f, 'the bar: Target repo and search', items(w, 'reviews-filter-bar'), ['reviews-repo', 'reviews-search'])
+    expect(f, 'the bar: Target repo and the range', items(w, 'reviews-filter-bar'), ['reviews-repo', 'reviews-range-group'])
     out, w = ov(chart, {'kind': 'Alert'}, proposals={'items': one})
-    expect(f, 'a hidden facet shows while applied', items(w, 'reviews-filter-bar'), ['reviews-kind', 'reviews-repo', 'reviews-search'])
+    expect(f, 'a hidden facet shows while applied', items(w, 'reviews-filter-bar'), ['reviews-kind', 'reviews-repo', 'reviews-range-group'])
+    out, w = ov(chart, {'state': 'merged'})
+    expect(f, '?state=merged: the facets count the merged ones', fcounts(out, 'kind'), {'Alert': 1})
     return f
 
 
-def check_overview_grouping(chart):
-    f = []
-    out, w = ov(chart, {'projects': 'team-a'})
-    expect(f, 'by kind: largest first, the first open', ([(p['label'], p['count']) for p in panels(w)][:3], w['reviews-groups']['defaultActiveKey']),
-           ([('Alert', 4), ('Documentation', 2), ('Widget', 1)], ['group/Alert']))
-    alert = panels(w)[0]
-    expect(f, 'a group: its three newest, then See all N to the table filtered to it (Q1), the scope kept',
-           ([c['title'] for c in alert['dataSource']], alert['footer'], alert['footerNavigateTo']),
-           (['Alert on kagent upsert failures', 'Alert on pruned fields', 'Exclude cert-manager from expiry'], 'See all 4 →',
-            '/reviews?projects=team-a&kind=Alert&view=table'))
-    expect(f, 'a group header: new today and pull requests open', alert['extra'], '1 new today · 1 pull request open')
-    expect(f, 'a card: the target repo (grouped by kind), the day, what it replaces; PrOpen tagged',
-           [(c['body'], c['tag']) for c in alert['dataSource']],
-           [(f'org/obs · proposed {TODAY} · replaces 2 earlier', ''), ('org/obs · proposed 2026-11-01', ''), ('org/obs · proposed 2026-10-01', 'PrOpen')])
-    tmpl = w['reviews-groups']['itemTemplate']
-    expect(f, 'a card opens the proposal: Decide', (tmpl['navigateTo'], tmpl['cardCta']), ('/reviews/proposals/{name}', 'Decide'))
-    expect(f, 'no confidence on a card (Q3)', any('onfidence' in json.dumps(p) for p in panels(w)), False)
-    expect(f, 'three or fewer: no footer', ['footer' in p for p in panels(w)[1:3]], [False, False])
-    out, w = ov(chart, {'kind': 'Alert'})
-    expect(f, 'one kind picked: grouped by target repo', (out['group'], [(p['label'], p['count']) for p in panels(w)][:2]),
-           ('repo', [('org/obs', 3), ('org/agent', 1)]))
-    expect(f, 'by repo: a card names the kind', panels(w)[0]['dataSource'][0]['body'], f'Alert · proposed {TODAY} · replaces 2 earlier')
-    expect(f, 'by repo: three or fewer each, no footer', (panels(w)[0].get('footer'), panels(w)[1].get('footer')), (None, None))
-    out, w = ov(chart, {'kind': 'Alert,Widget'})
-    expect(f, 'two kinds picked: by kind', out['group'], 'kind')
-    out, w = ov(chart, {'kind': 'Alert', 'group': 'kind'})
-    expect(f, '?group=kind wins over the single kind', [p['label'] for p in panels(w)][:1], ['Alert'])
-    out, w = ov(chart, {'group': 'repo'})
-    expect(f, '?group=repo', [(p['label'], p['count']) for p in panels(w)][:4],
-           [('org/obs', 4), ('(no target repo)', 1), ('org/agent', 1), ('org/portal', 1)])
-    expect(f, '?group=repo: See all keeps it and filters the repo', panels(w)[0]['footerNavigateTo'], '/reviews?repo=org%2Fobs&group=repo&view=table')
-    toggle = w['reviews-group-toggle']['dataSource']
-    expect(f, 'the group toggle', [(t['label'], t['active'], t['href']) for t in toggle],
-           [('By kind', False, '/reviews?group=kind'), ('By target repo', True, '/reviews?group=repo')])
-    return f
-
-
-def check_overview_strip_and_panels(chart):
+def check_overview_layout(chart):
     f = []
     out, w = ov(chart)
-    expect(f, 'the strip, no confidence (Q3)', [(t['title'], t['value'], t['caption'], t['tone']) for t in w['reviews-strip']['dataSource']], [
-        ('Waiting for a decision', '7', 'open proposals', ''), ('New today', '2', '', ''), ('Pull request open', '1', '', ''),
-        ('Last run (all kinds)', 'Completed', 'rr-20260929-1933 · 19:33 UTC', '')])
+    expect(f, 'the page', items(w, 'page-reviews'), ['reviews-page-header', 'reviews-toolbar', 'reviews-stats', 'reviews-main'])
+    hdr = w['reviews-page-header']
+    expect(f, 'header: no subtitle, its buttons kept', ('subtitle' in hdr, items(w, 'reviews-header-actions')),
+           (False, ['reviews-ask-agentiko', 'reviews-run-now']))
+    expect(f, 'the toolbar: the filters left, the search in a quarter, stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs'], i['lg']) for i in w['reviews-toolbar']['items']],
+           [('reviews-filter-bar', 18, 24, 18), ('reviews-search-wrap', 6, 24, 6)])
+    expect(f, 'the filters: Kind, Target repo, New today, the time range', items(w, 'reviews-filter-bar'),
+           ['reviews-kind', 'reviews-repo', 'reviews-today-toggle', 'reviews-range-group'])
+    expect(f, 'the time range: its label and chips', (items(w, 'reviews-range-group'), w['reviews-range-label']['text']),
+           (['reviews-range-label', 'reviews-range-chips'], 'Time range'))
+    expect(f, 'the search wrap holds the search', items(w, 'reviews-search-wrap'), ['reviews-search'])
+    s = w['reviews-search']
+    expect(f, 'the search writes ?q= on Enter, at the standard size', (s['queryParam'], s['allowClear'], s['size'], s['placeholder']),
+           ('q', True, 'middle', 'Search proposals · press Enter'))
+    expect(f, 'two thirds and one third, stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs'], i['lg']) for i in w['reviews-main']['items']],
+           [('reviews-list-card', 16, 24, 16), ('reviews-side', 8, 24, 8)])
+    card = w['reviews-list-card']
+    expect(f, 'the proposals card: state chips, the cards, the superseded line; Summary | Full list top right',
+           (card['title'], card['titleVariant'], items(w, 'reviews-list-card'), card['extraRefId']),
+           ('Proposals', 'eyebrow', ['reviews-state-chips', 'reviews-cards', 'reviews-superseded'], 'reviews-view-chips'))
+    expect(f, 'the view chips', [(c['label'], c['active'], c['route']) for c in w['reviews-view-chips']['dataSource']],
+           [('Summary', True, '/reviews'), ('Full list', False, '/reviews?view=table')])
+    expect(f, 'the charts', items(w, 'reviews-side'), ['reviews-trend-card', 'reviews-by-state-card', 'reviews-by-kind-card', 'reviews-runs-card'])
+    expect(f, 'each chart in an eyebrow card', [(w[c]['title'], w[c]['titleVariant'], items(w, c)) for c in items(w, 'reviews-side')],
+           [('Proposed vs decided', 'eyebrow', ['reviews-trend']), ('By state', 'eyebrow', ['reviews-by-state']),
+            ('Open by kind', 'eyebrow', ['reviews-by-kind']), ('Recent runs', 'eyebrow', ['reviews-runs'])])
+    for name in ('reviews-state-chips', 'reviews-view-chips', 'reviews-range-chips'):
+        tpl = w[name]['itemTemplate']
+        expect(f, f'{name}: chips that navigate', (tpl['rowVariant'], tpl['navigateTo']), ('chip', '{route}'))
+    out, w = ov(chart, {'view': 'table'})
+    expect(f, '?view=table: the Full list instead of the cards', items(w, 'reviews-list-card'),
+           ['reviews-state-chips', 'platform-proposals', 'reviews-superseded'])
+    expect(f, '?view=table: the view chips', [c['active'] for c in w['reviews-view-chips']['dataSource']], [False, True])
     out, w = ov(chart, {'kind': 'Alert'})
-    expect(f, '?kind=Alert: the strip counts the filtered set, the last run every kind\'s',
-           [(t['value'], t['caption']) for t in w['reviews-strip']['dataSource']],
-           [('4', 'of 7 open'), ('1', ''), ('1', ''), ('Completed', 'rr-20260929-1933 · 19:33 UTC')])
+    expect(f, 'a filter applied: its chips under the toolbar', items(w, 'page-reviews'),
+           ['reviews-page-header', 'reviews-toolbar', 'reviews-active-filters', 'reviews-stats', 'reviews-main'])
+    out, w = ov(chart, proposals={'items': []}, runs={'items': []})
+    expect(f, 'nothing at all: the trend alone, the empty line', (items(w, 'reviews-side'), items(w, 'reviews-list-card'), w['reviews-empty']['text']),
+           (['reviews-trend-card'], ['reviews-state-chips', 'reviews-empty'], 'There are no proposals.'))
+    return f
+
+
+CARD_COLOURS = {'Proposed': 'gray', 'PrOpen': 'blue', 'Merged': 'green', 'Rejected': 'gray', 'Failed': 'red'}
+RUN_COLOURS = {'Completed': 'gray', 'PartiallyCompleted': 'orange', 'Running': 'blue', 'Pending': 'gray', 'Failed': 'red'}
+
+
+def check_overview_figures(chart):
+    f = []
+    out, w = ov(chart)
+    expect(f, 'the five figures, no confidence (Q3)', [(t['title'], t['value'], t['caption'], t['tone']) for t in w['reviews-stats']['dataSource']], [
+        ('Waiting for a decision', '6', '2 new today', 'Proposed'), ('Pull request open', '1', 'waiting for its merge', 'PrOpen'),
+        ('Merged', '0', 'in the last 7 days', 'Merged'), ('Rejected', '0', 'in the last 7 days', 'Rejected'),
+        ('Last run (all kinds)', 'Completed', 'rr-20260929-1933 · 19:33 UTC', 'Completed')])
+    tpl = w['reviews-stats']['itemTemplate']
+    cmap = w['reviews-cards']['itemTemplate']['color']['map']
+    expect(f, 'statistic tiles', (tpl['rowVariant'], tpl['primaryText'], tpl['secondaryText'], tpl['subPrimaryText']),
+           ('statistic', '{title}', '{value}', '{caption}'))
+    expect(f, 'each proposal figure wears its phase\'s card colour, zero or not', {k: tpl['color']['map'][k] for k in cmap}, cmap)
+    expect(f, 'the cards\' colours are the table\'s Status tag (rv_phase_color)', cmap, CARD_COLOURS)
+    expect(f, 'the last run wears its run row\'s colour', {k: tpl['color']['map'][k] for k in RUN_COLOURS},
+           {k: v for k, v in w['reviews-runs']['itemTemplate']['color']['map'].items()})
+    expect(f, 'the run rows are rv_run_color', w['reviews-runs']['itemTemplate']['color']['map'], RUN_COLOURS)
+    expect(f, 'a failed read is orange, no run is gray', (tpl['color']['map']['unread'], tpl['color']['map']['none']), ('orange', 'gray'))
+    out, w = ov(chart, {'kind': 'Alert'})
+    expect(f, '?kind=Alert: the figures count the filtered set, the last run every kind\'s',
+           [t['value'] for t in w['reviews-stats']['dataSource']], ['3', '1', '0', '0', 'Completed'])
     expect(f, '?kind=Alert: the header counter stays every open proposal', w['reviews-page-header']['counter'], 7)
+    out, w = ov(chart, runs={'items': [RUNS[2]]})
+    expect(f, 'a failed last run: red', tpl['color']['map'][w['reviews-stats']['dataSource'][-1]['tone']], 'red')
+    out, w = ov(chart, runs={'items': [RUNS[1]]})
+    expect(f, 'a partial last run: orange', tpl['color']['map'][w['reviews-stats']['dataSource'][-1]['tone']], 'orange')
+    out, w = ov(chart, runs='ERROR:dial tcp: i/o timeout')
+    expect(f, 'runs unread: "—", in orange', w['reviews-stats']['dataSource'][-1],
+           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'could not be read', 'tone': 'unread'})
+    out, w = ov(chart, runs={'items': []})
+    expect(f, 'no run yet: "—", said', w['reviews-stats']['dataSource'][-1],
+           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'no review has run yet', 'tone': 'none'})
+    for rng, merged, rejected in (('24h', '1', '0'), ('7d', '1', '1'), ('30d', '2', '2')):
+        o, w = timed(chart, {'range': rng})
+        text = {'24h': 'in the last 24 hours', '7d': 'in the last 7 days', '30d': 'in the last 30 days'}[rng]
+        expect(f, f'{rng}: Merged and Rejected in the range', [(t['value'], t['caption']) for t in o['stats'][2:4]],
+               [(merged, text), (rejected, text)])
+        expect(f, f'{rng}: Waiting and Pull request open are now', [t['value'] for t in o['stats'][:2]], ['3', '1'])
+    return f
+
+
+def check_overview_states_and_cards(chart):
+    f = []
+    out, w = ov(chart, {'projects': 'team-a'})
+    expect(f, 'the state chips: Open first and active, each counting every proposal the filters match',
+           [(c['label'], c['count'], c['active'], c['route']) for c in w['reviews-state-chips']['dataSource']],
+           [('Open', 7, True, '/reviews?projects=team-a'), ('Proposed', 6, False, '/reviews?projects=team-a&state=proposed'),
+            ('PR open', 1, False, '/reviews?projects=team-a&state=propen'), ('Merged', 1, False, '/reviews?projects=team-a&state=merged'),
+            ('Rejected', 1, False, '/reviews?projects=team-a&state=rejected'), ('Failed', 0, False, '/reviews?projects=team-a&state=failed'),
+            ('All', 9, False, '/reviews?projects=team-a&state=all')])
+    expect(f, 'Open: Proposed and PR open, grouped by finding, newest first', [r['name'] for r in out['rows']],
+           ['p-d1', 'p-a1', 'p-w1', 'p-d2', 'p-a2', 'p-a3', 'p-a4'])
+    c = w['reviews-cards']['dataSource'][0]
+    expect(f, 'a card: title, phase, kind, target, the finding, the day, what it replaces',
+           (c['title'], c['phaseLabel'], c['kind'], c['target'], c['body'], c['cta']),
+           ('Document the endpoint Secret', 'Proposed', 'Documentation', 'org/obs', f's/d1 · proposed {TODAY} · replaces 1 earlier', 'Decide'))
+    tpl = w['reviews-cards']['itemTemplate']
+    expect(f, 'a card opens the proposal', (tpl['rowVariant'], tpl['navigateTo'], tpl['cardCta'], tpl['secondaryText'], tpl['color']['value']),
+           ('card', '/reviews/proposals/{name}', '{cta}', '{phaseLabel}', '{phase}'))
+    expect(f, 'a PR open card says so, in blue', [(x['phaseLabel'], tpl['color']['map'][x['phase']]) for x in w['reviews-cards']['dataSource'] if x['name'] == 'p-a3'],
+           [('PR open', 'blue')])
+    expect(f, 'every row\'s phaseColor is its card colour', all(tpl['color']['map'][r['phase']] == r['phaseColor'] for r in out['rows']), True)
+    expect(f, 'no confidence on a card (Q3)', 'onfidence' in json.dumps(w['reviews-cards']), False)
+    for ex, want in (({'state': 'propen'}, ['p-a3']), ({'state': 'MERGED'}, ['p-m1']), ({'state': 'rejected'}, ['p-r1']),
+                     ({'state': 'proposed', 'kind': 'Alert'}, ['p-a1', 'p-a2', 'p-a4'])):
+        expect(f, f'{ex}: the rows', [r['name'] for r in ov(chart, ex)[0]['rows']], want)
+    out, w = ov(chart, {'state': 'all'})
+    expect(f, 'All: every state', (out['matched'], [c['active'] for c in out['stateChips']][-1]), (9, True))
+    out, w = ov(chart, {'state': 'bogus'})
+    expect(f, 'an unknown state lists nothing, the chips still drawn, none active',
+           (out['rows'], len(out['stateChips']), any(c['active'] for c in out['stateChips']), w['reviews-empty']['text']),
+           ([], 7, False, 'No proposal is in this state.'))
+    out, w = ov(chart, {'state': 'failed'})
+    expect(f, 'an empty state: said', (items(w, 'reviews-list-card')[:2], w['reviews-empty']['text']),
+           (['reviews-state-chips', 'reviews-empty'], 'No proposal failed.'))
+    out, w = ov(chart, {'kind': 'Alert'})
     expect(f, 'superseded under the filter: the two Alert ones', (out['supersededInView'], w['reviews-superseded']['text']),
            (2, 'Superseded: 2 proposals in this view replaced by a newer one for the same finding. 1 historical Refused record is not listed.'))
-    dec = [p for p in panels(w) if p['key'] == 'decided'][0]
-    expect(f, 'Decided under the filter: the Alert one', (dec['count'], dec['resourceRefId'], [r['name'] for r in out['decided']]),
-           (1, 'reviews-decided-table', ['p-m1']))
-    runs = [p for p in panels(w) if p['key'] == 'runs'][0]
-    expect(f, 'Runs: every run, folded, today\'s table', (runs['count'], runs['resourceRefId'], w['reviews-groups']['defaultActiveKey']),
-           (3, 'reviews-runs-table', ['group/org/obs']))
-    out, w = ov(chart, runs={'items': [RUNS[2]]})
-    expect(f, 'a failed last run: red', w['reviews-strip']['dataSource'][-1]['tone'], 'bad')
-    out, w = ov(chart, runs='ERROR:dial tcp: i/o timeout')
-    expect(f, 'runs unread: "—" on the tile, the Runs panel says so', (w['reviews-strip']['dataSource'][-1],
-           [(p.get('extra'), p.get('status')) for p in panels(w) if p['key'] == 'runs']),
-           ({'title': 'Last run (all kinds)', 'value': '', 'caption': 'could not be read', 'tone': 'warn'}, [('could not be read', 'warning')]))
+    many = [proposal(f'p-m{i:02d}', f'2026-10-{i + 1:02d}T00:00:00Z', f'Alert {i}', subject=f's/m{i}') for i in range(30)]
+    out, w = ov(chart, proposals={'items': many})
+    expect(f, 'past 24: the first 24 as cards, a line for the rest', (len(w['reviews-cards']['dataSource']), out['more'],
+           items(w, 'reviews-list-card'), w['reviews-more']['text']),
+           (24, 6, ['reviews-state-chips', 'reviews-cards', 'reviews-more'], '24 of 30 shown here. Full list has all 30.'))
+    out, w = ov(chart, {'view': 'table'}, proposals={'items': many})
+    expect(f, 'the Full list has all of them', len(w['platform-proposals']['dataSource']), 30)
+    return f
+
+
+def check_overview_search(chart):
+    f = []
+    out, w = ov(chart, {'q': '  DOCUMENT '})
+    expect(f, 'case-insensitive, trimmed: title, subject or kind', (out['q'], [r['name'] for r in out['rows']]), ('DOCUMENT', ['p-d1', 'p-d2']))
+    expect(f, 'the facet counts follow it', fcounts(out, 'kind'), {'Alert': 0, 'Documentation': 2, 'Widget': 0})
+    expect(f, 'the state counts follow it', [(c['label'], c['count']) for c in out['stateChips']],
+           [('Open', 2), ('Proposed', 2), ('PR open', 0), ('Merged', 0), ('Rejected', 1), ('Failed', 0), ('All', 3)])
+    expect(f, 'the figures follow it', [t['value'] for t in out['stats'][:2]], ['2', '0'])
+    expect(f, 'the charts follow it', (out['byState'], [k['name'] for k in out['byKind']]),
+           ([{'state': 'Proposed', 'count': 2}, {'state': 'Rejected', 'count': 1}], ['Documentation']))
+    expect(f, 'every route keeps it, trimmed', (out['stateChips'][1]['route'], out['viewChips'][1]['route'], out['rangeChips'][0]['route'], out['byKind'][0]['href']),
+           ('/reviews?q=DOCUMENT&state=proposed', '/reviews?q=DOCUMENT&view=table', '/reviews?q=DOCUMENT&range=24h', '/reviews?kind=Documentation&q=DOCUMENT'))
+    href, prompt = ask(out['askHref'])
+    expect(f, 'Ask Agentiko keeps it and says the view is searched', (href, '(search "DOCUMENT")' in prompt), ('/reviews?q=DOCUMENT', True))
+    expect(f, 'by target repo too', [r['name'] for r in ov(chart, {'q': 'org/portal'})[0]['rows']], ['p-w1'])
+    out, w = ov(chart, {'q': 'zzz'})
+    expect(f, 'nothing matches: said', (items(w, 'reviews-list-card')[:2], w['reviews-empty']['text']),
+           (['reviews-state-chips', 'reviews-empty'], 'No proposal matches "zzz".'))
+    expect(f, 'nothing matches: the prompt says so, not "no proposals"', ask(out['askHref'])[1].startswith(
+        'None of the 7 open nightly-review proposals is in the view on screen (search "zzz").'), True)
     out, w = ov(chart, {'kind': 'Policy'})
-    expect(f, 'nothing matches: the calm line, no group panel, no table link', (items(w, 'page-reviews')[2:], w['reviews-calm']['text'],
-           [p['key'] for p in panels(w)]),
-           (['reviews-active-filters', 'reviews-strip', 'reviews-calm', 'reviews-groups', 'reviews-superseded'],
-            'No open proposal matches these filters, of 7 open.', ['decided', 'runs']))
+    expect(f, 'a filter matching nothing: said', w['reviews-empty']['text'], 'No proposal matches these filters.')
+    return f
+
+
+def iso(delta):
+    return (NOW - delta).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+H, DAY = datetime.timedelta(hours=1), datetime.timedelta(days=1)
+NOW = datetime.datetime.now(datetime.timezone.utc)
+TIMED = [
+    proposal('p-t1', iso(2 * H), 'Two hours old', subject='t/1'),
+    proposal('p-t2', iso(30 * H), 'Thirty hours old', kind='Widget', content=FORM, subject='t/2'),
+    proposal('p-t3', iso(3 * DAY), 'Three days old', subject='t/3', phase='PrOpen'),
+    proposal('p-t4', iso(10 * DAY), 'Ten days old', subject='t/4'),
+    # decided: merged 5 h and 12 d ago (the service's status.decidedAt; the PrOpen decision before it
+    # must not count), rejected 2 d and 20 d ago (spec.decision); all proposed 40 d ago.
+    proposal('p-tm1', iso(40 * DAY), 'Merged recently', subject='t/m1', phase='Merged', decidedAt=iso(5 * H)),
+    proposal('p-tm2', iso(40 * DAY), 'Merged earlier', subject='t/m2', phase='Merged', decidedAt=iso(12 * DAY)),
+    proposal('p-tr1', iso(40 * DAY), 'Rejected recently', subject='t/r1', phase='Rejected'),
+    proposal('p-tr2', iso(40 * DAY), 'Rejected earlier', subject='t/r2', phase='Rejected'),
+]
+TIMED[4]['spec']['decision'] = {'phase': 'PrOpen', 'claim': 'review-tm1', 'decidedAt': iso(35 * DAY)}
+TIMED[6]['spec']['decision'] = {'phase': 'Rejected', 'decidedAt': iso(2 * DAY)}
+TIMED[7]['spec']['decision'] = {'phase': 'Rejected', 'decidedAt': iso(20 * DAY)}
+TIMED_RUNS = [run('rr-t1', 'Failed', iso(1 * H), iso(1 * H)), run('rr-t2', 'Completed', iso(1 * DAY), iso(1 * DAY)),
+              run('rr-t3', 'Failed', iso(4 * DAY), iso(4 * DAY))]
+
+
+def timed(chart, extras=None):
+    return ov(chart, extras, proposals={'items': TIMED}, runs={'items': TIMED_RUNS})
+
+
+def check_overview_trend_and_charts(chart):
+    f = []
+    for rng, unit, n, want in (('24h', 'hour', 24, (1, 1, 1)), ('7d', 'day', 7, (3, 2, 2)), ('30d', 'day', 30, (4, 4, 2))):
+        o, w = timed(chart, {'range': rng})
+        by = {s: [p for p in o['trend'] if p['series'] == s] for s in ('Proposed', 'Decided', 'Runs failed')}
+        size = 3600 if unit == 'hour' else 86400
+        expect(f, f'{rng}: one point per bucket and series, per {unit}', ([len(v) for v in by.values()], o['trendUnit']), ([n] * 3, unit))
+        pts = by['Proposed']
+        expect(f, f'{rng}: the buckets are consecutive and end now',
+               ({b['t'] - a['t'] for a, b in zip(pts, pts[1:])}, pts[-1]['t'] <= NOW.timestamp() < pts[-1]['t'] + size), ({size}, True))
+        expect(f, f'{rng}: proposed, decided and failed runs in the range', tuple(sum(p['v'] for p in v) for v in by.values()), want)
+        lc = w['reviews-trend']
+        expect(f, f'{rng}: the chart', (lc['xTimeUnit'], lc['xField'], lc['yField'], lc['colorField'], len(lc['data'])), (unit, 't', 'v', 'series', 3 * n))
+        expect(f, f'{rng}: the range chip', [c['label'] for c in o['rangeChips'] if c['active']], [rng])
+    expect(f, 'the trend\'s colours are the states\'', w['reviews-trend']['colorMap'],
+           {'Proposed': CARD_COLOURS['Proposed'], 'Decided': CARD_COLOURS['Merged'], 'Runs failed': RUN_COLOURS['Failed']})
+    o, w = timed(chart, {'range': '1y'})
+    expect(f, 'an unknown range is 7d', (o['range'], o['trendUnit'], len(o['trend'])), ('7d', 'day', 21))
+    out, w = ov(chart)
+    pie = w['reviews-by-state']
+    expect(f, 'by state: a slice per state with proposals', pie['data'],
+           [{'state': 'Proposed', 'count': 6}, {'state': 'PR open', 'count': 1}, {'state': 'Merged', 'count': 1}, {'state': 'Rejected', 'count': 1}])
+    expect(f, 'by state: the cards\' colours', pie['colorMap'],
+           {('PR open' if k == 'PrOpen' else k): v for k, v in CARD_COLOURS.items()})
+    out, w = ov(chart, {'projects': 'team-a', 'kind': 'Alert', 'state': 'merged'})
+    expect(f, 'open by kind: every filter but kind, a bar against the largest, a row opens that kind\'s open ones',
+           [(k['name'], k['count'], k['percent'], k['href']) for k in w['reviews-by-kind']['dataSource']],
+           [('Alert', 4, 100, '/reviews?projects=team-a&kind=Alert'), ('Documentation', 2, 50, '/reviews?projects=team-a&kind=Documentation'),
+            ('Widget', 1, 25, '/reviews?projects=team-a&kind=Widget')])
+    tpl = w['reviews-by-kind']['itemTemplate']
+    expect(f, 'open by kind: bars that navigate', (tpl['navigateTo'], tpl['bar']['percent'], tpl['bar']['label']), ('{href}', '{percent}', '{count}'))
+    out, w = ov(chart, proposals={'items': [p for p in OVP if p['status']['phase'] not in ('Proposed', 'PrOpen')]})
+    expect(f, 'no open proposal: no by-kind card', 'reviews-by-kind-card' in items(w, 'reviews-side'), False)
     return f
 
 
@@ -999,20 +1181,17 @@ def check_overview_today_and_table(chart):
     expect(f, '?today=1: the chip active, removing it', w['reviews-today-toggle']['dataSource'][0],
            {'label': 'New today', 'count': 2, 'active': True, 'href': '/reviews?projects=team-a'})
     expect(f, '?today=1: an applied-filter chip too', [c['label'] for c in out['chips']], ['New today: yes', 'Clear all'])
-    ex = {'projects': 'team-a', 'kind': 'Alert', 'view': 'table'}
+    ex = {'projects': 'team-a', 'kind': 'Alert', 'view': 'table', 'range': '30d'}
     out, w = ov(chart, ex)
-    expect(f, '?view=table: today\'s table in place of the overview', items(w, 'page-reviews'),
-           ['reviews-page-header', 'reviews-filter-bar', 'reviews-active-filters', 'reviews-view-toggle', 'platform-proposals'])
     expect(f, '?view=table: the table holds what the filters match', [cells(r)['name']['stringValue'] for r in w['platform-proposals']['dataSource']],
            ['p-a1', 'p-a2', 'p-a3', 'p-a4'])
-    expect(f, '?view=table: back to the overview, every filter kept',
-           (w['reviews-view-toggle']['label'], w['reviews-view-toggle']['actions']['navigate'][0]['path']),
-           ('← Back to the overview', '/reviews?projects=team-a&kind=Alert'))
-    out, w = ov(chart, dict(ex, view=''))
-    expect(f, 'overview: the table link names the one kind and keeps every filter',
-           (w['reviews-view-toggle']['label'], w['reviews-view-toggle']['actions']['navigate'][0]['path']),
-           ('All 4 Alert proposals as a table →', '/reviews?projects=team-a&kind=Alert&view=table'))
-    href, prompt = ask(out['askHref'])
+    expect(f, '?view=table: Summary drops ?view and keeps every other param',
+           [(c['label'], c['route']) for c in w['reviews-view-chips']['dataSource']],
+           [('Summary', '/reviews?projects=team-a&kind=Alert&range=30d'), ('Full list', '/reviews?projects=team-a&kind=Alert&view=table&range=30d')])
+    expect(f, 'the range chips keep every other param, 7d left out', [c['route'] for c in out['rangeChips']],
+           ['/reviews?projects=team-a&kind=Alert&view=table&range=24h', '/reviews?projects=team-a&kind=Alert&view=table',
+            '/reviews?projects=team-a&kind=Alert&view=table&range=30d'])
+    href, prompt = ask(ov(chart, dict(ex, view='', range=''))[0]['askHref'])
     expect(f, 'Ask Agentiko keeps every filter param', href, '/reviews?projects=team-a&kind=Alert')
     expect(f, 'and the prompt names the view', prompt,
            'Help me work through the open nightly-review proposals in the view on screen (Kind: Alert): 4 of 7 open — '
@@ -1020,21 +1199,29 @@ def check_overview_today_and_table(chart):
            '3. "Exclude cert-manager from expiry" (Alert, PrOpen) 4. "Alert on gateway timeouts" (Alert, Proposed). '
            'The last review run is rr-20260929-1933 (Completed, started 2026-09-29 19:33 UTC). '
            'Check each against the platform\'s telemetry, and say which I should act on first, which to reject, and why.')
+    href, prompt = ask(ov(chart, {'state': 'merged', 'range': '24h'})[0]['askHref'])
+    expect(f, 'a decided state: kept, and the prompt reviews it', (href, prompt.startswith(
+        'Review the nightly-review proposals in the view on screen (state: Merged): 1 of 9 — 1. "Merged alert" (Alert, Merged).')),
+        ('/reviews?state=merged&range=24h', True))
     _, prompt = ask(ov(chart, {'kind': 'Policy', 'today': '1'})[0]['askHref'])
     expect(f, 'an empty view: said, with the filter', prompt,
            'None of the 7 open nightly-review proposals is in the view on screen (Kind: Policy; new today). '
            'The last review run is rr-20260929-1933 (Completed, started 2026-09-29 19:33 UTC). Tell me whether that filter hides anything I should look at.')
+    names = []
     for d in chart.docs:
         n = d.get('metadata', {}).get('name', '')
         if d.get('apiVersion', '').startswith('widgets.templates.krateo.io/') and (n.startswith('reviews-') or n in ('page-reviews', 'platform-proposals')):
+            names.append(n)
             expect(f, f'{d["kind"]} {n} declares every filter key', d['spec'].get('keyExtras'), RKX)
+    expect(f, 'the new widgets are among them', {'reviews-toolbar', 'reviews-stats', 'reviews-main', 'reviews-side', 'reviews-trend',
+           'reviews-by-state', 'reviews-by-kind', 'reviews-runs', 'reviews-cards', 'reviews-range-chips'} - set(names), set())
     expect(f, 'the page root names them', chart.get('Flex', 'page-reviews')['metadata']['annotations'].get('krateo.io/filter-keys'), ','.join(RKX))
     return f
 
 CHECKS = [
     check_list_groups_by_finding_newest_first,
     check_kind_and_target_checks,
-    check_runs_tab,
+    check_recent_runs,
     check_banner_and_empty_states,
     check_run_review_now,
     check_agentiko_asks,
@@ -1044,8 +1231,11 @@ CHECKS = [
     check_decisions,
     check_steps_gated_on_input,
     check_overview_facets,
-    check_overview_grouping,
-    check_overview_strip_and_panels,
+    check_overview_layout,
+    check_overview_figures,
+    check_overview_states_and_cards,
+    check_overview_search,
+    check_overview_trend_and_charts,
     check_overview_today_and_table,
 ]
 

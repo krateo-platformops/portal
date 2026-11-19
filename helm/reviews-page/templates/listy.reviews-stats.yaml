@@ -1,0 +1,45 @@
+{{/* The five figures: Waiting for a decision (Proposed) and Pull request open (PrOpen) now,
+     Merged and Rejected in the range, all over the proposals the filters and the search match;
+     then the last review run of every kind. Each tile wears the colour the cards give the phase it
+     counts (listy.reviews-cards), zero or not, and the last run the colour its row has under
+     Recent runs (listy.reviews-runs, rv_run_color). The title says the state too, so colour is
+     never the only signal. A failed read is an empty value (a muted "—") captioned "could not be
+     read", in orange, never a 0. No confidence anywhere (decision Q3). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          Proposed: gray
+          PrOpen: blue
+          Merged: green
+          Rejected: gray
+          Failed: red
+          Completed: gray
+          PartiallyCompleted: orange
+          Running: blue
+          Pending: gray
+          none: gray
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

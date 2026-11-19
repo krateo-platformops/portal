@@ -1,33 +1,27 @@
-{{/* Tab pane: Token usage — the trend first, then who is spending it and on which model. */}}
-{{/* Charts above the table on purpose: "is this going up" is the question people arrive with, and */}}
-{{/* the breakdown is what they read once the shape has told them whether to care. */}}
-{{/* A Col because the Tabs enum carries `cols` and not `cards`; Col declares what it holds. */}}
-apiVersion: widgets.templates.krateo.io/v1beta1
+{{/* Tab pane: Token usage, in the A4 format of an analytics tab: the time range (1h, 6h, 24h, 7d), the
+     five figures (tokens, calls, cached input, errors, time to first token), then the consumers table
+     on two thirds and the token charts on one third. A Col because the Tabs carry `cols` panes (see
+     col.agents-tab-flow). It has no search: the table and the charts are ClickHouse aggregates, and a
+     search would narrow the table and not the charts. */}}
 kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-tab-usage
   namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
   widgetData:
     allowedResources:
-    - cards
+    - flexes
     items:
-    - resourceRefId: agents-token-charts-card
-    - resourceRefId: agents-token-usage-card
+    - resourceRefId: agents-usage
   resourcesRefs:
     items:
-    - id: agents-token-charts-card
+    - id: agents-usage
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-token-charts
+      name: agents-usage
       namespace: {{ $.Values.namespace }}
-      resource: cards
-      verb: GET
-    - id: agents-token-usage-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-token-usage
-      namespace: {{ $.Values.namespace }}
-      resource: cards
+      resource: flexes
       verb: GET

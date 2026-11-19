@@ -1,0 +1,45 @@
+{{/* "Activity": records per bucket and outcome over the range. 24h, 7d and 30d draw
+     linechart.audit-activity (per hour or per day, labelled in the browser's time zone); 1h draws
+     linechart.audit-activity-minutes (per 5 minutes, labelled HH:MM UTC, because the chart's own
+     time labels stop at the hour). The extra says which. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-activity-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Activity
+    titleVariant: eyebrow
+    variant: outlined
+    extra: per hour
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: audit-activity
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ if .trendUnit == "minute" then [ { resourceRefId: "audit-activity-minutes" } ] else [ { resourceRefId: "audit-activity" } ] end }'
+  - forPath: extra
+    expression: '${ if .trendUnit == "minute" then "per 5 minutes · UTC" elif .trendUnit == "day" then "per day" else "per hour" end }'
+  resourcesRefs:
+    items:
+    - id: audit-activity
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-activity
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET
+    - id: audit-activity-minutes
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-activity-minutes
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET

@@ -1,0 +1,33 @@
+{{/* The proposals the filters match by state, every state (not the picked one alone), a slice per
+     state that has any, coloured as the cards and the table colour the phase. */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-by-state
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    angleField: count
+    colorField: state
+    colorMap:
+      Proposed: gray
+      PR open: blue
+      Merged: green
+      Rejected: gray
+      Failed: red
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ if .failed then [] else (.byState // []) end }'
+  resourcesRefs:
+    items: []

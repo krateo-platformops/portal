@@ -7,9 +7,17 @@
 {{/* namespace — the bare `page:` convention would look for it in the frontend's configured */}}
 {{/* namespace and 404 (#261). */}}
 {{/* */}}
-{{/* Pagehead + the tabs. The first tab, Overview (root-pages UX slice 3a, Diego 2026-11-14 Q3 (a)), */}}
-{{/* holds the filter bar, the strip and the groups, and at ?view=table the 12-column agents table. */}}
-{{/* The other five tabs are unchanged. */}}
+{{/* Pagehead + the tabs, each tab in the A4 format where it lists things with a state (mockup A4, */}}
+{{/* as /incidents; the figures live inside each tab, because each tab counts different things): */}}
+{{/*   - Overview: the toolbar (Kind, Status, Owner; the search), the five figures, then the agents */}}
+{{/*     and tool servers of the picked group as cards (or ?view=table, the 12-column table) on two */}}
+{{/*     thirds and the charts (health, pattern, model, token trend) on one third; */}}
+{{/*   - Topology and Request flow: one picture each, unchanged; */}}
+{{/*   - Tool servers: its figures, the servers as cards (or the full table) with their charts, then */}}
+{{/*     who may call what (the matrix and the bindings), full width; */}}
+{{/*   - Policies: its figures above the role cards (the same groups as /agents/policies); */}}
+{{/*   - Token usage: the time range, its figures, the consumers table on two thirds and the token */}}
+{{/*     charts on one third. */}}
 {{/* */}}
 {{/* THE "New agent" CTA IS NOW ON. It was withheld while the route did not exist: a Button navigating */}}
 {{/* to an unrouted path falls through to the shell catch-all (RoutesContext.tsx `{ element: */}}
@@ -36,13 +44,14 @@ metadata:
     "krateo.io/nav-label": "Agents"
     "krateo.io/nav-order": "14"
     "krateo.io/nav-path": "/agents"
-    {{/* The Overview tab's filter params (root-pages UX slice 3a). Every URL param reaches every */}}
+    {{/* The Overview tab's filter params (root-pages UX slice 3a), its group chips (group) and the */}}
+    {{/* Token usage tab's range (range). Every URL param reaches every */}}
     {{/* widget on the page, in EVERY tab, so every widget reachable from here declares them; */}}
     {{/* scripts/lint-keyextras.py fails one that does not (snowplow's F6 would decline to cache it). */}}
-    "krateo.io/filter-keys": "projects,kind,status,owner,q,view"
+    "krateo.io/filter-keys": "projects,kind,status,owner,q,view,range,group"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
   widgetData:
     allowedResources:
     - pageheaders

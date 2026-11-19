@@ -52,6 +52,12 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: streamError
-  {{/* stream => {data:[{ts,svc,lvl,msg}]}, newest-first. */}}
+  {{/* stream => {data:[{ts,svc,lvl,msg}]}, newest-first. The page search (?q=, case-insensitive,
+       trimmed) keeps the lines whose service, level or message contains it: it narrows the lines
+       read (the newest ?limit of them), it does not reach the SQL. */}}
   filter: >
-    { rows: ((.stream.data) // []) }
+    {{ include "obs.search" . }}
+    (qRaw | ascii_downcase) as $q
+    | ((.stream.data) // []) as $all
+    | { rows: [ $all[] | select([ (.svc // ""), (.lvl // ""), (.msg // "") ] | hits($q)) ],
+        read: ($all | length) }

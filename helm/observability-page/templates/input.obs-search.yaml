@@ -1,0 +1,23 @@
+{{/* Search, written to ?q= on Enter and removed when cleared. Every tab applies it to all it shows (its
+     figures, chips, cards, table and charts): Reconciliation over a composition's name, namespace, kind,
+     state and reason; Telemetry over an error's service and message, a log line, a pod; Components over
+     a Deployment's name, image and state; Traces over a span's service, name, user, status and trace id. */}}
+kind: Input
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-search
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    name: q
+    queryParam: q
+    {{/* The filter applies on SUBMIT (Enter), not per keystroke: say so in the placeholder or the */}}
+    {{/* box reads as broken while the user types. "this page": what is searched depends on the tab. */}}
+    placeholder: Search this page · press Enter
+    allowClear: true
+    size: middle
+  resourcesRefs:
+    items: []

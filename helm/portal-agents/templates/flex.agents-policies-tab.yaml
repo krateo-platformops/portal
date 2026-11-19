@@ -1,0 +1,37 @@
+{{/* The Policies tab: its four figures (listy.agents-policies-stats), then the role cards, each a
+     table of the policies in that role (flex.agents-policies-groups, the very Flex /agents/policies
+     renders). Not the A4 cards-and-charts row: a policy has no state to triage by beyond the exception
+     the tables already tag, and the role taxonomy is the reading order (see _agents-policies.tpl), so
+     the tab keeps its catalogue shape and gains the figures every tab opens with. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-tab
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - listies
+    - flexes
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-policies-stats
+    - resourceRefId: agents-policies-groups
+  resourcesRefs:
+    items:
+    - id: agents-policies-stats
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-stats
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-policies-groups
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-groups
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

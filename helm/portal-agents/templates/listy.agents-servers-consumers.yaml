@@ -1,0 +1,37 @@
+{{/* The six servers bound by the most agents, most first, a bar each against the first, in the colour
+     of the server's state. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-consumers
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-servers
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{label}'
+        color:
+          value: '{tone}'
+          map:
+            all: blue
+            ok: green
+            bad: red
+            warn: orange
+            unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .topConsumers // [] }'
+  resourcesRefs:
+    items: []

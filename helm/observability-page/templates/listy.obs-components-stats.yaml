@@ -1,0 +1,35 @@
+{{/* The Components figures over the Deployments (the search narrows them): Deployments (neutral), Ready
+     (green), Not ready (red), Scaled to zero (gray), each the colour the cards give the state it counts,
+     zero or not. A failed read is an empty value (a muted "—") captioned "could not be read", in
+     orange, never a 0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-components-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-components
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          ready: green
+          notready: red
+          scaled: gray
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

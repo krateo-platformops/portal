@@ -54,8 +54,9 @@ NS = 'krateo-system'
 # enableIncidentResponse renders the one cluster binding this chart is allowed to make for a
 # persona (#340 gates it; see ALLOWED_CLUSTER_BINDINGS). Without it this gate would pass
 # because the binding is switched off, not because it is acceptable.
-# observability-page: reconcileTracing renders obs-composition-staleness, whose composition lists
-# are cluster-scope reads; checked with the flag on so they are not passed by being switched off.
+# observability-page: obs-reconciliation's composition lists are cluster-scope reads (under a
+# userAccessFilter); reconcileTracing adds its ClickHouse stage, so the chart is checked with the flag
+# on, every stage rendered.
 EXTRA_VALUES = {'portal': ['observability.snowplowSli=true', 'enableIncidentResponse=true'],
                 'observability-page': ['observability.reconcileTracing=true']}
 

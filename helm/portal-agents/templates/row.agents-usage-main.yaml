@@ -1,0 +1,39 @@
+{{/* The Token usage body: who spent the tokens on which model on the left two thirds, the tokens over
+     time on the right third; stacked when narrow. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-usage-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - cards
+    - flexes
+    alignment: top
+    items:
+    - resourceRefId: agents-token-usage
+      size: 16
+      xs: 24
+      lg: 16
+    - resourceRefId: agents-usage-side
+      size: 8
+      xs: 24
+      lg: 8
+  resourcesRefs:
+    items:
+    - id: agents-token-usage
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-usage
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-usage-side
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-usage-side
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

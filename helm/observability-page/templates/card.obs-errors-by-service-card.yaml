@@ -1,0 +1,26 @@
+{{/* "Errors by service": the error lines of the grouped errors, per service (listy.obs-errors-by-service). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-errors-by-service-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    title: Errors by service
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: obs-errors-by-service
+  resourcesRefs:
+    items:
+    - id: obs-errors-by-service
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-errors-by-service
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

@@ -1,0 +1,45 @@
+{{/* The Traces charts, one third of the row, top to bottom: the spans by status, by service, and the
+     slowest five. A card whose data is empty is left out. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: obs-traces-by-status-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.byStatus // []) | length) > 0 then [ { resourceRefId: "obs-traces-by-status-card" } ] else [] end) + (if ((.byService // []) | length) > 0 then [ { resourceRefId: "obs-traces-by-service-card" } ] else [] end) + (if ((.slowest // []) | length) > 0 then [ { resourceRefId: "obs-traces-slowest-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: obs-traces-by-status-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-by-status-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-traces-by-service-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-by-service-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-traces-slowest-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-slowest-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
