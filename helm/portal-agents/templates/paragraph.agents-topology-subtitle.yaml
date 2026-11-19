@@ -7,8 +7,8 @@
 {{/* (unrouted agents, withheld reachability, off-hub tool servers, failed reads) and computes the antd */}}
 {{/* `type` alongside the text (server-side-computation rule); this widget renders both verbatim. */}}
 {{/* */}}
-{{/* The static fallback below is what renders before the action resolves. It carries no counts — they */}}
-{{/* are exactly the part that would be a lie if the reads behind them failed. */}}
+{{/* The static fallback below is what renders before the action resolves. It states the DERIVATION and */}}
+{{/* no counts — the counts are exactly the part that would be a lie if the reads behind them failed. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -20,7 +20,11 @@ spec:
   keyExtras: [projects, kind, status, owner, q, view, range, from, to]
   widgetData:
     text: >-
-      Every agent, tool and model call goes through the agent gateway.
+      One internal gateway carries a route for every agent and every tool server the agents dial,
+      each selected by an x-kagent-host header naming the in-cluster host the calling agent dialled
+      — read live from the Agent, Gateway, HTTPRoute, AgentgatewayBackend and RemoteMCPServer
+      objects. The bench agents and the smaller tool servers are collapsed into one node each; drag
+      and scroll to zoom.
     type: secondary
   apiRef:
     name: agents-topology

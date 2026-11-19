@@ -465,34 +465,32 @@ spec:
         # is named here in prose, because a node that is absent explains nothing on its own.
         subtitle: (
           if ($failed | length) > 0 and ($hubs | length) == 0 then
-            ( "The diagram cannot be drawn because some reads failed: " + ($failed | join("; ")) + "." )
+            ( "This diagram cannot be drawn — " + ($failed | join("; "))
+              + ". Nothing is shown rather than a partial graph that would read as the whole topology." )
           elif ($hubs | length) == 0 then
-            "No agent gateway is visible to you, so there is nothing to draw. The cluster may still have one."
+            ( "No agent gateway is visible from here: no HTTPRoute you can read selects a backend by an x-kagent-host header, "
+              + "so there is no hub to draw. That is not a claim that the cluster has none." )
           else
-            ( ( [ $hubs[] | . as $k | [ $routes[] | select((.gws | index($k)) != null) ] | length ] | add ) as $nRoutes
-              | "Every agent, tool and model call goes through " + $hubName
-                + " (" + ($nRoutes | tostring) + (if $nRoutes == 1 then " route)." else " routes).")
-              # Which boxes are groups is said in words: the graph draws fewer boxes than there are
-              # agents and servers, and a reader who counts the picture gets the topology wrong.
-              + ( ( [ (if ($benchEntries | length) > 0 then ("the " + ($benchAgents | length | tostring) + " bench agents") else empty end),
-                      (if ($restToolEntries | length) > 0 then ("the " + ($srvRest | length | tostring) + " smallest tool servers") else empty end) ] )
-                  | if length == 0 then ""
-                    else (" " + (join(" and ") | .[0:1] | ascii_upcase) + (join(" and ") | .[1:])
-                          + (if length == 1 then " share one box." else " each share one box." end)) end )
+            ( "One gateway carries a route for every agent and every tool server the agents dial. "
+              + $hubName + " has "
+              + ( [ $hubs[] | . as $k | [ $routes[] | select((.gws | index($k)) != null) ] | length ] | add | tostring )
+              + " routes attached, "
+              + ( [ $hubs[] | . as $k | [ $routes[] | select((.gws | index($k)) != null) | select((.hosts | length) > 0) ] | length ] | add | tostring )
+              + " of them selected by an x-kagent-host header naming the in-cluster host the CALLING agent dialled — that header is set by the caller, which is what makes this one gateway the place every hop passes through. "
+              + "Read live from Agent, Gateway, HTTPRoute, AgentgatewayBackend and RemoteMCPServer objects."
+              # WHICH NODES ARE GROUPS HAS TO BE SAID IN WORDS. The graph draws 12 sources for 15
+              # agents; a reader who is not told that counts the picture and gets the topology wrong.
+              # The `kind` on each group node says it too, but only to someone who opens the node.
+              + ( ( [ (if ($benchEntries | length) > 0 then (($benchAgents | length | tostring) + " bench agents") else empty end),
+                      (if ($restToolEntries | length) > 0 then (($srvRest | length | tostring) + " smaller tool servers") else empty end) ] )
+                  | if (. | length) == 0 then "" else (" Collapsed to one node each: " + (. | join(", and ")) + " — drag to pan, scroll to zoom.") end )
               + ( ( [ $agentEntries[] | select(.n.statusIcon.color == "orange") | .n.name ] )
-                  | if length == 0 then ""
-                    else (" " + (length | tostring) + (if length == 1 then " agent has" else " agents have" end)
-                          + " no route on the gateway, so nothing can call " + (if length == 1 then "it: " else "them: " end) + join(", ") + ".") end )
-              + ( if ($routesComplete | not) then (" Whether each box is reachable is unknown, because " + $whyUnsure + ".") else "" end )
+                  | if (. | length) == 0 then "" else (" " + (. | length | tostring) + " agent(s) have no route on this gateway: " + (. | join(", ")) + ".") end )
+              + ( if ($routesComplete | not) then (" Reachability is shown as unknown on every node because " + $whyUnsure + ".") else "" end )
               + ( ( [ $srvOffHub[] | .s.metadata.name ] )
-                  | if length == 0 then ""
-                    else (" " + (length | tostring) + (if length == 1 then " tool server is" else " tool servers are" end)
-                          + " not shown because the gateway has no route to " + (if length == 1 then "it: " else "them: " end) + join(", ") + ".") end )
-              + ( if ($failed | length) > 0 then (" Some reads failed (" + ($failed | join("; ")) + "), so the diagram is incomplete.") else "" end )
-              + ( ($hubsUnread | length) as $n
-                  | if $n == 0 then ""
-                    elif $n == 1 then " 1 more gateway carries agent routes but could not be read, so it is not shown."
-                    else (" " + ($n | tostring) + " more gateways carry agent routes but could not be read, so they are not shown.") end ) )
+                  | if (. | length) == 0 then "" else (" Not drawn: " + (. | length | tostring) + " tool server(s) with no route on this gateway (" + (. | join(", ")) + ") — their endpoint is not one this gateway fronts.") end )
+              + ( if ($failed | length) > 0 then (" Some reads FAILED — " + ($failed | join("; ")) + " — so the graph is incomplete.") else "" end )
+              + ( if ($hubsUnread | length) > 0 then (" " + ($hubsUnread | length | tostring) + " further gateway(s) carry agent routes but their Gateway object was not readable, so they are not drawn.") else "" end ) )
           end ),
         # Paragraph.type is a hard CRD enum (secondary|success|warning|danger) — never "". Exception-
         # only: `secondary` is the healthy default, `danger` for a failed read, an unrouted agent, or
