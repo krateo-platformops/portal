@@ -2,8 +2,8 @@
      bottom:
        - the header, with Ask Agentiko and Create composition (no subtitle: the breadcrumb above it
          says where this is);
-       - the scope (My workloads, Platform, Everything), and the kind or search a link narrowed it
-         to, as removable chips;
+       - the scope (My workloads, Platform, Everything) and, on the same row, the search; the kind
+         or search the page is narrowed to, as removable chips;
        - the five figures: NotReady, Degraded, Drift, Paused, Ready;
        - one row: the compositions on the left two thirds (the state chips, Needs attention by
          default, then one card per composition, or with ?view=table the server-paged table), the
@@ -45,14 +45,14 @@ spec:
     gap: middle
     items:
     - resourceRefId: compositions-page-header
-    - resourceRefId: compositions-scope-group
+    - resourceRefId: compositions-toolbar
     - resourceRefId: compositions-stats
     - resourceRefId: compositions-main
   {{/* A link that narrows the page by kind or search (Observability's by-kind rows, this page's
        By kind chart) gets its removable chips under the scope; nothing else does. */}}
   widgetDataTemplate:
   - forPath: items
-    expression: '${ [ { resourceRefId: "compositions-page-header" }, { resourceRefId: "compositions-scope-group" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "compositions-active-filters" } ] else [] end) + [ { resourceRefId: "compositions-stats" }, { resourceRefId: "compositions-main" } ] }'
+    expression: '${ [ { resourceRefId: "compositions-page-header" }, { resourceRefId: "compositions-toolbar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "compositions-active-filters" } ] else [] end) + [ { resourceRefId: "compositions-stats" }, { resourceRefId: "compositions-main" } ] }'
   resourcesRefs:
     items:
     - id: compositions-page-header
@@ -61,11 +61,11 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: compositions-scope-group
+    - id: compositions-toolbar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: compositions-scope-group
+      name: compositions-toolbar
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: rows
       verb: GET
     - id: compositions-active-filters
       apiVersion: widgets.templates.krateo.io/v1beta1

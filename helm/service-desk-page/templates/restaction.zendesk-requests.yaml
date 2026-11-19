@@ -2,6 +2,9 @@
 
      rows        : subject, status pill, priority, kind, Zendesk #, raised by, updated; filtered by
                    the ?state= chip.
+     ?q=         : the search. A request whose subject, description, Zendesk #, kind, status, raiser
+                   or name contains it (case-insensitive) is kept, every other one is left out of
+                   the whole page (the chips, the figures, the charts), as on /compositions.
      chips       : the chips themselves (Active · All · New · Open · Pending · On-hold · Solved ·
                    Closed · Mine), each with its live count, its route and whether it is selected.
      unreachable : the ONE warning above the table, naming each organisation whose requests the
@@ -103,11 +106,14 @@ spec:
     | ($failed and ($absent | not) and (($codes | index(403)) != null or ($err | test("403|forbidden"; "i")))) as $denied
     | ((.username // "") | labelslug) as $me
     | ((.state // "") | str | ascii_downcase | if . == "" then "active" else . end) as $sel
+    | ((.q // "") | str | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
+    | ($qRaw | ascii_downcase) as $q
     | ([ chips[] | select(.key == $sel) ] | .[0]) as $chip
     | ($chip != null) as $valid
     | ([ $items[] | select(type == "object") | requestView
          | . + { sortKey: (if .updated != "" then .updated elif .created != "" then .created else .portalCreated end) } ]
-       | sort_by(.sortKey) | reverse) as $rows
+       | sort_by(.sortKey) | reverse) as $allRows
+    | ($allRows | map(select($q == "" or ([ .subject, .description, .id, .kindText, .label, .raisedBy, .name ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
     | ($rows | length) as $total
     | (chips | map(.key as $k | { key: $k, value: ([ $rows[] | select(inChip($k; $me)) ] | length) }) | from_entries) as $counts
     | (if $valid then [ $rows[] | select(inChip($sel; $me)) ] else [] end) as $shown
@@ -118,11 +124,12 @@ spec:
     | ($down | map(. as $o | if ([ $down[] | select(.namespace == $o.namespace) ] | length) > 1 and $o.name != "" then ($o.namespace + " (" + $o.name + ")") else $o.namespace end)) as $downLabels
     | (if $failed then
          "The service-desk queue could not be read (" + ($err | cap(300)) + "). Explain what that error means and what an administrator has to fix."
-       elif $total == 0 then
+       elif ($allRows | length) == 0 then
          "I have no Zendesk requests yet. Explain what the service desk on this platform can be asked for, and what a good request includes."
        else
          "Go through my organisation's Zendesk requests"
-         + (if $valid and $sel != "all" then " (" + $chip.noun + ")" else "" end) + ": "
+         + (if $valid and $sel != "all" then " (" + $chip.noun + ")" else "" end)
+         + (if $q != "" then " matching the search \"" + ($qRaw | cap(80)) + "\"" else "" end) + ": "
          + ($shown | length | tostring) + " in view, of " + n($total; "request"; "requests") + "."
          + (if ($shown | length) > 0 then " The most recently updated: " + ($shown | numbered) + "." else "" end)
          + (if ($downLabels | length) > 0 then " Zendesk can't be reached for " + ($downLabels | andjoin) + ", so those statuses may be out of date." else "" end)
@@ -137,8 +144,9 @@ spec:
       def href($st; $rng; $table):
         ([ (if $st != "active" then "state=" + ($st | @uri) else empty end),
            (if $rng != "7d" then "range=" + $rng else empty end),
-           (if $table then "view=table" else empty end) ] | join("&")) as $q
-        | "/service-desk" + (if $q == "" then "" else "?" + $q end);
+           (if $table then "view=table" else empty end),
+           (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ] | join("&")) as $qs
+        | "/service-desk" + (if $qs == "" then "" else "?" + $qs end);
       .
     | ((.range // "") | str | if IN("24h", "7d", "30d") then . else "7d" end) as $range
     | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
@@ -184,6 +192,7 @@ spec:
         counts: $counts,
         total: $total,
         state: $sel,
+        q: $qRaw,
         stateValid: $valid,
         chips: (chips | map({ label: .label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
         unreachable: (if ($downLabels | length) == 0 then { show: false, title: "", description: "" }
@@ -196,12 +205,14 @@ spec:
         # read, where "no requests yet" would be a claim about a list nobody managed to read.
         emptyTitle: (if $failed or ($shown | length) > 0 then ""
                      elif ($valid | not) then "That is not a request status"
+                     elif $q != "" and $total == 0 then "No request matches \"" + ($qRaw | cap(80)) + "\"."
                      elif $total == 0 then "No Zendesk requests yet."
                      elif $sel == "active" then "No active requests."
                      elif $sel == "mine" then "You haven’t raised a request here."
                      else "No request is " + $chip.label + "." end),
         emptyText: (if $failed or ($shown | length) > 0 then ""
                     elif ($valid | not) then "The status in this page’s address is not one a request can have. Choose a status above, or All to see every request."
+                    elif $q != "" and $total == 0 then "Clear the search to see every request."
                     elif $total == 0 then "Requests raised here for your organisation go to Zendesk, and appear in this list with their status. Agents answer them in Zendesk."
                     elif $sel == "active" then (if $total == 1 then "The one request here is Solved or Closed. Choose All to see it." else "Every request here is Solved or Closed. Choose All to see them." end)
                     elif $sel == "mine" then "Requests other people in your organisation raised, and any raised before the portal recorded who raised them, are under All."
@@ -215,11 +226,11 @@ spec:
         # for the requester, which is someone here), Need attention (refused by Zendesk, held, or a
         # reason nobody documented), and Opened and Solved in the range.
         stats: [
-          { title: "Active", value: ($counts.active | tostring), caption: ("of " + n($total; "request"; "requests")), tone: "" },
-          { title: "Pending", value: ($counts.pending | tostring), caption: "waiting for your reply", tone: (if $counts.pending > 0 then "warn" else "" end) },
-          { title: "Need attention", value: ($attention | tostring), caption: "refused, held or unknown", tone: (if $attention > 0 then "bad" else "" end) },
-          { title: "Opened", value: ($openedIn | tostring), caption: ("in " + $rangeText), tone: "" },
-          { title: "Solved", value: ($solvedIn | tostring), caption: ("solved or closed in " + $rangeText), tone: "" } ],
+          { title: "Active", value: ($counts.active | tostring), caption: ("of " + n($total; "request"; "requests")), tone: "active" },
+          { title: "Pending", value: ($counts.pending | tostring), caption: "waiting for your reply", tone: "pending" },
+          { title: "Need attention", value: ($attention | tostring), caption: "refused, held or unknown", tone: "attention" },
+          { title: "Opened", value: ($openedIn | tostring), caption: ("in " + $rangeText), tone: "active" },
+          { title: "Solved", value: ($solvedIn | tostring), caption: ("solved or closed in " + $rangeText), tone: "solved" } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
                      { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],

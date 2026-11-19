@@ -56,7 +56,7 @@ _spec.loader.exec_module(tbi)
 
 CHART = os.path.join(HERE, '..', 'helm', 'incidents-page')
 TAIL = ' Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page.'
-KX = ['projects', 'status', 'range', 'view']
+KX = ['projects', 'status', 'range', 'view', 'q']
 NOW = datetime.datetime.now(datetime.timezone.utc)
 
 
@@ -240,7 +240,7 @@ def check_empty_and_failed():
                'The incidents on this page could not be read (' + said + '). Explain what that error means and what to check.')
         expect(f, f'failed read ({label}): keeps the state', href, '/incidents?status=verifying')
         expect(f, f'failed read ({label}): every figure "could not be read", never 0',
-               {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'warn')})
+               {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'unread')})
         para = widget_data('Paragraph', 'incidents-empty', out)
         expect(f, f'failed read ({label}): said, as a warning', (para['text'], para['type']),
                ('The incidents could not be read (' + said + '), so nothing on this page counts them.', 'warning'))
@@ -284,9 +284,15 @@ def check_figures_and_charts():
     f = []
     out = timed()
     expect(f, '7d: the five figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
-           [('Open', '3', '1 opened in the last 24 hours', 'bad'), ('Analyzing', '1', 'root-cause analysis running', ''),
-            ('Verifying', '1', 'fix applied, checks running', 'warn'), ('Resolved', '2', 'in the last 7 days', ''),
-            ('Time to resolve', '1 h 20 min', 'median over the last 7 days', '')])
+           [('Open', '3', '1 opened in the last 24 hours', 'open'), ('Analyzing', '1', 'root-cause analysis running', 'analyzing'),
+            ('Verifying', '1', 'fix applied, checks running', 'verifying'), ('Resolved', '2', 'in the last 7 days', 'resolved'),
+            ('Time to resolve', '1 h 20 min', 'median over the last 7 days', 'resolved')])
+    stats = widget_data('Listy', 'incidents-stats', out)
+    cards = widget_data('Listy', 'incidents-cards', out)
+    expect(f, 'each figure wears its state\'s card colour, zero or not',
+           {k: v for k, v in stats['itemTemplate']['color']['map'].items() if k != 'unread'},
+           {k.lower(): v for k, v in cards['itemTemplate']['color']['map'].items() if k != 'Closed'})
+    expect(f, 'a failed read is orange', stats['itemTemplate']['color']['map']['unread'], 'orange')
     out30 = timed({'range': '30d'})
     expect(f, '30d: Resolved and Time to resolve widen', [s['value'] for s in out30['stats'][3:]], ['3', '2 h'])
     out24 = timed({'range': '24h'})
@@ -347,11 +353,38 @@ def check_routes():
     return f
 
 
+def check_search():
+    f = []
+    out = resolve(responses(), {'q': ' ORDERS '})
+    expect(f, 'case-insensitive, trimmed: the open ones that match', (out['q'], [r['name'] for r in out['rows']]), ('ORDERS', ['inc-lat']))
+    expect(f, 'the counts follow it', (out['counts']['open'], out['counts']['verifying'], out['counts']['analyzing'], out['counts']['all']), (1, 1, 0, 2))
+    expect(f, 'the figures follow it', [s['value'] for s in out['stats'][:3]], ['1', '0', '1'])
+    expect(f, 'by target and by alert too',
+           ([r['name'] for r in timed({'q': 'snowplow'})['rows']], [r['name'] for r in resolve(responses(), {'q': 'disk', 'status': 'all'})['rows']]),
+           (['o2'], ['inc-disk', 'inc-res']))
+    expect(f, 'every route keeps it', ([c['route'] for c in out['chips']][:2], out['viewChips'][1]['route'], out['rangeChips'][0]['route']),
+           (['/incidents?q=ORDERS', '/incidents?status=analyzing&q=ORDERS'], '/incidents?view=table&q=ORDERS', '/incidents?range=24h&q=ORDERS'))
+    href, prompt = ask(out['askHref'])
+    expect(f, 'Ask Agentiko keeps it and says so', (href, prompt.endswith(' These are only the incidents matching the search "ORDERS".')),
+           ('/incidents?q=ORDERS', True))
+    none = resolve(responses(), {'q': 'zzz'})
+    expect(f, 'nothing matches: said', widget_data('Paragraph', 'incidents-empty', none, {'q': 'zzz'})['text'], 'No incident matches "zzz".')
+    expect(f, 'nothing matches: the prompt says it, not "no incidents"', ask(none['askHref'])[1].startswith('No incident matches the search "zzz"; 5 incidents do not'), True)
+    expect(f, 'the awaiting alerts are not searched', [a['name'] for a in none['awaiting']], [a['name'] for a in resolve(responses(), {})['awaiting']])
+    return f
+
+
 def check_layout():
     f = []
     out = resolve(responses(), {})
     expect(f, 'the page', items_of('Flex', 'page-incidents', out),
-           ['incidents-page-header', 'incidents-range-group', 'incidents-stats', 'incidents-main'])
+           ['incidents-page-header', 'incidents-toolbar', 'incidents-stats', 'incidents-main'])
+    bar = widget_data('Row', 'incidents-toolbar', out)
+    expect(f, 'the toolbar: the range left, the search in a quarter (as on /marketplace), stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs']) for i in bar['items']], [('incidents-range-group', 18, 24), ('incidents-search-wrap', 6, 24)])
+    expect(f, 'the search wrap holds the search', items_of('Flex', 'incidents-search-wrap', out), ['incidents-search'])
+    search = widget_data('Input', 'incidents-search', out)
+    expect(f, 'the search writes ?q= on Enter, at the standard size', (search['queryParam'], search['allowClear'], search['size']), ('q', True, 'middle'))
     row = widget_data('Row', 'incidents-main', out)
     expect(f, 'two thirds and one third, stacked when narrow', [(i['resourceRefId'], i['size'], i['xs']) for i in row['items']],
            [('incidents-list-card', 16, 24), ('incidents-side', 8, 24)])
@@ -463,7 +496,7 @@ def check_filter_keys():
 
 
 CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_routes,
-          check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
+          check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 
 def main():

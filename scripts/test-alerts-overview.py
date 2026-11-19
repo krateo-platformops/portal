@@ -37,7 +37,7 @@ tbi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tbi)
 
 NOW = datetime.datetime.now(datetime.timezone.utc)
-KX = ['projects', 'status', 'range', 'view']
+KX = ['projects', 'status', 'range', 'view', 'q']
 
 
 def ago(hours):
@@ -123,11 +123,16 @@ def check_figures():
     f = []
     out = resolve({})
     expect(f, 'the five figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
-           [('Firing', '1', 'of 10 alerts', 'bad'), ('Not evaluated', '1', 'no HyperDX alert behind it', 'warn'),
-            ('Pending', '1', 'not decided yet', ''), ('OK', '7', '', ''), ('With open incidents', '4', '8 open incidents', '')])
+           [('Firing', '1', 'of 10 alerts', 'alert'), ('Not evaluated', '1', 'no HyperDX alert behind it', 'not-evaluated'),
+            ('Pending', '1', 'not decided yet', 'pending'), ('OK', '7', '', 'ok'), ('With open incidents', '4', '8 open incidents', 'incident')])
+    smap = w('Listy', 'alerts-stats', out)['itemTemplate']['color']['map']
+    cmap = w('Listy', 'alerts-cards', out)['itemTemplate']['color']['map']
+    expect(f, 'each state figure wears its card colour, zero or not', {k: smap[k] for k in ('alert', 'not-evaluated', 'pending', 'ok')},
+           {k: cmap[k] for k in ('alert', 'not-evaluated', 'pending', 'ok')})
+    expect(f, 'open incidents red, as the cards\' mark; a failed read orange', (smap['incident'], smap['unread']), ('red', 'orange'))
     out = resolve({}, incidents='ERROR')
     expect(f, 'incidents unread: that figure is a dash, said', out['stats'][4],
-           {'title': 'With open incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'warn'})
+           {'title': 'With open incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread'})
     expect(f, 'incidents unread: no trend, no top list', (out['incidentTrend'], out['topIncidents']), ([], []))
     ra = CH.get('RESTAction', 'obs-alerts')
     failed = tbi.jq(ra['spec']['filter'], {'alertsError': ['dial tcp: i/o timeout'], 'incidents': []})
@@ -163,10 +168,39 @@ def check_charts():
     return f
 
 
+def check_search():
+    f = []
+    out = resolve({'status': 'all', 'q': ' PROBE '})
+    expect(f, 'by name, case-insensitive, trimmed', (out['q'], [r['routeName'] for r in out['rows']], out['counts']['all']), ('PROBE', ['probe'], 1))
+    expect(f, 'by signal type and description too',
+           ([r['routeName'] for r in resolve({'status': 'all', 'q': 'traces'})['rows']], [r['routeName'] for r in resolve({'status': 'all', 'q': 'watches oom'})['rows']]),
+           (['quiet-trace'], ['oom']))
+    expect(f, 'the figures and the donut follow it', ([s['value'] for s in out['stats']], w('PieChart', 'alerts-by-state', out, {'status': 'all', 'q': 'PROBE'})['data']),
+           (['0', '0', '0', '1', '1'], [{'state': 'OK', 'count': 1}]))
+    expect(f, 'the incident charts are not searched', (out['incidentTrend'], out['topIncidents']),
+           (resolve({'status': 'all'})['incidentTrend'], resolve({'status': 'all'})['topIncidents']))
+    expect(f, 'every route keeps it', ([c['route'] for c in out['chips']][:2], out['viewChips'][1]['route'], out['rangeChips'][0]['route']),
+           (['/alerts?q=PROBE', '/alerts?status=not-evaluated&q=PROBE'], '/alerts?status=all&view=table&q=PROBE', '/alerts?status=all&range=24h&q=PROBE'))
+    ex = {'status': 'ok', 'q': 'cert'}
+    path = w('Button', 'alerts-ask-agentiko', resolve(ex), ex)['actions']['navigate'][0]['path']
+    params = parse_qs(path.partition('?')[2])
+    starts = 'Review my observability alerts in the view on screen (State: OK, Search: "cert"): 1 alert —'
+    expect(f, 'Ask keeps it and the prompt names it', (params['q'], params['ask'][0][:len(starts)]), (['cert'], starts))
+    none = resolve({'q': 'zzz'})
+    expect(f, 'nothing matches: said', w('Paragraph', 'alerts-empty', none, {'q': 'zzz'})['text'], 'No alert matches "zzz".')
+    return f
+
+
 def check_layout():
     f = []
     out = resolve({})
-    expect(f, 'the page', items('Flex', 'page-alerts', out), ['alerts-page-header', 'alerts-range-group', 'alerts-stats', 'alerts-main'])
+    expect(f, 'the page', items('Flex', 'page-alerts', out), ['alerts-page-header', 'alerts-toolbar', 'alerts-stats', 'alerts-main'])
+    bar = w('Row', 'alerts-toolbar', out)
+    expect(f, 'the toolbar: the range left, the search in a quarter (as on /marketplace), stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs']) for i in bar['items']], [('alerts-range-group', 18, 24), ('alerts-search-wrap', 6, 24)])
+    expect(f, 'the search wrap holds the search', items('Flex', 'alerts-search-wrap', out), ['alerts-search'])
+    search = w('Input', 'alerts-search', out)
+    expect(f, 'the search writes ?q= on Enter, at the standard size', (search['queryParam'], search['allowClear'], search['size']), ('q', True, 'middle'))
     row = w('Row', 'alerts-main', out)
     expect(f, 'two thirds and one third', [(i['resourceRefId'], i['size'], i['xs']) for i in row['items']],
            [('alerts-list-card', 16, 24), ('alerts-side', 8, 24)])
@@ -258,7 +292,7 @@ def check_filter_keys():
     return f
 
 
-CHECKS = [check_incidents_read, check_figures, check_charts, check_layout, check_cards, check_header_and_asks, check_filter_keys]
+CHECKS = [check_incidents_read, check_figures, check_charts, check_search, check_layout, check_cards, check_header_and_asks, check_filter_keys]
 
 
 def main():
