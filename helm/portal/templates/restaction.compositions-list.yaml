@@ -267,12 +267,12 @@ spec:
         filteredAny: (($narrow | length) > 0 or $status != "attention"),
         view: (if $tableView then "table" else "" end),
         chips: (if ($narrow | length) == 0 then [] else $narrow + [ { label: "Clear all", href: fx_href("/compositions"; [ $p[] | select(.[0] == "projects" or .[0] == "scope" or .[0] == "status" or .[0] == "view") ]) } ] end),
-        stats: ([ { title: "NotReady", v: $stateCounts.failed, caption: ("of " + ($stateCounts.all | tostring)), tone: (if $stateCounts.failed > 0 then "bad" else "" end) },
-                  { title: "Degraded", v: $stateCounts.degraded, caption: "workload unhealthy", tone: (if $stateCounts.degraded > 0 then "bad" else "" end) },
-                  { title: "Drift", v: $stateCounts.drift, caption: "Synced=False", tone: (if $stateCounts.drift > 0 then "warn" else "" end) },
-                  { title: "Paused", v: $stateCounts.paused, caption: "ReconcilePaused", tone: (if $stateCounts.paused > 0 then "warn" else "" end) },
-                  { title: "Ready", v: $stateCounts.healthy, caption: nn($base | map(select(.railState == "healthy") | .kind) | unique | length; "kind"; "kinds"), tone: "" } ]
-               | map(if $failed then { title, value: "", caption: "could not be read", tone: "warn" } else { title, value: (.v | tostring), caption, tone } end)),
+        stats: ([ { title: "NotReady", v: $stateCounts.failed, caption: ("of " + ($stateCounts.all | tostring)), tone: "failed" },
+                  { title: "Degraded", v: $stateCounts.degraded, caption: "workload unhealthy", tone: "degraded" },
+                  { title: "Drift", v: $stateCounts.drift, caption: "Synced=False", tone: "drift" },
+                  { title: "Paused", v: $stateCounts.paused, caption: "ReconcilePaused", tone: "paused" },
+                  { title: "Ready", v: $stateCounts.healthy, caption: nn($base | map(select(.railState == "healthy") | .kind) | unique | length; "kind"; "kinds"), tone: "healthy" } ]
+               | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else { title, value: (.v | tostring), caption, tone } end)),
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($stateCounts[$k] // 0) > 0 or any($statusSel[]; . == $k)))
                      | map({ key: ., label: $stateNames[.], count: ($stateCounts[.] // 0), active: (if . == "all" then $status == "all" else ($statusSel == [.]) end), route: go(.; $tableView) })),

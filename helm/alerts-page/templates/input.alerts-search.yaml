@@ -1,0 +1,21 @@
+{{/* Search: an alert's name, description, signal type or resource name, case-insensitive,
+     written to ?q= on Enter and removed when cleared. obs-alerts applies it to the whole page. */}}
+kind: Input
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-search
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  widgetData:
+    name: q
+    queryParam: q
+    {{/* The filter applies on SUBMIT (Enter), not per keystroke: say so in the placeholder or the */}}
+    {{/* box reads as broken while the user types. */}}
+    placeholder: Search alerts · press Enter
+    allowClear: true
+    size: middle
+  resourcesRefs:
+    items: []

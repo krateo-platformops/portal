@@ -1,7 +1,7 @@
 {{/* /incidents (incidents dashboard, mockup A4). Top to bottom:
        - the header, with Ask Agentiko (no subtitle: the breadcrumb above it says where this is);
        - the time range (24h, 7d, 30d): the window of the Resolved and Time to resolve figures and
-         of the opened-vs-resolved chart;
+         of the opened-vs-resolved chart; the search on the same row, which narrows the whole page;
        - the five figures: Open, Analyzing, Verifying, Resolved, Time to resolve;
        - one row: the incidents on the left two thirds (the state chips, default Open, then one
          card per incident, or with ?view=table the full table), the charts on the right third
@@ -22,10 +22,10 @@ metadata:
     "krateo.io/nav-label": "Incidents"
     "krateo.io/nav-order": "12"
     "krateo.io/nav-path": "/incidents"
-    "krateo.io/filter-keys": "projects,status,range,view"
+    "krateo.io/filter-keys": "projects,status,range,view,q"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, range, view]
+  keyExtras: [projects, status, range, view, q]
   widgetData:
     allowedResources:
     - pageheaders
@@ -36,7 +36,7 @@ spec:
     gap: middle
     items:
     - resourceRefId: incidents-page-header
-    - resourceRefId: incidents-range-group
+    - resourceRefId: incidents-toolbar
     - resourceRefId: incidents-stats
     - resourceRefId: incidents-main
   resourcesRefs:
@@ -47,11 +47,11 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: incidents-range-group
+    - id: incidents-toolbar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-range-group
+      name: incidents-toolbar
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: rows
       verb: GET
     - id: incidents-stats
       apiVersion: widgets.templates.krateo.io/v1beta1

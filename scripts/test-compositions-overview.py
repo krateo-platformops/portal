@@ -134,13 +134,19 @@ def check_stats_and_empty():
     f = []
     out = resolve({})
     rows = [(t['title'], t['value'], t['caption'], t['tone']) for t in w('Listy', 'compositions-stats', out)['dataSource']]
-    expect(f, 'the figures, as drawn', rows, [('NotReady', '1', 'of 25', 'bad'), ('Degraded', '1', 'workload unhealthy', 'bad'),
-                                              ('Drift', '1', 'Synced=False', 'warn'), ('Paused', '1', 'ReconcilePaused', 'warn'),
-                                              ('Ready', '18', '2 kinds', '')])
+    expect(f, 'the figures, as drawn', rows, [('NotReady', '1', 'of 25', 'failed'), ('Degraded', '1', 'workload unhealthy', 'degraded'),
+                                              ('Drift', '1', 'Synced=False', 'drift'), ('Paused', '1', 'ReconcilePaused', 'paused'),
+                                              ('Ready', '18', '2 kinds', 'healthy')])
+    smap = w('Listy', 'compositions-stats', out)['itemTemplate']['color']['map']
+    cmap = w('Listy', 'compositions-cards', out)['itemTemplate']['color']['map']
+    expect(f, 'each figure wears its state\'s card colour; a failed read orange',
+           ({k: smap[k] for k in ('failed', 'degraded', 'drift', 'paused', 'healthy')}, smap['unread']),
+           ({k: cmap[k] for k in ('failed', 'degraded', 'drift', 'paused', 'healthy')}, 'orange'))
     expect(f, 'the figures do not follow the state chip', out['stats'], resolve({'status': 'healthy'})['stats'])
     quiet = [c for c in WORK if c['name'].startswith('pub-')]
     out = resolve({}, quiet)
-    expect(f, 'quiet: neutral figures', [t['tone'] for t in out['stats']], [''] * 5)
+    expect(f, 'quiet: still coloured by state, at 0', [(t['value'], t['tone']) for t in out['stats']][:4],
+           [('0', 'failed'), ('0', 'degraded'), ('0', 'drift'), ('0', 'paused')])
     expect(f, 'quiet: the sentence in place of the cards', (items(w('Card', 'compositions-list-card', out)), w('Paragraph', 'compositions-empty', out)['text']),
            (['compositions-state-chips', 'compositions-empty'],
             'Nothing needs attention in My workloads: none is NotReady, Degraded, drifting, paused or with unreadable children.'))
@@ -209,9 +215,15 @@ def check_narrowing():
     expect(f, 'its chip removes it, Clear all keeps scope and state', [(c['label'], c['href']) for c in out['chips']],
            [('Kind: WebApp', '/compositions?scope=all'), ('Clear all', '/compositions?scope=all')])
     expect(f, 'the chips sit under the scope', items(w('Flex', 'page-compositions', out, ex)),
-           ['compositions-page-header', 'compositions-scope-group', 'compositions-active-filters', 'compositions-stats', 'compositions-main'])
+           ['compositions-page-header', 'compositions-toolbar', 'compositions-active-filters', 'compositions-stats', 'compositions-main'])
     expect(f, 'no narrowing, no chips row', items(w('Flex', 'page-compositions', resolve({}))),
-           ['compositions-page-header', 'compositions-scope-group', 'compositions-stats', 'compositions-main'])
+           ['compositions-page-header', 'compositions-toolbar', 'compositions-stats', 'compositions-main'])
+    bar = w('Row', 'compositions-toolbar', resolve({}))
+    expect(f, 'the toolbar: the scope left, the search in a quarter (as on /marketplace), stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs']) for i in bar['items']], [('compositions-scope-group', 18, 24), ('compositions-search-wrap', 6, 24)])
+    expect(f, 'the search wrap holds the search', items(w('Flex', 'compositions-search-wrap', resolve({}))), ['compositions-search'])
+    search = w('Input', 'compositions-search', resolve({}))
+    expect(f, 'the search writes ?q= on Enter, at the standard size', (search['queryParam'], search['allowClear'], search['size']), ('q', True, 'middle'))
     out = resolve({'q': 'PUB-0', 'status': 'all'})
     expect(f, 'Observability\'s by-kind link (?q=): name or kind, any case; a removable chip',
            (len(out['filtered']), [c['label'] for c in out['chips']]), (10, ['Search: PUB-0', 'Clear all']))

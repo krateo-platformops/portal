@@ -1,7 +1,8 @@
 {{/* Page root for /service-desk (the /incidents dashboard's layout, mockup A4): the header, then
-     the time range, the five figures and one row: the requests on the left two thirds (the chips,
-     Active by default, then one card per request, or with ?view=table the table), the charts on the
-     right third — or a sentence in place of all of it when nothing could be read.
+     the time range and the search, the five figures and one row: the requests on the left two
+     thirds (the chips, Active by default, then one card per request, or with ?view=table the
+     table), the charts on the right third — or a sentence in place of all of it when nothing could
+     be read.
 
      IT READS zendesk-requests AND TEMPLATES ITS ITEMS, from the same RESTAction, with the same
      keyExtras and identity, as every widget below, so none can disagree about which requests there
@@ -9,7 +10,7 @@
        read failed    → header, result.service-desk-unavailable. No figures and no chips: their
                         zeros would describe a quiet desk. For a cluster that does not serve the kind
                         the header also drops "Raise a request" (pageheader.service-desk.yaml).
-       otherwise      → header, [warning], range, figures, the row; inside the requests card the
+       otherwise      → header, [warning], range and search, figures, the row; inside the requests card the
                         chips, then the cards, the table, or result.service-desk-empty when the chip
                         holds none (card.service-desk-list-card).
      The warning (alert.service-desk-unreachable) is drawn only when some organisation's requests
@@ -38,12 +39,12 @@ metadata:
     "krateo.io/nav-label": "Service desk"
     "krateo.io/nav-order": "40"
     "krateo.io/nav-path": "/service-desk"
-    "krateo.io/filter-keys": "state,range,view"
+    "krateo.io/filter-keys": "state,range,view,q"
     "krateo.io/verbose": "true"
 spec:
   {{/* The extras keys that partition this widget's cache cell: which child is drawn depends on
        the ?state= chip. */}}
-  keyExtras: [state, range, view]
+  keyExtras: [state, range, view, q]
   identityContext:
     - username
   apiRef:
@@ -61,7 +62,7 @@ spec:
     gap: middle
     items:
     - resourceRefId: service-desk-header
-    - resourceRefId: service-desk-range-group
+    - resourceRefId: service-desk-toolbar
     - resourceRefId: service-desk-stats
     - resourceRefId: service-desk-main
   widgetDataTemplate:
@@ -71,7 +72,7 @@ spec:
         + (if (.failed // false) then [ { resourceRefId: "service-desk-unavailable" } ]
            else
              (if (.unreachable.show // false) then [ { resourceRefId: "service-desk-unreachable" } ] else [] end)
-             + [ { resourceRefId: "service-desk-range-group" }, { resourceRefId: "service-desk-stats" }, { resourceRefId: "service-desk-main" } ]
+             + [ { resourceRefId: "service-desk-toolbar" }, { resourceRefId: "service-desk-stats" }, { resourceRefId: "service-desk-main" } ]
            end) }
   resourcesRefs:
     items:
@@ -87,11 +88,11 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: alerts
       verb: GET
-    - id: service-desk-range-group
+    - id: service-desk-toolbar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: service-desk-range-group
+      name: service-desk-toolbar
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: rows
       verb: GET
     - id: service-desk-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
