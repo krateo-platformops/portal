@@ -1,5 +1,26 @@
-{{/* The /audit table and its note (AUDIT-9, installer#415): who changed what, to which object, when,
-     and with what outcome, read from the audit trail in ClickHouse (krateo_audit). Read-only.
+{{/* The /audit dashboard (AUDIT-9, installer#415; mockup A4): who changed what, to which object,
+     when, and with what outcome, read from the audit trail in ClickHouse (krateo_audit). Read-only.
+     Everything on the page but the filter chips and the header button reads it: the figures, the
+     cards and the table, the activity chart, the outcomes, the top users and namespaces, the note.
+
+     OUTPUT
+       rows / counts / check / note / rejected / failed / scope   the table and its note, as before;
+       namespaces   the caller's namespaces when narrowed (audit-scope names them);
+       q / view     the search (trimmed) and `table` for the Full list;
+       stats        the five figures: Records, Success, Failure, Denied, Untraced, each with the
+                    tone of the state it counts (success / failure / denied as the outcome tag,
+                    records slate, untraced gray); a failed or refused read is "" captioned so,
+                    tone `unread`;
+       viewChips    Summary | Full list, each route keeping every filter and the search;
+       more         under the 48 cards when the window holds more, "" otherwise;
+       empty        what the card says instead of an empty list;
+       trend / trendUnit   records per bucket and outcome (Success, Failure, Denied), one point per
+                    bucket and series ending now; `minute` (1h, labelled HH:MM UTC), `hour`, `day`;
+       byOutcome    the donut: a slice per outcome with records (Other for an unread outcome);
+       topUsers / topNamespaces   the six largest, each a bar against the first and a link that
+                    filters the page to it.
+     Every count follows the range, the chips and the search: they are counted with the same
+     predicates as the rows.
 
      WHO SEES WHICH ROWS — the access model, decided on installer#415 (Diego, 2026-11-09). A
      RESTAction's dict carries no caller namespace, only the extras (and username/groups when
@@ -50,7 +71,9 @@
 
      THE QUERIES, decoded (<window> is ?range: 1 HOUR | 24 HOUR | 7 DAY | 30 DAY, default 24 HOUR;
      <access> is ` AND LogAttributes['k8s.namespace.name'] IN ('a', 'b')`, or nothing for a
-     cluster-wide caller; each chip adds one ` AND LogAttributes[…] = '<value>'`):
+     cluster-wide caller; each chip adds one ` AND LogAttributes[…] = '<value>'`; the search adds
+     ` AND (positionCaseInsensitiveUTF8(<field>, {q:String}) > 0 OR …)` and its value rides as the
+     separate parameter `&param_q=` (audit.sql.search, _audit-a4.tpl), so it is never SQL text):
        rows:    SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope,
                   LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act,
                   LogAttributes['http.request.method'] AS method,
@@ -67,6 +90,14 @@
                   countIf(NOT <dryRun> AND LogAttributes['krateo.audit.no_trace_context'] = 'true') AS untraced
                 FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL <window><access><filters>
                 FORMAT JSON
+       trend:   SELECT toUnixTimestamp(toStartOfInterval(Timestamp, INTERVAL <bucket>, 'UTC')) AS b,
+                  LogAttributes['outcome'] AS outcome, count() AS n, max(toUnixTimestamp(now())) AS now_s
+                FROM krateo_audit WHERE <population> AND Timestamp > now() - INTERVAL <window>
+                  AND NOT <dryRun><access><filters> GROUP BY b, outcome ORDER BY b FORMAT JSON
+                (<bucket>: 5 MINUTE | 1 HOUR | 1 DAY, audit.bucket; now_s is the server's clock, so
+                the buckets end where the window does)
+       breakdown: the audit-facets query (namespaces, users, outcomes, 12 each) WITH <filters>, so
+                the figures and the side charts count what the cards and the table show.
      <population>, <dryRun>, <kept> and <unread> are the defines in _audit.tpl.
 
      THE ROW-COUNT CHECK. `summary` counts the window with the same predicates but no LIMIT and no
@@ -82,7 +113,16 @@
 {{- $unread := include "audit.sql.unread" . -}}
 {{- $rowsSelect := printf "SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope, LogAttributes['user.name'] AS usr, LogAttributes['krateo.action'] AS act, LogAttributes['http.request.method'] AS method, LogAttributes['k8s.resource.resource'] AS res, LogAttributes['k8s.resource.kind'] AS kind, LogAttributes['k8s.resource.group'] AS grp, LogAttributes['k8s.resource.name'] AS name, LogAttributes['k8s.namespace.name'] AS ns, LogAttributes['outcome'] AS outcome, LogAttributes['http.response.status_code'] AS code, LogAttributes['server.address'] AS server, LogAttributes['krateo.audit.no_trace_context'] AS no_trace, TraceId AS trace_id, %s AS kept, count() OVER () AS matched FROM krateo_audit WHERE " $kept -}}
 {{- $summarySelect := printf "SELECT count() AS total, countIf(%s) AS previews, countIf(NOT %s AND %s) AS unread, countIf(NOT %s AND %s) AS linked, countIf(NOT %s AND LogAttributes['krateo.audit.no_trace_context'] = 'true') AS untraced FROM krateo_audit WHERE " $dry $dry $unread $dry $kept $dry -}}
-{{- $iterator := include "audit.iterator" . -}}
+{{- $iterator := include "audit.iteratorQ" . -}}
+{{- $search := include "audit.sql.search" . -}}
+{{- $bucket := include "audit.bucket" . -}}
+{{- $trendSelect := "SELECT toUnixTimestamp(toStartOfInterval(Timestamp, INTERVAL " -}}
+{{- $trendFrom := ", 'UTC')) AS b, LogAttributes['outcome'] AS outcome, count() AS n, max(toUnixTimestamp(now())) AS now_s FROM krateo_audit WHERE " -}}
+{{- $parts := list -}}
+{{- range $i, $d := list (list "ns" "k8s.namespace.name") (list "user" "user.name") (list "outcome" "outcome") -}}
+{{- $head := printf "%sSELECT * FROM (SELECT '%s' AS dim, LogAttributes['%s'] AS val, count() AS n FROM krateo_audit WHERE " (ternary "" " UNION ALL " (eq $i 0)) (index $d 0) (index $d 1) -}}
+{{- $parts = append $parts (printf "\"%s%s\" + $iv + \"%s\" + $acc + $nsC + $usrC + $ocC + $qC + \"%s\"" (include "audit.enc" $head) $pop (include "audit.enc" (printf " AND NOT %s" $dry)) (include "audit.enc" " GROUP BY val ORDER BY n DESC, val LIMIT 12)")) -}}
+{{- end -}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -115,7 +155,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $rowsSelect }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON" }}" }'
+      path: '${ {{ $window }} | {{ $filters }} | {{ $search }} | "/?query={{ include "audit.enc" $rowsSelect }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + $qC + "{{ include "audit.enc" " ORDER BY Timestamp DESC LIMIT 200 FORMAT JSON" }}" + $qP }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -128,20 +168,52 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $summarySelect }}{{ $pop }}" + $iv + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " FORMAT JSON" }}" }'
+      path: '${ {{ $window }} | {{ $filters }} | {{ $search }} | "/?query={{ include "audit.enc" $summarySelect }}{{ $pop }}" + $iv + $acc + $nsC + $usrC + $ocC + $qC + "{{ include "audit.enc" " FORMAT JSON" }}" + $qP }'
       verb: GET
       headers:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: summaryError
+    {{- /* The activity chart. No dependsOn on the table's stages: it needs only the access stages. */}}
+    - name: trend
+      dependsOn:
+        name: allNamespaces
+        iterator: '{{ $iterator }}'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ $window }} | {{ $bucket }} | {{ $filters }} | {{ $search }} | "/?query={{ include "audit.enc" $trendSelect }}" + $bk + "{{ include "audit.enc" $trendFrom }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + $qC + "{{ include "audit.enc" " GROUP BY b, outcome ORDER BY b FORMAT JSON" }}" + $qP }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: trendError
+    {{- /* The figures' outcomes, the donut and the two bar lists. */}}
+    - name: breakdown
+      dependsOn:
+        name: allNamespaces
+        iterator: '{{ $iterator }}'
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: '${ {{ $window }} | {{ $filters }} | {{ $search }} | "/?query=" + {{ join " + " $parts }} + "{{ include "audit.enc" " FORMAT JSON" }}" + $qP }'
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: breakdownError
   {{/* ClickHouse FORMAT JSON => {meta, data: [...], rows}. 64-bit integers (ts_ms, counts) arrive
-       as JSON strings on a default server and as numbers on 057, so both are read. */}}
+       as JSON strings on a default server and as numbers on 057, so both are read. The trend and
+       breakdown stages are read on their own: one failing leaves the table and its note standing,
+       and only the figures and charts it feeds say "could not be read" (or are left out). */}}
   filter: >
-    {{ include "audit.valid" . }} {{ include "audit.rangeLabel" . }}
-    ((.range // "24h") | tostring) as $range
-    | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring)} as $f
+    {{ include "audit.valid" . }} {{ include "audit.rangeLabel" . }} {{ include "audit.q.valid" . }} {{ include "audit.href" . }} {{ include "audit.buckets" . }}
+    . as $x
+    | ((.range // "24h") | tostring) as $range
+    | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring), q: ((.q // "") | qText)} as $f
+    | (((.view // "") | tostring) == "table") as $tableView
     | ({{ include "audit.access" . }}) as $a
-    | [ (if ($f.ns | okNsFilter) then empty else "namespace" end), (if ($f.usr | okUser) then empty else "user" end), (if ($f.oc | okOutcome) then empty else "outcome" end) ] as $rejected
+    | [ (if ($f.ns | okNsFilter) then empty else "namespace" end), (if ($f.usr | okUser) then empty else "user" end), (if ($f.oc | okOutcome) then empty else "outcome" end), (if ($f.q | okQ) then empty else "search" end) ] as $rejected
     | (($rejected | length) == 0 and ($a.all or ($a.acc | length) > 0)) as $queried
     | (.tracePage == true) as $canOpen
     | [ ((.rows | objects | .data) // [])[]
@@ -163,8 +235,10 @@ spec:
     | (($rows[0].matched) // 0) as $matched
     | ([ $rows[] | select(.conforming | not) ] | length) as $classifiedUnread
     | ($matched == $shown and (if $matched <= 200 then (($rows | length) == $matched and $classifiedUnread == $c.unread) else ($rows | length) == 200 end)) as $checkOk
-    | ($f.ns != "" or $f.usr != "" or $f.oc != "") as $filtered
-    | (if ($rejected | length) > 0 then
+    | ($f.ns != "" or $f.usr != "" or $f.oc != "" or $f.q != "") as $filtered
+    | (if $rejected == ["search"] then
+         "The search is longer than 200 characters or holds a control character, so nothing was read."
+       elif ($rejected | length) > 0 then
          "The " + ($rejected | join(" and ")) + " filter holds characters this page does not accept, so nothing was read."
        elif ($queried | not) then
          "No namespace's audit trail has been shared with you, so there are no records to show. Ask an administrator for access to a namespace."
@@ -189,11 +263,75 @@ spec:
                + " counted. A record may follow a convention this page does not read." end)
           ] | join(" "))
        end) as $note
+    | (if ($rejected | length) > 0 or ($queried | not) or $failed then $note
+       elif $f.q != "" then "No record matches \"" + $f.q + "\"."
+       elif $filtered then "No record in " + ($range | rangeLabel) + " matches these filters."
+       else "No record in " + ($range | rangeLabel) + "." end) as $empty
+    | (if ($rows | length) > 48 then "48 of " + ($matched | tostring) + " shown here. Full list has "
+         + (if $matched > 200 then "the latest 200." else "all " + ($matched | tostring) + "." end) else "" end) as $more
+    | ($queried and (.trendError != null or (.trend | type) != "object")) as $trendFailed
+    | ($queried and (.breakdownError != null or (.breakdown | type) != "object")) as $bdFailed
+    | [ ((.breakdown | objects | .data) // [])[] | {dim: (.dim // ""), name: ((.val // "") | tostring), count: (.n | num)} ] as $bd
+    | ([ $bd[] | select(.dim == "outcome") ]) as $bdOc
+    | { success: ([ $bdOc[] | select(.name == "success") | .count ] | add // 0),
+        failure: ([ $bdOc[] | select(.name == "failure") | .count ] | add // 0),
+        denied: ([ $bdOc[] | select(.name == "denied") | .count ] | add // 0),
+        other: ([ $bdOc[] | select(.name != "success" and .name != "failure" and .name != "denied") | .count ] | add // 0) } as $oc
+    | def share($n): if $shown > 0 and $n > 0 then (($n * 100 / $shown) | if . < 1 then "under 1%" else (round | tostring) + "%" end) + " of records" else "" end;
+      ([ { title: "Records", value: $shown, caption: ("in " + ($range | rangeLabel)), tone: "records", src: "summary" },
+        { title: "Success", value: $oc.success, caption: share($oc.success), tone: "success", src: "breakdown" },
+        { title: "Failure", value: $oc.failure, caption: share($oc.failure), tone: "failure", src: "breakdown" },
+        { title: "Denied", value: $oc.denied, caption: share($oc.denied), tone: "denied", src: "breakdown" },
+        { title: "Untraced", value: $c.untraced, caption: (if $c.untraced > 0 then "written with no trace context" else "" end), tone: "untraced", src: "summary" } ]
+      | map(if ($queried | not) then { title, value: "", caption: "nothing was read", tone: "unread" }
+            elif (.src == "summary" and $failed) or (.src == "breakdown" and $bdFailed) then { title, value: "", caption: "could not be read", tone: "unread" }
+            else { title, value: (.value | tostring), caption, tone } end)) as $stats
+    | ($range | auditBuckets) as $b
+    | [ ((.trend | objects | .data) // [])[] | {b: (.b | num), oc: ((.outcome // "") | tostring), n: (.n | num), now: (.now_s | num)} ] as $tr
+    | (([ $tr[] | .now ] | max) // 0) as $srvNow
+    | (if $srvNow > 0 then $srvNow else now end) as $now
+    | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
+    | { success: "Success", failure: "Failure", denied: "Denied" } as $series
+    | ([ range(0; $b.n) as $i | ($start + $i * $b.size) as $t
+         | ("success", "failure", "denied") as $o
+         | { t: (if $b.unit == "minute" then ($t | todate | .[11:16]) else $t end), series: $series[$o],
+             v: ([ $tr[] | select(.b == $t and .oc == $o) | .n ] | add // 0) } ]) as $trend
+    | ([ { outcome: "Success", count: $oc.success }, { outcome: "Failure", count: $oc.failure },
+         { outcome: "Denied", count: $oc.denied }, { outcome: "Other", count: $oc.other } ] | map(select(.count > 0))) as $byOutcome
+    | ([ $bd[] | select(.dim == "user") ] | .[0:6]) as $tu
+    | (([ $tu[] | .count ] | max) // 0) as $tuMax
+    | ([ $tu[] | (if .name == "" then "(none)" else .name end) as $u
+         | { name: (if $u == "(none)" then "— (no user name)" else $u end), count: (.count | tostring),
+             percent: (if $tuMax > 0 then ((.count * 100 / $tuMax) | round) else 0 end),
+             href: (if ($u | okUser) then ($x | auditHref({auditUser: $u})) else "" end) } ]) as $topUsers
+    | ([ $bd[] | select(.dim == "ns") ] | .[0:6]) as $tn
+    | (([ $tn[] | .count ] | max) // 0) as $tnMax
+    | ([ $tn[] | .name as $n
+         | { name: (if $n == "" then "— (no namespace)" else $n end), count: (.count | tostring),
+             percent: (if $tnMax > 0 then ((.count * 100 / $tnMax) | round) else 0 end),
+             href: (if $n != "" and ($n | okNs) then ($x | auditHref({auditNamespace: $n})) else "" end) } ]) as $topNamespaces
     | { rows: $rows,
         scope: (if ($queried | not) then "none" elif $a.all then "all" else "namespaces" end),
+        namespaces: (if $a.all then [] else $a.acc end),
         canOpenTraces: $canOpen,
         counts: ($c + {shown: $shown, matched: $matched, classifiedUnread: $classifiedUnread}),
         check: (if $queried and ($failed | not) then $checkOk else null end),
         rejected: $rejected,
         failed: $failed,
-        note: $note }
+        note: $note,
+        q: $f.q,
+        view: (if $tableView then "table" else "" end),
+        range: $range,
+        stats: $stats,
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: ($x | auditHref({view: ""})) },
+                     { label: "Full list", active: $tableView, route: ($x | auditHref({view: "table"})) } ],
+        more: $more,
+        empty: $empty,
+        emptyWarn: (($rejected | length) > 0 or $failed),
+        trend: (if ($queried | not) or $trendFailed then [] else $trend end),
+        trendUnit: $b.unit,
+        trendFailed: $trendFailed,
+        byOutcome: (if ($queried | not) or $bdFailed then [] else $byOutcome end),
+        topUsers: (if ($queried | not) or $bdFailed then [] else $topUsers end),
+        topNamespaces: (if ($queried | not) or $bdFailed then [] else $topNamespaces end),
+        breakdownFailed: $bdFailed }

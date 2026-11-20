@@ -27,6 +27,14 @@ team-a only, over rows from team-a, team-b and krateo-system, sees ZERO team-b a
 rows; the admin sees all three; a caller with no grant sees zero rows and makes no ClickHouse request
 at all — including one who may list every composition in team-a, which was the rule this replaced.
 
+THE DASHBOARD (mockup A4): header (no subtitle), toolbar (range/namespace/user chips 18/24, search
+6/24), five figures coloured as the outcome tag, then the records card (outcome chips, one card per
+record capped at 48, or ?view=table the table) beside the charts (activity by outcome per bucket,
+outcomes, top users, top namespaces). Every count follows the range, the chips and the search.
+THE SEARCH (?q=) is the one free-text input that reaches ClickHouse: it is a bound query parameter
+({q:String} + param_q), never SQL text, and the stand-in BINDS it in sqlite the same way, so the
+injection checks execute the query with each hostile value.
+
 THE DEMO PERSONA: the portal chart's `devs` (rbac.cyberjoker-rbac.yaml) may `list` auditrecords in
 demo-system and nowhere else, read off the rendered RoleBindings and run through the same stages.
 
@@ -68,7 +76,7 @@ rownav = _load('rownav', 'test-rownavigateto-f8.py')      # Table.tsx buildRowPa
 NS = 'krateo-audit'                  # the chart's default page namespace
 RELEASE_NS = 'krateo-system'
 TRACE_NS = 'krateo-observability'
-KEY_EXTRAS = ['projects', 'range', 'auditNamespace', 'auditUser', 'auditOutcome']
+KEY_EXTRAS = ['projects', 'range', 'auditNamespace', 'auditUser', 'auditOutcome', 'q', 'view']
 
 
 def render(sets=(), values=None, chart=CHART, release='audit-page'):
@@ -286,7 +294,7 @@ TRACES_AGE = {TRACE_OLD: 9 * 24 * H}
 
 NO_GRANT_NOTE = ("No namespace's audit trail has been shared with you, so there are no records to show. "
                  "Ask an administrator for access to a namespace.")
-INT64 = {'ts_ms', 'matched', 'n', 'total', 'previews', 'unread', 'linked', 'untraced'}
+INT64 = {'ts_ms', 'matched', 'n', 'total', 'previews', 'unread', 'linked', 'untraced'}   # b and now_s are UInt32: bare
 
 
 def _balanced(s, start):
@@ -307,10 +315,17 @@ def _balanced(s, start):
 
 def to_sqlite(sql):
     """The handful of ClickHouse spellings these queries use, in sqlite. Anything else is sent as
-    written, so a query this cannot translate fails here rather than passing on a guess."""
+    written, so a query this cannot translate fails here rather than passing on a guess. A query
+    parameter ({q:String}) becomes a sqlite named parameter, bound — never spliced — by the caller."""
     assert sql.endswith(' FORMAT JSON'), sql
     s = sql[:-len(' FORMAT JSON')]
     s = s.replace('toUnixTimestamp64Milli(Timestamp)', 'Timestamp')
+    # The activity buckets: toStartOfInterval in UTC, in seconds — for these sizes a multiple of the
+    # size since the epoch (Timestamp is milliseconds here; sqlite integer division floors).
+    s = re.sub(r"toUnixTimestamp\(toStartOfInterval\(Timestamp, INTERVAL (\d+) (MINUTE|HOUR|DAY), 'UTC'\)\)",
+               lambda m: f'((Timestamp / 1000) / {int(m.group(1)) * BUCKET_UNIT[m.group(2)]} * {int(m.group(1)) * BUCKET_UNIT[m.group(2)]})', s)
+    s = s.replace('toUnixTimestamp(now())', f'({NOW_MS} / 1000)')
+    s = s.replace('{q:String}', ':q')
     s = re.sub(r"LogAttributes\['([^']*)'\]", r"attr(LogAttributes, '\1')", s)
     s = re.sub(r'now\(\) - INTERVAL (\d+) (HOUR|DAY)',
                lambda m: f'({NOW_MS} - {int(m.group(1)) * (H if m.group(2) == "HOUR" else 24 * H)})', s)
@@ -322,10 +337,42 @@ def to_sqlite(sql):
     return s
 
 
+BUCKET_UNIT = {'MINUTE': 60, 'HOUR': 3600, 'DAY': 86400}
+
+
+def ch_param(value):
+    r"""A query parameter as ClickHouse reads it: the escaped format, so a backslash escapes the
+    next character (\\ is one backslash, \t a tab, \n a newline, \' a quote)."""
+    return re.sub(r'\\(.)', lambda m: {'t': '\t', 'n': '\n', '0': '\0'}.get(m.group(1), m.group(1)), value)
+
+
+def split_request(path):
+    """(the decoded SQL, {name: decoded value} of every param_<name>). The query string is split on
+    `&` before any decoding: a `&` inside a value arrives as %26."""
+    assert path.startswith('/?'), path
+    sql, params = None, {}
+    for part in path[2:].split('&'):
+        key, _, raw = part.partition('=')
+        if key == 'query':
+            sql = unquote(raw)
+        elif key.startswith('param_'):
+            params[key[len('param_'):]] = unquote(raw)
+        else:
+            raise AssertionError(f'unexpected query parameter {key!r} in {path}')
+    assert sql is not None, path
+    return sql, params
+
+
+def position_ci(haystack, needle):
+    """ClickHouse positionCaseInsensitiveUTF8: 1-based, 0 when absent (1 for an empty needle)."""
+    return (haystack or '').lower().find((needle or '').lower()) + 1
+
+
 class FakeClickHouse:
     def __init__(self, rows=AUDIT, traces=TRACES, quoted=True):
         self.db = sqlite3.connect(':memory:')
         self.db.create_function('attr', 2, lambda js, k: json.loads(js).get(k, ''))
+        self.db.create_function('positionCaseInsensitiveUTF8', 2, position_ci)
         self.db.create_function('endsWith', 2, lambda a, b: int((a or '').endswith(b)))
         self.db.execute('CREATE TABLE krateo_audit (ScopeName TEXT, Timestamp INTEGER, TraceId TEXT, LogAttributes TEXT)')
         self.db.execute('CREATE TABLE otel_traces (TraceId TEXT, Timestamp INTEGER)')
@@ -334,13 +381,16 @@ class FakeClickHouse:
                             (r['ScopeName'], r['Timestamp'], r['TraceId'], json.dumps(r['LogAttributes'])))
         for t in traces:
             self.db.execute('INSERT INTO otel_traces VALUES (?, ?)', (t, NOW_MS - TRACES_AGE.get(t, H)))
-        self.quoted, self.queries = quoted, []
+        self.quoted, self.queries, self.params = quoted, [], []
 
     def __call__(self, path):
-        assert path.startswith('/?query='), path
-        sql = unquote(path[len('/?query='):])
+        sql, params = split_request(path)
         self.queries.append(sql)
-        cur = self.db.execute(to_sqlite(sql))
+        self.params.append(params)
+        bound = {k: ch_param(v) for k, v in params.items()}
+        if ('{q:String}' in sql) != ('q' in bound):
+            raise AssertionError(f'{{q:String}} and param_q must come together: {path}')
+        cur = self.db.execute(to_sqlite(sql), bound)
         cols = [c[0] for c in cur.description]
         data = []
         for row in cur.fetchall():
@@ -364,7 +414,7 @@ APISERVER = {
 def served(ch=None):
     out = dict(APISERVER)
     ch = ch or FakeClickHouse()
-    out.update({'rows': ch, 'summary': ch, 'facets': ch})
+    out.update({'rows': ch, 'summary': ch, 'facets': ch, 'trend': ch, 'breakdown': ch})
     return out, ch
 
 
@@ -372,6 +422,16 @@ def records(c, extras, caller=ADMIN, ch=None):
     responses, ch = served(ch)
     reqs, _, out = resolve(c.get('RESTAction', 'audit-records'), extras, responses, caller)
     return [r for r in reqs if r[0] in ('rows', 'summary')], out, ch
+
+
+def records_all(c, extras, caller=ADMIN, ch=None, broken=()):
+    """Every ClickHouse request of audit-records ({stage: path}), its output and the stand-in. A stage
+    in `broken` fails (snowplow's continueOnError)."""
+    responses, ch = served(ch)
+    for name in broken:
+        responses[name] = lambda path: None
+    reqs, _, out = resolve(c.get('RESTAction', 'audit-records'), extras, responses, caller)
+    return {n: pth for n, pth in reqs if n in ('rows', 'summary', 'trend', 'breakdown')}, out, ch
 
 
 def facets(c, extras, caller=ADMIN, ch=None):
@@ -398,8 +458,7 @@ def expect(problems, label, got, want):
 
 
 def sql_of(path):
-    assert path.startswith('/?query='), path
-    return unquote(path[len('/?query='):])
+    return split_request(path)[0]
 
 
 # The SQL this page sends, written out independently of the chart's defines.
@@ -436,6 +495,26 @@ def facet_branch(i, dim, key, window, access):
 
 def facets_sql(window='24 HOUR', access=''):
     return ''.join(facet_branch(i, d, k, window, access) for i, (d, k) in
+                   enumerate([('ns', 'k8s.namespace.name'), ('user', 'user.name'), ('outcome', 'outcome')])) + ' FORMAT JSON'
+
+
+# THE SEARCH: what a record shows, each field searched case-insensitively for the bound parameter. The
+# action is searched as the page names it, too (POST is "Create").
+SEARCHED = ["LogAttributes['user.name']",
+            "CASE WHEN LogAttributes['krateo.action'] = 'export' THEN 'Export' WHEN LogAttributes['http.request.method'] = 'POST' "
+            "THEN 'Create' WHEN LogAttributes['http.request.method'] IN ('PATCH', 'PUT') THEN 'Update' "
+            "WHEN LogAttributes['http.request.method'] = 'DELETE' THEN 'Delete' ELSE '' END",
+            "LogAttributes['krateo.action']", "LogAttributes['http.request.method']", "LogAttributes['k8s.resource.resource']",
+            "LogAttributes['k8s.resource.kind']", "LogAttributes['k8s.resource.group']", "LogAttributes['k8s.resource.name']",
+            "LogAttributes['k8s.namespace.name']", "LogAttributes['outcome']", "LogAttributes['server.address']"]
+SEARCH = ' AND (' + ' OR '.join(f'positionCaseInsensitiveUTF8({f}, {{q:String}}) > 0' for f in SEARCHED) + ')'
+TREND_SQL = ("SELECT toUnixTimestamp(toStartOfInterval(Timestamp, INTERVAL {bucket}, 'UTC')) AS b, LogAttributes['outcome'] AS outcome, "
+             "count() AS n, max(toUnixTimestamp(now())) AS now_s FROM krateo_audit WHERE " + POP +
+             " AND Timestamp > now() - INTERVAL {window} AND NOT " + DRY + "{access}{cond} GROUP BY b, outcome ORDER BY b FORMAT JSON")
+
+
+def breakdown_sql(window='24 HOUR', access='', cond=''):
+    return ''.join(facet_branch(i, d, k, window, access + cond) for i, (d, k) in
                    enumerate([('ns', 'k8s.namespace.name'), ('user', 'user.name'), ('outcome', 'outcome')])) + ' FORMAT JSON'
 
 
@@ -545,10 +624,14 @@ def check_scope_is_the_explicit_audit_grant(c):
     expect(p, 'compositions but no audit grant in team-a: the note', out['note'], NO_GRANT_NOTE)
     freqs, fac = facets(c, {}, COMPOSITIONS_ONLY)
     expect(p, 'compositions but no audit grant: facets', (freqs, fac['scope']), ([], 'none'))
-    hdr = tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', fac, {}, 'header (compositions, no grant)')['spec']['widgetData']
-    expect(p, 'what someone with no grant reads', hdr['subtitle'],
+    scope = tbi.resolved_widget(c, 'Paragraph', 'audit-scope', out, {}, 'scope line (compositions, no grant)')['spec']['widgetData']
+    expect(p, 'what the scope line says to someone with no grant', scope['text'],
            'You see records for namespaces where you have been granted access to the audit trail, and you have '
            'none yet. Ask an administrator for access to a namespace.')
+    expect(p, 'no grant: the records card says why once (the empty line), without the scope line',
+           [i['resourceRefId'] for i in tbi.resolved_widget(c, 'Card', 'audit-list-card', out, {}, 'records card (no grant)')['spec']['widgetData']['items']],
+           ['audit-outcome-chips', 'audit-empty', 'audit-completeness'])
+    expect(p, 'no grant: the empty line is the note', tbi.widget(c, 'Paragraph', 'audit-empty', 'text', out, {}), NO_GRANT_NOTE)
     lister = Caller('composition-lister', [('list', 'core.krateo.io', 'compositiondefinitions', ''),
                                            ('list', 'composition.krateo.io', '*', '')])
     reqs, out, _ = records(c, {}, lister)
@@ -848,15 +931,15 @@ def check_filter_chips(c):
     expect(p, 'a range chip route', rng[3]['route'], '/audit?range=30d&auditUser=j.doe&projects=team-a')
     dflt = tbi.widget(c, 'Listy', 'audit-range-chips', 'dataSource', {}, {'range': '365d'})
     expect(p, 'an unknown range shows 24h active', [x['label'] for x in dflt if x['active']], ['24h'])
-    hdr = tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', fac, ex, 'header (admin)')['spec']['widgetData']
-    expect(p, 'admin header', hdr['subtitle'], 'Every change made through the portal and the platform API: who made it, '
-                                               'to which object, and the outcome. You see all namespaces.')
-    _, fac_ab = facets(c, {}, TEAM_AB)
-    hdr = tbi.widget(c, 'PageHeader', 'audit-page-header', 'subtitle', fac_ab, {})
-    expect(p, 'member header names their namespaces', hdr,
+    _, rec_admin, _ = records(c, ex, ADMIN)
+    scope = tbi.resolved_widget(c, 'Paragraph', 'audit-scope', rec_admin, ex, 'scope line (admin)')['spec']['widgetData']
+    expect(p, 'admin scope line', scope['text'], 'Every change made through the portal and the platform API: who made it, '
+                                                 'to which object, and the outcome. You see all namespaces.')
+    _, rec_ab, _ = records(c, {}, TEAM_AB)
+    expect(p, 'member scope line names their namespaces', tbi.widget(c, 'Paragraph', 'audit-scope', 'text', rec_ab, {}),
            'Records for the namespaces where you have been granted access to the audit trail: team-a, team-b.')
     _, fac_none = facets(c, {}, NOBODY)
-    tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', fac_none, {}, 'header (no namespace)')
+    tbi.resolved_widget(c, 'PageHeader', 'audit-page-header', {}, {}, 'header')
     for name in ('audit-namespace-chips', 'audit-user-chips', 'audit-outcome-chips'):
         tbi.resolved_widget(c, 'Listy', name, fac_none, {}, f'{name} (no namespace)')
     return p
@@ -933,8 +1016,10 @@ def check_64bit_integers_quoted_or_not(c):
         ch = FakeClickHouse(quoted=quoted)
         _, out, _ = records(c, {}, ADMIN, ch)
         _, fac = facets(c, {}, ADMIN, FakeClickHouse(quoted=quoted))
+        _, full, _ = records_all(c, {}, ADMIN, FakeClickHouse(quoted=quoted))
         views.append((table(c, out, {}, f'audit-records (quoted={quoted})'), out['note'], out['check'],
-                      tbi.widget(c, 'Listy', 'audit-namespace-chips', 'dataSource', fac, {})))
+                      tbi.widget(c, 'Listy', 'audit-namespace-chips', 'dataSource', fac, {}),
+                      full['stats'], full['trend'], full['byOutcome'], full['topUsers'], full['topNamespaces']))
     expect(p, 'unquoted == quoted', views[1], views[0])
     # The fixtures really are the two shapes, for rows, summary and facets: ClickHouse's default quotes
     # 64-bit integers, krateo-057's 26.8 sends bare numbers.
@@ -961,8 +1046,8 @@ def check_chart_conventions(c):
     for d in widgets + ras:
         expect(p, f'{d["kind"]} {d["metadata"]["name"]} namespace', d['metadata']['namespace'], NS)
     for d in widgets:
-        if sorted(d['spec'].get('keyExtras') or []) != sorted(KEY_EXTRAS):
-            p.append(f'{d["kind"]} {d["metadata"]["name"]}: keyExtras {d["spec"].get("keyExtras")}')
+        if (d['spec'].get('keyExtras') or []) != KEY_EXTRAS:
+            p.append(f'{d["kind"]} {d["metadata"]["name"]}: keyExtras {d["spec"].get("keyExtras")}, want {KEY_EXTRAS} in that order')
         if 'krateo.io/external-cache-ttl-seconds' in (d['metadata'].get('annotations') or {}):
             p.append(f'{d["kind"]} {d["metadata"]["name"]} opts into the external-TTL cache')
     for ra in ras:
@@ -977,6 +1062,9 @@ def check_chart_conventions(c):
     expect(p, 'nav', {k: v for k, v in ann.items() if k.startswith('krateo.io/nav-')},
            {'krateo.io/nav-path': '/audit', 'krateo.io/nav-label': 'Audit', 'krateo.io/nav-icon': 'fa-clipboard-list',
             'krateo.io/nav-group': 'Observability', 'krateo.io/nav-order': '15'})
+    expect(p, 'the page root names every param its widgets receive (krateo.io/filter-keys)',
+           ann.get('krateo.io/filter-keys'), ','.join(KEY_EXTRAS))
+    expect(p, 'and declares them itself', c.get('Flex', 'page-audit')['spec']['keyExtras'], KEY_EXTRAS)
     kinds = sorted((d['kind'], d['metadata'].get('namespace', ''), d['metadata']['name'])
                    for d in c.docs if not d.get('apiVersion', '').startswith(('widgets.', 'templates.')))
     expect(p, 'every non-page object the chart creates', kinds, [
@@ -987,9 +1075,9 @@ def check_chart_conventions(c):
     # (uppercase since frontend#654) is for the four short chip-group labels only.
     expect(p, 'paragraph variants', {n: c.get('Paragraph', n)['spec']['widgetData'].get('variant') for n in
                                      ['audit-table-caption', 'audit-range-label', 'audit-namespace-label',
-                                      'audit-outcome-label', 'audit-user-label']},
+                                      'audit-user-label']},
            {'audit-table-caption': None, 'audit-range-label': 'eyebrow', 'audit-namespace-label': 'eyebrow',
-            'audit-outcome-label': 'eyebrow', 'audit-user-label': 'eyebrow'})
+            'audit-user-label': 'eyebrow'})
     expect(p, 'the caption is muted, like the Traces caption (type: secondary)',
            c.get('Paragraph', 'audit-table-caption')['spec']['widgetData'].get('type'), 'secondary')
     role = c.get('Role', 'devs-read-audit-pages')
@@ -1090,6 +1178,349 @@ def check_agentiko_ask(c):
     return p
 
 
+# ---------------------------------------------------------------------------------------------
+# The A4 dashboard: layout, figures, cards, charts, search
+# ---------------------------------------------------------------------------------------------
+
+def wd(c, kind, name, out, extras=None, label=None):
+    return tbi.resolved_widget(c, kind, name, out, extras or {}, label or f'{kind} {name}')['spec']['widgetData']
+
+
+def ids(items):
+    return [i['resourceRefId'] for i in items]
+
+
+def figures(out):
+    return [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']]
+
+
+def check_dashboard_layout(c):
+    """Mockup A4: header, toolbar (filters 18/24, search 6/24), the five figures, then the records card
+    (2/3) beside the charts (1/3)."""
+    p = []
+    _, out, _ = records_all(c, {}, ADMIN)
+    expect(p, 'the page', ids(wd(c, 'Flex', 'page-audit', out)['items']),
+           ['audit-page-header', 'audit-toolbar', 'audit-stats', 'audit-main'])
+    bar = wd(c, 'Row', 'audit-toolbar', out)
+    expect(p, 'the toolbar: the filters left, the search in a quarter, stacked when narrow',
+           (bar['alignment'], [(i['resourceRefId'], i['size'], i['xs'], i['lg']) for i in bar['items']]),
+           ('middle', [('audit-filters', 18, 24, 18), ('audit-search-wrap', 6, 24, 6)]))
+    expect(p, 'the filters: range, namespace and user (the outcome chips head the records card)',
+           ids(wd(c, 'Flex', 'audit-filters', out)['items']), ['audit-range-group', 'audit-namespace-group', 'audit-user-group'])
+    expect(p, 'the filters wrap', wd(c, 'Flex', 'audit-filters', out).get('wrap'), True)
+    expect(p, 'the search wrap holds the search', ids(wd(c, 'Flex', 'audit-search-wrap', out)['items']), ['audit-search'])
+    search = wd(c, 'Input', 'audit-search', out)
+    expect(p, 'the search writes ?q= on Enter, at the standard size',
+           (search['name'], search['queryParam'], search['allowClear'], search['size'], search['placeholder']),
+           ('q', 'q', True, 'middle', 'Search records · press Enter'))
+    row = wd(c, 'Row', 'audit-main', out)
+    expect(p, 'two thirds and one third, stacked when narrow',
+           (row['alignment'], [(i['resourceRefId'], i['size'], i['xs'], i['lg']) for i in row['items']]),
+           ('top', [('audit-list-card', 16, 24, 16), ('audit-side', 8, 24, 8)]))
+    card = wd(c, 'Card', 'audit-list-card', out)
+    expect(p, 'the records card: outcome chips, the cards, then the note, whose records, completeness; Summary | Full list top right',
+           (card['title'], card['titleVariant'], card['extraRefId'], ids(card['items'])),
+           ('Records', 'eyebrow', 'audit-view-chips',
+            ['audit-outcome-chips', 'audit-cards', 'audit-note', 'audit-scope', 'audit-completeness']))
+    _, tbl, _ = records_all(c, {'view': 'table'}, ADMIN)
+    expect(p, '?view=table: the table under its caption instead of the cards',
+           ids(wd(c, 'Card', 'audit-list-card', tbl, {'view': 'table'})['items']),
+           ['audit-outcome-chips', 'audit-table-caption', 'audit-records', 'audit-note', 'audit-scope', 'audit-completeness'])
+    expect(p, 'view chips: exactly "Summary" and "Full list", each keeping the filters',
+           [(x['label'], x['active'], x['route']) for x in wd(c, 'Listy', 'audit-view-chips', tbl, {'view': 'table'})['dataSource']],
+           [('Summary', False, '/audit?range=24h'), ('Full list', True, '/audit?range=24h&view=table')])
+    ex = {'range': '7d', 'auditNamespace': 'team-a', 'projects': 'p1'}
+    _, o7, _ = records_all(c, ex, ADMIN)
+    expect(p, 'view chips keep the range, the chips and ?projects', [x['route'] for x in o7['viewChips']],
+           ['/audit?range=7d&auditNamespace=team-a&projects=p1', '/audit?range=7d&auditNamespace=team-a&projects=p1&view=table'])
+    side = wd(c, 'Flex', 'audit-side', out)
+    expect(p, 'the charts', (side.get('vertical'), ids(side['items'])),
+           (True, ['audit-activity-card', 'audit-outcomes-card', 'audit-users-card', 'audit-namespaces-card']))
+    for name, title, child in (('audit-activity-card', 'Activity', 'audit-activity'), ('audit-outcomes-card', 'Outcomes', 'audit-outcomes'),
+                               ('audit-users-card', 'Top users', 'audit-top-users'),
+                               ('audit-namespaces-card', 'Top namespaces', 'audit-top-namespaces')):
+        w = wd(c, 'Card', name, out)
+        expect(p, f'{name}', (w['title'], w['titleVariant'], ids(w['items'])), (title, 'eyebrow', [child]))
+    _, empty, _ = records_all(c, {}, ADMIN, FakeClickHouse(rows=[]))
+    expect(p, 'an empty window: no chart card', ids(wd(c, 'Flex', 'audit-side', empty, {}, 'side (empty window)')['items']), [])
+    _, notrend, _ = records_all(c, {}, ADMIN, broken=('trend',))
+    expect(p, 'the trend unread: its card left out, the rest stay', ids(wd(c, 'Flex', 'audit-side', notrend, {}, 'side (trend failed)')['items']),
+           ['audit-outcomes-card', 'audit-users-card', 'audit-namespaces-card'])
+    _, nobd, _ = records_all(c, {}, ADMIN, broken=('breakdown',))
+    expect(p, 'the breakdown unread: only the activity stays', ids(wd(c, 'Flex', 'audit-side', nobd, {}, 'side (breakdown failed)')['items']),
+           ['audit-activity-card'])
+    hdr = wd(c, 'PageHeader', 'audit-page-header', {})
+    expect(p, 'header: no subtitle, the button alone', ('subtitle' in hdr, ids(hdr['items'])), (False, ['audit-ask-agentiko']))
+    # Every container accepts the kinds it holds (a Row takes no inputs: hence the search wrap).
+    for d in c.docs:
+        if not d.get('apiVersion', '').startswith('widgets.templates.krateo.io/'):
+            continue
+        allowed = (d['spec'].get('widgetData') or {}).get('allowedResources')
+        for ref in (d['spec'].get('resourcesRefs') or {}).get('items') or []:
+            if allowed is None or ref['resource'] not in allowed:
+                p.append(f'{d["kind"]} {d["metadata"]["name"]}: allowedResources {allowed} misses {ref["resource"]} ({ref["id"]})')
+    return p
+
+
+def check_figures(c):
+    p = []
+    _, out, _ = records_all(c, {}, ADMIN)
+    expect(p, 'the five figures (admin, 24h)', figures(out),
+           [('Records', '11', 'in the last 24 hours', 'records'), ('Success', '8', '73% of records', 'success'),
+            ('Failure', '2', '18% of records', 'failure'), ('Denied', '1', '9% of records', 'denied'),
+            ('Untraced', '6', 'written with no trace context', 'untraced')])
+    stats = wd(c, 'Listy', 'audit-stats', out)
+    cards = wd(c, 'Listy', 'audit-cards', out)
+    smap, cmap = stats['itemTemplate']['color']['map'], cards['itemTemplate']['color']
+    expect(p, 'figures are statistic tiles', (stats['itemTemplate']['rowVariant'], stats['itemTemplate']['color']['value']),
+           ('statistic', '{tone}'))
+    expect(p, 'each outcome figure wears its card colour', {k: smap[k] for k in ('success', 'failure', 'denied')}, cmap['map'])
+    expect(p, '... which is the outcome tag\'s', cmap['map'], {'success': 'green', 'failure': 'red', 'denied': 'orange'})
+    expect(p, 'Untraced is the tag\'s gray for no outcome; Records neutral slate; a failed read orange',
+           (smap['untraced'], cmap['default'], smap['records'], smap['unread']), ('gray', 'gray', 'slate', 'orange'))
+    expect(p, 'the donut and the activity lines use the same colours',
+           ({k.lower(): v for k, v in wd(c, 'PieChart', 'audit-outcomes', out)['colorMap'].items() if k != 'Other'},
+            {k.lower(): v for k, v in wd(c, 'LineChart', 'audit-activity', out)['colorMap'].items()},
+            wd(c, 'PieChart', 'audit-outcomes', out)['colorMap']['Other']),
+           (cmap['map'], cmap['map'], 'gray'))
+    _, fo, _ = records_all(c, {'auditOutcome': 'failure'}, ADMIN)
+    expect(p, 'the figures follow the chips', [x[1] for x in figures(fo)], ['2', '0', '2', '0', '1'])
+    expect(p, 'a zero figure keeps its colour', [x[3] for x in figures(fo)], ['records', 'success', 'failure', 'denied', 'untraced'])
+    _, o30, _ = records_all(c, {'range': '30d'}, ADMIN)
+    expect(p, '30d: the window widens', [x[1] for x in figures(o30)][:2], ['12', '9'])
+    _, bad, _ = records_all(c, {}, ADMIN, broken=('summary',))
+    expect(p, 'summary unread: Records and Untraced say so; the outcomes stand', figures(bad),
+           [('Records', '', 'could not be read', 'unread'), ('Success', '8', '', 'success'), ('Failure', '2', '', 'failure'),
+            ('Denied', '1', '', 'denied'), ('Untraced', '', 'could not be read', 'unread')])
+    _, bad, _ = records_all(c, {}, ADMIN, broken=('breakdown',))
+    expect(p, 'breakdown unread: the outcome figures say so', [x[1:] for x in figures(bad)][1:4],
+           [('', 'could not be read', 'unread')] * 3)
+    _, none, _ = records_all(c, {}, NOBODY)
+    expect(p, 'no namespace: nothing read, never 0', {x[1:] for x in figures(none)}, {('', 'nothing was read', 'unread')})
+    wd(c, 'Listy', 'audit-stats', none, {}, 'figures (no namespace)')
+    return p
+
+
+def check_cards(c):
+    p = []
+    _, out, _ = records_all(c, {}, ADMIN)
+    cards = wd(c, 'Listy', 'audit-cards', out)
+    tpl = cards['itemTemplate']
+    expect(p, 'card template', (tpl['rowVariant'], tpl['primaryText'], tpl['secondaryText'], tpl['subPrimaryText'],
+                                tpl['subSecondaryText'], tpl['description'], tpl['navigateTo'], tpl['cardCta']),
+           ('card', '{title}', '{outcome}', '{user}', '{where}', '{resource}', '{href}', 'Open trace'))
+    ds = cards['dataSource']
+    expect(p, 'one card per record, newest first', len(ds), 11)
+    expect(p, 'the newest: what, outcome, who, where and when (UTC), the resource, the kept trace', ds[0],
+           {'title': 'Update acmp-new-alert-check', 'outcome': 'success · 200', 'tone': 'success', 'user': 'admin',
+            'where': 'krateo-system · 2026-11-09 10:04:12 UTC', 'resource': 'alerts · observability.krateo.io',
+            'href': f'/observability/traces/{TRACE_KEPT_SYS}'})
+    by = {(x['title'], x['outcome']): x for x in ds}
+    fail = by.get(('Create storefront-web', 'failure · 409'), {})
+    expect(p, 'a failure is red; its trace was not kept: no link', (fail.get('tone'), fail.get('href')), ('failure', ''))
+    rdc = [x for x in ds if x['resource'].endswith('on api.github.com')]
+    expect(p, 'the rest-dynamic-controller write', [(x['title'], x['user'], x['resource']) for x in rdc],
+           [('Create storefront-web', '—', 'Repo · github.krateo.io, on api.github.com')])
+    den = by.get(('storefront-web', 'denied'), {})
+    expect(p, 'denied is orange; no method, no verb guessed', den.get('tone'), 'denied')
+    expect(p, 'a cluster-scoped record', by.get(('Create audit-reader', 'success · 201'), {}).get('where'), '— · 2026-11-09 05:04:12 UTC')
+    _, ab, _ = records_all(c, {}, TEAM_AB)
+    expect(p, 'kept but the trace page is not theirs: no link', {x['href'] for x in wd(c, 'Listy', 'audit-cards', ab)['dataSource']}, {''})
+    # The cap: 48 cards, the Full list has the rest (all of them, or the latest 200).
+    for n, more in ((60, '48 of 60 shown here. Full list has all 60.'), (250, '48 of 250 shown here. Full list has the latest 200.')):
+        many = [rec(i * 60 * 1000, 'team-a', 'j.doe', 'PATCH', 'githubrepos', f'r{i}', 'success', 200, group='github.krateo.io')
+                for i in range(n)]
+        _, big, _ = records_all(c, {}, ADMIN, FakeClickHouse(rows=many))
+        expect(p, f'{n} records: 48 cards', len(wd(c, 'Listy', 'audit-cards', big, {}, f'cards ({n})')['dataSource']), 48)
+        expect(p, f'{n} records: the line under them', (big['more'], wd(c, 'Paragraph', 'audit-more', big, {}, f'more ({n})')['text']), (more, more))
+        expect(p, f'{n} records: the card includes it', ids(wd(c, 'Card', 'audit-list-card', big, {}, f'records card ({n})')['items'])[:3],
+               ['audit-outcome-chips', 'audit-cards', 'audit-more'])
+        expect(p, f'{n} records: the table', len(table(c, big, {'view': 'table'}, f'table ({n})')), min(n, 200))
+    expect(p, '11 records: no line', out['more'], '')
+    return p
+
+
+def bucket_starts(size, n):
+    now = NOW_MS // 1000
+    start = (now // size) * size - (n - 1) * size
+    return [start + i * size for i in range(n)]
+
+
+def check_trend(c):
+    p = []
+    for rng, window, bucket, unit, size, n in (('1h', '1 HOUR', '5 MINUTE', 'minute', 300, 12), ('24h', '24 HOUR', '1 HOUR', 'hour', 3600, 24),
+                                               ('7d', '7 DAY', '1 DAY', 'day', 86400, 7), ('30d', '30 DAY', '1 DAY', 'day', 86400, 30)):
+        reqs, out, _ = records_all(c, {'range': rng}, ADMIN)
+        expect(p, f'{rng}: the activity SQL', sql_of(reqs['trend']), TREND_SQL.format(bucket=bucket, window=window, access='', cond=''))
+        pts = out['trend']
+        series = {s: [x for x in pts if x['series'] == s] for s in ('Success', 'Failure', 'Denied')}
+        expect(p, f'{rng}: one point per bucket and outcome, per {unit}', ([len(v) for v in series.values()], out['trendUnit']), ([n, n, n], unit))
+        starts = bucket_starts(size, n)
+        want_t = [time_label(t) for t in starts] if unit == 'minute' else starts
+        expect(p, f'{rng}: consecutive buckets ending in the current one', [x['t'] for x in series['Success']], want_t)
+        figs = {x[0]: x[1] for x in figures(out)}
+        expect(p, f'{rng}: the lines sum to the figures', [str(sum(x['v'] for x in v)) for v in series.values()],
+               [figs['Success'], figs['Failure'], figs['Denied']])
+        card = wd(c, 'Card', 'audit-activity-card', out, {'range': rng}, f'activity card ({rng})')
+        chart = 'audit-activity-minutes' if unit == 'minute' else 'audit-activity'
+        expect(p, f'{rng}: the card draws {chart}', (ids(card['items']), card['extra']),
+               ([chart], {'minute': 'per 5 minutes · UTC', 'hour': 'per hour', 'day': 'per day'}[unit]))
+        lc = wd(c, 'LineChart', chart, out, {'range': rng}, f'{chart} ({rng})')
+        expect(p, f'{rng}: the chart\'s data and time unit', (len(lc['data']), lc.get('xTimeUnit')),
+               (3 * n, None if unit == 'minute' else unit))
+        other = wd(c, 'LineChart', 'audit-activity' if unit == 'minute' else 'audit-activity-minutes', out, {'range': rng}, f'other chart ({rng})')
+        expect(p, f'{rng}: the other chart is empty', other['data'], [])
+    _, out, _ = records_all(c, {'range': '24h'}, ADMIN)
+    hour = {x['t']: x['v'] for x in out['trend'] if x['series'] == 'Success'}
+    expect(p, '24h: the current hour holds the newest success', hour[bucket_starts(3600, 24)[-1]], 1)
+    _, bad, _ = records_all(c, {}, ADMIN, broken=('trend',))
+    expect(p, 'trend unread: no points (the card is left out)', (bad['trend'], bad['trendFailed']), ([], True))
+    return p
+
+
+def time_label(t):
+    import datetime
+    return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime('%H:%M')
+
+
+def check_side_charts(c):
+    p = []
+    _, out, _ = records_all(c, {}, ADMIN)
+    expect(p, 'outcomes donut', wd(c, 'PieChart', 'audit-outcomes', out)['data'],
+           [{'outcome': 'Success', 'count': 8}, {'outcome': 'Failure', 'count': 2}, {'outcome': 'Denied', 'count': 1}])
+    expect(p, 'top users: bars against the first, a row filters to the user',
+           [(x['name'], x['count'], x['percent'], x['href']) for x in wd(c, 'Listy', 'audit-top-users', out)['dataSource']],
+           [('admin', '4', 100, '/audit?range=24h&auditUser=admin'), ('j.doe', '4', 100, '/audit?range=24h&auditUser=j.doe'),
+            ('— (no user name)', '2', 50, '/audit?range=24h&auditUser=%28none%29'), ('ci-bot', '1', 25, '/audit?range=24h&auditUser=ci-bot')])
+    expect(p, 'top namespaces: six, a cluster-scoped row does not navigate',
+           [(x['name'], x['count'], x['href']) for x in wd(c, 'Listy', 'audit-top-namespaces', out)['dataSource']],
+           [('team-a', '5', '/audit?range=24h&auditNamespace=team-a'), ('team-b', '2', '/audit?range=24h&auditNamespace=team-b'),
+            ('— (no namespace)', '1', ''), ('demo-system', '1', '/audit?range=24h&auditNamespace=demo-system'),
+            ('krateo-system', '1', '/audit?range=24h&auditNamespace=krateo-system'),
+            ('old-team', '1', '/audit?range=24h&auditNamespace=old-team')])
+    reqs, ta, _ = records_all(c, {'auditNamespace': 'team-a'}, ADMIN)
+    expect(p, 'the breakdown SQL carries the chips', sql_of(reqs['breakdown']),
+           breakdown_sql(cond=" AND LogAttributes['k8s.namespace.name'] = 'team-a'"))
+    expect(p, 'the charts follow the chips', ([(x['name'], x['count']) for x in ta['topUsers']], [x['name'] for x in ta['topNamespaces']], ta['byOutcome']),
+           ([('j.doe', '4'), ('— (no user name)', '1')], ['team-a'],
+            [{'outcome': 'Success', 'count': 3}, {'outcome': 'Failure', 'count': 1}, {'outcome': 'Denied', 'count': 1}]))
+    _, member, _ = records_all(c, {}, TEAM_A)
+    expect(p, 'a member\'s charts count their namespaces only', [x['name'] for x in member['topNamespaces']], ['team-a'])
+    odd = AUDIT + [rec(30 * 60 * 1000, 'team-a', 'j.doe', 'PATCH', 'githubrepos', 'odd', 'partial', 200, group='github.krateo.io')]
+    _, o, _ = records_all(c, {}, ADMIN, FakeClickHouse(rows=odd))
+    expect(p, 'an outcome the library does not write is Other (gray)', o['byOutcome'][-1], {'outcome': 'Other', 'count': 1})
+    expect(p, '... and its card is gray', [x['tone'] for x in wd(c, 'Listy', 'audit-cards', o, {}, 'cards (odd)')['dataSource'] if x['title'] == 'Update odd'], ['other'])
+    for name in ('audit-top-users', 'audit-top-namespaces'):
+        tpl = wd(c, 'Listy', name, out)['itemTemplate']
+        expect(p, f'{name}: a percent bar per row', (tpl['bar']['percent'], tpl['bar']['label'], tpl['navigateTo']), ('{percent}', '{count}', '{href}'))
+    return p
+
+
+QUOTE_AND_BACKSLASH = "it's\\a"
+
+
+def check_search(c):
+    p = []
+    reqs, out, ch = records_all(c, {'q': '  STOREFRONT  '}, ADMIN)
+    expect(p, 'every query carries the search predicate, the value never in the SQL',
+           {k: sql_of(v) for k, v in reqs.items()},
+           {'rows': ROWS_SQL.format(window='24 HOUR', access='', cond=SEARCH),
+            'summary': SUMMARY_SQL.format(window='24 HOUR', access='', cond=SEARCH),
+            'trend': TREND_SQL.format(bucket='1 HOUR', window='24 HOUR', access='', cond=SEARCH),
+            'breakdown': breakdown_sql(cond=SEARCH)})
+    expect(p, 'the value is a bound parameter, trimmed', {split_request(v)[1].get('q') for v in reqs.values()}, {'STOREFRONT'})
+    expect(p, 'case-insensitive: the records that match', (out['q'], sorted({r['name'] for r in out['rows']}), len(out['rows'])),
+           ('STOREFRONT', ['storefront-web'], 4))
+    expect(p, 'the figures follow it', [x[1] for x in figures(out)], ['4', '2', '1', '1', '2'])
+    expect(p, 'the lines follow it', sum(x['v'] for x in out['trend']), 4)
+    expect(p, 'the charts follow it', [(x['name'], x['count']) for x in out['topUsers']], [('j.doe', '3'), ('— (no user name)', '1')])
+    for q, want in (('ci-bot', ['release-tag']), ('create', ['audit-reader', 'storefront-web', 'storefront-web', 'storefront-web']),
+                    ('Denied', ['storefront-web']), ('api.github', ['storefront-web']), ('RBAC.authorization', ['audit-reader']),
+                    ('export', ['audit-records'])):
+        _, o, _ = records_all(c, {'q': q}, ADMIN)
+        expect(p, f'?q={q}: by what the record shows', sorted(r['name'] for r in o['rows']), want)
+    _, o, _ = records_all(c, {'q': '   '}, ADMIN)
+    expect(p, 'a blank search is no search', (sql_of(records_all(c, {'q': '   '}, ADMIN)[0]['rows']), o['q']),
+           (ROWS_SQL.format(window='24 HOUR', access='', cond=''), ''))
+    # Every route keeps it.
+    ex = {'q': 'STOREFRONT'}
+    expect(p, 'the view chips keep it', [x['route'] for x in out['viewChips']],
+           ['/audit?range=24h&q=STOREFRONT', '/audit?range=24h&view=table&q=STOREFRONT'])
+    expect(p, 'a bar keeps it', out['topUsers'][0]['href'], '/audit?range=24h&auditUser=j.doe&q=STOREFRONT')
+    rng = tbi.widget(c, 'Listy', 'audit-range-chips', 'dataSource', {}, {'q': 'a b', 'view': 'table'})
+    expect(p, 'a range chip keeps the search and the view', rng[0]['route'], '/audit?range=1h&view=table&q=a%20b')
+    freqs, fac = facets(c, ex, ADMIN)
+    expect(p, 'the chips count the records the search finds (the facets SQL)', sql_of(freqs[0][1]),
+           breakdown_sql(cond=SEARCH))
+    expect(p, '... their counts', [(x['name'], x['count']) for x in fac['facets']['users']], [('j.doe', 3), ('(none)', 1)])
+    oc = tbi.widget(c, 'Listy', 'audit-outcome-chips', 'dataSource', fac, ex)
+    expect(p, 'an outcome chip keeps it', oc[1]['route'], '/audit?range=24h&auditOutcome=success&q=STOREFRONT')
+    for name in ('audit-namespace-chips', 'audit-user-chips'):
+        expect(p, f'{name} keep it', tbi.widget(c, 'Listy', name, 'dataSource', fac, ex)[1]['route'].endswith('&q=STOREFRONT'), True)
+    href, prompt = ask(fac['askHref'])
+    expect(p, 'Ask Agentiko keeps it and says the view is searched', (href, prompt.split(':')[0]),
+           ('/audit?range=24h&q=STOREFRONT', 'Summarise the audit trail for the last 24 hours, only the records matching the search "STOREFRONT"'))
+    # Nothing matches: said.
+    _, none, _ = records_all(c, {'q': 'zzz'}, ADMIN)
+    expect(p, 'nothing matches: the card says so', (ids(wd(c, 'Card', 'audit-list-card', none, {'q': 'zzz'})['items']),
+                                                    wd(c, 'Paragraph', 'audit-empty', none, {'q': 'zzz'})['text'],
+                                                    wd(c, 'Paragraph', 'audit-empty', none, {'q': 'zzz'})['type']),
+           (['audit-outcome-chips', 'audit-empty', 'audit-scope', 'audit-completeness'], 'No record matches "zzz".', 'secondary'))
+    expect(p, 'nothing matches: figures are 0, not unread', [x[1] for x in figures(none)], ['0'] * 5)
+    _, fz = facets(c, {'q': 'zzz'}, ADMIN)
+    expect(p, 'nothing matches: the prompt says so', ask(fz['askHref'])[1].startswith(
+        'The audit trail holds no records for the last 24 hours, only the records matching the search "zzz".'), True)
+    return p
+
+
+SEARCH_INJECTIONS = ["x' OR '1'='1", "') OR 1=1 --", "storefront' --", "\\' OR 1=1 --", "\\", "{q:String}",
+                     "a&param_q=b", "%27", "1; DROP TABLE krateo_audit", "admin'--", "' UNION ALL SELECT 1 --"]
+
+
+def check_search_injection(c):
+    """The search is the one free-text input that reaches ClickHouse. It is a bound parameter: the SQL
+    text is the same for every value, the value arrives exactly as typed (after ClickHouse reads the
+    escaped format), and sqlite EXECUTES the query with it, so an injection that worked would show
+    rows or break the table here."""
+    p = []
+    for bad in SEARCH_INJECTIONS:
+        reqs, out, ch = records_all(c, {'q': bad}, ADMIN)
+        expect(p, f'q={bad!r}: four queries', sorted(reqs), ['breakdown', 'rows', 'summary', 'trend'])
+        expect(p, f'q={bad!r}: the SQL is the fixed text', sql_of(reqs.get('rows', '/?query=')), ROWS_SQL.format(window='24 HOUR', access='', cond=SEARCH))
+        expect(p, f'q={bad!r}: ClickHouse binds exactly the value', {ch_param(split_request(v)[1].get('q', '')) for v in reqs.values()}, {bad.strip()})
+        for name, raw in reqs.items():
+            if unquote(sql_of(raw)) != sql_of(raw):
+                p.append(f'q={bad!r}: {name} SQL encoded twice')
+        want = [r for r in AUDIT if r['ScopeName'] in (SNOW, RDC) and bad.strip().lower() in ' '.join(r['LogAttributes'].values()).lower()]
+        expect(p, f'q={bad!r}: rows (none of the trail holds it)', (out['rows'], len(want)), ([], 0))
+        expect(p, f'q={bad!r}: not refused', (out['rejected'], out['failed']), ([], False))
+        expect(p, f'q={bad!r}: the trail is intact', ch.db.execute('SELECT count(*) FROM krateo_audit').fetchone()[0], len(AUDIT))
+    # A value with a quote AND a backslash is found exactly: the backslash is doubled for ClickHouse's
+    # escaped format, so it is searched for as itself.
+    odd = AUDIT + [rec(60 * 1000, 'team-a', 'j.doe', 'PATCH', 'githubrepos', QUOTE_AND_BACKSLASH, 'success', 200, group='github.krateo.io')]
+    reqs, out, _ = records_all(c, {'q': QUOTE_AND_BACKSLASH}, ADMIN, FakeClickHouse(rows=odd))
+    expect(p, 'a quote and a backslash: the one record that holds them', [r['name'] for r in out['rows']], [QUOTE_AND_BACKSLASH])
+    expect(p, '... sent with the backslash doubled', split_request(reqs['rows'])[1]['q'], "it's\\\\a")
+    # Refused: a control character, or more than 200 characters. No request, said.
+    for bad in ('a\nb', 'tab\there', 'x' * 201):
+        reqs, out, _ = records_all(c, {'q': bad}, ADMIN)
+        expect(p, f'q={bad[:12]!r}…: no request', reqs, {})
+        expect(p, f'q={bad[:12]!r}…: refused, said', (out['rejected'], out['note']),
+               (['search'], 'The search is longer than 200 characters or holds a control character, so nothing was read.'))
+        expect(p, f'q={bad[:12]!r}…: the empty line is a warning', tbi.widget(c, 'Paragraph', 'audit-empty', 'type', out, {'q': bad}), 'warning')
+        freqs, _ = facets(c, {'q': bad}, ADMIN)
+        expect(p, f'q={bad[:12]!r}…: facets make no request', freqs, [])
+    reqs, _, _ = records_all(c, {'q': 'x' * 200}, ADMIN)
+    expect(p, '200 characters: accepted', sorted(reqs), ['breakdown', 'rows', 'summary', 'trend'])
+    # A member's search stays narrowed to their namespaces.
+    reqs, out, _ = records_all(c, {'q': 'storefront'}, TEAM_A)
+    expect(p, 'a member searching: the access predicate is still there', sql_of(reqs['rows']),
+           ROWS_SQL.format(window='24 HOUR', access=acc('team-a'), cond=SEARCH))
+    _, out, _ = records_all(c, {'q': 'ci-bot'}, TEAM_A)
+    expect(p, 'a member searching for a team-b user finds nothing', out['rows'], [])
+    return p
+
+
 def check_authored_widgets_validate(c):
     for d in c.docs:
         if d.get('apiVersion', '').startswith('widgets.templates.krateo.io/'):
@@ -1149,6 +1580,13 @@ def main():
         ('64-bit integers read the same quoted or not', lambda: check_64bit_integers_quoted_or_not(c)),
         ('Ask Agentiko: the window, the filters kept, and every failure said', lambda: check_agentiko_ask(c)),
         ('chart conventions: namespace, RBAC, endpoint, keyExtras, nav, values', lambda: check_chart_conventions(c)),
+        ('A4 layout: header, toolbar (filters 18, search 6), figures, records 16 beside charts 8', lambda: check_dashboard_layout(c)),
+        ('A4 figures: Records, Success, Failure, Denied, Untraced, coloured as the outcome tag', lambda: check_figures(c)),
+        ('A4 cards: one per record, the outcome colour, the trace link, 48 and the Full list', lambda: check_cards(c)),
+        ('A4 activity: buckets per range, consecutive, ending now, summing to the figures', lambda: check_trend(c)),
+        ('A4 side charts: outcomes, top users, top namespaces, following the chips', lambda: check_side_charts(c)),
+        ('A4 search: the whole page follows ?q=, every route keeps it, nothing matching is said', lambda: check_search(c)),
+        ('A4 search is a bound parameter: injections find nothing and break nothing', lambda: check_search_injection(c)),
     ]
     if crds_dir:
         checks.append(('(authored widgets queued for validation)', lambda: check_authored_widgets_validate(c)))

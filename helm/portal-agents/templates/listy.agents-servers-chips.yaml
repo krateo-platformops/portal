@@ -1,0 +1,26 @@
+{{/* The state chips of the Tool servers tab (?group=, the same param as the Overview's group chips, so
+     Needs attention and All carry from one tab to the other): Needs attention (the default while a
+     server needs it, else All), Healthy, All, each with its count. Each route keeps every other param. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-servers
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .serverChips // [] }'
+  resourcesRefs:
+    items: []

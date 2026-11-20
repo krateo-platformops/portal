@@ -9,7 +9,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, range, view]
+  keyExtras: [projects, status, range, view, q]
   apiRef:
     name: incidents-list
     namespace: {{ $.Values.namespace }}
@@ -18,7 +18,7 @@ spec:
     type: secondary
   widgetDataTemplate:
   - forPath: text
-    expression: '${ if .failed then "The incidents could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.total // 0) == 0 then "There are no incidents." elif .status == "all" then "There are no incidents." else ({ open: "No incident is open.", analyzing: "No incident is being analyzed.", verifying: "No incident is being verified.", resolved: "No incident is resolved.", closed: "No incident is closed." }[.status] // "No incident is in this state.") end }'
+    expression: '${ if .failed then "The incidents could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.q // "") != "" and (.total // 0) == 0 then "No incident matches \"" + .q + "\"." elif (.total // 0) == 0 then "There are no incidents." elif .status == "all" then "There are no incidents." else ({ open: "No incident is open.", analyzing: "No incident is being analyzed.", verifying: "No incident is being verified.", resolved: "No incident is resolved.", closed: "No incident is closed." }[.status] // "No incident is in this state.") end }'
   - forPath: type
     expression: '${ if .failed then "warning" else "secondary" end }'
   resourcesRefs:

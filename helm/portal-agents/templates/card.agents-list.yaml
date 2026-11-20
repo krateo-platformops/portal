@@ -1,21 +1,9 @@
-{{/* The surface the agent inventory sits on. */}}
-{{/* */}}
-{{/* The table had no frame: it rendered flush on the page ground while every other surface in this */}}
-{{/* feature — the agent-detail panels, the policy-by-role cards, the create form — is an outlined */}}
-{{/* Card. That reads as an unfinished page rather than as a deliberate difference, so the three */}}
-{{/* inventory tables (here, agents-servers-list, agents-servers-bindings) each get the same frame. */}}
-{{/* */}}
-{{/* NO `title`. The heading and the prose that explain this table already sit directly above it in */}}
-{{/* flex.agents-header (page H1 + subtitle); a Card title would print the same words a second time, */}}
-{{/* four lines apart. What was missing was the SURFACE — border, panel background, radius, padding — */}}
-{{/* and that is all this CR adds. It matches the mockup, where the inventory is */}}
-{{/* `<div class="card"><div class="tw"><table>` with the eyebrow/h2/lede stack OUTSIDE the frame. */}}
-{{/* */}}
-{{/* A titleless Card with items and no cover/footer picks up Card.tsx's `statCard` class, which only */}}
-{{/* tightens the body's block padding to 12px — correct for a table that supplies its own row rhythm. */}}
-{{/* No `clickActionId`: the frame must stay non-interactive, because the table inside owns the click */}}
-{{/* (rowNavigateTo to the per-agent page) and a clickable Card would put a second, competing hit */}}
-{{/* target around every row. */}}
+{{/* The agents, two thirds of the Overview row: "Summary | Full list" top right, then the group chips
+     (Needs attention by default while anything needs it, else All), then one card per agent or tool
+     server in that group (the first 24, and a line saying where the rest are), or with ?view=table the
+     12-column agents table (table.agents-list), listing the agents of the group. When there is nothing
+     to list, or the Agent read failed, a line says so. Was the frameless table's frame; the table now
+     sits in it as the Full list. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -24,16 +12,60 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
   widgetData:
+    title: Agents
+    titleVariant: eyebrow
     variant: outlined
+    extraRefId: agents-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
     items:
-    - resourceRefId: agents-list
+    - resourceRefId: agents-group-chips
+    - resourceRefId: agents-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "agents-group-chips" } ] + (if (.listCount // 0) == 0 then [ { resourceRefId: "agents-empty" } ] elif .view == "table" then [ { resourceRefId: "agents-list" } ] else [ { resourceRefId: "agents-cards" } ] + (if (.more // 0) > 0 then [ { resourceRefId: "agents-more" } ] else [] end) end) }'
   resourcesRefs:
     items:
+    - id: agents-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-group-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-group-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
     - id: agents-list
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-list
       namespace: {{ $.Values.namespace }}
       resource: tables
+      verb: GET
+    - id: agents-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agents-more
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-more
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
       verb: GET

@@ -1,0 +1,26 @@
+{{/* "Slowest spans": the five longest spans read (listy.obs-traces-slowest). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-slowest-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    title: Slowest spans
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: obs-traces-slowest
+  resourcesRefs:
+    items:
+    - id: obs-traces-slowest
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-slowest
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

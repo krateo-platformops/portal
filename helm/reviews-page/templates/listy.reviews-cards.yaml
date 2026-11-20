@@ -1,0 +1,50 @@
+{{/* One card per proposal in the picked state (the first 24), grouped by finding and newest first:
+     the title, the phase as a coloured tag (the colours of the table's Status tag, rv_phase_color),
+     the kind, the target repo (the model's claim, plain text), and the finding, the day it was
+     proposed and what it replaces. "Decide" (an open one) or "Open proposal" opens its page, where
+     it is decided. No confidence on a card (decision Q3). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-clipboard-check
+      iconVariant: tile
+      primaryText: '{title}'
+      secondaryText: '{phaseLabel}'
+      subPrimaryText: '{kind}'
+      subSecondaryText: '{target}'
+      description: '{body}'
+      cardCta: '{cta}'
+      navigateTo: '/reviews/proposals/{name}'
+      color:
+        value: '{phase}'
+        map:
+          Proposed: gray
+          PrOpen: blue
+          Merged: green
+          Rejected: gray
+          Failed: red
+        default: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .cards // [] }'
+  resourcesRefs:
+    items: []

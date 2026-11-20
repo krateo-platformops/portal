@@ -1,13 +1,11 @@
-{{/* Observability → Reconciliation tab content (R2 #9). A Col wrapper — the Tabs allowedResources */}}
-{{/* enum has `cols`/`rows`/`paragraphs` but not `flexes` — stacking the section header (strong */}}
-{{/* label + secondary caption) and the two composition-snapshot rows: the KPI strip (total/ */}}
-{{/* healthy/failed/pending) and the by-kind / by-namespace distribution. All off compositions-list */}}
-{{/* — live cluster health, no telemetry pipeline dependency (so this tab is always populated). */}}
-{{/* P3: the tab's own name is not repeated as a heading under it — the tab already says it, */}}
-{{/* and the strong label that did rendered as large as the page title. The caption stays. */}}
-{{/* "Last reconcile by composition" (obs-staleness-row) is the one exception to "no telemetry */}}
-{{/* dependency": it dates each live composition from cdc reconcile traces, so it renders only with */}}
-{{/* observability.reconcileTracing, and the tab without it is exactly what it was. */}}
+{{/* Observability → Reconciliation tab (the A4 dashboard layout), one obs-reconciliation read for all of
+     it: the caption, the figures (Compositions, Healthy, Needs attention, Pending and, with
+     observability.reconcileTracing, Reconcile overdue), then one row: the compositions on two thirds
+     (state chips, then one card per composition foregrounding its reconcile health, or with ?view=table
+     the full list), the charts on one third (by state, reconcile throughput and where reconcile time goes
+     with tracing, by kind, by namespace). With tracing, the reconcile latency card (by composition or by
+     controller, a wide table) closes the tab at full width. A Col because the Tabs items are resolved
+     through refs and every tab is one; the page's range and search sit above the tabs. */}}
 kind: Col
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,16 +14,18 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     allowedResources:
     - paragraphs
+    - listies
     - rows
     items:
     - resourceRefId: obs-sec-reconciliation-desc
-    - resourceRefId: obs-stats-row
-    - resourceRefId: obs-distribution-row
+    - resourceRefId: obs-recon-stats
+    - resourceRefId: obs-recon-main
     {{- if (.Values.observability | default dict).reconcileTracing }}
-    - resourceRefId: obs-staleness-row
+    - resourceRefId: obs-latency-row
     {{- end }}
   resourcesRefs:
     items:
@@ -35,22 +35,22 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
       verb: GET
-    - id: obs-stats-row
+    - id: obs-recon-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-stats-row
+      name: obs-recon-stats
       namespace: {{ $.Values.namespace }}
-      resource: rows
+      resource: listies
       verb: GET
-    - id: obs-distribution-row
+    - id: obs-recon-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-distribution-row
+      name: obs-recon-main
       namespace: {{ $.Values.namespace }}
       resource: rows
       verb: GET
     {{- if (.Values.observability | default dict).reconcileTracing }}
-    - id: obs-staleness-row
+    - id: obs-latency-row
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-staleness-row
+      name: obs-latency-row
       namespace: {{ $.Values.namespace }}
       resource: rows
       verb: GET

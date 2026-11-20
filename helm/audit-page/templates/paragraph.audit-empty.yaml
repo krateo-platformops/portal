@@ -1,0 +1,27 @@
+{{/* In place of the cards or the table when they would be empty: a refused filter, no namespace
+     shared, an unreadable trail (audit-records' note, drawn as a warning when something failed or
+     was refused), no record matching the search (`No record matches "<q>".`), or none in the window
+     or for these filters. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .empty // "" }'
+  - forPath: type
+    expression: '${ if .emptyWarn then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

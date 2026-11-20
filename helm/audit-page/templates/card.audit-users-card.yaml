@@ -1,0 +1,27 @@
+{{/* "Top users": who made the most records (listy.audit-top-users). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-users-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  widgetData:
+    title: Top users
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: audit-top-users
+  resourcesRefs:
+    items:
+    - id: audit-top-users
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-top-users
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

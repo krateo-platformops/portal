@@ -10,7 +10,11 @@
                no HyperDX alert behind it is not-evaluated, whatever .status.state says;
        range   24h, 7d (absent) or 30d: the window of the incidents-opened chart and of "Most
                incidents";
-       view    `table`: the full table instead of the cards.
+       view    `table`: the full table instead of the cards;
+       q       the search: an alert whose name, description, signal type or resource name contains
+               it (case-insensitive) is kept, every other one is left out of the whole page (the
+               chips, the figures, the donuts), as on /compositions. The incident charts are about
+               incidents and are not searched.
 
      OUTPUT.
        rows      the alerts in the picked state, triage order then by name: name, routeName/routeNs
@@ -20,7 +24,9 @@
                  state last changed, alert-provider 0.2.83; "" when the provider has not written it),
                  foot (the card's footer: since when, and how often it is evaluated);
        counts    per state, over every alert (the chips, the donut, the figures);
-       stats     Firing, Not evaluated, Pending, OK, With open incidents; a failed read is "—";
+       stats     Firing, Not evaluated, Pending, OK, With open incidents; a failed read is "—". Each
+                 tile's tone is the state it counts, so it wears the colour the cards give that
+                 state (With open incidents: the cards' red incident mark); `unread` on a failed read;
        chips / viewChips / rangeChips   each a label, a count where it has one, active, and the
                  route that keeps the other params;
        byState / bySignal   the donuts;
@@ -79,12 +85,15 @@ spec:
     | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
     | ((($in.view // "") | tostring) == "table") as $tableView
     | ((.projects // "") | tostring) as $projects
+    | (($in.q // "") | tostring | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
+    | ($qRaw | ascii_downcase) as $q
     # The params every link on the page carries, in the page's order; one is set by each link.
     | def href($status; $rng; $view):
         [ (if $projects != "" then "projects=" + ($projects | @uri) else empty end),
           (if $status != "alert" then "status=" + ($status | @uri) else empty end),
           (if $rng != "7d" then "range=" + $rng else empty end),
-          (if $view then "view=table" else empty end) ]
+          (if $view then "view=table" else empty end),
+          (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ]
         | if length == 0 then "/alerts" else "/alerts?" + join("&") end;
       (.incidentsError != null) as $incidentsFailed
     | ((.incidents // []) | if type == "array" then . else [] end) as $incidents
@@ -131,27 +140,28 @@ spec:
         | .incidentIcon = (if (.openIncidents // 0) > 0 then "fa-triangle-exclamation" else "" end)
         | .incidentTip = (if (.openIncidents // 0) == 1 then "1 open incident" elif (.openIncidents // 0) > 1 then (.openIncidents | tostring) + " open incidents" else "" end)
         | .stateKey as $sk | .order = (($keys | index($sk)) // 9) ]
-      | sort_by(.order, .name)) as $rows
+      | sort_by(.order, .name)) as $allRows
+    | ($allRows | map(select($q == "" or ([ .name, (.description // ""), .type, .routeName ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
     | ($rows | map(select($sel == "all" or .stateKey == $sel))) as $shown
     | ((.alertsError // null) | errtext) as $err
     | ($err != "") as $failed
     | ($keys | map(. as $k | { key: $k, value: ([ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries + { all: ($rows | length) }) as $counts
     | ([ $rows[] | select((.openIncidents // 0) > 0) ]) as $withOpen
-    | [ { title: "Firing", value: ($counts.alert | tostring), caption: (if $counts.alert > 0 then "of " + ($counts.all | tostring) + " alerts" else "" end), tone: (if $counts.alert > 0 then "bad" else "" end) },
-        { title: "Not evaluated", value: ($counts["not-evaluated"] | tostring), caption: (if $counts["not-evaluated"] > 0 then "no HyperDX alert behind it" else "" end), tone: (if $counts["not-evaluated"] > 0 then "warn" else "" end) },
-        { title: "Pending", value: ($counts.pending | tostring), caption: (if $counts.pending > 0 then "not decided yet" else "" end), tone: "" },
-        { title: "OK", value: ($counts.ok | tostring), caption: "", tone: "" },
-        (if $incidentsFailed then { title: "With open incidents", value: "", caption: "the incidents could not be read", tone: "warn" }
+    | [ { title: "Firing", value: ($counts.alert | tostring), caption: (if $counts.alert > 0 then "of " + ($counts.all | tostring) + " alerts" else "" end), tone: "alert" },
+        { title: "Not evaluated", value: ($counts["not-evaluated"] | tostring), caption: (if $counts["not-evaluated"] > 0 then "no HyperDX alert behind it" else "" end), tone: "not-evaluated" },
+        { title: "Pending", value: ($counts.pending | tostring), caption: (if $counts.pending > 0 then "not decided yet" else "" end), tone: "pending" },
+        { title: "OK", value: ($counts.ok | tostring), caption: "", tone: "ok" },
+        (if $incidentsFailed then { title: "With open incidents", value: "", caption: "the incidents could not be read", tone: "unread" }
          else { title: "With open incidents", value: ($withOpen | length | tostring),
-                caption: (([ $withOpen[] | .openIncidents ] | add // 0) as $n | if $n == 0 then "" elif $n == 1 then "1 open incident" else ($n | tostring) + " open incidents" end), tone: "" } end) ]
-      | map(if $failed then { title, value: "", caption: "could not be read", tone: "warn" } else . end) as $stats
+                caption: (([ $withOpen[] | .openIncidents ] | add // 0) as $n | if $n == 0 then "" elif $n == 1 then "1 open incident" else ($n | tostring) + " open incidents" end), tone: "incident" } end) ]
+      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . end) as $stats
     # INCIDENTS OPENED, per bucket over the range, the newest bucket the current hour or day.
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
     | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
     | ([ $incidents[] | { alert, t: (.at | epoch) } | select(.t != null and .t >= $start) ]) as $inRange
     | ([ $inRange[] | ((.t - $start) / $b.size | floor) ]) as $openedB
     | ([ range(0; $b.n) as $i | { t: ($start + $i * $b.size), series: "Incidents opened", v: ([ $openedB[] | select(. == $i) ] | length) } ]) as $incidentTrend
-    | ($rows | map({ key: .routeName, value: { name, href: ("/alerts/" + .routeNs + "/" + .routeName) } }) | from_entries) as $byRoute
+    | ($allRows | map({ key: .routeName, value: { name, href: ("/alerts/" + .routeNs + "/" + .routeName) } }) | from_entries) as $byRoute
     | ([ $inRange | group_by(.alert)[] | { alert: .[0].alert, count: length } ] | sort_by(-.count, .alert) | .[0:5]) as $top
     | (([ $top[] | .count ] | max) // 1) as $topMax
     | ([ $top[] | ($byRoute[.alert] // null) as $r
@@ -161,7 +171,8 @@ spec:
     # "Ask Agentiko →" (button.alerts-ask-agentiko) describes the alerts on screen and keeps every
     # param. A failed read of the alerts is asked about, never described as a quiet platform; an
     # unread incident list is said, never "no open incidents".
-    | (if $sel == "all" then "" else "State: " + ($stateNames[$sel] // $sel) end) as $desc
+    | ([ (if $sel == "all" then empty else "State: " + ($stateNames[$sel] // $sel) end),
+         (if $qRaw != "" then "Search: \"" + $qRaw + "\"" else empty end) ] | join(", ")) as $desc
     | ([ $shown[] | select(.stateKey == "ok" and (.openIncidents // 0) > 0) ] | sort_by(-.openIncidents, .name)) as $okOpen
     | ([ $shown[] | select(.stateKey == "ok" and ((.okSince | epoch) as $t | $t != null and ($now - $t) < 86400)) ]) as $back
     | def names($l): [ $l[0:8][] | .name + (if (.openIncidents // 0) > 0 then " (" + (.openIncidents | tostring) + " open)" else "" end) ] | join(", ");
@@ -192,6 +203,7 @@ spec:
         matched: ($shown | length),
         total: ($rows | length),
         status: $sel,
+        q: $qRaw,
         range: $range,
         view: (if $tableView then "table" else "" end),
         counts: $counts,

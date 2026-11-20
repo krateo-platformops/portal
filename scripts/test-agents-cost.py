@@ -16,6 +16,7 @@ WHAT IT GUARDS:
   - spend per agent: the agents table (readable agents, the incident comparison, "Other calls") adds
     up to the Spend figure; an agent call with no gateway row is counted from the spans that END
     inside the window, so a call whose gateway row fell just outside it is not called missing;
+  - a range chip keeps the page's filters and clears a picked range;
   - every widget reading the action resolves (and, with --crds, validates against its CRD).
 
 Usage: test-agents-cost.py [--crds DIR]. JQ=gojq runs the same on snowplow's engine.
@@ -236,6 +237,10 @@ def check_widgets():
                        ('BarChart', 'agents-cost-trend'), ('PieChart', 'agents-cost-models'), ('Table', 'agents-cost-agents'),
                        ('Table', 'agents-cost-users'), ('Table', 'agents-cost-groups')):
         tbi.resolved_widget(CH, kind, name, out, {}, f'{kind} {name}')
+    ex = {'range': '3d', 'kind': 'Agent', 'q': 'a b', 'group': 'all', 'from': '1', 'to': '2'}
+    chips = resolve(responses([row('a')]), ex)['rangeChips']
+    expect(f, 'a range chip keeps the filters and the tab, and drops a picked range', [(c['label'], c['active'], c['route']) for c in chips if c['label'] in ('1h', '3d')],
+           [('1h', False, '/agents?kind=Agent&q=a%20b&group=all&tab=Token+usage&range=1h'), ('3d', True, '/agents?kind=Agent&q=a%20b&group=all&tab=Token+usage&range=3d')])
     return f
 
 

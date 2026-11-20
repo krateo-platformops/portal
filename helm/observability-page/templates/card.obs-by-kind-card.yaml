@@ -1,5 +1,4 @@
-{{/* Compositions by kind — honest group-by-count over compositions-list. Card head shows */}}
-{{/* the distinct-kind count. Mirrors the dashboard status-card (extra readout + Listy body). */}}
+{{/* "By kind": the eight largest kinds among the searched compositions (listy.obs-by-kind-list). */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -8,19 +7,15 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
-  keyExtras: [projects, q, status]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
-    title: Compositions by kind
+    title: By kind
     titleVariant: eyebrow
     variant: outlined
-    extra: ''
+    allowedResources:
+    - listies
     items:
     - resourceRefId: obs-by-kind-list
-  widgetDataTemplate:
-  - forPath: extra
-    expression: '${ (([ (.list // [])[].kind ] | unique | length) | tostring) + " kinds" }'
-  apiRef: { name: compositions-list, namespace: {{ $.Release.Namespace }} }
   resourcesRefs:
     items:
     - id: obs-by-kind-list

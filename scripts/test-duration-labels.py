@@ -282,8 +282,6 @@ TRACE_FORMAT_RE = re.compile(r'def traceDuration: .*?;\s*def traceUtc', re.S)
 HAND_UNIT = re.compile(r'tostring\)\s*\+\s*"\s?(ms|s)\b|"\s?ms"')
 # Durations that are NOT statistics, and keep their own spelling on purpose.
 NOT_A_STATISTIC = {
-    'observability-page RESTAction/obs-composition-staleness filter':
-        'an AGE ("42s", "5m", "3h" since the last reconcile), at clock granularity, not a measurement',
     'portal-agents RESTAction/agents-policies filter':
         'a CONFIGURED CORS max-age ("max-age 600s") and rate-limit window, as the policy spells them',
 }

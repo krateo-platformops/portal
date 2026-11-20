@@ -1,0 +1,23 @@
+{{/* Under the cards when the window holds more than the 48 drawn: how many, and what the Full list
+     holds (all of them, or the latest 200). */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-more
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .more // "" }'
+  resourcesRefs:
+    items: []

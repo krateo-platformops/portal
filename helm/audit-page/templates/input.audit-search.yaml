@@ -1,0 +1,23 @@
+{{/* Search: a record's user, action, resource, kind, group, name, namespace, outcome or external host,
+     case-insensitive, written to ?q= on Enter and removed when cleared. audit-records and
+     audit-facets apply it in ClickHouse, as a bound query parameter, to the whole page. */}}
+kind: Input
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-search
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  widgetData:
+    name: q
+    queryParam: q
+    {{/* The filter applies on SUBMIT (Enter), not per keystroke: say so in the placeholder or the */}}
+    {{/* box reads as broken while the user types. */}}
+    placeholder: Search records · press Enter
+    allowClear: true
+    size: middle
+  resourcesRefs:
+    items: []

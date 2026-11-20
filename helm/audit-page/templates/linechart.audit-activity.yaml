@@ -1,0 +1,47 @@
+{{/* Records per hour (24h) or per day (7d, 30d) over the range, one series per outcome (Success,
+     Failure, Denied) in the outcome tag's colours, the newest bucket the current one. A record
+     with no outcome the library writes is in the figures' Records, not here. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-activity
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      Success: green
+      Failure: red
+      Denied: orange
+    shapeField: smooth
+    legend: true
+    height: 180
+    xTimeUnit: hour
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 5
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ if .trendUnit == "minute" then [] else (.trend // []) end }'
+  - forPath: xTimeUnit
+    expression: '${ if .trendUnit == "day" then "day" else "hour" end }'
+  resourcesRefs:
+    items: []

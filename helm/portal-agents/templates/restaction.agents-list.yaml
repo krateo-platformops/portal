@@ -64,6 +64,19 @@
 {{/* verdict is withheld unless at least one Allow-action authorization policy is visible. When it is */}}
 {{/* withheld the subtitle says so, and NO row is flagged — an unchecked agent must not look healthy */}}
 {{/* by accident, so the page states the gap in prose instead of leaving it silent. */}}
+{{/* */}}
+{{/* A4 OUTPUT (the Overview tab, mockup A4, as /incidents), over the agents and tool servers the */}}
+{{/* filters and the search (?q=) match: */}}
+{{/*   stats       the five figures: Agents, Ready and registered, Needs attention, Gateway gaps, Tool */}}
+{{/*               servers NotAccepted; each tile's tone is the state it counts (all, ok, bad; */}}
+{{/*               `unchecked` for a gateway not checked, `unread` for a failed read), zero or not; */}}
+{{/*   group       the group chips' pick (?group=): attention (default while anything needs it, else */}}
+{{/*               all), orchestrators, specialists, all; groupChips / viewChips with their routes; */}}
+{{/*   cards       one per agent or tool server of the group, 24 at most (more / moreText say the rest); */}}
+{{/*   tableRows   the agents of the group, for the 12-column table (?view=table); */}}
+{{/*   listCount / emptyText / emptyType   what the list card shows, or says instead; */}}
+{{/*   byHealth / byPattern / byModel   the donut and the two bar lists; */}}
+{{/*   gatewayNotice   the warning above the toolbar while the gateway could not be checked. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -149,9 +162,11 @@ spec:
     #   owner   the shipping composition (krateo.io/composition-name), else app.kubernetes.io/managed-by,
     #           else "—";
     #   q       search: name and description.
-    # Not filters: view (`table`: the 12-column agents table).
+    # Not filters: view (`table`: the 12-column agents table), group (the Overview's group chips:
+    # attention, orchestrators, specialists, all), range (the Token usage tab's window, carried by
+    # every href so a link keeps it).
     . as $in
-    | ["projects", "kind", "status", "owner", "q", "view"] as $pkeys
+    | ["projects", "kind", "status", "owner", "q", "view", "range", "group"] as $pkeys
     | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_downcase) as $q
     | (($in | fx_filters(["kind", "status", "owner"])) + { q: (if $q == "" then [] else ["1"] end) }) as $flt
     | ($in | fx_params($pkeys)) as $p
@@ -186,6 +201,7 @@ spec:
           | ([ (.status.conditions // [])[] | select(.type == "Accepted") ][0] // {}) as $c
           | { name: (.metadata.name // ""), namespace: (.metadata.namespace // ""), item: "server",
               accepted: ($c.status == "True"), reason: ($c.reason // ""), message: (($c.message // "") | tostring | .[0:240]),
+              description: ((.spec.description // "") | tostring | .[0:160]),
               tools: ((.status.discoveredTools // []) | length), owner: shipper,
               f: { kind: "server", status: (if $c.status == "True" then "accepted" else "notaccepted" end),
                    owner: (shipper | gsub(","; "")), q: qmatch((.metadata.name // "") + " " + ((.spec.description // "") | tostring)) } } ] ) as $serverItems
@@ -355,6 +371,109 @@ spec:
             # same footing as a failed read. A merely UNCHECKED registration does not: the sentence
             # it adds is a caveat, and colouring a caveat red would train the reader past the colour.
             subtitleType: ( if ($failed | length) > 0 or ($unreg | length) > 0 then "danger" else "secondary" end ) }
+    # ── THE OVERVIEW TAB, A4 (figures, the agents on two thirds, the charts on one third) ─────────
+    # The group chips (?group=) pick what the cards and the Full list show: attention (the default
+    # while anything in view needs it, else all), orchestrators and specialists (the healthy agents,
+    # as before), all (every agent and tool server in view, triage order). An unknown value (another
+    # tab's, e.g. the Tool servers tab's `healthy`) falls back to the default.
+    | ( .attention | length ) as $attN
+    | ( if $attN > 0 then "attention" else "all" end ) as $grpDefault
+    | ( (($in.group // "") | tostring | ascii_downcase) as $g
+        | if ($g | IN("attention", "orchestrators", "specialists", "all")) then $g else $grpDefault end ) as $grp
+    | ( $agErr != "" ) as $agFailed
+    | ( $srvErr != "" ) as $srvFailed
+    | ( [ .serversInView[] | select(.accepted) ] ) as $okServers
+    | { attention: .attention, orchestrators: .orchestrators, specialists: .specialists,
+        all: (.attention + .orchestrators + .specialists + $okServers) } as $groups
+    | ( $groups[$grp] ) as $members
+    | ( [ .agentsInView[] | select((.gateway // "") == "" and (.statusLabel // "") == "") ] | length ) as $healthyN
+    | ( [ .agentsInView[] | select(.orchestrator) ] | length ) as $orchN
+    | ( .agentsInView | length ) as $agentN
+    | 24 as $cap
+    | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+      # A card's tone is the state it shows: bad (red: refused by the gateway, not Ready, not
+      # Accepted), warn (orange: the agent card refused, an advisory condition), ok (green). The
+      # figures use the same map, so a tile and its cards read as one.
+      def agentcard:
+        ( if (.gateway // "") != "" then { tag: "NotRegistered", tone: (if .gatewayColor == "orange" then "warn" else "bad" end) }
+          elif (.statusLabel // "") != "" then { tag: .statusLabel, tone: (if .statusColor == "red" then "bad" else "warn" end) }
+          else { tag: (if $gatewayKnown then "Registered" else "Ready" end), tone: "ok" } end ) as $s
+        | { title: .name, tag: $s.tag, tone: $s.tone,
+            kind: ((if .orchestrator then "Orchestrator" else "Specialist" end) + (if .bench then " · bench" else "" end)),
+            body: (if (.role // "") == "" then "No description." else .role end),
+            foot: (if (.gateway // "") != "" then "Gateway: " + .gateway + " · owner " + .shipper
+                   elif (.statusLabel // "") == "" and .orchestrator then n(.delegates; "delegate"; "delegates") + " · " + n(.tools; "tool"; "tools") + " on " + n(.servers; "server"; "servers")
+                   else "owner " + .shipper end),
+            cta: "Open agent", href: ("/agents/" + .routeNs + "/" + .routeName), icon: "fa-robot" };
+      # A tool server has no page (the Tool servers tab is its list), so its card is inert.
+      def servercard:
+        { title: .name, tag: (if .accepted then "Accepted" else "NotAccepted" end), tone: (if .accepted then "ok" else "bad" end),
+          kind: "Tool server",
+          body: (if .accepted then (if (.description // "") != "" then .description else n(.tools; "tool"; "tools") + " discovered" end)
+                 elif .message != "" then .message else "Accepted is not True, and no message was given." end),
+          foot: ("RemoteMCPServer · " + (if .accepted then n(.tools; "tool"; "tools") + " · owner " + .owner
+                                         else "reason " + (if .reason != "" then .reason else "none given" end) end)),
+          cta: "", href: "", icon: "fa-server" };
+      ( [ $members[] | select(.item == "agent") ] ) as $memberAgents
+    | ( [ .rows[] | . as $r | select(any($memberAgents[]; .name == $r.name and .namespace == $r.namespace)) ] ) as $tableRows
+    | ( (.toolsDiscovered // null) as $td | .strip + { toolsAll: $td } ) as $s
+    | . + {
+        group: $grp,
+        tableRows: $tableRows,
+        cards: [ $members[0:$cap][] | if .item == "server" then servercard else agentcard end ],
+        listCount: (if $agFailed then 0 elif $tableView then ($tableRows | length) else ($members | length) end),
+        more: (if $tableView then 0 else ([ ($members | length) - $cap, 0 ] | max) end),
+        moreText: ( ($members | length) as $m | ([ $members[] | select(.item == "agent") ] | length) as $ma
+                    | ($cap | tostring) + " of " + ($m | tostring) + " shown here. "
+                      + (if $ma == $m then "Full list has all " + ($m | tostring) + "."
+                         else "Full list has the " + n($ma; "agent"; "agents") + "; the tool servers are on the Tool servers tab." end) ),
+        groupChips: ( [ { k: "attention", l: "Needs attention" }, { k: "orchestrators", l: "Orchestrators" },
+                        { k: "specialists", l: "Specialists" }, { k: "all", l: "All" } ]
+                      | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp),
+                              route: fx_href("/agents"; fx_set($p; "group"; (if .k == $grpDefault then "" else .k end))) }) ),
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: .cardsHref },
+                     { label: "Full list", active: $tableView, route: .tableHref } ],
+        # THE FIVE FIGURES over the agents and tool servers in view. Every tile wears the colour
+        # of the state it counts, zero or not (tone, mapped as the cards map it): Agents all
+        # (blue), Ready and registered ok (green), Needs attention and the two gaps bad (red).
+        # A gateway that could not be checked is "—", "not checked", in orange, never 0 gaps; a
+        # failed read is "—", "could not be read", in orange, on every tile that counts it.
+        stats: ( [ { title: "Agents", value: $agentN, tone: "all", needs: "agents",
+                     caption: (n($orchN; "orchestrator"; "orchestrators") + " · " + n($agentN - $orchN; "specialist"; "specialists")) },
+                   { title: (if $gatewayKnown then "Ready and registered" else "Ready" end), value: $healthyN, tone: "ok", needs: "agents",
+                     caption: ("of " + n($agentN; "agent"; "agents") + (if $gatewayKnown then "" else "; gateway not checked" end)) },
+                   { title: "Needs attention", value: $attN, tone: "bad", needs: "both",
+                     caption: "unreachable, not Ready or not Accepted" },
+                   (if $gatewayKnown then { title: "Gateway gaps", value: ($s.gatewayGaps // 0), tone: "bad", needs: "agents", caption: "not routed or not allowed" }
+                    else { title: "Gateway gaps", value: "", tone: "unchecked", needs: "agents", caption: "not checked" } end),
+                   { title: "Tool servers NotAccepted", value: ($s.serversNotAccepted // 0), tone: "bad", needs: "servers",
+                     caption: ("of " + (($s.servers // 0) | tostring) + " · " + n($s.toolsDiscovered // 0; "tool"; "tools") + " discovered") } ]
+                 | map(if (.needs == "agents" and $agFailed) or (.needs == "servers" and $srvFailed) or (.needs == "both" and ($agFailed or $srvFailed))
+                       then { title, value: "", caption: "could not be read", tone: "unread" }
+                       else { title, value: (.value | tostring), caption, tone } end) ),
+        # THE CHARTS (agents-side): the health donut over everything in view, the agents by pattern,
+        # the agents by resolved model. The token trend reads agents-token-timeseries itself.
+        byHealth: (if $agFailed then [] else
+                     [ { state: "Healthy", count: ($healthyN + ($okServers | length)) }, { state: "Needs attention", count: $attN } ]
+                     | map(select(.count > 0)) end),
+        byPattern: (if $agFailed or $agentN == 0 then [] else
+                      [ { name: "Orchestrators", tone: "orchestrator", count: $orchN },
+                        { name: "Specialists", tone: "specialist", count: ($agentN - $orchN) },
+                        { name: "Bench (no composition)", tone: "bench", count: ([ .agentsInView[] | select(.bench) ] | length) } ]
+                      | map(select(.count > 0) | . + { percent: ((.count * 100 / $agentN) | round), label: (.count | tostring) }) end),
+        byModel: (if $agFailed or $agentN == 0 then [] else
+                    [ .agentsInView[] | .model ] | group_by(.) | map({ name: .[0], count: length }) | sort_by(-.count, .name) | .[0:6]
+                    | map(. + { percent: ((.count * 100 / $agentN) | round), label: (.count | tostring) }) end),
+        gatewayNotice: (if $agFailed or $gatewayKnown then "" else
+                          "Gateway registration could not be checked (" + $gatewayUnknownWhy + "), so no agent here is shown as unreachable." end),
+        emptyType: (if $agFailed then "warning" else "secondary" end),
+        emptyText: ( if $agFailed then "The agents could not be read (" + $agErr + "), so nothing on this tab counts them."
+                     elif .matched == 0 and $q != "" then "No agent or tool server matches \"" + (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "")) + "\"."
+                     elif .matched == 0 and .filteredAny then "No agent or tool server matches these filters."
+                     elif .matched == 0 then "No agent or tool server you can read."
+                     elif $tableView and ($tableRows | length) == 0 and ($members | length) > 0 then "The Full list has agents only; the tool servers in this group are on the Tool servers tab."
+                     else ({ attention: "Nothing needs attention.", orchestrators: "No healthy agent in view hands work to another.",
+                             specialists: "No healthy specialist agent in view.", all: "No agent or tool server in view." }[$grp]) end ) }
     # "Ask Agentiko →" (button.agents-ask-agentiko): this page's route with an ?ask seed about the
     # fleet the table shows, built here and @uri-encoded so the Button is a plain literal navigate.
     # It claims no more than the subtitle does: a failed Agent read asks about the error and says

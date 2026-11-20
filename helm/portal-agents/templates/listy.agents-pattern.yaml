@@ -1,0 +1,36 @@
+{{/* The agents in view by pattern, a bar each against all of them: Orchestrators (they delegate,
+     violet as the table's Pattern tag), Specialists, and Bench (no composition ships them; they are
+     counted in one of the other two as well). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-pattern
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{label}'
+        color:
+          value: '{tone}'
+          map:
+            orchestrator: violet
+            specialist: blue
+            bench: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .byPattern // [] }'
+  resourcesRefs:
+    items: []

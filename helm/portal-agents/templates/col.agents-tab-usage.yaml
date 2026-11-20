@@ -1,19 +1,20 @@
-{{/* Tab pane: Token usage — what the agents' model calls cost, read top to bottom: the window, */}}
-{{/* the totals, the trend, then who spent it (agents, users, groups). Every widget reads */}}
-{{/* restaction.agents-cost, so no two of them can disagree about a number. A Col because the Tabs */}}
-{{/* enum carries `cols` and not `flexes`. */}}
-apiVersion: widgets.templates.krateo.io/v1beta1
+{{/* Tab pane: Token usage — what the agents' model calls cost, in the A4 format of an analytics tab: */}}
+{{/* the time range, the figures, then who spent it (agents, users, groups) on two thirds and the */}}
+{{/* spend charts on one third. Every widget reads restaction.agents-cost, so no two of them can */}}
+{{/* disagree about a number. A Col because the Tabs carry `cols` panes (see col.agents-tab-flow). */}}
+{{/* It has no search: the figures are ClickHouse aggregates. */}}
 kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-tab-usage
   namespace: {{ $.Values.namespace }}
   annotations:
-    {{/* The page's filter keys plus this tab's window (`range`, `from`, `to`), which the range chips */}}
-    {{/* and the day picker write. scripts/lint-keyextras.py checks every widget below declares them. */}}
-    "krateo.io/filter-keys": "projects,kind,status,owner,q,view,range,from,to"
+    {{/* The page's filter keys plus the day picker's `from` and `to`. scripts/lint-keyextras.py checks */}}
+    {{/* every widget below declares them. */}}
+    "krateo.io/filter-keys": "projects,kind,status,owner,q,view,range,group,from,to"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
   widgetData:
     allowedResources:
     - flexes

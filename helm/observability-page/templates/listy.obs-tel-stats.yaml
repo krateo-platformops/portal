@@ -1,0 +1,34 @@
+{{/* The Telemetry figures, off obs-error-log-digest: Error lines, Distinct problems and Services erroring
+     in the window (with a search, over the matching problems among the 40 most frequent), each red, the
+     colour the error cards give an ERROR line; and the window the logs were read over, neutral. A failed
+     read is an empty value (a muted "—") captioned "could not be read", in orange, never a 0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tel-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-error-log-digest
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          error: red
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

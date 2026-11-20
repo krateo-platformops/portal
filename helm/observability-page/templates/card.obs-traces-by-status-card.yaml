@@ -1,0 +1,26 @@
+{{/* "By status": the spans read by status, as a donut (piechart.obs-traces-by-status). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-by-status-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    title: By status
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: obs-traces-by-status
+  resourcesRefs:
+    items:
+    - id: obs-traces-by-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-by-status
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

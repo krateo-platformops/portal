@@ -1,10 +1,11 @@
-{{/* Titled panel around the ERROR-log digest list. GROUPED, COUNTED, most-frequent-first — the */}}
-{{/* distinct problems, collapsing the same error repeating every reconcile into one counted row */}}
-{{/* (the chronological complement is the "Live error & warning stream" card below). R2 #13: the */}}
-{{/* title says "Top recurring errors" so grouped-vs-chronological reads at a glance; the `extra` */}}
-{{/* shows the live headline totals (total error lines + distinct problems over the selected */}}
-{{/* window) from the same RA's `tot` step + a "grouped" cue — so the header reads e.g. */}}
-{{/* "1495 errors · 15 distinct · grouped". */}}
+{{/* The Telemetry list card, two thirds of the row: "Summary | Full list" top right. Summary: one card
+     per grouped error (obs-error-log-list: the distinct problems, most frequent first). Full list
+     (?view=table): the chronological error & warning stream, newest first, excluding snowplow's
+     per-request WARN noise — the service filter note when ?serviceName= is set, the row limit, then the
+     stream (obs-log-stream). The title says which. When there is no error to group, or the read failed,
+     a line says so instead of an empty list (obs-tel-empty). The totals are the figures above.
+     NO Agentiko button here: the page has ONE entry point, in its header (button.observability-ask-
+     agentiko), whose prompt is built from this same digest. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -14,32 +15,62 @@ metadata:
     "krateo.io/verbose": "true"
     "krateo.io/external-cache-ttl-seconds": "20"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
-  keyExtras: [range]
-  widgetData:
-    title: Top recurring errors
-    titleVariant: eyebrow
-    variant: outlined
-    extra: 'grouped · most frequent first'
-    items:
-    - resourceRefId: obs-error-log-list
-  widgetDataTemplate:
-  {{/* On a failed read the totals are not zero, they are unknown: obs-error-log-digest's `failed`
-       says so, so the header does not read "0 errors · 0 distinct" over an estate nobody looked at. */}}
-  - forPath: extra
-    expression: '${ if (.failed // false) then "telemetry could not be read" else ((.total // 0)|tostring) + " errors · " + ((.distinct // 0)|tostring) + " distinct · grouped" end }'
-  {{/* NO Agentiko button here any more. The page has ONE entry point, in its header
-       (button.observability-ask-agentiko), and it carries these errors: its prompt is built from the
-       same digest. This card used to host "Ask Agentiko →" (obs-errors-diagnose), which sent the top
-       errors to /incidents, so the page had two entry points saying different things. */}}
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   apiRef:
     name: obs-error-log-digest
     namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Recurring errors
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: obs-tel-view-chips
+    allowedResources:
+    - listies
+    - flexes
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: obs-error-log-list
+  widgetDataTemplate:
+  - forPath: title
+    expression: '${ if .view == "table" then "Error & warning stream" else "Recurring errors" end }'
+  - forPath: items
+    expression: '${ if .view == "table" then [ { resourceRefId: "obs-svc-filter-note" }, { resourceRefId: "obs-limit-group" }, { resourceRefId: "obs-log-stream" } ] elif .failed or (.matched // 0) == 0 then [ { resourceRefId: "obs-tel-empty" } ] else [ { resourceRefId: "obs-error-log-list" } ] end }'
   resourcesRefs:
     items:
+    - id: obs-tel-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-tel-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
     - id: obs-error-log-list
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: obs-error-log-list
       namespace: {{ $.Values.namespace }}
       resource: listies
+      verb: GET
+    - id: obs-tel-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-tel-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-svc-filter-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-svc-filter-note
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-limit-group
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-limit-group
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: obs-log-stream
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-log-stream
+      namespace: {{ $.Values.namespace }}
+      resource: tables
       verb: GET

@@ -222,9 +222,13 @@ spec:
       range: $range,
       access: (if $access then "gateway" else "none" end),
       priced: $priced,
-      # A chip's route carries no ?from/?to, so picking a preset clears a picked range.
-      rangeChips: [ "1h", "6h", "12h", "24h", "3d", "7d"
-                    | {label: ., active: (. == $range), route: ("/agents?tab=Token+usage&range=" + .)} ],
+      # A chip's route keeps the page's filters and carries no ?from/?to, so picking a preset clears
+      # a picked range.
+      rangeChips: (. as $in
+                   | [ ("projects", "kind", "status", "owner", "q", "view", "group") as $k
+                       | (($in[$k] // "") | tostring) as $v | select($v != "") | $k + "=" + ($v | @uri) ] as $keep
+                   | [ "1h", "6h", "12h", "24h", "3d", "7d"
+                       | {label: ., active: (. == $range), route: ("/agents?" + ($keep + ["tab=Token+usage", "range=" + .] | join("&")))} ]),
       notice: ( [ (if $access and $span <= 0 then "Model calls are kept for 7 days, and nothing in the chosen range is that recent."
                    elif $access and $from0 < $from then ("Model calls are kept for 7 days, so the range starts at " + ($from | strftime("%b %d %H:%M")) + " UTC.")
                    else empty end),

@@ -1,0 +1,70 @@
+{{/* The spans, two thirds of the row: "Summary | Full list" top right, then the status chips (All,
+     Error, OK, Unset: ?traceStatus=, which reaches the SQL), then one card per span, or with
+     ?view=table the span table (obs-traces). When there is nothing to list, the read failed or a filter
+     was refused, a line says so instead of an empty list. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Spans
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: obs-traces-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: obs-traces-status-chips
+    - resourceRefId: obs-traces-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "obs-traces-status-chips" } ] + (if .failed or ((.rejected // []) | length) > 0 or (.matched // 0) == 0 then [ { resourceRefId: "obs-traces-empty" } ] elif .view == "table" then [ { resourceRefId: "obs-traces" } ] elif (.more // 0) > 0 then [ { resourceRefId: "obs-traces-cards" }, { resourceRefId: "obs-traces-more" } ] else [ { resourceRefId: "obs-traces-cards" } ] end) }'
+  resourcesRefs:
+    items:
+    - id: obs-traces-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-traces-status-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-status-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-traces-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-traces-more
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-more
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: obs-traces
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: obs-traces-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

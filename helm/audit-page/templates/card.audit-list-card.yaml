@@ -1,0 +1,99 @@
+{{/* The records, two thirds of the row: "Summary | Full list" top right, then the outcome chips, then
+     one card per record (the latest 48), or with ?view=table the full table (the latest 200, 25 a
+     page, CSV export) under its caption. When nothing is listed, or nothing could be read, a line
+     says why instead. Under them: the note (counts, trace links, previews, incomplete records,
+     the row-count check), whose records these are (left out for a caller with none: the line
+     above already says so) and what the trail does not hold yet. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Records
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: audit-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: audit-outcome-chips
+    - resourceRefId: audit-cards
+    - resourceRefId: audit-note
+    - resourceRefId: audit-scope
+    - resourceRefId: audit-completeness
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ ((.rows // []) | length) as $n | [ { resourceRefId: "audit-outcome-chips" } ] + (if $n == 0 then [ { resourceRefId: "audit-empty" } ] elif .view == "table" then [ { resourceRefId: "audit-table-caption" }, { resourceRefId: "audit-records" } ] else [ { resourceRefId: "audit-cards" } ] + (if (.more // "") != "" then [ { resourceRefId: "audit-more" } ] else [] end) end) + (if $n > 0 then [ { resourceRefId: "audit-note" } ] else [] end) + (if (.scope // "none") != "none" then [ { resourceRefId: "audit-scope" } ] else [] end) + [ { resourceRefId: "audit-completeness" } ] }'
+  resourcesRefs:
+    items:
+    - id: audit-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: audit-outcome-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-outcome-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: audit-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: audit-more
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-more
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-table-caption
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-table-caption
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-records
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-records
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: audit-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-note
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-scope
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-scope
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: audit-completeness
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-completeness
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

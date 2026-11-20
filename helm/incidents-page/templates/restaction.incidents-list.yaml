@@ -8,7 +8,11 @@
                matches nothing, and its chip set is still drawn so the reader can pick another;
        range   24h, 7d (absent) or 30d: the window of the Resolved and Time to resolve figures and
                of the opened-vs-resolved chart;
-       view    `table`: the full table instead of the cards.
+       view    `table`: the full table instead of the cards;
+       q       the search: an incident whose title, cause, target, alert, category or name contains
+               it (case-insensitive) is kept, every other one is left out of the whole page (the
+               chips, the figures, the charts), as on /compositions. The awaiting alerts are not
+               incidents and are not searched.
 
      OUTPUT.
        rows      the incidents in the picked state, newest first: title, cause, state, target (the
@@ -16,7 +20,9 @@
                  cause's), fixReady (an Open incident whose fix can be applied);
        counts    per state, over every incident (the chips, the donut, the figures);
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
-                 to resolve in the range; a failed read is "—", never 0;
+                 to resolve in the range; a failed read is "—", never 0. Each tile's tone is the
+                 state it counts (the time to resolve is resolved's), so it wears the colour the
+                 cards give that state; `unread` on a failed read;
        chips / viewChips / rangeChips   the state chips, Summary | Full list, the range chips: each a
                  label, a count where it has one, active, and the route that keeps the other params;
        byState   the donut: one slice per state that has incidents;
@@ -75,12 +81,15 @@ spec:
     | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
     | ((($in.view // "") | tostring) == "table") as $tableView
     | ((.projects // "") | tostring) as $projects
+    | (($in.q // "") | tostring | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
+    | ($qRaw | ascii_downcase) as $q
     # The params every link on the page carries, in the page's order; one is set by each link.
     | def href($status; $rng; $view):
         [ (if $projects != "" then "projects=" + ($projects | @uri) else empty end),
           (if $status != "open" then "status=" + ($status | @uri) else empty end),
           (if $rng != "7d" then "range=" + $rng else empty end),
-          (if $view then "view=table" else empty end) ]
+          (if $view then "view=table" else empty end),
+          (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ]
         | if length == 0 then "/incidents" else "/incidents?" + join("&") end;
       ((.incidents.items) // []) as $items
     | ((.alerts.items) // []) as $alerts
@@ -118,7 +127,8 @@ spec:
             fixReady: ($state == "Open" and ((($fix.applyAction // null) | type) == "object" or ($fix.apply // "") != "")),
             resolvedAt: (if $state == "Resolved" then (.status.resolution.at // "") else "" end)
           }
-      ) | sort_by(.triggeredAt) | reverse) as $rows
+      ) | sort_by(.triggeredAt) | reverse) as $allRows
+    | ($allRows | map(select($q == "" or ([ .title, .cause, .target, .alert, .category, .name ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
     | ($rows | map(select($sel == "all" or .stateKey == $sel))) as $shown
     | ((.incidentsError // null) | errtext) as $err
     # A FAILED READ IS NOT A QUIET PLATFORM. `continueOnError` plus `// []` turns a refused or
@@ -135,13 +145,13 @@ spec:
     | ([ $ttr[] | select(.at >= $now - $window) ]) as $ttrIn
     | ($ttrIn | map(.m) | median) as $ttrMedian
     | ([ $rows[] | select(.stateKey == "open") | .triggeredAt | epoch | select(. != null and . >= $now - 86400) ] | length) as $openedToday
-    | [ { title: "Open", value: $counts.open, caption: (if $openedToday > 0 then ($openedToday | tostring) + " opened in the last 24 hours" else "" end), tone: (if $counts.open > 0 then "bad" else "" end) },
-        { title: "Analyzing", value: $counts.analyzing, caption: (if $counts.analyzing > 0 then "root-cause analysis running" else "" end), tone: "" },
-        { title: "Verifying", value: $counts.verifying, caption: (if $counts.verifying > 0 then "fix applied, checks running" else "" end), tone: (if $counts.verifying > 0 then "warn" else "" end) },
-        { title: "Resolved", value: ($ttrIn | length), caption: ("in " + $rangeText), tone: "" },
+    | [ { title: "Open", value: $counts.open, caption: (if $openedToday > 0 then ($openedToday | tostring) + " opened in the last 24 hours" else "" end), tone: "open" },
+        { title: "Analyzing", value: $counts.analyzing, caption: (if $counts.analyzing > 0 then "root-cause analysis running" else "" end), tone: "analyzing" },
+        { title: "Verifying", value: $counts.verifying, caption: (if $counts.verifying > 0 then "fix applied, checks running" else "" end), tone: "verifying" },
+        { title: "Resolved", value: ($ttrIn | length), caption: ("in " + $rangeText), tone: "resolved" },
         { title: "Time to resolve", value: (if $ttrMedian == null then "—" else ($ttrMedian | durlabel) end),
-          caption: (if $ttrMedian == null then "nothing resolved in " + $rangeText else "median over " + $rangeText end), tone: "" } ]
-      | map(if $failed then { title, value: "", caption: "could not be read", tone: "warn" } else . + { value: (.value | tostring) } end) as $stats
+          caption: (if $ttrMedian == null then "nothing resolved in " + $rangeText else "median over " + $rangeText end), tone: "resolved" } ]
+      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end) as $stats
     # THE TREND: opened (by triggeredAt) and resolved (by resolution.at) per bucket, the newest
     # bucket the current hour or day, so the chart ends now.
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
@@ -156,7 +166,7 @@ spec:
     | ([ range(0; 8) as $i | ($w0 + $i * 604800) as $t
          | ([ $ttr[] | select(.at >= $t and .at < $t + 604800) | .m ] | median) as $m
          | select($m != null) | { t: $t, v: ($m | round) } ]) as $ttrWeekly
-    | ([ $rows[] | select(.stateKey != "resolved" and .stateKey != "closed") | .alert ] | unique) as $openAlerts
+    | ([ $allRows[] | select(.stateKey != "resolved" and .stateKey != "closed") | .alert ] | unique) as $openAlerts
     | ([ $alerts[]
          | select((.status.state // "") == "ALERT")
          | select(((.metadata.annotations // {})["krateo.io/paused"] // "") != "true")
@@ -199,10 +209,13 @@ spec:
     # THE PROMPT IS ABOUT THE STATE ON SCREEN, and the link keeps every param.
     | (if $failed then
          "The incidents on this page could not be read (" + ($err | cap(300)) + "). Explain what that error means and what to check."
-       elif ($rows | length) == 0 then
+       elif ($allRows | length) == 0 then
          "There are no incidents on this platform, and " + $awaitingText + "."
          + (if ($awaiting | length) > 0 then " Tell me which alert to investigate first and why — grounded in the evidence on this page."
             else " Tell me whether anything on this page needs attention." end)
+       elif ($rows | length) == 0 then
+         "No incident matches the search \"" + ($qRaw | cap(80)) + "\"; " + n($allRows | length; "incident does"; "incidents do") + " not, with "
+         + $awaitingText + ". Tell me whether anything on this page needs attention."
        elif $sel == "all" then
          ([ $rows[] | select(.stateKey == "open") ]) as $openAll
          | "Triage my incidents: " + ($counts.open | tostring) + " open, " + ($counts.verifying | tostring) + " verifying, "
@@ -225,12 +238,14 @@ spec:
          "Review my " + $st.noun + ": " + ($shown | length | tostring) + " of " + n($rows | length; "incident"; "incidents") + ". "
          + (if ($shown | length) == 1 then "It is: " else "They are: " end) + ($shown | numbered) + "."
          + " Tell me whether any looks " + $st.key + " without its cause being fixed, and whether any is likely to come back — grounded in the evidence on this page."
-       end) as $prompt
+       end
+       + (if $q != "" and ($rows | length) > 0 then " These are only the incidents matching the search \"" + ($qRaw | cap(80)) + "\"." else "" end)) as $prompt
     | {
         rows: $shown,
         matched: ($shown | length),
         total: ($rows | length),
         status: $sel,
+        q: $qRaw,
         range: $range,
         view: (if $tableView then "table" else "" end),
         counts: $counts,

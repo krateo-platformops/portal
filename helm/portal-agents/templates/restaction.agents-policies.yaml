@@ -299,3 +299,15 @@ spec:
             policiesReadable: $policiesOK,
             routesReadable:   $routesOK }
     | . + { roleCount: (.byRole | keys | length) }
+    # The Policies tab's four figures (A4; listy.agents-policies-stats): Policies (all), Healthy
+    # (every ancestor condition Accepted/Attached/Ready True: ok), Not healthy (bad), Not attached
+    # (no targetRef or selector: warn). Each tile's tone is the state it counts, zero or not; an
+    # unread policy list is "—", "could not be read", tone unread, never 0.
+    | ( [ .rows[] | select((.statusLabel // "") != "") ] | length ) as $sick
+    | ( [ .rows[] | select(.attaches == "not attached") ] | length ) as $loose
+    | . + { stats: ( [ { title: "Policies", value: .total, tone: "all",
+                         caption: ("in " + (.roleCount | tostring) + (if .roleCount == 1 then " role" else " roles" end)) },
+                       { title: "Healthy", value: (.total - $sick), tone: "ok", caption: "accepted and attached by the gateway" },
+                       { title: "Not healthy", value: $sick, tone: "bad", caption: "a condition not True" },
+                       { title: "Not attached", value: $loose, tone: "warn", caption: "no targetRef or selector: enforces nothing" } ]
+                     | map(if $policiesOK then . + { value: (.value | tostring) } else { title, value: "", caption: "could not be read", tone: "unread" } end) ) }

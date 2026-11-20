@@ -1,0 +1,48 @@
+{{/* One card per span, newest first, the first 24: the span's name, its status as a coloured tag (the
+     table's pills: Error red, OK green, Unset gray), its service, when it started (UTC) and how long it
+     took, and the user (the gateway's jwt.sub) and the trace it belongs to. The whole card opens the
+     trace. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-diagram-project
+      iconVariant: tile
+      primaryText: '{span}'
+      secondaryText: '{stateLabel}'
+      subPrimaryText: '{service}'
+      subSecondaryText: '{foot}'
+      description: '{description}'
+      cardCta: Open trace
+      navigateTo: '/observability/traces/{traceId}'
+      color:
+        value: '{tone}'
+        map:
+          Error: red
+          Ok: green
+          Unset: gray
+        default: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .cards // [] }'
+  resourcesRefs:
+    items: []

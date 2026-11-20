@@ -1,0 +1,56 @@
+{{/* The charts, one third of the row (mockup A4), top to bottom: activity by outcome over the range,
+     the outcomes, the top users and the top namespaces. All four count what the cards and the
+     table show (the range, the chips and the search). A card whose data is empty — nothing in the
+     window, or its read failed — is left out. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: audit-activity-card
+    - resourceRefId: audit-outcomes-card
+    - resourceRefId: audit-users-card
+    - resourceRefId: audit-namespaces-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ([ (.trend // [])[] | .v ] | add // 0) > 0 then [ { resourceRefId: "audit-activity-card" } ] else [] end) + (if ((.byOutcome // []) | length) > 0 then [ { resourceRefId: "audit-outcomes-card" } ] else [] end) + (if ((.topUsers // []) | length) > 0 then [ { resourceRefId: "audit-users-card" } ] else [] end) + (if ((.topNamespaces // []) | length) > 0 then [ { resourceRefId: "audit-namespaces-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: audit-activity-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-activity-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: audit-outcomes-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-outcomes-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: audit-users-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-users-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: audit-namespaces-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-namespaces-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

@@ -1,0 +1,38 @@
+{{/* The Components charts, one third of the row: the Deployments by state, and how many replicas are
+     ready in the eight largest. A card whose data is empty is left out. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-components-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-components
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: obs-components-by-state-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.byState // []) | length) > 0 then [ { resourceRefId: "obs-components-by-state-card" } ] else [] end) + (if ((.readiness // []) | length) > 0 then [ { resourceRefId: "obs-components-readiness-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: obs-components-by-state-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components-by-state-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-components-readiness-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-components-readiness-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

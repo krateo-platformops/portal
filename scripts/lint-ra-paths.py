@@ -68,6 +68,7 @@ ALLOWED = {
     ('obs-*', '*'): 'ClickHouse query window and optional filters (`.range`, `.limit`, '
                     '`.serviceName`), each defaulted to the page\'s own default and omitted from '
                     'the SQL when empty; a query parameter, never a path segment',
+    ('agents-token-*', '*'): 'ClickHouse query window: `.range` defaults to the page\'s own 24h',
     ('alert-detail', 'incidents'): 'a LIST of the namespace\'s Incidents; the release namespace is '
                                    'the page\'s own default. An iterator gate would opt the stage '
                                    'into snowplow\'s cluster-list collapse (resolvers/restactions/'

@@ -1,5 +1,5 @@
-{{/* The spend view, stacked: the time range, the exception line (empty when all is well), the */}}
-{{/* figures, the trend beside the model split, spend per agent, then per user beside per group. */}}
+{{/* The spend view, top to bottom: the time range, the exception line (empty when all is well), the */}}
+{{/* figures, then the main row (who spent it on two thirds, the charts on one third). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -8,23 +8,20 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view, range, from, to]
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
   widgetData:
     allowedResources:
     - flexes
     - paragraphs
     - listies
     - rows
-    - cards
     vertical: true
     gap: middle
     items:
     - resourceRefId: agents-cost-range
     - resourceRefId: agents-cost-notice
     - resourceRefId: agents-cost-stats
-    - resourceRefId: agents-cost-trend-row
-    - resourceRefId: agents-cost-agents-card
-    - resourceRefId: agents-cost-people-row
+    - resourceRefId: agents-cost-main
   resourcesRefs:
     items:
     - id: agents-cost-range
@@ -45,21 +42,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: agents-cost-trend-row
+    - id: agents-cost-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-trend
-      namespace: {{ $.Values.namespace }}
-      resource: rows
-      verb: GET
-    - id: agents-cost-agents-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-agents
-      namespace: {{ $.Values.namespace }}
-      resource: cards
-      verb: GET
-    - id: agents-cost-people-row
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-people
+      name: agents-cost-main
       namespace: {{ $.Values.namespace }}
       resource: rows
       verb: GET

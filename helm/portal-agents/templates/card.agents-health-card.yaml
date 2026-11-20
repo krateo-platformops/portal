@@ -1,0 +1,27 @@
+{{/* "Health": the agents and tool servers in view, healthy or needing attention (piechart.agents-
+     health). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-health-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    title: Health
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: agents-health
+  resourcesRefs:
+    items:
+    - id: agents-health
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-health
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

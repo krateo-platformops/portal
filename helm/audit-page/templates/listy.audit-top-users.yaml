@@ -1,0 +1,34 @@
+{{/* The six users with the most records, most first, each a bar against the first and its count, in
+     the Records figure's slate. A row filters the page to that user (the user chip's link); the
+     records written with no user name (rest-dynamic-controller) are a row too, filtering to them. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-top-users
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{href}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: slate
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .topUsers // [] }'
+  resourcesRefs:
+    items: []
