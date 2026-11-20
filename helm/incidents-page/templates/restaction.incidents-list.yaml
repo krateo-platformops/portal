@@ -5,9 +5,11 @@
      THE PARAMS. The state is the page's one filter:
        status  analyzing, open, verifying, resolved, closed, or all. Absent, it is open: the page
                opens on what needs someone. Read case-insensitively; a value that is no state
-               matches nothing, and its chip set is still drawn so the reader can pick another;
-       range   24h, 7d (absent) or 30d: the window of the Resolved and Time to resolve figures and
-               of the opened-vs-resolved chart;
+               matches nothing, and its chip set is still drawn so the reader can pick another.
+               resolved lists only the incidents RESOLVED IN THE RANGE (resolvedin below), so the
+               Resolved figure, its chip's count and the rows are one number;
+       range   24h, 7d (absent) or 30d: the window of the Resolved and Time to resolve figures, of
+               the Resolved chip and list, and of the opened-vs-resolved chart;
        view    `table`: the full table instead of the cards;
        q       the search: an incident whose title, cause, target, alert, category or name contains
                it (case-insensitive) is kept, every other one is left out of the whole page (the
@@ -15,10 +17,11 @@
                incidents and are not searched.
 
      OUTPUT.
-       rows      the incidents in the picked state, newest first: title, cause, state, target (the
+       rows      the incidents in the picked state (resolved: in the range), newest first: title, cause, state, target (the
                  composition the analysis read, else the first object it read), category (the root
                  cause's), fixReady (an Open incident whose fix can be applied);
-       counts    per state, over every incident (the chips, the donut, the figures);
+       counts    per state, over every incident (the donut, the figures; the chips but Resolved's,
+                 which counts the incidents resolved in the range, as its figure and list do);
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
                  to resolve in the range; a failed read is "—", never 0. Each tile's tone is the
                  state it counts (the time to resolve is resolved's), so it wears the colour the
@@ -131,7 +134,13 @@ spec:
           }
       ) | sort_by(.triggeredAt) | reverse) as $allRows
     | ($allRows | map(select($q == "" or ([ .title, .cause, .target, .alert, .category, .name ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
-    | ($rows | map(select($sel == "all" or .stateKey == $sel))) as $shown
+    # RESOLVED IN THE RANGE, the one rule of the Resolved figure, its chip and its list: Resolved,
+    # resolution.at and triggeredAt both read, resolved no earlier than triggered, within the window.
+    | def resolvedin: .stateKey == "resolved"
+        and ((.resolvedAt | epoch) as $a | (.triggeredAt | epoch) as $f
+             | $a != null and $f != null and $a >= $f and $a >= $now - $window);
+      ([ $rows[] | select(resolvedin) ]) as $resolvedIn
+    | ($rows | map(select($sel == "all" or (.stateKey == $sel and ($sel != "resolved" or resolvedin))))) as $shown
     | ((.incidentsError // null) | errtext) as $err
     # A FAILED READ IS NOT A QUIET PLATFORM. `continueOnError` plus `// []` turns a refused or
     # failed Incident list into zero rows. The page says so, and the Agentiko prompt must not claim
@@ -144,14 +153,13 @@ spec:
          | { at: (.resolvedAt | epoch), from: (.triggeredAt | epoch) }
          | select(.at != null and .from != null and .at >= .from)
          | { at, m: ((.at - .from) / 60) } ]) as $ttr
-    | ([ $ttr[] | select(.at >= $now - $window) ]) as $ttrIn
-    | ($ttrIn | map(.m) | median) as $ttrMedian
+    | ([ $resolvedIn[] | ((.resolvedAt | epoch) - (.triggeredAt | epoch)) / 60 ] | median) as $ttrMedian
     | ([ $rows[] | select(.stateKey == "open") | .triggeredAt | epoch | select(. != null and . >= $now - 86400) ] | length) as $openedToday
     # A state tile routes as its state's chip does (href, every other param kept); the metric does not.
     | [ { title: "Open", value: $counts.open, caption: (if $openedToday > 0 then ($openedToday | tostring) + " opened in the last 24 hours" else "" end), tone: "open", route: href("open"; $range; $tableView) },
         { title: "Analyzing", value: $counts.analyzing, caption: (if $counts.analyzing > 0 then "root-cause analysis running" else "" end), tone: "analyzing", route: href("analyzing"; $range; $tableView) },
         { title: "Verifying", value: $counts.verifying, caption: (if $counts.verifying > 0 then "fix applied, checks running" else "" end), tone: "verifying", route: href("verifying"; $range; $tableView) },
-        { title: "Resolved", value: ($ttrIn | length), caption: ("in " + $rangeText), tone: "resolved", route: href("resolved"; $range; $tableView) },
+        { title: "Resolved", value: ($resolvedIn | length), caption: ("in " + $rangeText), tone: "resolved", route: href("resolved"; $range; $tableView) },
         { title: "Time to resolve", value: (if $ttrMedian == null then "—" else ($ttrMedian | durlabel) end),
           caption: (if $ttrMedian == null then "nothing resolved in " + $rangeText else "median over " + $rangeText end), tone: "resolved", route: "" } ]
       | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end) as $stats
@@ -206,7 +214,7 @@ spec:
     | ([ { key: "analyzing", noun: "incidents still being analyzed", active: true },
          { key: "open", noun: "open incidents", active: true },
          { key: "verifying", noun: "incidents being verified", active: true },
-         { key: "resolved", noun: "resolved incidents", active: false },
+         { key: "resolved", noun: ("incidents resolved in " + $rangeText), active: false },
          { key: "closed", noun: "closed incidents", active: false } ]
        | map(select(.key == $sel)) | first) as $st
     # THE PROMPT IS ABOUT THE STATE ON SCREEN, and the link keeps every param.
@@ -230,6 +238,9 @@ spec:
        elif $st == null then
          "No incident is in the state \"" + ($sel | cap(40)) + "\"; my " + n($rows | length; "incident is"; "incidents are")
          + " in other states, with " + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
+       elif ($shown | length) == 0 and $sel == "resolved" then
+         "No incident was resolved in " + $rangeText + "; my " + n($rows | length; "incident is"; "incidents are")
+         + " in other states or resolved before that, with " + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
        elif ($shown | length) == 0 then
          "I have no " + $st.noun + "; my " + n($rows | length; "incident is"; "incidents are") + " in other states, with "
          + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
@@ -254,7 +265,7 @@ spec:
         counts: $counts,
         stats: $stats,
         chips: ([ ($states[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
-                | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
+                | map({ label, count: (if .key == "resolved" then ($resolvedIn | length) else ($counts[.key] // 0) end), active: (.key == $sel), route: href(.key; $range; $tableView) })),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
                      { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),

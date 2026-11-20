@@ -76,8 +76,8 @@
 {{/*               ?status=notaccepted (both with ?group= cleared, so the default group shows them); */}}
 {{/*               Agents (a total), an unchecked gateway and a failed read are "", not clickable; */}}
 {{/*   group       the group chips' pick (?group=): attention (default while anything needs it, else */}}
-{{/*               all), orchestrators, specialists, all, and ready (orchestrators and specialists */}}
-{{/*               together, the Ready and registered tile's; no chip); groupChips / viewChips with */}}
+{{/*               all), ready (orchestrators and specialists together, the Ready and registered */}}
+{{/*               tile's), orchestrators, specialists, all; groupChips / viewChips with */}}
 {{/*               their routes; */}}
 {{/*   cards       one per agent or tool server of the group, 24 at most (more / moreText say the rest); */}}
 {{/*   tableRows   the agents of the group, for the 12-column table (?view=table); */}}
@@ -383,7 +383,7 @@ spec:
     # while anything in view needs it, else all), orchestrators and specialists (the healthy agents,
     # as before), all (every agent and tool server in view, triage order). An unknown value (another
     # tab's, e.g. the Tool servers tab's `healthy`) falls back to the default. `ready` (the healthy
-    # agents, orchestrators then specialists) is the Ready and registered tile's group; it has no chip.
+    # agents, orchestrators then specialists) is the Ready and registered tile's group, and its chip.
     | ( .attention | length ) as $attN
     | ( if $attN > 0 then "attention" else "all" end ) as $grpDefault
     | ( (($in.group // "") | tostring | ascii_downcase) as $g
@@ -440,8 +440,10 @@ spec:
                     | ($cap | tostring) + " of " + ($m | tostring) + " shown here. "
                       + (if $ma == $m then "Full list has all " + ($m | tostring) + "."
                          else "Full list has the " + n($ma; "agent"; "agents") + "; the tool servers are on the Tool servers tab." end) ),
-        groupChips: ( [ { k: "attention", l: "Needs attention" }, { k: "orchestrators", l: "Orchestrators" },
-                        { k: "specialists", l: "Specialists" }, { k: "all", l: "All" } ]
+        # Ready and registered (named as its tile) sits before the two halves it is made of.
+        groupChips: ( [ { k: "attention", l: "Needs attention" },
+                        { k: "ready", l: (if $gatewayKnown then "Ready and registered" else "Ready" end) },
+                        { k: "orchestrators", l: "Orchestrators" }, { k: "specialists", l: "Specialists" }, { k: "all", l: "All" } ]
                       | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp),
                               route: grpHref(.k) }) ),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: .cardsHref },

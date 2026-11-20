@@ -6,8 +6,12 @@ WHAT IT GUARDS.
 THE DASHBOARD (mockup A4):
   - the state is the page's one filter: absent it is Open; ?status= is read in any case, `all` lists
     every incident, and a value that is no state lists nothing, with the chips still there;
-  - the chips: Open, Analyzing, Verifying, Resolved, Closed, All, each counting every incident, the
-    picked one active; every route on the page (state, range and view chips) keeps the other params
+  - the chips: Open, Analyzing, Verifying, Resolved, Closed, All, each counting every incident but
+    Resolved, the picked one active;
+  - RESOLVED IS THE RANGE'S: the Resolved figure, its chip's count and the rows it lists (cards and
+    table) are the incidents resolved in the range (resolution.at in the window, not before
+    triggeredAt): one number, an incident resolved earlier or with no resolution.at left out, and
+    the empty line and the prompt say "in the last …"; every route on the page (state, range and view chips) keeps the other params
     and the ?projects= scope, and leaves out a param at its default;
   - the five figures count every incident: Open, Analyzing, Verifying now; Resolved and the median
     Time to resolve (triggered to resolution.at) in the range; a failed read is "—", never 0;
@@ -109,7 +113,7 @@ INCIDENTS = [
     incident('inc-disk', 'Open', '2026-11-06T09:00:00Z', alert='disk', cause='PVC data-pg-0 at 97%'),
     incident('inc-new', None, '2026-11-09T11:00:00Z', alert='crashloop'),                 # Analyzing
     incident('inc-ver', 'Verifying', '2026-11-07T08:00:00Z', alert='api-latency', cause='rolled back orders-api'),
-    incident('inc-res', 'Resolved', '2026-11-05T07:00:00Z', alert='disk', cause='log volume filled /var'),
+    incident('inc-res', 'Resolved', '2026-11-05T07:00:00Z', alert='disk', cause='log volume filled /var', resolved=ago(2)),
 ]
 ALERTS = [alert('api-latency', 'API latency p95'), alert('disk', 'Disk pressure', 'OK'), alert('crashloop', 'Pod crashloop'),
           alert('restarts', 'Pod restarts')]                                              # firing, no incident
@@ -197,7 +201,7 @@ def check_status_param():
     href, prompt = ask(resolve(responses(), {'status': 'Resolved'})['askHref'])
     expect(f, 'resolved, any case: kept', href, '/incidents?status=resolved')
     expect(f, 'resolved: a review', prompt,
-           'Review my resolved incidents: 1 of 5 incidents. It is: 1. "Disk pressure" — log volume filled /var '
+           'Review my incidents resolved in the last 7 days: 1 of 5 incidents. It is: 1. "Disk pressure" — log volume filled /var '
            '(triggered 2026-11-05). Tell me whether any looks resolved without its cause being fixed, and whether any '
            'is likely to come back — grounded in the evidence on this page.')
     out = resolve(responses(), {'status': 'closed'})
@@ -498,6 +502,38 @@ def check_filter_keys():
     return f
 
 
+def check_resolved_in_range():
+    f = []
+    for rng, want in (('24h', ['r1']), (None, ['r1', 'r2']), ('30d', ['r1', 'r2', 'r3'])):
+        ex = {'status': 'resolved', **({'range': rng} if rng else {})}
+        incs = TIMED + [incident('r-noat', 'Resolved', ago(2), alert='a', cause='c9')]  # Resolved, no resolution.at
+        out = resolve(responses(incidents={'items': incs}, alerts={'items': [alert('a', 'A', 'OK')]}), ex)
+        tile = {s['title']: s['value'] for s in out['stats']}['Resolved']
+        chip = {c['label']: c['count'] for c in out['chips']}['Resolved']
+        cards = [r['name'] for r in widget_data('Listy', 'incidents-cards', out, ex)['dataSource']]
+        table = widget_data('Table', 'incidents-table', out, {**ex, 'view': 'table'})['dataSource']
+        names = [{c['valueKey']: c.get('stringValue') for c in row}['name'] for row in table]
+        expect(f, f'{rng or "7d"}: Resolved figure == chip count == cards == table rows, only the range\'s',
+               (tile, chip, cards, names, out['matched']), (str(len(want)), len(want), want, want, len(want)))
+        expect(f, f'{rng or "7d"}: the other chips still count every incident',
+               [(c['label'], c['count']) for c in out['chips'] if c['label'] != 'Resolved'],
+               [('Open', 3), ('Analyzing', 1), ('Verifying', 1), ('Closed', 1), ('All', 10)])
+    out = resolve(responses(incidents={'items': TIMED[:5] + TIMED[7:]}, alerts={'items': [alert('a', 'A', 'OK')]}),
+                  {'status': 'resolved'})  # only r3, 20 days ago
+    expect(f, 'none resolved in the range: zero, the empty line says the range',
+           ({s['title']: s['value'] for s in out['stats']}['Resolved'], out['rows'], items_of('Card', 'incidents-list-card', out, {'status': 'resolved'}),
+            widget_data('Paragraph', 'incidents-empty', out, {'status': 'resolved'})['text']),
+           ('0', [], ['incidents-status-chips', 'incidents-empty'], 'No incident resolved in the last 7 days.'))
+    expect(f, '24h: the empty line follows the range',
+           widget_data('Paragraph', 'incidents-empty', resolve(responses(incidents={'items': TIMED[:5]}), {'status': 'resolved', 'range': '24h'}),
+                       {'status': 'resolved', 'range': '24h'})['text'], 'No incident resolved in the last 24 hours.')
+    _, prompt = ask(out['askHref'])
+    expect(f, 'none resolved in the range: the prompt says so', prompt,
+           'No incident was resolved in the last 7 days; my 7 incidents are in other states or resolved before that, with '
+           'no alert firing without an incident. Tell me whether anything here needs attention — grounded in the evidence on this page.')
+    return f
+
+
 def check_tile_routes():
     f = []
     ex = {'projects': 'team-a', 'status': 'verifying', 'range': '30d', 'view': 'table', 'q': 'a b'}
@@ -518,7 +554,7 @@ def check_tile_routes():
     return f
 
 
-CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_tile_routes, check_routes,
+CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_tile_routes, check_routes,
           check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 

@@ -1,13 +1,14 @@
 {{/* /service-desk data source: one row per ZendeskRequest the CALLER may list, shaped server-side.
 
      rows        : subject, status pill, priority, kind, Zendesk #, raised by, updated; filtered by
-                   the ?state= chip.
+                   the ?state= chip. ?state=solved is the Solved figure's set: every request Solved
+                   OR Closed whose last update is in the ?range= window (solvedin), not every Solved.
      ?q=         : the search. A request whose subject, description, Zendesk #, kind, status, raiser
                    or name contains it (case-insensitive) is kept, every other one is left out of
                    the whole page (the chips, the figures, the charts), as on /compositions.
      chips       : the chips themselves (Active · All · New · Open · Pending · On-hold · Solved ·
                    Closed · Need attention · Mine), each with its live count, its route and whether
-                   it is selected.
+                   it is selected. Solved counts what it lists, so it equals the Solved figure.
      stats       : the five figures. A tile that counts a state (Active, Pending, Need attention,
                    Solved) carries `route`, its state chip's route, so it opens the list filtered to
                    that state; Opened is a windowed total and has `route: ""`, as does every tile
@@ -81,7 +82,7 @@ spec:
       { key: "open", label: "Open", noun: "open requests" },
       { key: "pending", label: "Pending", noun: "pending requests" },
       { key: "hold", label: "On-hold", noun: "requests on hold" },
-      { key: "solved", label: "Solved", noun: "solved requests" },
+      { key: "solved", label: "Solved", noun: "requests solved or closed in the range" },
       { key: "closed", label: "Closed", noun: "closed requests" },
       { key: "attention", label: "Need attention", noun: "requests that need attention" },
       { key: "mine", label: "Mine", noun: "requests you raised" } ];
@@ -116,6 +117,32 @@ spec:
     | ((.state // "") | str | ascii_downcase | if . == "" then "active" else . end) as $sel
     | ((.q // "") | str | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
     | ($qRaw | ascii_downcase) as $q
+    # THE DASHBOARD (the /incidents layout, mockup A4). ?range= (24h, 7d, 30d; 7d when absent) sets
+    # the window of the Opened and Solved figures, of the Solved chip and its list, and of the
+    # opened-vs-solved chart; the other chips are not windowed. ?view=table swaps the cards for the
+    # table. Routes leave the defaults out, so the plain /service-desk is Active, 7d, cards.
+    | def epoch: (if type == "string" and . != "" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+      def utcstamp: if type != "string" or . == "" then "" else ((capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2})") // null) as $m | if $m == null then "" else $m.d + " " + $m.t + " UTC" end) end;
+      def href($st; $rng; $table):
+        ([ (if $st != "active" then "state=" + ($st | @uri) else empty end),
+           (if $rng != "7d" then "range=" + $rng else empty end),
+           (if $table then "view=table" else empty end),
+           (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ] | join("&")) as $qs
+        | "/service-desk" + (if $qs == "" then "" else "?" + $qs end);
+      .
+    | ((.range // "") | str | if IN("24h", "7d", "30d") then . else "7d" end) as $range
+    | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
+    | ((.view // "") | str | . == "table") as $tableView
+    | now as $now
+    | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
+    | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
+    | ($now - $b.n * $b.size) as $since
+    # SOLVED IS THE RANGE'S, by the one rule of the Solved figure: a request now Solved or Closed
+    # whose last update (Zendesk keeps no solved_at on a request) is in the window. The Solved chip
+    # counts and lists exactly that, so the figure, the chip and the rows are one number.
+    | def solvedin: (.zendeskStatus | IN("solved", "closed")) and ((.updated | epoch) as $t | $t != null and $t >= $since);
+      def inview($k): if $k == "solved" then solvedin else inChip($k; $me) end;
+      .
     | ([ chips[] | select(.key == $sel) ] | .[0]) as $chip
     | ($chip != null) as $valid
     | ([ $items[] | select(type == "object") | requestView
@@ -123,8 +150,8 @@ spec:
        | sort_by(.sortKey) | reverse) as $allRows
     | ($allRows | map(select($q == "" or ([ .subject, .description, .id, .kindText, .label, .raisedBy, .name ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
     | ($rows | length) as $total
-    | (chips | map(.key as $k | { key: $k, value: ([ $rows[] | select(inChip($k; $me)) ] | length) }) | from_entries) as $counts
-    | (if $valid then [ $rows[] | select(inChip($sel; $me)) ] else [] end) as $shown
+    | (chips | map(.key as $k | { key: $k, value: ([ $rows[] | select(inview($k)) ] | length) }) | from_entries) as $counts
+    | (if $valid then [ $rows[] | select(inview($sel)) ] else [] end) as $shown
     # ONE warning for the whole queue, naming each organisation whose requests can't be read from
     # Zendesk. An organisation is its configuration; two configurations in one namespace are told
     # apart by name, otherwise the namespace says it.
@@ -143,33 +170,13 @@ spec:
          + (if ($downLabels | length) > 0 then " Zendesk can't be reached for " + ($downLabels | andjoin) + ", so those statuses may be out of date." else "" end)
          + " What is happening with each, and does any need something from me?"
        end) as $prompt
-    # THE DASHBOARD (the /incidents layout, mockup A4). ?range= (24h, 7d, 30d; 7d when absent) sets
-    # the window of the Opened and Solved figures and of the opened-vs-solved chart; the chips, the
-    # cards and the table are not windowed. ?view=table swaps the cards for the table. Routes leave
-    # the defaults out, so the plain /service-desk is Active, 7d, cards.
-    | def epoch: (if type == "string" and . != "" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
-      def utcstamp: if type != "string" or . == "" then "" else ((capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2})") // null) as $m | if $m == null then "" else $m.d + " " + $m.t + " UTC" end) end;
-      def href($st; $rng; $table):
-        ([ (if $st != "active" then "state=" + ($st | @uri) else empty end),
-           (if $rng != "7d" then "range=" + $rng else empty end),
-           (if $table then "view=table" else empty end),
-           (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ] | join("&")) as $qs
-        | "/service-desk" + (if $qs == "" then "" else "?" + $qs end);
-      .
-    | ((.range // "") | str | if IN("24h", "7d", "30d") then . else "7d" end) as $range
-    | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
-    | ((.view // "") | str | . == "table") as $tableView
-    | now as $now
-    | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
-    | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
-    | ($now - $b.n * $b.size) as $since
     # Opened: Zendesk's created_at once it has one, else when the request was raised here. Solved:
     # a request now Solved or Closed, at its last update (Zendesk keeps no solved_at on a request).
     | ([ $rows[] | (if .created != "" then .created else .portalCreated end) | epoch | select(. != null) ]) as $openedAt
     | ([ $rows[] | select(.zendeskStatus | IN("solved", "closed")) | .updated | epoch | select(. != null) ]) as $solvedAt
     | ([ $rows[] | select(.state | IN("refused", "held", "other")) ] | length) as $attention
     | ([ $openedAt[] | select(. >= $since) ] | length) as $openedIn
-    | ([ $solvedAt[] | select(. >= $since) ] | length) as $solvedIn
+    | ($counts.solved) as $solvedIn
     | ([ range(0; $b.n) as $i | ($start + $i * $b.size) as $t
          | { t: $t, series: "Opened", v: ([ $openedAt[] | select(. >= $start) | ((. - $start) / $b.size | floor) | select(. == $i) ] | length) },
            { t: $t, series: "Solved", v: ([ $solvedAt[] | select(. >= $start) | ((. - $start) / $b.size | floor) | select(. == $i) ] | length) } ]) as $trend
@@ -218,12 +225,14 @@ spec:
                      elif $sel == "active" then "No active requests."
                      elif $sel == "mine" then "You haven’t raised a request here."
                      elif $sel == "attention" then "No request needs attention."
+                     elif $sel == "solved" then "No request solved or closed in " + $rangeText + "."
                      else "No request is " + $chip.label + "." end),
         emptyText: (if $failed or ($shown | length) > 0 then ""
                     elif ($valid | not) then "The status in this page’s address is not one a request can have. Choose a status above, or All to see every request."
                     elif $q != "" and $total == 0 then "Clear the search to see every request."
                     elif $total == 0 then "Requests raised here for your organisation go to Zendesk, and appear in this list with their status. Agents answer them in Zendesk."
                     elif $sel == "active" then (if $total == 1 then "The one request here is Solved or Closed. Choose All to see it." else "Every request here is Solved or Closed. Choose All to see them." end)
+                    elif $sel == "solved" then "Requests solved or closed earlier are under a longer range, or All."
                     elif $sel == "mine" then "Requests other people in your organisation raised, and any raised before the portal recorded who raised them, are under All."
                     elif $total == 1 then "1 request has another status. Choose All to see it."
                     else ($total | tostring) + " requests have other statuses. Choose All to see them." end),

@@ -141,8 +141,8 @@ spec:
   {{/* and restaction.agent-detail make. */}}
   {{/* A4 OUTPUT (the Tool servers tab: figures, chips, cards, charts; the tables above are unchanged): */}}
   {{/*   group       the state chips' pick (?group=): attention (the default while a server needs it, */}}
-  {{/*               else all), healthy, all; and, with no chip, the figures' own states: accepted */}}
-  {{/*               (Accepted True), notaccepted (tone bad), advisory (tone warn); another tab's value */}}
+  {{/*               else all), healthy, the figures' own states accepted (Accepted True), notaccepted */}}
+  {{/*               (tone bad), advisory (tone warn), and all, each with a chip; another tab's value */}}
   {{/*               falls back to the default; */}}
   {{/*   stats       Tool servers, Accepted, NotAccepted, Advisories, Tools discovered; each tile's tone */}}
   {{/*               is the state it counts (all, ok, bad, warn), `unread` on a failed server read; */}}
@@ -380,7 +380,9 @@ spec:
                    { title: "Tools discovered", value: ([ $rowsOK[] | .toolsN ] | add // 0), tone: "all", route: "",
                      caption: (if $agentsDenied then "agents not readable" else n($inUseN; "tool"; "tools") + " in use by agents" end) } ]
                  | map(if $serversDenied then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end) ),
-        serverChips: ( [ { k: "attention", l: "Needs attention" }, { k: "healthy", l: "Healthy" }, { k: "all", l: "All" } ]
+        # Accepted, NotAccepted and Advisories are the figures' states, named as their tiles.
+        serverChips: ( [ { k: "attention", l: "Needs attention" }, { k: "healthy", l: "Healthy" }, { k: "accepted", l: "Accepted" },
+                         { k: "notaccepted", l: "NotAccepted" }, { k: "advisory", l: "Advisories" }, { k: "all", l: "All" } ]
                        | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp), route: href(if .k == $grpDefault then "" else .k end; $tableView) }) ),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $grp == $grpDefault then "" else $grp end; false) },
                      { label: "Full list", active: $tableView, route: href(if $grp == $grpDefault then "" else $grp end; true) } ],

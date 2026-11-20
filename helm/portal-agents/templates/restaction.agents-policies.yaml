@@ -59,6 +59,15 @@
 {{/* ("none installed, or you cannot list them") rather than asserting the gateway enforces nothing. */}}
 {{/* Same for routes: a caller who may read policies but not routes keeps every policy, and the subtitle */}}
 {{/* says the URL spaces are missing instead of the rows quietly losing their path. */}}
+{{/* */}}
+{{/* THE STATE FILTER (the Policies tab of /agents): ?group=, the param the other tabs' chips use, */}}
+{{/* with this tab's values healthy, nothealthy, notattached (what the figures count); anything else, */}}
+{{/* another tab's value included, is all. `rows`, `total`, `byRole` and the figures stay over EVERY */}}
+{{/* policy (the page header and the tiles count the whole surface); `shown` and `shownByRole` are */}}
+{{/* the picked state's, and the role cards read those, so with no ?group (as on /agents/policies) */}}
+{{/* they equal rows and byRole. `stateChips` (All and the three states, with counts) and the */}}
+{{/* figures' `route` share one href, which keeps every other param of the page; `shownCount` and */}}
+{{/* `emptyText` / `emptyType` say what the tab shows in place of the role cards when none matches. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -91,7 +100,8 @@ spec:
     continueOnError: true
     errorKey: routesError
   filter: |
-    ( (.policiesError // null) == null ) as $policiesOK
+    . as $in
+    | ( (.policiesError // null) == null ) as $policiesOK
     | ( (.routesError // null) == null ) as $routesOK
     | ( reduce ((.routes.items // [])[]) as $r ({};
         .[($r.metadata.namespace + "/" + $r.metadata.name)] =
@@ -302,14 +312,39 @@ spec:
     # The Policies tab's four figures (A4; listy.agents-policies-stats): Policies (all), Healthy
     # (every ancestor condition Accepted/Attached/Ready True: ok), Not healthy (bad), Not attached
     # (no targetRef or selector: warn). Each tile's tone is the state it counts, zero or not; an
-    # unread policy list is "—", "could not be read", tone unread, never 0. `route` is "" on every
-    # tile: the tab has no state filter (the role tables list every policy, and /agents/policies
-    # reads this RESTAction too), so a figure is a plain tile.
-    | ( [ .rows[] | select((.statusLabel // "") != "") ] | length ) as $sick
-    | ( [ .rows[] | select(.attaches == "not attached") ] | length ) as $loose
-    | . + { stats: ( [ { title: "Policies", value: .total, tone: "all",
+    # unread policy list is "—", "could not be read", tone unread, never 0. A state tile opens the
+    # tab on its state (`route`, the state chip's); Policies (a total) and a failed read are "".
+    | { healthy:     [ .rows[] | select((.statusLabel // "") == "") ],
+        nothealthy:  [ .rows[] | select((.statusLabel // "") != "") ],
+        notattached: [ .rows[] | select(.attaches == "not attached") ],
+        all: .rows } as $groups
+    | ( (($in.group // "") | tostring | ascii_downcase) as $g
+        | if ($g | IN("healthy", "nothealthy", "notattached")) then $g else "all" end ) as $grp
+    | ( $groups[$grp] ) as $shown
+    # Every other param of the page kept, in its filter-keys order; "all" leaves ?group out.
+    | def href($k): [ ("projects", "kind", "status", "owner", "q", "view", "range") as $x
+                      | (($in[$x] // "") | tostring) as $v | select($v != "") | $x + "=" + ($v | @uri) ]
+                    + (if $k == "all" then [] else [ "group=" + $k ] end)
+                    | if length == 0 then "/agents" else "/agents?" + join("&") end;
+      . + { group: $grp,
+            shown: $shown,
+            shownCount: ($shown | length),
+            shownByRole: ( reduce ($shown[]) as $r ({}; .[$r.role] = ((.[$r.role] // 0) + 1)) ),
+            stateChips: ( [ { k: "all", l: "All" }, { k: "healthy", l: "Healthy" },
+                            { k: "nothealthy", l: "Not healthy" }, { k: "notattached", l: "Not attached" } ]
+                          | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp), route: href(.k) }) ),
+            emptyType: (if $policiesOK then "secondary" else "warning" end),
+            emptyText: ( if ($policiesOK | not) then "The gateway policies could not be read, so nothing on this tab counts them."
+                         elif .total == 0 then "There is no gateway policy you can read."
+                         else ({ healthy: "No policy is healthy.", nothealthy: "Every policy is healthy.",
+                                 notattached: "Every policy is attached.", all: "" }[$grp]) end ),
+            stats: ( [ { title: "Policies", value: .total, tone: "all", route: "",
                          caption: ("in " + (.roleCount | tostring) + (if .roleCount == 1 then " role" else " roles" end)) },
-                       { title: "Healthy", value: (.total - $sick), tone: "ok", caption: "accepted and attached by the gateway" },
-                       { title: "Not healthy", value: $sick, tone: "bad", caption: "a condition not True" },
-                       { title: "Not attached", value: $loose, tone: "warn", caption: "no targetRef or selector: enforces nothing" } ]
-                     | map(if $policiesOK then . + { value: (.value | tostring) } else { title, value: "", caption: "could not be read", tone: "unread" } end | . + { route: "" }) ) }
+                       { title: "Healthy", value: ($groups.healthy | length), tone: "ok", route: href("healthy"),
+                         caption: "accepted and attached by the gateway" },
+                       { title: "Not healthy", value: ($groups.nothealthy | length), tone: "bad", route: href("nothealthy"),
+                         caption: "a condition not True" },
+                       { title: "Not attached", value: ($groups.notattached | length), tone: "warn", route: href("notattached"),
+                         caption: "no targetRef or selector: enforces nothing" } ]
+                     | map(if $policiesOK then . + { value: (.value | tostring) }
+                           else { title, value: "", caption: "could not be read", tone: "unread", route: "" } end) ) }

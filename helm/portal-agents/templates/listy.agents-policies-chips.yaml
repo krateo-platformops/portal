@@ -1,0 +1,27 @@
+{{/* The state chips of the Policies tab (?group=, the param the other tabs' chips use): All (the
+     default), Healthy, Not healthy, Not attached, each with its count, the same as the figure above
+     it. Picking one narrows the role cards below; each route keeps every other param, and is the
+     route the matching figure opens. agents-policies builds them. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-policies
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stateChips // [] }'
+  resourcesRefs:
+    items: []
