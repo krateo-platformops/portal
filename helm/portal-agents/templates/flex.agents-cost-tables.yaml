@@ -1,8 +1,8 @@
-{{/* Spend per user beside spend per group; both full width when the page is narrow. */}}
-kind: Row
+{{/* Who spent it, top to bottom: per agent (the rows add up to the Spend figure), per user, per group. */}}
+kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: agents-cost-people
+  name: agents-cost-tables
   namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
@@ -11,18 +11,20 @@ spec:
   widgetData:
     allowedResources:
     - cards
-    alignment: top
+    vertical: true
+    gap: middle
     items:
+    - resourceRefId: agents-cost-agents-card
     - resourceRefId: agents-cost-users-card
-      size: 15
-      xs: 24
-      lg: 15
     - resourceRefId: agents-cost-groups-card
-      size: 9
-      xs: 24
-      lg: 9
   resourcesRefs:
     items:
+    - id: agents-cost-agents-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-agents
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
     - id: agents-cost-users-card
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-cost-users
