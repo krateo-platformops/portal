@@ -1,0 +1,22 @@
+{{/* Pick a span of whole days. The frontend writes it to the URL as ?range=custom&from=&to= (epoch
+     seconds, the viewer's local midnights) and reads it back, so a picked range deep-links;
+     restaction.agents-cost clamps it to the 7 days the records are kept. A preset chip's route
+     drops ?from and ?to, which clears the picker. */}}
+kind: RangePicker
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-days
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
+  widgetData:
+    allowClear: true
+    size: small
+    format: MMM D
+    placeholder:
+    - From day
+    - To day
+  resourcesRefs:
+    items: []

@@ -1,0 +1,31 @@
+{{/* The figures: Spend, Per call, Cached input, Incident comparison, and Not priced only when a */}}
+{{/* model is missing from the price list (amber, and its caption names the model). A caller who */}}
+{{/* may not read the gateway gets every tile empty with "not shared with you", never a $0. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          warn: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

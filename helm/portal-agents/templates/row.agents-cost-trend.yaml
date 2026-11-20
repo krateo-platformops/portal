@@ -1,39 +1,38 @@
-{{/* The Token usage body: who spent the tokens on which model on the left two thirds, the tokens over
-     time on the right third; stacked when narrow. */}}
+{{/* Spend over time on the left two thirds, spend by model on the right third; both full width */}}
+{{/* when the page is narrow. */}}
 kind: Row
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
-  name: agents-usage-main
+  name: agents-cost-trend
   namespace: {{ $.Values.namespace }}
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
   widgetData:
     allowedResources:
     - cards
-    - flexes
     alignment: top
     items:
-    - resourceRefId: agents-token-usage
+    - resourceRefId: agents-cost-trend-card
       size: 16
       xs: 24
       lg: 16
-    - resourceRefId: agents-usage-side
+    - resourceRefId: agents-cost-models-card
       size: 8
       xs: 24
       lg: 8
   resourcesRefs:
     items:
-    - id: agents-token-usage
+    - id: agents-cost-trend-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-token-usage
+      name: agents-cost-trend
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
-    - id: agents-usage-side
+    - id: agents-cost-models-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-usage-side
+      name: agents-cost-models
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: cards
       verb: GET

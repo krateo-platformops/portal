@@ -1,0 +1,37 @@
+{{/* Spend per user beside spend per group; both full width when the page is narrow. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-people
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
+  widgetData:
+    allowedResources:
+    - cards
+    alignment: top
+    items:
+    - resourceRefId: agents-cost-users-card
+      size: 15
+      xs: 24
+      lg: 15
+    - resourceRefId: agents-cost-groups-card
+      size: 9
+      xs: 24
+      lg: 9
+  resourcesRefs:
+    items:
+    - id: agents-cost-users-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-users
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-cost-groups-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-groups
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

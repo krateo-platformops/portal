@@ -1,27 +1,31 @@
-{{/* Tab pane: Token usage, in the A4 format of an analytics tab: the time range (1h, 6h, 24h, 7d), the
-     five figures (tokens, calls, cached input, errors, time to first token), then the consumers table
-     on two thirds and the token charts on one third. A Col because the Tabs carry `cols` panes (see
-     col.agents-tab-flow). It has no search: the table and the charts are ClickHouse aggregates, and a
-     search would narrow the table and not the charts. */}}
+{{/* Tab pane: Token usage — what the agents' model calls cost, read top to bottom: the time range, */}}
+{{/* the figures, the spend over time beside the spend by model, then who spent it (agents, then */}}
+{{/* users beside groups). The charts get a row of their own rather than the A4 side third: the */}}
+{{/* stacked bars need the width. Every widget reads restaction.agents-cost, so no two of them can */}}
+{{/* disagree about a number. A Col because the Tabs carry `cols` panes (see col.agents-tab-flow). */}}
+{{/* It has no search: the figures are ClickHouse aggregates. */}}
 kind: Col
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-tab-usage
   namespace: {{ $.Values.namespace }}
   annotations:
+    {{/* The page's filter keys plus the day picker's `from` and `to`. scripts/lint-keyextras.py checks */}}
+    {{/* every widget below declares them. */}}
+    "krateo.io/filter-keys": "projects,kind,status,owner,q,view,range,group,from,to"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
   widgetData:
     allowedResources:
     - flexes
     items:
-    - resourceRefId: agents-usage
+    - resourceRefId: agents-cost
   resourcesRefs:
     items:
-    - id: agents-usage
+    - id: agents-cost
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-usage
+      name: agents-cost
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET

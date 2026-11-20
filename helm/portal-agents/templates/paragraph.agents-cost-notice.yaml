@@ -1,0 +1,22 @@
+{{/* What the spend view cannot show, and why: no access to the gateway, an unreadable price list */}}
+{{/* or call log, a model missing from the price list. Empty when there is nothing to say. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-notice
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ''
+    type: warning
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .notice // "" }'
+  resourcesRefs:
+    items: []

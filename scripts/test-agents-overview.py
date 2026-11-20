@@ -22,9 +22,11 @@ THE OTHER TABS:
   - Tool servers: its figures, its state chips (?group=: Needs attention, Healthy, All), a card per
     server or the full table, its charts; the matrix and the bindings stay below;
   - Policies: its four figures above the role cards;
-  - Token usage: the range chips (1h, 6h, 24h, 7d), its five figures, the consumers table on two thirds
-    and the token charts on one third; the totals are one point per bucket ending now;
-  - every widget reachable from the page declares the page's filter keys (also lint-keyextras).
+  - Token usage: the range, the notice, the spend figures, the spend charts side by side, then spend per
+    agent, user and group (the spend itself: test-agents-cost); the Overview's token
+    card reads the token totals over its own range, one point per bucket ending now;
+  - every widget reachable from the page declares the page's filter keys (also lint-keyextras), and
+    the Token usage tab and the widgets shown with it also the day picker's `from` and `to`.
 
 Usage: test-agents-overview.py [--crds DIR]. JQ=gojq runs the same on snowplow's engine.
 """
@@ -400,58 +402,38 @@ def check_policies_tab():
 
 # ---------------------------------------------------------------- the Token usage tab
 
-def series_row(t, calls=2, inp=1000, out=100, cached=400, errors=0, ttft_sum=3.0, ttft_n=2):
+def series_row(t, inp=1000, out=100, cached=400):
     # ClickHouse writes UInt64 sums as strings.
-    return {'t': t, 'calls': str(calls), 'input_total': str(inp), 'output_total': str(out), 'cached_total': str(cached),
-            'input_avg': inp // calls, 'output_avg': out // calls, 'errors': str(errors), 'ttft_sum': ttft_sum, 'ttft_n': str(ttft_n)}
+    return {'t': t, 'input_total': str(inp), 'output_total': str(out), 'cached_total': str(cached)}
 
 
 def check_token_usage_tab():
     f = []
-    expect(f, 'the tab', (items('Col', 'agents-tab-usage', {}), items('Flex', 'agents-usage', {})),
-           (['agents-usage'], ['agents-usage-toolbar', 'agents-usage-stats', 'agents-usage-main']))
-    expect(f, 'the toolbar: the range, the whole row', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-usage-toolbar')['items']],
-           [('agents-usage-range-group', 24, 24)])
-    expect(f, 'the range group', items('Flex', 'agents-usage-range-group', {}), ['agents-usage-range-label', 'agents-usage-range-chips'])
-    expect(f, 'the main row: the table 16, the charts 8', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-usage-main')['items']],
-           [('agents-token-usage', 16, 24), ('agents-usage-side', 8, 24)])
+    expect(f, 'the tab: the range, the notice, the figures, the charts, the tables', (items('Col', 'agents-tab-usage', {}), items('Flex', 'agents-cost', {})),
+           (['agents-cost'], ['agents-cost-range', 'agents-cost-notice', 'agents-cost-stats', 'agents-cost-trend-row', 'agents-cost-agents-card', 'agents-cost-people-row']))
+    expect(f, 'the charts: over time 16, by model 8', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-trend')['items']],
+           [('agents-cost-trend-card', 16, 24), ('agents-cost-models-card', 8, 24)])
+    expect(f, 'users 15, groups 9', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-people')['items']],
+           [('agents-cost-users-card', 15, 24), ('agents-cost-groups-card', 9, 24)])
+    # The Overview's token card.
     hour = int(time.time() // 3600 * 3600)
-    rows = [series_row(hour), series_row(hour - 3 * 3600, calls=4, inp=3000, out=300, cached=0, errors=1, ttft_sum=0, ttft_n=0),
-            series_row(hour - 30 * 3600)]
+    rows = [series_row(hour), series_row(hour - 3 * 3600, inp=3000, out=300, cached=0), series_row(hour - 30 * 3600)]
     out = tbi.resolve(CH, 'agents-token-timeseries', {'series': {'data': rows}}, {'projects': 'p'})
     totals = [p for p in out['totals'] if p['series'] == 'input']
     expect(f, '24h: 24 hourly points, the newest the current hour, 0 where nothing ran', (len(totals), totals[-1]['t'], totals[-1]['d'], totals[-4]['d'], totals[-2]['d'], out['unit']),
            (24, hour, 1000, 3000, 0, 'hour'))
-    expect(f, 'the five figures', tiles(w('Listy', 'agents-usage-stats', out)), [
-        ('Tokens', '5,500', '5,000 in · 500 out', 'tokens'), ('LLM calls', '8', 'through the gateway, last 24 hours', 'calls'),
-        ('Cached input', '16%', '800 of 5,000 input tokens', 'cached'), ('Errors', '1', '12.5% of the calls not answered 200', 'errors'),
-        ('First token', '1.5 s', 'average over 4 calls that report it', 'ttft')])
-    expect(f, 'the range chips keep every param', [(c['label'], c['active'], c['route']) for c in w('Listy', 'agents-usage-range-chips', out, {'projects': 'p'})['dataSource']],
-           [('1h', False, '/agents?projects=p&range=1h'), ('6h', False, '/agents?projects=p&range=6h'), ('24h', True, '/agents?projects=p'), ('7d', False, '/agents?projects=p&range=7d')])
+    expect(f, 'the card: the chart, the range top right', (items('Card', 'agents-token-trend-card', out), w('Card', 'agents-token-trend-card', out)['extra']),
+           (['agents-token-totals'], 'last 24 hours'))
     ex = {'range': '7d', 'group': 'all', 'q': 'x'}
     out7 = tbi.resolve(CH, 'agents-token-timeseries', {'series': {'data': []}}, ex)
     expect(f, '7d: 28 six-hour points, a day axis; nothing ran: said', (len([p for p in out7['totals'] if p['series'] == 'cached']), out7['unit'],
-           w('LineChart', 'agents-token-totals', out7, ex)['xTimeUnit'], items('Card', 'agents-token-totals-card', out7, ex), out7['emptyText']),
+           w('LineChart', 'agents-token-totals', out7, ex)['xTimeUnit'], items('Card', 'agents-token-trend-card', out7, ex), out7['emptyText']),
            (28, 'day', 'day', ['agents-token-none'], 'No LLM call went through the gateway in the last 7 days.'))
-    expect(f, '7d: the chips keep q and the group', out7['rangeChips'][2]['route'], '/agents?q=x&group=all')
-    expect(f, 'the charts', (items('Flex', 'agents-usage-side', out), items('Flex', 'agents-usage-side', out7, ex)),
-           (['agents-token-totals-card', 'agents-token-averages-card'], ['agents-token-totals-card']))
-    w('LineChart', 'agents-token-averages', out)
-    w('Card', 'agents-token-trend-card', out)
+    expect(f, 'a range only the Token usage tab offers: the card says 24 hours', [tbi.resolve(CH, 'agents-token-timeseries', {'series': {'data': []}}, {'range': r})['rangeLabel'] for r in ('12h', '3d', 'custom')],
+           ['last 24 hours'] * 3)
     bad = tbi.resolve(CH, 'agents-token-timeseries', {'series': 'ERROR'}, {})
-    expect(f, 'a failed read: "—" in orange, and the reason', ([t[3] for t in tiles(w('Listy', 'agents-usage-stats', bad))], w('Paragraph', 'agents-token-none', bad)['type'],
-           items('Card', 'agents-token-trend-card', bad)), (['unread'] * 5, 'warning', ['agents-token-none']))
-    usage = tbi.resolve(CH, 'agents-token-usage', {'usage': {'data': [{'consumer': 'agentiko', 'calls': '3', 'input_tokens': '10', 'output_tokens': '1'}]}}, {'range': '1h'})
-    card = w('Card', 'agents-token-usage', usage, {'range': '1h'})
-    expect(f, 'the consumers card: the table, the range top right', ([i['resourceRefId'] for i in card['items']], card['extra'], card['title']),
-           (['agents-token-usage-table'], 'last hour', 'By consumer'))
-    w('Table', 'agents-token-usage', usage)
-    none = tbi.resolve(CH, 'agents-token-usage', {'usage': 'ERROR'}, {})
-    expect(f, 'the consumers card, read failed: a warning line', (items('Card', 'agents-token-usage', none), w('Paragraph', 'agents-token-usage-empty', none)['type']),
-           (['agents-token-usage-empty'], 'warning'))
-    stats_map = static('Listy', 'agents-usage-stats')['itemTemplate']['color']['map']
-    totals_map = static('LineChart', 'agents-token-totals')['colorMap']
-    expect(f, 'Tokens and Cached wear the chart\'s input and cached colours', (stats_map['tokens'], stats_map['cached']), (totals_map['input'], totals_map['cached']))
+    expect(f, 'a failed read: the reason, as a warning', (w('Paragraph', 'agents-token-none', bad)['type'], items('Card', 'agents-token-trend-card', bad)),
+           ('warning', ['agents-token-none']))
     return f
 
 
@@ -472,11 +454,23 @@ def check_filter_keys():
         seen.add(n)
         for d in widgets[n]:
             stack += [r['name'] for r in ((d['spec'].get('resourcesRefs') or {}).get('items') or [])]
-    expect(f, 'the walk reaches every tab', all(n in seen for n in ('agents-stats', 'agents-servers-stats', 'agents-policies-stats', 'agents-usage-stats',
+    expect(f, 'the walk reaches every tab', all(n in seen for n in ('agents-stats', 'agents-servers-stats', 'agents-policies-stats', 'agents-cost-stats',
                                                                     'agents-topology', 'agents-flow-card')), True)
+    # The Token usage tab's day picker (`from`, `to`): its subtree, and the widgets shown with it.
+    usage, stack = set(), ['agents-tab-usage']
+    while stack:
+        n = stack.pop()
+        if n in usage or n not in widgets:
+            continue
+        usage.add(n)
+        for d in widgets[n]:
+            stack += [r['name'] for r in ((d['spec'].get('resourcesRefs') or {}).get('items') or [])]
+    usage |= {'page-agents', 'agents-page-header', 'agents-ask-agentiko', 'agents-new', 'agents-policy-new-header', 'agents-main'}
+    expect(f, 'the Token usage tab names the day picker too', CH.get('Col', 'agents-tab-usage')['metadata']['annotations'].get('krateo.io/filter-keys'),
+           ','.join(KX + ['from', 'to']))
     for n in sorted(seen):
         for d in widgets[n]:
-            expect(f, f'{d["kind"]} {n} declares the filter keys, in order', d['spec'].get('keyExtras'), KX)
+            expect(f, f'{d["kind"]} {n} declares the filter keys, in order', d['spec'].get('keyExtras'), KX + (['from', 'to'] if n in usage else []))
     return f
 
 
