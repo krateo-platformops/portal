@@ -36,3 +36,31 @@ table:
   - {condition: Synced, reason: ReconcileSuccess, status: "True", writer: provider-runtime, verdict: "—", portal: no effect}
   - {condition: Synced, reason: ReconcileError, status: "False", writer: provider-runtime, verdict: "—", portal: "failed (red) / Degraded, or Drift when Ready=True; Synced's message unless Ready's verdict is failed"}
   - {condition: Synced, reason: ReconcilePaused, status: "False", writer: provider-runtime, verdict: "—", portal: paused (gray) / Paused}
+  # core-provider's other conditions (#595). Their verdict is "—": core-provider's rollup reads Ready
+  # only, and so does the portal. cdState reads Ready and Synced and nothing else, and no page lists
+  # a definition's raw conditions, so none of these changes what a card or the header pill shows
+  # (the pill's reasoning is in helm/blueprints-page/templates/pageheader.blueprint-detail.yaml).
+  - {condition: ApiRefRBACComplete, reason: InvalidApiRef, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: RESTActionForbidden, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: RESTActionNotFound, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: ReadSetResolved, status: "True", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: SnowplowError, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: SnowplowNotConfigured, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: SnowplowUnavailable, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: StageUnresolvable, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: ApiRefRBACComplete, reason: Unauthorized, status: "False", writer: core-provider, verdict: "—", portal: "no effect: it only explains a Synced=False, which the card and the pill already show from Synced"}
+  - {condition: AuthnDelegation, reason: DelegationUnsupported, status: "False", writer: core-provider, verdict: "—", portal: "no effect: informational, a definition is healthy either way"}
+  - {condition: AuthnDelegation, reason: Rendered, status: "True", writer: core-provider, verdict: "—", portal: "no effect: informational, a definition is healthy either way"}
+  - {condition: AuthnMappingApplied, reason: Applied, status: "True", writer: core-provider, verdict: "—", portal: "no effect: False/AuthnNotInstalled is a healthy definition on a cluster with no authn CRD"}
+  - {condition: AuthnMappingApplied, reason: AuthnNotInstalled, status: "False", writer: core-provider, verdict: "—", portal: "no effect: False/AuthnNotInstalled is a healthy definition on a cluster with no authn CRD"}
+  - {condition: ControllerActive, reason: NotObserved, status: Unknown, writer: core-provider, verdict: "—", portal: "no effect: Ready carries the controller state (Unavailable, ScaledToZero) the portal shows"}
+  - {condition: ControllerActive, reason: Running, status: "True", writer: core-provider, verdict: "—", portal: "no effect: Ready carries the controller state (Unavailable, ScaledToZero) the portal shows"}
+  - {condition: ControllerActive, reason: ScaledToZero, status: "False", writer: core-provider, verdict: "—", portal: "no effect: Ready carries the controller state (Unavailable, ScaledToZero) the portal shows"}
+  - {condition: ControllerActive, reason: Unavailable, status: "False", writer: core-provider, verdict: "—", portal: "no effect: Ready carries the controller state (Unavailable, ScaledToZero) the portal shows"}
+  - {condition: SchemaFullyEnforced, reason: ConstraintsNotEnforced, status: "False", writer: core-provider, verdict: "—", portal: "no effect: informational, the schema applies either way"}
+  - {condition: SchemaFullyEnforced, reason: FullyEnforced, status: "True", writer: core-provider, verdict: "—", portal: "no effect: informational, the schema applies either way"}
+  - {condition: SchemaFullyEnforced, reason: OwnedByAnotherDefinition, status: Unknown, writer: core-provider, verdict: "—", portal: "no effect: informational, the schema applies either way"}
+  - {condition: SpecSchemaCurrent, reason: Current, status: "True", writer: core-provider, verdict: "—", portal: "no effect: informational, Ready says whether the definition serves"}
+  - {condition: SpecSchemaCurrent, reason: GeneratedSchemaNotLooser, status: "False", writer: core-provider, verdict: "—", portal: "no effect: informational, Ready says whether the definition serves"}
+  - {condition: SpecSchemaCurrent, reason: LooserSchemaPending, status: "False", writer: core-provider, verdict: "—", portal: "no effect: informational, Ready says whether the definition serves"}
+  - {condition: SpecSchemaCurrent, reason: OwnedByAnotherDefinition, status: Unknown, writer: core-provider, verdict: "—", portal: "no effect: informational, Ready says whether the definition serves"}
