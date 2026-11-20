@@ -1,5 +1,6 @@
-{{/* The spend view, stacked: the time range, the exception line (empty when all is well), the */}}
-{{/* figures, the trend beside the model split, spend per agent, then per user beside per group. */}}
+{{/* The spend view, in the layout of /incidents: the exception line (empty when all is well), the */}}
+{{/* toolbar (the time range, the search), the figures, then who spent it on the left two thirds */}}
+{{/* (agents, users, groups) beside the spend over time and by model on the right third. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,33 +12,29 @@ spec:
   keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
   widgetData:
     allowedResources:
-    - flexes
     - paragraphs
     - listies
     - rows
-    - cards
     vertical: true
     gap: middle
     items:
-    - resourceRefId: agents-cost-range
     - resourceRefId: agents-cost-notice
+    - resourceRefId: agents-cost-toolbar
     - resourceRefId: agents-cost-stats
-    - resourceRefId: agents-cost-trend-row
-    - resourceRefId: agents-cost-agents-card
-    - resourceRefId: agents-cost-people-row
+    - resourceRefId: agents-cost-main
   resourcesRefs:
     items:
-    - id: agents-cost-range
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-range
-      namespace: {{ $.Values.namespace }}
-      resource: flexes
-      verb: GET
     - id: agents-cost-notice
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: agents-cost-notice
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
+      verb: GET
+    - id: agents-cost-toolbar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-toolbar
+      namespace: {{ $.Values.namespace }}
+      resource: rows
       verb: GET
     - id: agents-cost-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
@@ -45,21 +42,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: agents-cost-trend-row
+    - id: agents-cost-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-trend
-      namespace: {{ $.Values.namespace }}
-      resource: rows
-      verb: GET
-    - id: agents-cost-agents-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-agents
-      namespace: {{ $.Values.namespace }}
-      resource: cards
-      verb: GET
-    - id: agents-cost-people-row
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-cost-people
+      name: agents-cost-main
       namespace: {{ $.Values.namespace }}
       resource: rows
       verb: GET

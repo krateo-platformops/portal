@@ -409,12 +409,16 @@ def series_row(t, inp=1000, out=100, cached=400):
 
 def check_token_usage_tab():
     f = []
-    expect(f, 'the tab: the range, the notice, the figures, the charts, the tables', (items('Col', 'agents-tab-usage', {}), items('Flex', 'agents-cost', {})),
-           (['agents-cost'], ['agents-cost-range', 'agents-cost-notice', 'agents-cost-stats', 'agents-cost-trend-row', 'agents-cost-agents-card', 'agents-cost-people-row']))
-    expect(f, 'the charts: over time 16, by model 8', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-trend')['items']],
-           [('agents-cost-trend-card', 16, 24), ('agents-cost-models-card', 8, 24)])
-    expect(f, 'users 15, groups 9', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-people')['items']],
-           [('agents-cost-users-card', 15, 24), ('agents-cost-groups-card', 9, 24)])
+    expect(f, 'the tab: the notice, the toolbar, the figures, the main row', (items('Col', 'agents-tab-usage', {}), items('Flex', 'agents-cost', {})),
+           (['agents-cost'], ['agents-cost-notice', 'agents-cost-toolbar', 'agents-cost-stats', 'agents-cost-main']))
+    expect(f, 'the toolbar: the range 18, the search 6', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-toolbar')['items']],
+           [('agents-cost-range', 18, 24), ('agents-cost-search-wrap', 6, 24)])
+    search = static('Input', 'agents-cost-search')
+    expect(f, 'the search writes ?q on Enter, at the standard size', (search['queryParam'], search['size'], search['allowClear']), ('q', 'middle', True))
+    expect(f, 'the main row: the tables 16, the charts 8', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-main')['items']],
+           [('agents-cost-tables', 16, 24), ('agents-cost-side', 8, 24)])
+    expect(f, 'the tables: agents, users, groups', items('Flex', 'agents-cost-tables', {}),
+           ['agents-cost-agents-card', 'agents-cost-users-card', 'agents-cost-groups-card'])
     # The Overview's token card.
     hour = int(time.time() // 3600 * 3600)
     rows = [series_row(hour), series_row(hour - 3 * 3600, inp=3000, out=300, cached=0), series_row(hour - 30 * 3600)]

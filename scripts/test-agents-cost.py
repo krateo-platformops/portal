@@ -113,7 +113,7 @@ def check_no_access():
         expect(f, f'{label}: no ClickHouse call', iterators(resp), {'gw': [], 'ag': []})
         out = resolve(resp)
         expect(f, f'{label}: access', out['access'], 'none')
-        expect(f, f'{label}: no figure', {s['caption'] for s in out['stats']}, {'not shared with you'})
+        expect(f, f'{label}: no figure', {(s['caption'], s['tone']) for s in out['stats']}, {('not shared with you', 'hidden')})
         expect(f, f'{label}: no rows', [out['series'], out['agents'], out['users'], out['groups']], [[], [], [], []])
         if access != 'ERROR':
             expect(f, f'{label}: says what to ask for', 'Ask an administrator for read access to Gateways' in out['notice'], True)
@@ -244,7 +244,60 @@ def check_widgets():
     return f
 
 
-CHECKS = [check_no_access, check_spend_over_time, check_pricing, check_recorded_cost, check_row_limit, check_agents, check_widgets]
+def check_figures_coloured():
+    f = []
+    gw = [row('admin', calls=2), row('mystery', model='mystery-model')]
+    out = resolve(responses(gw))
+    expect(f, 'every figure has its own colour', [(s['title'], s['tone']) for s in out['stats']],
+           [('Spend', 'spend'), ('Per call', 'percall'), ('Cached input', 'cached'), ('Incident comparison', 'comparison'), ('Not priced', 'warn')])
+    cmap = tbi.resolved_widget(CH, 'Listy', 'agents-cost-stats', out, {}, 'Listy agents-cost-stats')['spec']['widgetData']['itemTemplate']['color']['map']
+    tones = {s['tone'] for s in out['stats']} | {'hidden', 'unread'}
+    expect(f, 'every tone is in the colour map', sorted(t for t in tones if t not in cmap), [])
+    expect(f, 'a failed read is orange, as on /incidents', cmap.get('unread'), 'orange')
+    bad = responses(gw)
+    bad['gw'] = 'ERROR'
+    out = resolve(bad)
+    expect(f, 'a failed call log: "—", could not be read, unread', {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'unread')})
+    return f
+
+
+def check_search():
+    f = []
+    gw = [row('alice', calls=2, team='devs'), row('bob', team='ops'),
+          row('krateo-alert-provider', principal='service', team='', cmp=1)]
+    ag = [agent_row('m', 'krateo_system__NS__agentiko', calls=1, inp=1000, outp=100, spans=1),
+          agent_row('s', 'krateo_system__NS__agentiko', calls=1)]
+    full = resolve(responses(gw, ag))
+    out = resolve(responses(gw, ag), {'q': '  ALI '})
+    expect(f, 'the search is trimmed and case-insensitive', out['q'], 'ali')
+    expect(f, 'users: only the names that match', [u['name'] for u in out['users']], ['alice'])
+    expect(f, 'agents: only the names that match', [a['name'] for a in out['agents']], [])
+    expect(f, 'groups: only the names that match', [g['name'] for g in out['groups']], [])
+    expect(f, 'the figures and the charts stay the range totals', (out['stats'], out['series'], out['byModel'], out['totals']),
+           (full['stats'], full['series'], full['byModel'], full['totals']))
+    expect(f, 'a matching row keeps its share of the whole', [u['share'] for u in out['users']], [u['share'] for u in full['users'] if u['name'] == 'alice'])
+    out = resolve(responses(gw, ag), {'q': 'agentiko'})
+    expect(f, 'an agent by name', [a['name'] for a in out['agents']], ['agentiko'])
+    out = resolve(responses(gw, ag), {'q': 'OPS'})
+    expect(f, 'a group by name', [g['name'] for g in out['groups']], ['ops'])
+    expect(f, 'a match says nothing', 'matches' in out['notice'], False)
+    out = resolve(responses(gw, ag), {'q': 'zzz'})
+    expect(f, 'no match: said', out['notice'], 'No agent, user or group matches "zzz".')
+    expect(f, 'no search: every row', len(full['users']), 3)
+    return f
+
+
+def check_side():
+    f = []
+    side = lambda out: [i['resourceRefId'] for i in tbi.resolved_widget(CH, 'Flex', 'agents-cost-side', out, {}, 'Flex agents-cost-side')['spec']['widgetData']['items']]
+    expect(f, 'calls priced: both charts', side(resolve(responses([row('a')]))), ['agents-cost-trend-card', 'agents-cost-models-card'])
+    expect(f, 'no call in the range: no chart', side(resolve(responses([]))), [])
+    expect(f, 'no access: no chart', side(resolve(responses([row('a')], access='ERROR'))), [])
+    return f
+
+
+CHECKS = [check_no_access, check_spend_over_time, check_pricing, check_recorded_cost, check_row_limit, check_agents, check_widgets,
+          check_figures_coloured, check_search, check_side]
 
 
 def main():

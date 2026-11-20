@@ -134,6 +134,7 @@ spec:
     {{- include "agentsCost.defs" . | nindent 4 }}
     # A group whose every call is unpriced has no spend to show, not a spend of $0.
     def known($priced): $priced and ((.calls // 0) == 0 or (.unpriced // 0) < .calls);
+    def found($q): $q == "" or ((. // "") | tostring | ascii_downcase | contains($q));
     def money($priced): if known($priced) then (.usd | usd) else "—" end;
     # Table cells are plain numbers, the unit in the column title: the Table right-aligns and sorts a
     # column numerically only when every raw value is a plain number (tableSorting.ts NUMERIC_RE).
@@ -149,6 +150,9 @@ spec:
               "3d": "in the last 3 days", "7d": "in the last 7 days"})[$range] end) as $rangeLabel
     | (if $span <= 43200 then "%H:%M" elif $span <= 259200 then "%a %H:%M" else "%b %d %H:%M" end) as $xfmt
     | (.gatewayAccess == true) as $access
+    # The search (?q=), trimmed and case-insensitive. It narrows the agents, users and groups tables
+    # by name; the figures and the charts stay the range's totals (input.agents-cost-search).
+    | ((.q // "") | tostring | sub("^\\s+"; "") | sub("\\s+$"; "") | ascii_downcase) as $q
     | errText(.gatewayAccessError) as $accErr
     | errText(.catalogError) as $catErr
     | errText(.agentsError) as $agentsErr
@@ -260,25 +264,28 @@ spec:
                      ($g | map(select(.usd == null) | .calls) | add // 0) as $n
                      | ($unpricedModels | join(" and ")) + (if ($unpricedModels | length) == 1 then " is not on the gateway's price list, so its " else " are not on the gateway's price list, so their " end)
                        + ($n | commas) + (if $n == 1 then " call is" else " calls are" end) + " not counted in the spend."
+                   else empty end),
+                  (if $access and $q != "" and ([ $agentRows[], $userRows[], $groupRows[] | select(.name | found($q)) ] | length) == 0 then
+                     ("No agent, user or group matches \"" + $q + "\".")
                    else empty end) ] | join(" ") ),
       stats: (
         if ($access | not) then
-          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "not shared with you", tone: ""})
+          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "not shared with you", tone: "hidden"})
         elif $span <= 0 then
-          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "older than the 7 days kept", tone: ""})
+          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "older than the 7 days kept", tone: "hidden"})
         elif $gwErr != "" or $gwMissing then
-          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "could not be read", tone: ""})
+          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "could not be read", tone: "unread"})
         else
           [ { title: "Spend", value: ($tot | money($priced)),
-              caption: (($tot.calls | commas) + (if $tot.calls == 1 then " model call " else " model calls " end) + $rangeLabel), tone: "" },
+              caption: (($tot.calls | commas) + (if $tot.calls == 1 then " model call " else " model calls " end) + $rangeLabel), tone: "spend" },
             { title: "Per call",
               value: (if $tot.calls > 0 and ($tot | known($priced)) then (($tot.usd / ($tot.calls - $tot.unpriced)) | usd) else "—" end),
-              caption: (if $tot.calls > 0 then ((($tot.i / $tot.calls) | compact) + " tokens in, " + (($tot.o / $tot.calls) | compact) + " out on average") else "no calls" end), tone: "" },
+              caption: (if $tot.calls > 0 then ((($tot.i / $tot.calls) | compact) + " tokens in, " + (($tot.o / $tot.calls) | compact) + " out on average") else "no calls" end), tone: "percall" },
             { title: "Cached input",
               value: (if $tot.i > 0 then (($tot.c * 100 / $tot.i) | fixed(0)) + "%" else "—" end),
-              caption: "of input tokens came from the model's cache, at the lower cache rate", tone: "" },
+              caption: "of input tokens came from the model's cache, at the lower cache rate", tone: "cached" },
             { title: "Incident comparison", value: ($cmp | money($priced)),
-              caption: (($cmp.calls | commas) + (if $cmp.calls == 1 then " call" else " calls" end) + " by the alert provider, without an agent"), tone: "" } ]
+              caption: (($cmp.calls | commas) + (if $cmp.calls == 1 then " call" else " calls" end) + " by the alert provider, without an agent"), tone: "comparison" } ]
           + (if $priced and $tot.unpriced > 0 then
                [ { title: "Not priced", value: (($tot.unpriced | commas) + (if $tot.unpriced == 1 then " call" else " calls" end)),
                    caption: (if $catOk then (($unpricedModels | join(", ")) + " not on the price list") else "the price list could not be read" end), tone: "warn" } ]
@@ -286,13 +293,14 @@ spec:
         end ),
       series: (if $priced then $series else [] end),
       byModel: (if $priced then $byModel else [] end),
-      agents: [ $agentRows | sort_by(-.usd, .name)[]
+      agents: [ $agentRows | sort_by(-.usd, .name)[] | select(.name | found($q))
                 | cells($priced; $tot.usd) + { name: .name, routeNs: .ns, routeName: (if .ns == "" then "" else .name end) } ],
-      users: [ $userRows | sort_by(-.usd, .name)[]
+      users: [ $userRows | sort_by(-.usd, .name)[] | select(.name | found($q))
                | cells($priced; $tot.usd) + { name: .name,
                    kind: (if .principal == "human" then "person" elif .principal == "service" then "service" else "—" end) } ],
-      groups: [ $groupRows | sort_by(-.usd, .name)[]
+      groups: [ $groupRows | sort_by(-.usd, .name)[] | select(.name | found($q))
                 | cells($priced; $tot.usd) + { name: .name, members: (.members | tostring) } ],
+      q: $q,
       totals: { calls: $tot.calls, usd: $total, comparisonUsd: (if $priced then $cmp.usd else null end),
                 agentsUsd: (if $priced then ($perAgent | sums | .usd) else null end), unmatchedAgentCalls: $unmatched,
                 unpricedCalls: $tot.unpriced }
