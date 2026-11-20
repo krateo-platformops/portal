@@ -10,6 +10,9 @@ WHAT IT GUARDS:
   - the five figures over every alert: Firing (of N, red above 0), Not evaluated (orange above 0),
     Pending, OK, With open incidents (and how many incidents); with the incidents unread that figure
     is "—", never 0; with the alerts unread every figure is "—";
+  - each figure opens the list filtered to what it counts, the route of its chip, every other param
+    kept, zero or not; With open incidents is ?status=open-incidents (a chip too): the alerts in any
+    state with an open incident, said when the incidents are unread; a failed read is not clickable;
   - ?range= (7d when absent): incidents opened per hour (24h) or per day (7d, 30d), ending now, and
     the five alerts that opened the most in the range, most first, each linking to its alert;
   - the donuts: by state (triage order) and by signal;
@@ -132,7 +135,7 @@ def check_figures():
     expect(f, 'open incidents red, as the cards\' mark; a failed read orange', (smap['incident'], smap['unread']), ('red', 'orange'))
     out = resolve({}, incidents='ERROR')
     expect(f, 'incidents unread: that figure is a dash, said', out['stats'][4],
-           {'title': 'With open incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread'})
+           {'title': 'With open incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread', 'route': ''})
     expect(f, 'incidents unread: no trend, no top list', (out['incidentTrend'], out['topIncidents']), ([], []))
     ra = CH.get('RESTAction', 'obs-alerts')
     failed = tbi.jq(ra['spec']['filter'], {'alertsError': ['dial tcp: i/o timeout'], 'incidents': []})
@@ -292,7 +295,45 @@ def check_filter_keys():
     return f
 
 
-CHECKS = [check_incidents_read, check_figures, check_charts, check_search, check_layout, check_cards, check_header_and_asks, check_filter_keys]
+def check_tile_routes():
+    f = []
+    ex = {'projects': 'team-a', 'status': 'ok', 'range': '30d', 'view': 'table', 'q': 'o'}
+    out = resolve(ex)
+    chip = {c['label']: c['route'] for c in out['chips']}
+    expect(f, 'each figure routes as its chip (q, view, range, projects kept)', [(s['title'], s['route']) for s in out['stats']],
+           [(t, chip[t]) for t in ('Firing', 'Not evaluated', 'Pending', 'OK', 'With open incidents')])
+    expect(f, 'Firing (the default) leaves ?status out; With open incidents is a status value',
+           (out['stats'][0]['route'], out['stats'][4]['route']),
+           ('/alerts?projects=team-a&range=30d&view=table&q=o', '/alerts?projects=team-a&status=open-incidents&range=30d&view=table&q=o'))
+    zero = resolve({}, [alert('a', 'OK')], incidents=[])
+    expect(f, 'a zero figure still routes', [(s['value'], s['route']) for s in zero['stats']],
+           [('0', '/alerts'), ('0', '/alerts?status=not-evaluated'), ('0', '/alerts?status=pending'), ('1', '/alerts?status=ok'),
+            ('0', '/alerts?status=open-incidents')])
+    ex = {'status': 'Open-Incidents'}
+    wi = resolve(ex)
+    expect(f, 'open-incidents: the alerts with one, any state, in triage order; its chip active',
+           ([r['routeName'] for r in wi['rows']], [c['label'] for c in wi['chips'] if c['active']], wi['counts']),
+           (['reconcile-errors', 'cert-expiry', 'oom', 'probe'], ['With open incidents'], resolve({})['counts']))
+    path = w('Button', 'alerts-ask-agentiko', wi, ex)['actions']['navigate'][0]['path']
+    starts = 'Review my observability alerts in the view on screen (With open incidents): 4 alerts —'
+    expect(f, 'open-incidents: the prompt names it', parse_qs(path.partition('?')[2])['ask'][0][:len(starts)], starts)
+    none = resolve(ex, incidents=[])
+    para = w('Paragraph', 'alerts-empty', none, ex)
+    expect(f, 'open-incidents, none: said', (none['rows'], para['text'], para['type']), ([], 'No alert has an open incident.', 'secondary'))
+    unread = resolve(ex, incidents='ERROR')
+    para = w('Paragraph', 'alerts-empty', unread, ex)
+    expect(f, 'open-incidents, incidents unread: said as a warning, no chip, no route',
+           (unread['rows'], para['text'], para['type'], [c['label'] for c in unread['chips']][-1], unread['stats'][4]['route']),
+           ([], 'The incidents could not be read, so which alerts have an open incident is unknown.', 'warning', 'All', ''))
+    ra = CH.get('RESTAction', 'obs-alerts')
+    failed = tbi.jq(ra['spec']['filter'], {'alertsError': ['dial tcp: i/o timeout'], 'incidents': []})
+    expect(f, 'alerts unread: no figure is clickable', [s['route'] for s in failed['stats']], [''] * 5)
+    tpl = w('Listy', 'alerts-stats', out, ex)['itemTemplate']
+    expect(f, 'the figures navigate to their route', (tpl['rowVariant'], tpl['navigateTo']), ('statistic', '{route}'))
+    return f
+
+
+CHECKS = [check_incidents_read, check_figures, check_tile_routes, check_charts, check_search, check_layout, check_cards, check_header_and_asks, check_filter_keys]
 
 
 def main():

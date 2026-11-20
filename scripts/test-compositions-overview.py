@@ -269,7 +269,27 @@ def check_filter_keys():
     return f
 
 
-CHECKS = [check_paused_is_not_ready, check_state_chips, check_stats_and_empty, check_cards, check_charts,
+def check_stat_tiles_route():
+    f = []
+    extras = {'q': 'e', 'view': 'table', 'scope': 'all', 'projects': 'team-a', 'kind': 'WebApp', 'status': 'drift'}
+    out = resolve(extras)
+    def chip(state):
+        return {c['key']: c['route'] for c in resolve(dict(extras, status=state))['stateChips']}.get(state)
+    tiles = w('Listy', 'compositions-stats', out, extras)
+    expect(f, 'the tiles navigate to their route', tiles['itemTemplate'].get('navigateTo'), "{route}")
+    expect(f, 'each state tile routes as its state chip (q, view, scope, kind, projects kept)',
+           [(t['title'], t['route']) for t in tiles['dataSource']],
+           [(t['title'], chip(t['tone'])) for t in out['stats']])
+    expect(f, 'the routes keep every param', out['stats'][0]['route'],
+           '/compositions?projects=team-a&scope=all&status=failed&kind=WebApp&q=e&view=table')
+    out = resolve({'status': 'drift'}, [WORK[0]])
+    expect(f, 'a state at 0 is still a link', [t['route'] for t in out['stats'] if t['title'] == 'Paused'], ['/compositions?status=paused'])
+    out = resolve({}, [], err={'message': 'forbidden'})
+    expect(f, 'a failed read is never a link', {t['route'] for t in out['stats']}, {''})
+    return f
+
+
+CHECKS = [check_paused_is_not_ready, check_state_chips, check_stats_and_empty, check_stat_tiles_route, check_cards, check_charts,
           check_narrowing, check_table_view, check_filter_keys]
 
 

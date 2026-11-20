@@ -4,10 +4,12 @@
      incidents it opened in the range.
 
      THE PARAMS. The state is the page's one filter:
-       status  alert (Firing), not-evaluated, pending, ok, or all. Absent, it is alert: the page
-               opens on what is firing. Read case-insensitively; a value that is no state matches
-               nothing, and the chips are still drawn so the reader can pick another. An alert with
-               no HyperDX alert behind it is not-evaluated, whatever .status.state says;
+       status  alert (Firing), not-evaluated, pending, ok, all, or open-incidents (not a state: the
+               alerts, in any state, with an open incident; nothing when the incidents could not be
+               read). Absent, it is alert: the page opens on what is firing. Read case-insensitively;
+               a value that is no state matches nothing, and the chips are still drawn so the reader
+               can pick another. An alert with no HyperDX alert behind it is not-evaluated, whatever
+               .status.state says;
        range   24h, 7d (absent) or 30d: the window of the incidents-opened chart and of "Most
                incidents";
        view    `table`: the full table instead of the cards;
@@ -26,9 +28,12 @@
        counts    per state, over every alert (the chips, the donut, the figures);
        stats     Firing, Not evaluated, Pending, OK, With open incidents; a failed read is "—". Each
                  tile's tone is the state it counts, so it wears the colour the cards give that
-                 state (With open incidents: the cards' red incident mark); `unread` on a failed read;
+                 state (With open incidents: the cards' red incident mark); `unread` on a failed read.
+                 route: each tile opens the list filtered to what it counts, the same route as its
+                 chip (With open incidents: ?status=open-incidents); "" (not clickable) on a failed read;
        chips / viewChips / rangeChips   each a label, a count where it has one, active, and the
-                 route that keeps the other params;
+                 route that keeps the other params; the state chips end with With open incidents
+                 (left out while the incidents could not be read);
        byState / bySignal   the donuts;
        incidentTrend   incidents opened per hour (24h) or per day (7d, 30d), ending now;
        topIncidents    the five alerts that opened the most incidents in the range;
@@ -142,19 +147,21 @@ spec:
         | .stateKey as $sk | .order = (($keys | index($sk)) // 9) ]
       | sort_by(.order, .name)) as $allRows
     | ($allRows | map(select($q == "" or ([ .name, (.description // ""), .type, .routeName ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
-    | ($rows | map(select($sel == "all" or .stateKey == $sel))) as $shown
+    | ($rows | map(select($sel == "all" or .stateKey == $sel or ($sel == "open-incidents" and (.openIncidents // 0) > 0)))) as $shown
     | ((.alertsError // null) | errtext) as $err
     | ($err != "") as $failed
     | ($keys | map(. as $k | { key: $k, value: ([ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries + { all: ($rows | length) }) as $counts
     | ([ $rows[] | select((.openIncidents // 0) > 0) ]) as $withOpen
-    | [ { title: "Firing", value: ($counts.alert | tostring), caption: (if $counts.alert > 0 then "of " + ($counts.all | tostring) + " alerts" else "" end), tone: "alert" },
-        { title: "Not evaluated", value: ($counts["not-evaluated"] | tostring), caption: (if $counts["not-evaluated"] > 0 then "no HyperDX alert behind it" else "" end), tone: "not-evaluated" },
-        { title: "Pending", value: ($counts.pending | tostring), caption: (if $counts.pending > 0 then "not decided yet" else "" end), tone: "pending" },
-        { title: "OK", value: ($counts.ok | tostring), caption: "", tone: "ok" },
-        (if $incidentsFailed then { title: "With open incidents", value: "", caption: "the incidents could not be read", tone: "unread" }
+    # Each tile routes as its chip does (href, every other param kept).
+    | [ { title: "Firing", value: ($counts.alert | tostring), caption: (if $counts.alert > 0 then "of " + ($counts.all | tostring) + " alerts" else "" end), tone: "alert", route: href("alert"; $range; $tableView) },
+        { title: "Not evaluated", value: ($counts["not-evaluated"] | tostring), caption: (if $counts["not-evaluated"] > 0 then "no HyperDX alert behind it" else "" end), tone: "not-evaluated", route: href("not-evaluated"; $range; $tableView) },
+        { title: "Pending", value: ($counts.pending | tostring), caption: (if $counts.pending > 0 then "not decided yet" else "" end), tone: "pending", route: href("pending"; $range; $tableView) },
+        { title: "OK", value: ($counts.ok | tostring), caption: "", tone: "ok", route: href("ok"; $range; $tableView) },
+        (if $incidentsFailed then { title: "With open incidents", value: "", caption: "the incidents could not be read", tone: "unread", route: "" }
          else { title: "With open incidents", value: ($withOpen | length | tostring),
-                caption: (([ $withOpen[] | .openIncidents ] | add // 0) as $n | if $n == 0 then "" elif $n == 1 then "1 open incident" else ($n | tostring) + " open incidents" end), tone: "incident" } end) ]
-      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . end) as $stats
+                caption: (([ $withOpen[] | .openIncidents ] | add // 0) as $n | if $n == 0 then "" elif $n == 1 then "1 open incident" else ($n | tostring) + " open incidents" end), tone: "incident",
+                route: href("open-incidents"; $range; $tableView) } end) ]
+      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . end) as $stats
     # INCIDENTS OPENED, per bucket over the range, the newest bucket the current hour or day.
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
     | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
@@ -171,7 +178,7 @@ spec:
     # "Ask Agentiko →" (button.alerts-ask-agentiko) describes the alerts on screen and keeps every
     # param. A failed read of the alerts is asked about, never described as a quiet platform; an
     # unread incident list is said, never "no open incidents".
-    | ([ (if $sel == "all" then empty else "State: " + ($stateNames[$sel] // $sel) end),
+    | ([ (if $sel == "all" then empty elif $sel == "open-incidents" then "With open incidents" else "State: " + ($stateNames[$sel] // $sel) end),
          (if $qRaw != "" then "Search: \"" + $qRaw + "\"" else empty end) ] | join(", ")) as $desc
     | ([ $shown[] | select(.stateKey == "ok" and (.openIncidents // 0) > 0) ] | sort_by(-.openIncidents, .name)) as $okOpen
     | ([ $shown[] | select(.stateKey == "ok" and ((.okSince | epoch) as $t | $t != null and ($now - $t) < 86400)) ]) as $back
@@ -208,8 +215,10 @@ spec:
         view: (if $tableView then "table" else "" end),
         counts: $counts,
         stats: $stats,
-        chips: ([ ($keys[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
-                | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
+        chips: (([ ($keys[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
+                 | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) }))
+                + (if $incidentsFailed then []
+                   else [ { label: "With open incidents", count: ($withOpen | length), active: ($sel == "open-incidents"), route: href("open-incidents"; $range; $tableView) } ] end)),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
                      { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),

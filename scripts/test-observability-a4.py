@@ -25,6 +25,9 @@ the stream as the full list, errors by service and the pods with the most memory
 COMPONENTS (obs-components): Ready, Not ready, Scaled to zero; the runtime table and the declared
 pins as the full list.
 TRACES (obs-traces): spans, errors, services, users; the status chips in the list card.
+STATE TILES: a figure that counts a state (Reconciliation Healthy, Needs attention, Pending, Overdue;
+Components Ready, Not ready, Scaled to zero; Traces Errors) routes exactly as its state chip, every
+other param kept; totals, metrics (every Telemetry figure) and failed reads route "" (plain tiles).
 
 SLOs and the snowplow SLI tabs keep their own layout (charts and cards only): test-obs-slo.py.
 No trend is bucketed here: the line charts on these tabs (reconcile throughput, resource usage) are
@@ -616,6 +619,61 @@ def check_traces(c):
     return f
 
 
+# ---------------------------------------------------------------------------------------------
+# State tiles: a figure that counts a state opens the list filtered to it
+# ---------------------------------------------------------------------------------------------
+
+def check_state_tiles(c, on):
+    """A state tile's route is its state chip's, the other page params kept (q, view, range); a total,
+    a metric and a failed read have route "" (a plain tile); every figures Listy wires navigateTo."""
+    f = []
+    kx = {'q': 'FireworksApp', 'view': 'table', 'range': '6h'}
+    for chart, name, out in ((on, 'obs-recon-stats', recon_out(on, kx)[2]), (c, 'obs-tel-stats', digest(c, kx)),
+                             (c, 'obs-components-stats', comps(c, kx)), (c, 'obs-traces-stats', spans(c, kx))):
+        expect(f, f'{name}: a tile navigates to its route', wd(chart, 'Listy', name, out)['itemTemplate'].get('navigateTo'), '{route}')
+    # Reconciliation (?status=)
+    out = recon_out(on, kx)[2]
+    chips = {k['key']: k['route'] for k in out['chips']}
+    expect(f, 'Reconciliation: each state tile opens its chip, q, view and range kept',
+           [(s['title'], s['route']) for s in out['stats']],
+           [('Compositions', ''), ('Healthy', chips['healthy']), ('Needs attention', chips['attention']),
+            ('Pending', chips['pending']), ('Reconcile overdue', chips['overdue'])])
+    expect(f, 'Reconciliation: the route keeps the other params', chips['attention'],
+           '/observability?range=6h&status=attention&q=FireworksApp&view=table&tab=Reconciliation')
+    sel = recon_out(on, dict(kx, status='healthy'))[2]
+    expect(f, 'Reconciliation: no toggle, the active state still routes to itself', sel['stats'][1]['route'], chips['healthy'])
+    for label, kw in (('ClickHouse down', {'ch_down': True}), ('no reconcile span', {'spans': []})):
+        o = recon_out(on, kx, **kw)[2]
+        expect(f, f'Reconciliation, {label}: overdue is a plain tile', (o['stats'][4]['value'], o['stats'][4]['route']), ('', ''))
+    off = recon_out(c, kx, spans=None)[2]
+    expect(f, 'Reconciliation without tracing: the same routes', [s['route'] for s in off['stats']],
+           ['', chips['healthy'], chips['attention'], chips['pending']])
+    bad = recon_out(on, kx, crds={'__status__': {'kind': 'Status', 'code': 403, 'message': 'forbidden'}}, lists={})[2]
+    expect(f, 'Reconciliation, a failed read: no tile routes', {s['route'] for s in bad['stats']}, {''})
+    # Telemetry: metrics of an error-only tab, none clickable
+    expect(f, 'Telemetry: every tile is a metric', [s['route'] for s in digest(c, kx)['stats']], [''] * 4)
+    expect(f, 'Telemetry, a failed read: no tile routes', {s['route'] for s in digest(c, kx, rows=None, tot=None)['stats']}, {''})
+    # Components (?componentStatus=)
+    kc = dict(kx, q='x')
+    out = comps(c, kc)
+    chips = {k['key']: k['route'] for k in out['chips']}
+    expect(f, 'Components: each state tile opens its chip, q, view and range kept',
+           [(s['title'], s['route']) for s in out['stats']],
+           [('Deployments', ''), ('Ready', chips['ready']), ('Not ready', chips['notready']), ('Scaled to zero', chips['scaled'])])
+    expect(f, 'Components: the route keeps the other params', chips['notready'],
+           '/observability?range=6h&componentStatus=notready&q=x&view=table&tab=Components')
+    expect(f, 'Components, a failed read: no tile routes', {s['route'] for s in comps(c, kc, deps=None)['stats']}, {''})
+    # Traces (?traceStatus=): Errors is the Error chip; spans, services, users are metrics
+    st = wd(c, 'Listy', 'obs-traces-status-chips', {}, kx)['dataSource']
+    expect(f, 'Traces: Errors opens the Error chip, q, view and range kept; the rest are metrics',
+           [(s['title'], s['route']) for s in spans(c, kx)['stats']],
+           [('Spans', ''), ('Errors', st[1]['route']), ('Services', ''), ('Users', '')])
+    expect(f, 'Traces: the Error chip', (st[1]['label'], st[1]['route']), ('Error', '/observability?range=6h&traceStatus=Error&q=FireworksApp&view=table&tab=Traces'))
+    expect(f, 'Traces, a failed read: no tile routes', {s['route'] for s in spans(c, kx, rows=False)['stats']}, {''})
+    expect(f, 'Traces, a refused filter: no tile routes', {s['route'] for s in spans(c, dict(kx, traceUser="x' OR 1=1"), rows=[])['stats']}, {''})
+    return f
+
+
 def check_unchanged_tabs(c, on):
     """SLOs and the SP tabs keep their layout: charts and cards, no list to summarise."""
     f = []
@@ -651,6 +709,7 @@ def main():
         ('Telemetry: figures, errors as cards, the stream as the full list, the side, the search', lambda: check_telemetry(c, on)),
         ('Components: figures, chips, cards, the full list, the side, the search', lambda: check_components(c)),
         ('Traces: figures, status chips, cards, the full list, the side, the search', lambda: check_traces(c)),
+        ('State tiles open their state chip\'s route; totals, metrics and failed reads do not', lambda: check_state_tiles(c, on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
     ]
     if crds_dir:

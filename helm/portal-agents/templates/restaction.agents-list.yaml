@@ -70,8 +70,15 @@
 {{/*   stats       the five figures: Agents, Ready and registered, Needs attention, Gateway gaps, Tool */}}
 {{/*               servers NotAccepted; each tile's tone is the state it counts (all, ok, bad; */}}
 {{/*               `unchecked` for a gateway not checked, `unread` for a failed read), zero or not; */}}
+{{/*               `route` opens the Overview filtered to the state a tile counts, keeping every other */}}
+{{/*               param: Ready and registered ?group=ready, Needs attention the attention chip's */}}
+{{/*               route, Gateway gaps ?status=notregistered, Tool servers NotAccepted */}}
+{{/*               ?status=notaccepted (both with ?group= cleared, so the default group shows them); */}}
+{{/*               Agents (a total), an unchecked gateway and a failed read are "", not clickable; */}}
 {{/*   group       the group chips' pick (?group=): attention (default while anything needs it, else */}}
-{{/*               all), orchestrators, specialists, all; groupChips / viewChips with their routes; */}}
+{{/*               all), ready (orchestrators and specialists together, the Ready and registered */}}
+{{/*               tile's), orchestrators, specialists, all; groupChips / viewChips with */}}
+{{/*               their routes; */}}
 {{/*   cards       one per agent or tool server of the group, 24 at most (more / moreText say the rest); */}}
 {{/*   tableRows   the agents of the group, for the 12-column table (?view=table); */}}
 {{/*   listCount / emptyText / emptyType   what the list card shows, or says instead; */}}
@@ -375,22 +382,28 @@ spec:
     # The group chips (?group=) pick what the cards and the Full list show: attention (the default
     # while anything in view needs it, else all), orchestrators and specialists (the healthy agents,
     # as before), all (every agent and tool server in view, triage order). An unknown value (another
-    # tab's, e.g. the Tool servers tab's `healthy`) falls back to the default.
+    # tab's, e.g. the Tool servers tab's `healthy`) falls back to the default. `ready` (the healthy
+    # agents, orchestrators then specialists) is the Ready and registered tile's group, and its chip.
     | ( .attention | length ) as $attN
     | ( if $attN > 0 then "attention" else "all" end ) as $grpDefault
     | ( (($in.group // "") | tostring | ascii_downcase) as $g
-        | if ($g | IN("attention", "orchestrators", "specialists", "all")) then $g else $grpDefault end ) as $grp
+        | if ($g | IN("attention", "orchestrators", "specialists", "all", "ready")) then $g else $grpDefault end ) as $grp
     | ( $agErr != "" ) as $agFailed
     | ( $srvErr != "" ) as $srvFailed
     | ( [ .serversInView[] | select(.accepted) ] ) as $okServers
     | { attention: .attention, orchestrators: .orchestrators, specialists: .specialists,
-        all: (.attention + .orchestrators + .specialists + $okServers) } as $groups
+        all: (.attention + .orchestrators + .specialists + $okServers),
+        ready: (.orchestrators + .specialists) } as $groups
     | ( $groups[$grp] ) as $members
     | ( [ .agentsInView[] | select((.gateway // "") == "" and (.statusLabel // "") == "") ] | length ) as $healthyN
     | ( [ .agentsInView[] | select(.orchestrator) ] | length ) as $orchN
     | ( .agentsInView | length ) as $agentN
     | 24 as $cap
     | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+      # The route a group chip (and a figure) opens: the default group is left out of the URL.
+      def grpHref($k): fx_href("/agents"; fx_set($p; "group"; (if $k == $grpDefault then "" else $k end)));
+      # The route a status figure opens: the Status facet set to that one value, the group cleared.
+      def statusHref($v): fx_href("/agents"; fx_set(fx_set($p; "status"; $v); "group"; ""));
       # A card's tone is the state it shows: bad (red: refused by the gateway, not Ready, not
       # Accepted), warn (orange: the agent card refused, an advisory condition), ok (green). The
       # figures use the same map, so a tile and its cards read as one.
@@ -427,10 +440,12 @@ spec:
                     | ($cap | tostring) + " of " + ($m | tostring) + " shown here. "
                       + (if $ma == $m then "Full list has all " + ($m | tostring) + "."
                          else "Full list has the " + n($ma; "agent"; "agents") + "; the tool servers are on the Tool servers tab." end) ),
-        groupChips: ( [ { k: "attention", l: "Needs attention" }, { k: "orchestrators", l: "Orchestrators" },
-                        { k: "specialists", l: "Specialists" }, { k: "all", l: "All" } ]
+        # Ready and registered (named as its tile) sits before the two halves it is made of.
+        groupChips: ( [ { k: "attention", l: "Needs attention" },
+                        { k: "ready", l: (if $gatewayKnown then "Ready and registered" else "Ready" end) },
+                        { k: "orchestrators", l: "Orchestrators" }, { k: "specialists", l: "Specialists" }, { k: "all", l: "All" } ]
                       | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp),
-                              route: fx_href("/agents"; fx_set($p; "group"; (if .k == $grpDefault then "" else .k end))) }) ),
+                              route: grpHref(.k) }) ),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: .cardsHref },
                      { label: "Full list", active: $tableView, route: .tableHref } ],
         # THE FIVE FIGURES over the agents and tool servers in view. Every tile wears the colour
@@ -438,19 +453,22 @@ spec:
         # (blue), Ready and registered ok (green), Needs attention and the two gaps bad (red).
         # A gateway that could not be checked is "—", "not checked", in orange, never 0 gaps; a
         # failed read is "—", "could not be read", in orange, on every tile that counts it.
-        stats: ( [ { title: "Agents", value: $agentN, tone: "all", needs: "agents",
+        # A state tile opens the Overview filtered to that state (`route`, see A4 OUTPUT); the
+        # total, an unchecked gateway and a failed read have route "", a plain tile.
+        stats: ( [ { title: "Agents", value: $agentN, tone: "all", needs: "agents", route: "",
                      caption: (n($orchN; "orchestrator"; "orchestrators") + " · " + n($agentN - $orchN; "specialist"; "specialists")) },
-                   { title: (if $gatewayKnown then "Ready and registered" else "Ready" end), value: $healthyN, tone: "ok", needs: "agents",
+                   { title: (if $gatewayKnown then "Ready and registered" else "Ready" end), value: $healthyN, tone: "ok", needs: "agents", route: grpHref("ready"),
                      caption: ("of " + n($agentN; "agent"; "agents") + (if $gatewayKnown then "" else "; gateway not checked" end)) },
-                   { title: "Needs attention", value: $attN, tone: "bad", needs: "both",
+                   { title: "Needs attention", value: $attN, tone: "bad", needs: "both", route: grpHref("attention"),
                      caption: "unreachable, not Ready or not Accepted" },
-                   (if $gatewayKnown then { title: "Gateway gaps", value: ($s.gatewayGaps // 0), tone: "bad", needs: "agents", caption: "not routed or not allowed" }
-                    else { title: "Gateway gaps", value: "", tone: "unchecked", needs: "agents", caption: "not checked" } end),
-                   { title: "Tool servers NotAccepted", value: ($s.serversNotAccepted // 0), tone: "bad", needs: "servers",
+                   (if $gatewayKnown then { title: "Gateway gaps", value: ($s.gatewayGaps // 0), tone: "bad", needs: "agents", caption: "not routed or not allowed",
+                             route: statusHref("notregistered") }
+                    else { title: "Gateway gaps", value: "", tone: "unchecked", needs: "agents", caption: "not checked", route: "" } end),
+                   { title: "Tool servers NotAccepted", value: ($s.serversNotAccepted // 0), tone: "bad", needs: "servers", route: statusHref("notaccepted"),
                      caption: ("of " + (($s.servers // 0) | tostring) + " · " + n($s.toolsDiscovered // 0; "tool"; "tools") + " discovered") } ]
                  | map(if (.needs == "agents" and $agFailed) or (.needs == "servers" and $srvFailed) or (.needs == "both" and ($agFailed or $srvFailed))
-                       then { title, value: "", caption: "could not be read", tone: "unread" }
-                       else { title, value: (.value | tostring), caption, tone } end) ),
+                       then { title, value: "", caption: "could not be read", tone: "unread", route: "" }
+                       else { title, value: (.value | tostring), caption, tone, route } end) ),
         # THE CHARTS (agents-side): the health donut over everything in view, the agents by pattern,
         # the agents by resolved model. The token trend reads agents-token-timeseries itself.
         byHealth: (if $agFailed then [] else
@@ -473,6 +491,7 @@ spec:
                      elif .matched == 0 then "No agent or tool server you can read."
                      elif $tableView and ($tableRows | length) == 0 and ($members | length) > 0 then "The Full list has agents only; the tool servers in this group are on the Tool servers tab."
                      else ({ attention: "Nothing needs attention.", orchestrators: "No healthy agent in view hands work to another.",
+                             ready: "No healthy agent in view.",
                              specialists: "No healthy specialist agent in view.", all: "No agent or tool server in view." }[$grp]) end ) }
     # "Ask Agentiko →" (button.agents-ask-agentiko): this page's route with an ?ask seed about the
     # fleet the table shows, built here and @uri-encoded so the Button is a plain literal navigate.

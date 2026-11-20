@@ -1301,6 +1301,39 @@ def check_figures(c):
     return p
 
 
+def check_figure_routes(c):
+    """A state tile (Success, Failure, Denied) opens the list filtered to that outcome: the outcome
+    chip's own route, keeping every other filter, the view and the search. Records (a total),
+    Untraced (not an outcome, no filter value) and a failed read are plain tiles (route "")."""
+    p = []
+    ex = {'range': '7d', 'auditUser': 'j.doe', 'auditNamespace': 'team-a', 'projects': 'team-a', 'view': 'table',
+          'q': 'team', 'auditOutcome': 'failure'}
+    _, out, _ = records_all(c, ex, ADMIN)
+    _, fac = facets(c, ex, ADMIN)
+    chips = {x['label']: x['route'] for x in
+             tbi.resolved_widget(c, 'Listy', 'audit-outcome-chips', fac, ex, 'outcome chips (routes)')['spec']['widgetData']['dataSource']}
+    tiles = {s['title']: s['route'] for s in out['stats']}
+    for t in ('Success', 'Failure', 'Denied'):
+        expect(p, f'{t} tile routes as its chip', tiles[t], chips.get(t, f'<no {t} chip>'))
+    expect(p, 'the tile keeps range, filters, projects, view and search', tiles['Denied'],
+           '/audit?range=7d&auditNamespace=team-a&auditOutcome=denied&auditUser=j.doe&projects=team-a&view=table&q=team')
+    expect(p, 'an active tile still routes to its filter (no toggle)', tiles['Failure'],
+           '/audit?range=7d&auditNamespace=team-a&auditOutcome=failure&auditUser=j.doe&projects=team-a&view=table&q=team')
+    expect(p, 'Records and Untraced are not clickable', (tiles['Records'], tiles['Untraced']), ('', ''))
+    _, z, _ = records_all(c, {'auditOutcome': 'failure'}, ADMIN)
+    expect(p, 'a zero tile is still clickable', [s['route'] for s in z['stats'] if s['title'] == 'Success'],
+           ['/audit?range=24h&auditOutcome=success'])
+    for broken in (('summary',), ('breakdown',)):
+        _, bad, _ = records_all(c, ex, ADMIN, broken=broken)
+        expect(p, f'{broken[0]} unread: no route on an unread tile',
+               [s['title'] for s in bad['stats'] if s['tone'] == 'unread' and s['route'] != ''], [])
+    _, none, _ = records_all(c, {}, NOBODY)
+    expect(p, 'nothing read: no tile clickable', {s['route'] for s in none['stats']}, {''})
+    stats = wd(c, 'Listy', 'audit-stats', out, ex, 'figures (routes)')
+    expect(p, 'the figures Listy navigates to {route}', stats['itemTemplate'].get('navigateTo'), '{route}')
+    return p
+
+
 def check_cards(c):
     p = []
     _, out, _ = records_all(c, {}, ADMIN)
@@ -1582,6 +1615,7 @@ def main():
         ('chart conventions: namespace, RBAC, endpoint, keyExtras, nav, values', lambda: check_chart_conventions(c)),
         ('A4 layout: header, toolbar (filters 18, search 6), figures, records 16 beside charts 8', lambda: check_dashboard_layout(c)),
         ('A4 figures: Records, Success, Failure, Denied, Untraced, coloured as the outcome tag', lambda: check_figures(c)),
+        ('A4 figures: a state tile opens the outcome chip\'s route; totals and unread tiles do not', lambda: check_figure_routes(c)),
         ('A4 cards: one per record, the outcome colour, the trace link, 48 and the Full list', lambda: check_cards(c)),
         ('A4 activity: buckets per range, consecutive, ending now, summing to the figures', lambda: check_trend(c)),
         ('A4 side charts: outcomes, top users, top namespaces, following the chips', lambda: check_side_charts(c)),

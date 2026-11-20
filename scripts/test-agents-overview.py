@@ -19,9 +19,11 @@ THE OVERVIEW TAB:
     the group; a line when there is nothing to list) and the charts (health, pattern, model, tokens);
   - Ask Agentiko keeps every filter and names the view.
 THE OTHER TABS:
-  - Tool servers: its figures, its state chips (?group=: Needs attention, Healthy, All), a card per
+  - Tool servers: its figures, its state chips (?group=: Needs attention, Healthy, Accepted, NotAccepted,
+    Advisories, All), a card per
     server or the full table, its charts; the matrix and the bindings stay below;
-  - Policies: its four figures above the role cards;
+  - Policies: its four figures, its state chips (?group=: All, Healthy, Not healthy, Not attached) which
+    narrow the role cards (a line when none is left), above the role cards; a state tile routes as its chip;
   - Token usage: the range, the notice, the spend figures, the spend charts side by side, then spend per
     agent, user and group (the spend itself: test-agents-cost); the Overview's token
     card reads the token totals over its own range, one point per bucket ending now;
@@ -170,12 +172,74 @@ def check_figures():
     return f
 
 
+def qs(route):
+    """A route's query as a dict (the page reads its extras from it)."""
+    from urllib.parse import urlsplit, parse_qsl
+    return dict(parse_qsl(urlsplit(route).query))
+
+
+def routes(out):
+    return {t['title']: t['route'] for t in out['stats']}
+
+
+def check_figure_routes():
+    """A state tile opens the Overview filtered to that state, keeping every other param; the total,
+    an unchecked gateway and a failed read are plain tiles (route "")."""
+    f = []
+    ex = {'projects': 'p', 'q': 'agent', 'view': 'table', 'range': '7d', 'owner': 'agentiko', 'group': 'orchestrators'}
+    out = resolve(ex)
+    r = routes(out)
+    chips = {c['label']: c['route'] for c in w('Listy', 'agents-group-chips', out, ex)['dataSource']}
+    expect(f, 'Needs attention routes as its group chip', r['Needs attention'], chips['Needs attention'])
+    expect(f, 'Needs attention keeps q, view, range and the facets (attention is the default: no ?group)',
+           r['Needs attention'], '/agents?projects=p&owner=agentiko&q=agent&view=table&range=7d')
+    expect(f, 'Ready and registered: the new ?group=ready, the other params kept', r['Ready and registered'],
+           '/agents?projects=p&owner=agentiko&q=agent&view=table&range=7d&group=ready')
+    expect(f, 'Gateway gaps: the Status facet NotRegistered, the group cleared', r['Gateway gaps'],
+           '/agents?projects=p&status=notregistered&owner=agentiko&q=agent&view=table&range=7d')
+    expect(f, 'Tool servers NotAccepted: the Status facet NotAccepted, the group cleared', r['Tool servers NotAccepted'],
+           '/agents?projects=p&status=notaccepted&owner=agentiko&q=agent&view=table&range=7d')
+    expect(f, 'Agents (a total) is not clickable', r['Agents'], '')
+    # Each route lands on exactly what its tile counts.
+    base = resolve({})
+    want = {t['title']: t['value'] for t in base['stats']}
+    for title in ('Ready and registered', 'Needs attention', 'Gateway gaps', 'Tool servers NotAccepted'):
+        q = qs(routes(base)[title])
+        expect(f, f'{title}: the route lists what the tile counts',
+               str(len(w('Listy', 'agents-cards', resolve(q), q)['dataSource'])), want[title])
+    ready = resolve({'group': 'ready'})
+    expect(f, '?group=ready: the healthy agents, orchestrators first', (ready['group'], [c['title'] for c in ready['cards']]),
+           ('ready', ['agentiko', 'frontend-agent', 'helm-agent', 'k8s-agent']))
+    expect(f, '?group=ready: its chip is active', [c['label'] for c in ready['groupChips'] if c['active']], ['Ready and registered'])
+    # Every state tile with a chip of its own: the same route (q, view, range and the facets kept) and the same count.
+    chip = {c['label']: c for c in w('Listy', 'agents-group-chips', out, ex)['dataSource']}
+    tile = {t['title']: t for t in out['stats']}
+    for title in ('Ready and registered', 'Needs attention'):
+        expect(f, f'{title}: the tile routes as its chip', tile[title]['route'], chip[title]['route'])
+        expect(f, f'{title}: the chip counts what the tile counts', str(chip[title]['count']), tile[title]['value'])
+    for title in ('Ready and registered', 'Needs attention'):
+        expect(f, f'{title} (no filter): the chip counts what the tile counts',
+               str({c['label']: c['count'] for c in base['groupChips']}[title]), want[title])
+    expect(f, 'gateway not checked: the chip is named as its tile, Ready', [c['label'] for c in resolve({}, routes=False)['groupChips']][1], 'Ready')
+    calm = [a for a in AGENTS if a['metadata']['name'] not in ('broken-agent', 'nightly-review-agent')]
+    zero = resolve({}, agents=calm, servers=SERVERS[:2])
+    expect(f, 'a zero tile is still clickable', (routes(zero)['Gateway gaps'], routes(zero)['Needs attention']),
+           ('/agents?status=notregistered', '/agents?group=attention'))
+    expect(f, 'an active tile still routes to its filter (no toggle)', routes(resolve({'group': 'ready'}))['Ready and registered'], '/agents?group=ready')
+    expect(f, 'gateway not checked: Gateway gaps is not clickable', routes(resolve({}, routes=False))['Gateway gaps'], '')
+    bad = resolve({}, agents_error=True)
+    expect(f, 'a failed read is not clickable', [t['route'] for t in bad['stats'] if t['tone'] == 'unread'], [''] * 4)
+    expect(f, 'the figures Listy navigates to {route}', static('Listy', 'agents-stats')['itemTemplate'].get('navigateTo'), '{route}')
+    return f
+
+
 def check_chips_and_cards():
     f = []
     out = resolve({})
     chips = [(c['label'], c['count'], c['active'], c['route']) for c in w('Listy', 'agents-group-chips', out)['dataSource']]
     expect(f, 'the group chips, Needs attention by default', chips, [
-        ('Needs attention', 3, True, '/agents'), ('Orchestrators', 2, False, '/agents?group=orchestrators'),
+        ('Needs attention', 3, True, '/agents'), ('Ready and registered', 4, False, '/agents?group=ready'),
+        ('Orchestrators', 2, False, '/agents?group=orchestrators'),
         ('Specialists', 2, False, '/agents?group=specialists'), ('All', 9, False, '/agents?group=all')])
     cards = w('Listy', 'agents-cards', out)['dataSource']
     expect(f, 'Needs attention: the agents (by name), then the tool servers', [(c['title'], c['tag'], c['tone'], c['href']) for c in cards],
@@ -196,7 +260,8 @@ def check_chips_and_cards():
     calm = [a for a in AGENTS if a['metadata']['name'] not in ('broken-agent', 'nightly-review-agent')]
     out = resolve({}, agents=calm, servers=SERVERS[:2])
     expect(f, 'nothing needs attention: All is the default', [(c['label'], c['active'], c['route']) for c in out['groupChips']],
-           [('Needs attention', False, '/agents?group=attention'), ('Orchestrators', False, '/agents?group=orchestrators'),
+           [('Needs attention', False, '/agents?group=attention'), ('Ready and registered', False, '/agents?group=ready'),
+            ('Orchestrators', False, '/agents?group=orchestrators'),
             ('Specialists', False, '/agents?group=specialists'), ('All', True, '/agents')])
     ex = {'group': 'healthy'}
     expect(f, "another tab's group falls back to the default", resolve(ex)['group'], 'attention')
@@ -270,9 +335,9 @@ def check_search():
     out = resolve(ex)
     expect(f, 'search: name and description, any case, trimmed', [a['name'] for a in out['agentsInView']], ['helm-agent'])
     expect(f, 'the figures follow it', [t['value'] for t in out['stats']], ['1', '1', '0', '0', '0'])
-    expect(f, 'the chips follow it', [c['count'] for c in out['groupChips']], [0, 0, 1, 1])
+    expect(f, 'the chips follow it', [c['count'] for c in out['groupChips']], [0, 1, 0, 1, 1])
     expect(f, 'every route keeps it', [c['route'] for c in out['groupChips']],
-           ['/agents?q=%20HELM%20&group=attention', '/agents?q=%20HELM%20&group=orchestrators', '/agents?q=%20HELM%20&group=specialists', '/agents?q=%20HELM%20'])
+           ['/agents?q=%20HELM%20&group=attention', '/agents?q=%20HELM%20&group=ready', '/agents?q=%20HELM%20&group=orchestrators', '/agents?q=%20HELM%20&group=specialists', '/agents?q=%20HELM%20'])
     expect(f, 'nothing in attention: All is the default, with the agent', [c['title'] for c in w('Listy', 'agents-cards', out, ex)['dataSource']], ['helm-agent'])
     expect(f, 'the charts follow it', (out['byHealth'], [(p['name'], p['count']) for p in out['byPattern']]),
            ([{'state': 'Healthy', 'count': 1}], [('Specialists', 1), ('Bench (no composition)', 1)]))
@@ -350,7 +415,8 @@ def check_servers_tab():
     expect(f, 'the figures and the cards share one colour map', static('Listy', 'agents-servers-stats')['itemTemplate']['color']['map'],
            static('Listy', 'agents-servers-cards')['itemTemplate']['color']['map'])
     expect(f, 'the state chips, Needs attention by default', [(c['label'], c['count'], c['active'], c['route']) for c in w('Listy', 'agents-servers-chips', out)['dataSource']],
-           [('Needs attention', 2, True, '/agents'), ('Healthy', 2, False, '/agents?group=healthy'), ('All', 4, False, '/agents?group=all')])
+           [('Needs attention', 2, True, '/agents'), ('Healthy', 2, False, '/agents?group=healthy'), ('Accepted', 3, False, '/agents?group=accepted'),
+            ('NotAccepted', 1, False, '/agents?group=notaccepted'), ('Advisories', 1, False, '/agents?group=advisory'), ('All', 4, False, '/agents?group=all')])
     cards = w('Listy', 'agents-servers-cards', out)['dataSource']
     expect(f, 'Needs attention: NotAccepted, then the advisories', [(c['title'], c['tag'], c['tone']) for c in cards],
            [('cujbench-evidence', 'NotAccepted', 'bad'), ('flux-schema', 'external endpoint', 'warn')])
@@ -380,23 +446,119 @@ def check_servers_tab():
     return f
 
 
+def check_servers_figure_routes():
+    f = []
+    ex = {'projects': 'p', 'q': 'x', 'view': 'table', 'range': '7d', 'group': 'healthy'}
+    out = servers_out(ex)
+    r = routes(out)
+    chip = {c['label']: c['route'] for c in w('Listy', 'agents-servers-chips', out, ex)['dataSource']}['Healthy']
+    expect(f, 'the chips route through the same href (q, view, range kept)', chip, '/agents?projects=p&q=x&view=table&range=7d&group=healthy')
+    expect(f, 'each state tile routes as a chip would, on its own group', (r['Accepted'], r['NotAccepted'], r['Advisories']),
+           tuple(chip.replace('group=healthy', 'group=' + g) for g in ('accepted', 'notaccepted', 'advisory')))
+    expect(f, 'the totals are not clickable', (r['Tool servers'], r['Tools discovered']), ('', ''))
+    base = servers_out({})
+    for title in ('Accepted', 'NotAccepted', 'Advisories'):
+        q = qs(routes(base)[title])
+        landed = servers_out(q)
+        expect(f, f'{title}: the route lists what the tile counts', str(len(w('Listy', 'agents-servers-cards', landed, q)['dataSource'])),
+               {t['title']: t['value'] for t in base['stats']}[title])
+    # Every state tile has its chip: the same route (q, view, range kept), the same count, active once landed.
+    chips = {c['label']: c for c in w('Listy', 'agents-servers-chips', out, ex)['dataSource']}
+    for title in ('Accepted', 'NotAccepted', 'Advisories'):
+        expect(f, f'{title}: the tile routes as its chip', r[title], chips[title]['route'])
+        expect(f, f'{title}: the chip counts what the tile counts', str(chips[title]['count']), {t['title']: t['value'] for t in out['stats']}[title])
+        expect(f, f'{title} (no filter): the chip counts what the tile counts', str({c['label']: c['count'] for c in base['serverChips']}[title]),
+               {t['title']: t['value'] for t in base['stats']}[title])
+        landed = servers_out(qs(r[title]))
+        expect(f, f'{title}: landing from the tile, its chip is active', [c['label'] for c in landed['serverChips'] if c['active']], [title])
+    expect(f, 'a zero tile is still clickable', routes(servers_out({}, servers=SERVERS[:2]))['NotAccepted'], '/agents?group=notaccepted')
+    expect(f, 'a failed read is not clickable', {t['route'] for t in servers_out({}, servers_error=True)['stats']}, {''})
+    expect(f, 'the figures Listy navigates to {route}', static('Listy', 'agents-servers-stats')['itemTemplate'].get('navigateTo'), '{route}')
+    return f
+
+
 # ---------------------------------------------------------------- the Policies tab
+
+POLS = [{'metadata': {'name': 'agentgateway-policies-cors', 'namespace': NS},
+         'spec': {'targetRefs': [{'kind': 'Gateway', 'name': 'agentgateway'}], 'traffic': {'cors': {'allowMethods': ['GET']}}}},
+        {'metadata': {'name': 'agentgateway-policies-retry', 'namespace': NS},
+         'spec': {'traffic': {'retry': {'attempts': 2}}},
+         'status': {'ancestors': [{'conditions': [{'type': 'Accepted', 'status': 'False'}]}]}},
+        {'metadata': {'name': 'agentgateway-policies-jwt', 'namespace': NS},
+         'spec': {'targetRefs': [{'kind': 'Gateway', 'name': 'agentgateway'}], 'traffic': {'jwtAuthentication': {'mode': 'Strict'}}}}]
+
+
+def policies_out(extras, pols=None, error=False):
+    return tbi.resolve(CH, 'agents-policies', {'policies': 'ERROR' if error else {'items': POLS if pols is None else pols}, 'routes': {'items': []}}, extras)
+
+
+def role_rows(out, extras):
+    """{role: [policy names]} as the tab renders them: the role cards the groups Flex includes, each table's rows."""
+    shown = {}
+    for ref in items('Flex', 'agents-policies-groups', out, extras):
+        role = ref.removeprefix('agents-policies-card-')
+        rows = w('Table', f'agents-policies-table-{role}', out, extras)['dataSource']
+        shown[role] = ([{c['valueKey']: c.get('stringValue') for c in r}['name'] for r in rows], w('Card', ref, out, extras)['extra'])
+    return shown
+
 
 def check_policies_tab():
     f = []
-    expect(f, 'the tab: figures, then the role cards', (items('Col', 'agents-tab-policies', {}), items('Flex', 'agents-policies-tab', {})),
-           (['agents-policies-tab'], ['agents-policies-stats', 'agents-policies-groups']))
-    pols = [{'metadata': {'name': 'agentgateway-policies-cors', 'namespace': NS},
-             'spec': {'targetRefs': [{'kind': 'Gateway', 'name': 'agentgateway'}], 'traffic': {'cors': {'allowMethods': ['GET']}}}},
-            {'metadata': {'name': 'agentgateway-policies-retry', 'namespace': NS},
-             'spec': {'traffic': {'retry': {'attempts': 2}}},
-             'status': {'ancestors': [{'conditions': [{'type': 'Accepted', 'status': 'False'}]}]}}]
-    out = tbi.resolve(CH, 'agents-policies', {'policies': {'items': pols}, 'routes': {'items': []}}, {})
+    out = policies_out({})
+    expect(f, 'the tab: figures, state chips, then the role cards', (items('Col', 'agents-tab-policies', {}), items('Flex', 'agents-policies-tab', out)),
+           (['agents-policies-tab'], ['agents-policies-stats', 'agents-policies-chips', 'agents-policies-groups']))
     expect(f, 'the four figures', tiles(w('Listy', 'agents-policies-stats', out)), [
-        ('Policies', '2', 'in 2 roles', 'all'), ('Healthy', '1', 'accepted and attached by the gateway', 'ok'),
+        ('Policies', '3', 'in 3 roles', 'all'), ('Healthy', '2', 'accepted and attached by the gateway', 'ok'),
         ('Not healthy', '1', 'a condition not True', 'bad'), ('Not attached', '1', 'no targetRef or selector: enforces nothing', 'warn')])
-    out = tbi.resolve(CH, 'agents-policies', {'policies': 'ERROR', 'routes': {'items': []}}, {})
-    expect(f, 'a failed read: "—" in orange', [t[1:] for t in tiles(w('Listy', 'agents-policies-stats', out))], [('', 'could not be read', 'unread')] * 4)
+    expect(f, 'the state chips, All by default', [(c['label'], c['count'], c['active'], c['route']) for c in w('Listy', 'agents-policies-chips', out)['dataSource']],
+           [('All', 3, True, '/agents'), ('Healthy', 2, False, '/agents?group=healthy'),
+            ('Not healthy', 1, False, '/agents?group=nothealthy'), ('Not attached', 1, False, '/agents?group=notattached')])
+    expect(f, 'All: every role card, every policy', role_rows(out, {}),
+           {'identity': (['jwt'], '1 policy'), 'resiliency': (['retry'], '1 policy'), 'cors': (['cors'], '1 policy')})
+    # With q, view and range set (and another tab's facet), a state tile routes as its chip and counts what it counts.
+    ex = {'projects': 'p', 'status': 'notaccepted', 'q': 'x', 'view': 'table', 'range': '7d', 'group': 'healthy'}
+    out = policies_out(ex)
+    tile = {t['title']: t for t in out['stats']}
+    chip = {c['label']: c for c in w('Listy', 'agents-policies-chips', out, ex)['dataSource']}
+    expect(f, 'the chips keep every other param', chip['Not healthy']['route'], '/agents?projects=p&status=notaccepted&q=x&view=table&range=7d&group=nothealthy')
+    expect(f, 'All leaves ?group out', chip['All']['route'], '/agents?projects=p&status=notaccepted&q=x&view=table&range=7d')
+    for title in ('Healthy', 'Not healthy', 'Not attached'):
+        expect(f, f'{title}: the tile routes as its chip', tile[title]['route'], chip[title]['route'])
+        expect(f, f'{title}: the chip counts what the tile counts', str(chip[title]['count']), tile[title]['value'])
+        q = qs(tile[title]['route'])
+        landed = policies_out(q)
+        expect(f, f'{title}: landing from the tile, its chip is active', [c['label'] for c in landed['stateChips'] if c['active']], [title])
+        expect(f, f'{title}: the role tables list what the tile counts', str(sum(len(v[0]) for v in role_rows(landed, q).values())), tile[title]['value'])
+    expect(f, 'the totals are not clickable', tile['Policies']['route'], '')
+    expect(f, 'the figures do not follow the pick (the whole surface)', [t['value'] for t in out['stats']], ['3', '2', '1', '1'])
+    ex = {'group': 'nothealthy'}
+    out = policies_out(ex)
+    expect(f, 'Not healthy: only its role card, its count follows', role_rows(out, ex), {'resiliency': (['retry'], '1 policy')})
+    expect(f, '... the tab shows the cards', items('Flex', 'agents-policies-tab', out, ex), ['agents-policies-stats', 'agents-policies-chips', 'agents-policies-groups'])
+    ex = {'group': 'healthy'}
+    expect(f, 'Healthy: two role cards', role_rows(policies_out(ex), ex), {'identity': (['jwt'], '1 policy'), 'cors': (['cors'], '1 policy')})
+    expect(f, "another tab's value (attention) is All", policies_out({'group': 'attention'})['group'], 'all')
+    # Nothing in the picked state: the role cards give way to a line that says so.
+    calm = [p for p in POLS if p['metadata']['name'] != 'agentgateway-policies-retry']
+    ex = {'group': 'nothealthy'}
+    out = policies_out(ex, pols=calm)
+    expect(f, 'none matches: a line instead of the cards', (items('Flex', 'agents-policies-tab', out, ex), w('Paragraph', 'agents-policies-empty', out, ex)['text'],
+           w('Paragraph', 'agents-policies-empty', out, ex)['type']),
+           (['agents-policies-stats', 'agents-policies-chips', 'agents-policies-empty'], 'Every policy is healthy.', 'secondary'))
+    expect(f, 'a zero tile is still clickable', {t['title']: t['route'] for t in out['stats']}['Not healthy'], '/agents?group=nothealthy')
+    expect(f, 'an active tile still routes to its filter (no toggle)', {t['title']: t['route'] for t in out['stats']}['Not healthy'],
+           [c['route'] for c in out['stateChips'] if c['active']][0])
+    # /agents/policies reads the same RESTAction with no ?group: every policy, as before.
+    out = policies_out({})
+    expect(f, '/agents/policies: every role card', items('Flex', 'page-agents-policies', out), ['agents-policies-page-header', 'agents-policies-groups'])
+    expect(f, '/agents/policies: the groups unfiltered, rows and byRole unchanged', (out['shown'] == out['rows'], out['shownByRole'] == out['byRole'], out['total']),
+           (True, True, 3))
+    out = policies_out({}, error=True)
+    expect(f, 'a failed read: "—" in orange, not clickable', [t[1:] + (r,) for t, r in zip(tiles(w('Listy', 'agents-policies-stats', out)), [t['route'] for t in out['stats']])],
+           [('', 'could not be read', 'unread', '')] * 4)
+    expect(f, 'a failed read: a warning line instead of the cards', (items('Flex', 'agents-policies-tab', out), w('Paragraph', 'agents-policies-empty', out)['type']),
+           (['agents-policies-stats', 'agents-policies-chips', 'agents-policies-empty'], 'warning'))
+    expect(f, 'the figures Listy navigates to {route}', static('Listy', 'agents-policies-stats')['itemTemplate'].get('navigateTo'), '{route}')
     return f
 
 
@@ -478,8 +640,8 @@ def check_filter_keys():
     return f
 
 
-CHECKS = [check_facets, check_figures, check_chips_and_cards, check_layout, check_search, check_side, check_page_and_table,
-          check_servers_tab, check_policies_tab, check_token_usage_tab, check_filter_keys]
+CHECKS = [check_facets, check_figures, check_figure_routes, check_chips_and_cards, check_layout, check_search, check_side, check_page_and_table,
+          check_servers_tab, check_servers_figure_routes, check_policies_tab, check_token_usage_tab, check_filter_keys]
 
 
 def main():

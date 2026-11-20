@@ -12,7 +12,10 @@ WHAT IT PINS, because each is a way the page could lie:
     statuses verbatim, and Mine (the raised-by label against the caller, slugged the same way the
     form slugs it).
   - The dashboard (the /incidents layout): the range (24h, 7d, 30d) windows the Opened and Solved
-    figures and the opened-vs-solved chart, never the chips or the list; Active, Pending (Zendesk
+    figures and the opened-vs-solved chart, and the Solved chip, never the other chips or the list;
+    SOLVED IS THE RANGE'S: the Solved figure, its chip's count and the rows ?state=solved lists
+    (cards and table) are one number, every request Solved OR Closed last updated in the window,
+    an older one (or one with no update time) left out; Active, Pending (Zendesk
     waiting on someone here) and Need attention count now; one card per request or, with
     ?view=table, the table; every route keeps the other params and leaves the defaults out.
   - ONE warning above the queue names each organisation whose requests can't be read from Zendesk;
@@ -297,11 +300,12 @@ def check_chips(chart):
     expect(f, 'no ?state= selects Active', out['state'], 'active')
     expect(f, 'Active hides Solved and Closed, keeps Filing', [r['name'] for r in out['rows']],
            ['zr-filing', 'zr-new', 'zr-open', 'zr-pending', 'zr-hold'])
+    # Solved counts the range's (7d): zr-solved was last updated on a fixed day long gone, so 0.
     expect(f, 'counts', out['counts'], {'active': 5, 'all': 7, 'new': 1, 'open': 1, 'pending': 1, 'hold': 1,
-                                        'solved': 1, 'closed': 1, 'mine': 3})
+                                        'solved': 0, 'closed': 1, 'attention': 0, 'mine': 3})
     chips = widget(chart, 'Listy', 'service-desk-state-chips', out, ex, 'chips')['dataSource']
     expect(f, 'chip order and words', [c['label'] for c in chips],
-           ['Active', 'All', 'New', 'Open', 'Pending', 'On-hold', 'Solved', 'Closed', 'Mine'])
+           ['Active', 'All', 'New', 'Open', 'Pending', 'On-hold', 'Solved', 'Closed', 'Need attention', 'Mine'])
     expect(f, 'Active is the selected chip', [c['label'] for c in chips if c['active']], ['Active'])
     expect(f, 'chip routes', chips[5]['route'], '/service-desk?state=hold')
     out, _ = queue(chart, mixed(), state='all')
@@ -389,8 +393,59 @@ def check_dashboard(chart):
     quiet, qex = queue(chart, [items[3]])
     expect(f, 'and not without', ids(widget(chart, 'Flex', 'service-desk-side', quiet, qex, 'side (quiet)')['items']),
            ['service-desk-by-status-card', 'service-desk-trend-card'])
+    expect(f, 'Need attention: refused, held or unknown, at its own chip',
+           ([r['name'] for r in queue(chart, items, state='attention')[0]['rows']], queue(chart, [items[0]], state='attention')[0]['emptyTitle']),
+           (['zr-ref'], 'No request needs attention.'))
+    tiles = widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')
+    expect(f, 'the tiles navigate to their route', tiles['itemTemplate'].get('navigateTo'), '{route}')
+    tx = {'username': 'x', 'state': 'pending', 'range': '30d', 'view': 'table', 'q': 'subject'}
+    outx, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, tx)
+    chip = {c['label']: c['route'] for c in outx['chips']}
+    expect(f, 'a state tile routes as its state chip (q, view and range kept); Opened is a total, not a link',
+           [(t['title'], t['route']) for t in outx['stats']],
+           [('Active', chip['Active']), ('Pending', chip['Pending']), ('Need attention', chip['Need attention']),
+            ('Opened', ''), ('Solved', chip['Solved'])])
+    expect(f, 'the routes keep every param', chip['Need attention'], '/service-desk?state=attention&range=30d&view=table&q=subject')
+    expect(f, 'a state at 0 is still a link', [t['route'] for t in queue(chart, [items[0]])[0]['stats'] if t['title'] == 'Need attention'],
+           ['/service-desk?state=attention'])
+    for err in (DENIED, NOT_SERVED, BROKEN):
+        expect(f, 'an unavailable or denied read is never a link', {t['route'] for t in queue(chart, err=err)[0]['stats']}, {''})
     expect(f, 'the root names its filter keys', chart.get('Flex', 'page-service-desk')['metadata']['annotations'].get('krateo.io/filter-keys'), 'state,range,view,q')
     expect(f, 'the header has no subtitle', 'subtitle' in chart.get('PageHeader', 'service-desk-header')['spec']['widgetData'], False)
+    return f
+
+
+def check_solved_in_range(chart):
+    f = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ago = lambda h: (now - datetime.timedelta(hours=h)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    items = [
+        zr('zr-s-new', conditions=FILED, zid=1, zstatus='solved', updated=ago(5)),
+        zr('zr-c-new', conditions=FILED, zid=2, zstatus='closed', updated=ago(30)),
+        zr('zr-s-20d', conditions=FILED, zid=3, zstatus='solved', updated=ago(24 * 20)),
+        zr('zr-c-40d', conditions=FILED, zid=4, zstatus='closed', updated=ago(24 * 40)),
+        zr('zr-s-noat', conditions=FILED, zid=5, zstatus='solved'),  # no updated_at: no time to place it
+        zr('zr-open', conditions=FILED, zid=6, zstatus='open', updated=ago(1)),
+    ]
+    for rng, want in (('24h', ['zr-s-new']), (None, ['zr-s-new', 'zr-c-new']), ('30d', ['zr-s-new', 'zr-c-new', 'zr-s-20d'])):
+        ex = {'username': 'x', 'state': 'solved', **({'range': rng} if rng else {})}
+        out, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, ex)
+        tile = {t['title']: t['value'] for t in widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')['dataSource']}['Solved']
+        chip = {c['label']: c['count'] for c in widget(chart, 'Listy', 'service-desk-state-chips', out, ex, 'chips')['dataSource']}['Solved']
+        cards = [c['name'] for c in widget(chart, 'Listy', 'service-desk-cards', out, ex, 'cards')['dataSource']]
+        table = widget(chart, 'Table', 'service-desk-requests', out, {**ex, 'view': 'table'}, 'table')['dataSource']
+        subjects = [{c['valueKey']: c.get('stringValue') for c in row}['subject'] for row in table]
+        expect(f, f'{rng or "7d"}: Solved figure == chip count == cards == table rows, solved or closed in the range',
+               (tile, chip, cards, subjects), (str(len(want)), len(want), want, [f'Subject of {n}' for n in want]))
+        expect(f, f'{rng or "7d"}: the other chips are not windowed',
+               {k: v for k, v in out['counts'].items() if k != 'solved'},
+               {'active': 1, 'all': 6, 'new': 0, 'open': 1, 'pending': 0, 'hold': 0, 'closed': 2, 'attention': 0, 'mine': 0})
+    out, ex = queue(chart, [items[2], items[3], items[5]], state='solved')
+    card = widget(chart, 'Card', 'service-desk-list-card', out, ex, 'list card (none solved in range)')
+    expect(f, 'none solved in the range: 0, the empty sentence says the range',
+           ({t['title']: t['value'] for t in out['stats']}['Solved'], ids(card['items']), out['emptyTitle'], out['emptyText']),
+           ('0', ['service-desk-state-chips', 'service-desk-empty'], 'No request solved or closed in the last 7 days.',
+            'Requests solved or closed earlier are under a longer range, or All.'))
     return f
 
 
@@ -902,7 +957,7 @@ def check_against_the_served_crds(chart):
     return f
 
 
-CHECKS = [check_state_mapping, check_chips, check_dashboard, check_search, check_unreachable_warning, check_failures_are_not_an_empty_queue,
+CHECKS = [check_state_mapping, check_chips, check_dashboard, check_solved_in_range, check_search, check_unreachable_warning, check_failures_are_not_an_empty_queue,
           check_empty_queue, check_raise_context, check_form_submit, check_raised_from_an_incident, check_request_page,
           check_request_read_is_gated_and_as_the_caller, check_against_the_served_crds, check_ticket_desk_is_gone]
 

@@ -10,7 +10,12 @@
        stats        the five figures: Records, Success, Failure, Denied, Untraced, each with the
                     tone of the state it counts (success / failure / denied as the outcome tag,
                     records slate, untraced gray); a failed or refused read is "" captioned so,
-                    tone `unread`;
+                    tone `unread`. `route`: an outcome tile (Success, Failure, Denied) opens the
+                    page filtered to that outcome, the outcome chip's own route (auditHref, so
+                    every other filter, the view and the search are kept); Records (a total),
+                    Untraced (no ?auditOutcome value means "no trace context": it is not an
+                    outcome, and okOutcome is shared byte for byte with dashboard-page) and a
+                    failed read are "", not clickable;
        viewChips    Summary | Full list, each route keeping every filter and the search;
        more         under the 48 cards when the window holds more, "" otherwise;
        empty        what the card says instead of an empty list;
@@ -279,13 +284,14 @@ spec:
         other: ([ $bdOc[] | select(.name != "success" and .name != "failure" and .name != "denied") | .count ] | add // 0) } as $oc
     | def share($n): if $shown > 0 and $n > 0 then (($n * 100 / $shown) | if . < 1 then "under 1%" else (round | tostring) + "%" end) + " of records" else "" end;
       ([ { title: "Records", value: $shown, caption: ("in " + ($range | rangeLabel)), tone: "records", src: "summary" },
-        { title: "Success", value: $oc.success, caption: share($oc.success), tone: "success", src: "breakdown" },
-        { title: "Failure", value: $oc.failure, caption: share($oc.failure), tone: "failure", src: "breakdown" },
-        { title: "Denied", value: $oc.denied, caption: share($oc.denied), tone: "denied", src: "breakdown" },
+        { title: "Success", value: $oc.success, caption: share($oc.success), tone: "success", src: "breakdown", oc: "success" },
+        { title: "Failure", value: $oc.failure, caption: share($oc.failure), tone: "failure", src: "breakdown", oc: "failure" },
+        { title: "Denied", value: $oc.denied, caption: share($oc.denied), tone: "denied", src: "breakdown", oc: "denied" },
         { title: "Untraced", value: $c.untraced, caption: (if $c.untraced > 0 then "written with no trace context" else "" end), tone: "untraced", src: "summary" } ]
-      | map(if ($queried | not) then { title, value: "", caption: "nothing was read", tone: "unread" }
-            elif (.src == "summary" and $failed) or (.src == "breakdown" and $bdFailed) then { title, value: "", caption: "could not be read", tone: "unread" }
-            else { title, value: (.value | tostring), caption, tone } end)) as $stats
+      | map(if ($queried | not) then { title, value: "", caption: "nothing was read", tone: "unread", route: "" }
+            elif (.src == "summary" and $failed) or (.src == "breakdown" and $bdFailed) then { title, value: "", caption: "could not be read", tone: "unread", route: "" }
+            else { title, value: (.value | tostring), caption, tone,
+                   route: ((.oc // "") as $o | if $o != "" then ($x | auditHref({auditOutcome: $o})) else "" end) } end)) as $stats
     | ($range | auditBuckets) as $b
     | [ ((.trend | objects | .data) // [])[] | {b: (.b | num), oc: ((.outcome // "") | tostring), n: (.n | num), now: (.now_s | num)} ] as $tr
     | (([ $tr[] | .now ] | max) // 0) as $srvNow
