@@ -22,8 +22,8 @@ THE OTHER TABS:
   - Tool servers: its figures, its state chips (?group=: Needs attention, Healthy, All), a card per
     server or the full table, its charts; the matrix and the bindings stay below;
   - Policies: its four figures above the role cards;
-  - Token usage: the range, the notice, the spend figures, then spend per agent, user and group on two
-    thirds and the spend charts on one third (the spend itself: test-agents-cost); the Overview's token
+  - Token usage: the range, the notice, the spend figures, the spend charts side by side, then spend per
+    agent, user and group (the spend itself: test-agents-cost); the Overview's token
     card reads the token totals over its own range, one point per bucket ending now;
   - every widget reachable from the page declares the page's filter keys (also lint-keyextras), and
     the Token usage tab and the widgets shown with it also the day picker's `from` and `to`.
@@ -409,12 +409,12 @@ def series_row(t, inp=1000, out=100, cached=400):
 
 def check_token_usage_tab():
     f = []
-    expect(f, 'the tab: the range, the notice, the figures, the main row', (items('Col', 'agents-tab-usage', {}), items('Flex', 'agents-cost', {})),
-           (['agents-cost'], ['agents-cost-range', 'agents-cost-notice', 'agents-cost-stats', 'agents-cost-main']))
-    expect(f, 'the main row: the tables 16, the charts 8', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-main')['items']],
-           [('agents-cost-tables', 16, 24), ('agents-cost-side', 8, 24)])
-    expect(f, 'the tables, then the charts', (items('Flex', 'agents-cost-tables', {}), items('Flex', 'agents-cost-side', {})),
-           (['agents-cost-agents-card', 'agents-cost-users-card', 'agents-cost-groups-card'], ['agents-cost-trend-card', 'agents-cost-models-card']))
+    expect(f, 'the tab: the range, the notice, the figures, the charts, the tables', (items('Col', 'agents-tab-usage', {}), items('Flex', 'agents-cost', {})),
+           (['agents-cost'], ['agents-cost-range', 'agents-cost-notice', 'agents-cost-stats', 'agents-cost-trend-row', 'agents-cost-agents-card', 'agents-cost-people-row']))
+    expect(f, 'the charts: over time 16, by model 8', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-trend')['items']],
+           [('agents-cost-trend-card', 16, 24), ('agents-cost-models-card', 8, 24)])
+    expect(f, 'users 15, groups 9', [(i['resourceRefId'], i['size'], i['xs']) for i in static('Row', 'agents-cost-people')['items']],
+           [('agents-cost-users-card', 15, 24), ('agents-cost-groups-card', 9, 24)])
     # The Overview's token card.
     hour = int(time.time() // 3600 * 3600)
     rows = [series_row(hour), series_row(hour - 3 * 3600, inp=3000, out=300, cached=0), series_row(hour - 30 * 3600)]
