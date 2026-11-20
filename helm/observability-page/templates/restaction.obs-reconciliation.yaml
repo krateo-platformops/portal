@@ -46,6 +46,8 @@
        counts    per state + attention, overdue, all, over the searched set;
        stats     the figures: Compositions, Healthy, Needs attention, Pending and, with tracing,
                  Reconcile overdue; each tile's tone is the state it counts (unread on a failed read);
+                 `route` is the matching state chip's (stateRoute), "" on the total, on an Overdue
+                 the traces could not date and on a failed read (a plain tile);
        chips / viewChips   the state chips (label, count, active, route) and Summary | Full list;
        rows      the cards: the first 24 in the picked state, attention first, then overdue, then
                  pending, then healthy; each with its state, kind, reason and when it last reconciled;
@@ -211,16 +213,18 @@ spec:
                       else "reconciled " + ago(.ageSec) + " ago" + (if .p95 != null and .n > 0 then " · p95 " + (.p95 | durationLabel) else "" end) end;
       ([ $order[] | . as $s | select(($counts[$s] // 0) > 0 and ($s | IN("failed", "degraded", "unreadable", "drift", "paused"))) | ($counts[$s] | tostring) + " " + $names[$s] ] | join(" · ")) as $attnText
     | ($base | map(select(.never)) | length) as $neverN
-    | ([ { title: "Compositions", value: $counts.all, caption: nn($base | map(.kind) | unique | length; "kind"; "kinds"), tone: "total" },
-         { title: "Healthy", value: $counts.healthy, caption: "Ready and in sync", tone: "healthy" },
-         { title: "Needs attention", value: $counts.attention, caption: (if $attnText == "" then "nothing NotReady, drifted or paused" else $attnText end), tone: "attention" },
-         { title: "Pending", value: $counts.pending, caption: "converging, no verdict yet", tone: "pending" } ]
+    # The route a state chip opens, and the figure that counts the same state.
+    | def stateRoute($k): $in | obsHref({ status: (if $k == "all" then "" else $k end), q: $qRaw }; "Reconciliation");
+      ([ { title: "Compositions", value: $counts.all, caption: nn($base | map(.kind) | unique | length; "kind"; "kinds"), tone: "total", route: "" },
+         { title: "Healthy", value: $counts.healthy, caption: "Ready and in sync", tone: "healthy", route: stateRoute("healthy") },
+         { title: "Needs attention", value: $counts.attention, caption: (if $attnText == "" then "nothing NotReady, drifted or paused" else $attnText end), tone: "attention", route: stateRoute("attention") },
+         { title: "Pending", value: $counts.pending, caption: "converging, no verdict yet", tone: "pending", route: stateRoute("pending") } ]
        + (if ($tracing | not) then []
           elif $telemetry == "ok" then [ { title: "Reconcile overdue", value: $counts.overdue,
-              caption: (if $neverN > 0 then ($neverN | tostring) + " with none in the trace window" elif $counts.overdue > 0 then "last reconcile over 5 min ago" else "all reconciled within 5 min" end), tone: "overdue" } ]
-          elif $telemetry == "empty" then [ { title: "Reconcile overdue", value: "", caption: "no reconcile traces in 7 days", tone: "overdue" } ]
-          else [ { title: "Reconcile overdue", value: "", caption: "traces could not be read", tone: "unread" } ] end)
-       | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)) as $stats
+              caption: (if $neverN > 0 then ($neverN | tostring) + " with none in the trace window" elif $counts.overdue > 0 then "last reconcile over 5 min ago" else "all reconciled within 5 min" end), tone: "overdue", route: stateRoute("overdue") } ]
+          elif $telemetry == "empty" then [ { title: "Reconcile overdue", value: "", caption: "no reconcile traces in 7 days", tone: "overdue", route: "" } ]
+          else [ { title: "Reconcile overdue", value: "", caption: "traces could not be read", tone: "unread", route: "" } ] end)
+       | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)) as $stats
     | (if $sel == "all" then "" else $sel end) as $selParam
     | ([ "all", "attention" ] + (if $telemetry == "ok" then [ "overdue" ] else [] end)
        + ($order | map(select(. as $s | ($counts[$s] // 0) > 0 or $sel == $s)))) as $chipKeys
@@ -249,7 +253,7 @@ spec:
         counts: $counts,
         stats: $stats,
         chips: [ $chipKeys[] as $k | { key: $k, label: $names[$k], count: ($counts[$k] // 0), active: ($k == $sel),
-                                       route: ($in | obsHref({ status: (if $k == "all" then "" else $k end), q: $qRaw }; "Reconciliation")) } ],
+                                       route: stateRoute($k) } ],
         viewChips: [ { label: "Summary", active: ($tableView | not), route: ($in | obsHref({ status: $selParam, q: $qRaw, view: "" }; "Reconciliation")) },
                      { label: "Full list", active: $tableView, route: ($in | obsHref({ status: $selParam, q: $qRaw, view: "table" }; "Reconciliation")) } ],
         rows: [ $sorted[0:$cardCap][]

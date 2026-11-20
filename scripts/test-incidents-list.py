@@ -11,6 +11,9 @@ THE DASHBOARD (mockup A4):
     and the ?projects= scope, and leaves out a param at its default;
   - the five figures count every incident: Open, Analyzing, Verifying now; Resolved and the median
     Time to resolve (triggered to resolution.at) in the range; a failed read is "—", never 0;
+  - a state figure (Open, Analyzing, Verifying, Resolved) opens the list filtered to its state: the
+    route of its state chip, every other param kept, zero or not; Time to resolve and a failed read
+    are not clickable;
   - ?range=: 7d when absent; 24h buckets the opened-vs-resolved chart per hour, 7d and 30d per day,
     one point per bucket and series ending now; the time to resolve per week covers 8 weeks, a week
     with nothing resolved has no point;
@@ -495,7 +498,27 @@ def check_filter_keys():
     return f
 
 
-CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_routes,
+def check_tile_routes():
+    f = []
+    ex = {'projects': 'team-a', 'status': 'verifying', 'range': '30d', 'view': 'table', 'q': 'a b'}
+    out = timed(ex)
+    chip = {c['label']: c['route'] for c in out['chips']}
+    expect(f, 'a state figure routes as its chip (q, view, range, projects kept); Time to resolve does not',
+           [(s['title'], s['route']) for s in out['stats']],
+           [(t, chip[t]) for t in ('Open', 'Analyzing', 'Verifying', 'Resolved')] + [('Time to resolve', '')])
+    expect(f, 'Open (the default) leaves ?status out, keeps the rest', out['stats'][0]['route'],
+           '/incidents?projects=team-a&range=30d&view=table&q=a%20b')
+    zero = resolve(responses(incidents={'items': []}), {})
+    expect(f, 'a zero figure still routes', [s['route'] for s in zero['stats']],
+           ['/incidents', '/incidents?status=analyzing', '/incidents?status=verifying', '/incidents?status=resolved', ''])
+    failed = resolve(responses(incidents=['dial tcp: i/o timeout']), ex)
+    expect(f, 'a failed read is not clickable', [s['route'] for s in failed['stats']], [''] * 5)
+    tpl = widget_data('Listy', 'incidents-stats', out, ex)['itemTemplate']
+    expect(f, 'the figures navigate to their route', (tpl['rowVariant'], tpl['navigateTo']), ('statistic', '{route}'))
+    return f
+
+
+CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_tile_routes, check_routes,
           check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 

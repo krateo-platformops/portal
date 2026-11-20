@@ -298,10 +298,10 @@ def check_chips(chart):
     expect(f, 'Active hides Solved and Closed, keeps Filing', [r['name'] for r in out['rows']],
            ['zr-filing', 'zr-new', 'zr-open', 'zr-pending', 'zr-hold'])
     expect(f, 'counts', out['counts'], {'active': 5, 'all': 7, 'new': 1, 'open': 1, 'pending': 1, 'hold': 1,
-                                        'solved': 1, 'closed': 1, 'mine': 3})
+                                        'solved': 1, 'closed': 1, 'attention': 0, 'mine': 3})
     chips = widget(chart, 'Listy', 'service-desk-state-chips', out, ex, 'chips')['dataSource']
     expect(f, 'chip order and words', [c['label'] for c in chips],
-           ['Active', 'All', 'New', 'Open', 'Pending', 'On-hold', 'Solved', 'Closed', 'Mine'])
+           ['Active', 'All', 'New', 'Open', 'Pending', 'On-hold', 'Solved', 'Closed', 'Need attention', 'Mine'])
     expect(f, 'Active is the selected chip', [c['label'] for c in chips if c['active']], ['Active'])
     expect(f, 'chip routes', chips[5]['route'], '/service-desk?state=hold')
     out, _ = queue(chart, mixed(), state='all')
@@ -389,6 +389,23 @@ def check_dashboard(chart):
     quiet, qex = queue(chart, [items[3]])
     expect(f, 'and not without', ids(widget(chart, 'Flex', 'service-desk-side', quiet, qex, 'side (quiet)')['items']),
            ['service-desk-by-status-card', 'service-desk-trend-card'])
+    expect(f, 'Need attention: refused, held or unknown, at its own chip',
+           ([r['name'] for r in queue(chart, items, state='attention')[0]['rows']], queue(chart, [items[0]], state='attention')[0]['emptyTitle']),
+           (['zr-ref'], 'No request needs attention.'))
+    tiles = widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')
+    expect(f, 'the tiles navigate to their route', tiles['itemTemplate'].get('navigateTo'), '{route}')
+    tx = {'username': 'x', 'state': 'pending', 'range': '30d', 'view': 'table', 'q': 'subject'}
+    outx, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, tx)
+    chip = {c['label']: c['route'] for c in outx['chips']}
+    expect(f, 'a state tile routes as its state chip (q, view and range kept); Opened is a total, not a link',
+           [(t['title'], t['route']) for t in outx['stats']],
+           [('Active', chip['Active']), ('Pending', chip['Pending']), ('Need attention', chip['Need attention']),
+            ('Opened', ''), ('Solved', chip['Solved'])])
+    expect(f, 'the routes keep every param', chip['Need attention'], '/service-desk?state=attention&range=30d&view=table&q=subject')
+    expect(f, 'a state at 0 is still a link', [t['route'] for t in queue(chart, [items[0]])[0]['stats'] if t['title'] == 'Need attention'],
+           ['/service-desk?state=attention'])
+    for err in (DENIED, NOT_SERVED, BROKEN):
+        expect(f, 'an unavailable or denied read is never a link', {t['route'] for t in queue(chart, err=err)[0]['stats']}, {''})
     expect(f, 'the root names its filter keys', chart.get('Flex', 'page-service-desk')['metadata']['annotations'].get('krateo.io/filter-keys'), 'state,range,view,q')
     expect(f, 'the header has no subtitle', 'subtitle' in chart.get('PageHeader', 'service-desk-header')['spec']['widgetData'], False)
     return f

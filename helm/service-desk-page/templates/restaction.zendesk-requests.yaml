@@ -6,7 +6,12 @@
                    or name contains it (case-insensitive) is kept, every other one is left out of
                    the whole page (the chips, the figures, the charts), as on /compositions.
      chips       : the chips themselves (Active · All · New · Open · Pending · On-hold · Solved ·
-                   Closed · Mine), each with its live count, its route and whether it is selected.
+                   Closed · Need attention · Mine), each with its live count, its route and whether
+                   it is selected.
+     stats       : the five figures. A tile that counts a state (Active, Pending, Need attention,
+                   Solved) carries `route`, its state chip's route, so it opens the list filtered to
+                   that state; Opened is a windowed total and has `route: ""`, as does every tile
+                   when the read failed.
      unreachable : the ONE warning above the table, naming each organisation whose requests the
                    provider can't read from Zendesk (Ready=Unknown/ObserveFailed). No per-row mark.
      unavailable : what the page says INSTEAD of chips and table when the read did not work.
@@ -66,8 +71,9 @@ spec:
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
     def andjoin: if length <= 1 then (.[0] // "") elif length == 2 then (.[0] + " and " + .[1]) else ((.[0:-1] | join(", ")) + " and " + .[-1]) end;
-    # The chips, in order. Active is the default and hides Solved and Closed; Mine is every request
-    # the caller raised, whatever its status.
+    # The chips, in order. Active is the default and hides Solved and Closed; Need attention is
+    # every request someone has to act on (refused, held, an unknown reason: the red card mark);
+    # Mine is every request the caller raised, whatever its status.
     def chips: [
       { key: "active", label: "Active", noun: "active requests" },
       { key: "all", label: "All", noun: "requests" },
@@ -77,6 +83,7 @@ spec:
       { key: "hold", label: "On-hold", noun: "requests on hold" },
       { key: "solved", label: "Solved", noun: "solved requests" },
       { key: "closed", label: "Closed", noun: "closed requests" },
+      { key: "attention", label: "Need attention", noun: "requests that need attention" },
       { key: "mine", label: "Mine", noun: "requests you raised" } ];
     # A request with no Zendesk status yet (filing, refused, held, an unknown reason) is Active and
     # All, and under no status chip: it has no status to be filed under.
@@ -84,6 +91,7 @@ spec:
       if $k == "all" then true
       elif $k == "active" then ((.zendeskStatus | IN("solved", "closed")) | not)
       elif $k == "mine" then ($me != "" and .raisedBySlug == $me)
+      elif $k == "attention" then (.state | IN("refused", "held", "other"))
       else .zendeskStatus == $k end;
     # THE ERROR IS A LIST: snowplow appends every failure of a stage to its errorKey, each item a
     # message string or, for an HTTP failure, the apiserver's Status object. A bare string is still
@@ -209,6 +217,7 @@ spec:
                      elif $total == 0 then "No Zendesk requests yet."
                      elif $sel == "active" then "No active requests."
                      elif $sel == "mine" then "You haven’t raised a request here."
+                     elif $sel == "attention" then "No request needs attention."
                      else "No request is " + $chip.label + "." end),
         emptyText: (if $failed or ($shown | length) > 0 then ""
                     elif ($valid | not) then "The status in this page’s address is not one a request can have. Choose a status above, or All to see every request."
@@ -225,12 +234,15 @@ spec:
         # The five figures, over every request: Active now (of all), Pending (Zendesk is waiting
         # for the requester, which is someone here), Need attention (refused by Zendesk, held, or a
         # reason nobody documented), and Opened and Solved in the range.
+        # A state tile opens the list filtered to its state, by its chip's route (`href`, so it keeps
+        # the range, the view and the search); Opened is a total in the range, not a state.
         stats: [
-          { title: "Active", value: ($counts.active | tostring), caption: ("of " + n($total; "request"; "requests")), tone: "active" },
-          { title: "Pending", value: ($counts.pending | tostring), caption: "waiting for your reply", tone: "pending" },
-          { title: "Need attention", value: ($attention | tostring), caption: "refused, held or unknown", tone: "attention" },
-          { title: "Opened", value: ($openedIn | tostring), caption: ("in " + $rangeText), tone: "active" },
-          { title: "Solved", value: ($solvedIn | tostring), caption: ("solved or closed in " + $rangeText), tone: "solved" } ],
+          { title: "Active", value: ($counts.active | tostring), caption: ("of " + n($total; "request"; "requests")), tone: "active", key: "active" },
+          { title: "Pending", value: ($counts.pending | tostring), caption: "waiting for your reply", tone: "pending", key: "pending" },
+          { title: "Need attention", value: ($attention | tostring), caption: "refused, held or unknown", tone: "attention", key: "attention" },
+          { title: "Opened", value: ($openedIn | tostring), caption: ("in " + $rangeText), tone: "active", key: "" },
+          { title: "Solved", value: ($solvedIn | tostring), caption: ("solved or closed in " + $rangeText), tone: "solved", key: "solved" } ]
+          | map({ title, value, caption, tone, route: (if $failed or .key == "" then "" else href(.key; $range; $tableView) end) }),
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
                      { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],

@@ -430,6 +430,7 @@ def check_banner_and_empty_states(chart):
     w = resolve_widgets(chart, 'platform-reviews', out, {}, 'proposals-unread')
     expect(f, 'proposals unread: the figures are "—", in orange',
            [(t['value'], t['caption'], t['tone']) for t in w['reviews-stats']['dataSource'][:4]], [('', 'could not be read', 'unread')] * 4)
+    expect(f, 'proposals unread: no figure is a link', {t['route'] for t in w['reviews-stats']['dataSource']}, {''})
     expect(f, 'proposals unread: the card says why', (items(w, 'reviews-list-card'), w['reviews-empty']['text'], w['reviews-empty']['type']),
            (['reviews-state-chips', 'reviews-empty'], 'The proposals could not be read (dial tcp: i/o timeout), so nothing on this page counts them.', 'warning'))
     expect(f, 'proposals unread: no chart data', (w['reviews-trend']['data'], items(w, 'reviews-side')),
@@ -463,7 +464,7 @@ def check_run_review_now(chart):
     expect(f, 'header actions', [i['resourceRefId'] for i in w['reviews-header-actions']['items']],
            ['reviews-ask-agentiko', 'reviews-run-now'])
     expect(f, 'the last run is the last figure', w['reviews-stats']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': 'Completed', 'caption': 'rr-20260929-1933 · 19:33 UTC', 'tone': 'Completed'})
+           {'title': 'Last run (all kinds)', 'value': 'Completed', 'caption': 'rr-20260929-1933 · 19:33 UTC', 'tone': 'Completed', 'route': ''})
     act = w['reviews-run-now']['actions']['rest'][0]
     body = act['payload']
     expect(f, 'a batch/v1 Job', (body['apiVersion'], body['kind']), ('batch/v1', 'Job'))
@@ -1021,10 +1022,22 @@ def check_overview_figures(chart):
     expect(f, 'a partial last run: orange', tpl['color']['map'][w['reviews-stats']['dataSource'][-1]['tone']], 'orange')
     out, w = ov(chart, runs='ERROR:dial tcp: i/o timeout')
     expect(f, 'runs unread: "—", in orange', w['reviews-stats']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'could not be read', 'tone': 'unread'})
+           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'could not be read', 'tone': 'unread', 'route': ''})
     out, w = ov(chart, runs={'items': []})
     expect(f, 'no run yet: "—", said', w['reviews-stats']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'no review has run yet', 'tone': 'none'})
+           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'no review has run yet', 'tone': 'none', 'route': ''})
+    expect(f, 'the tiles navigate to their route', tpl.get('navigateTo'), '{route}')
+    ex = {'q': 'a', 'view': 'table', 'range': '30d', 'kind': 'Alert', 'today': '1', 'state': 'merged'}
+    out, w = ov(chart, ex)
+    chip = {c['label']: c['route'] for c in out['stateChips']}
+    expect(f, 'a state tile routes as its state chip (q, view, range, kind, today kept); the last run is no link',
+           [(t['title'], t['route']) for t in w['reviews-stats']['dataSource']],
+           [('Waiting for a decision', chip['Proposed']), ('Pull request open', chip['PR open']), ('Merged', chip['Merged']),
+            ('Rejected', chip['Rejected']), ('Last run (all kinds)', '')])
+    expect(f, 'the routes keep every param', chip['PR open'], '/reviews?kind=Alert&today=1&q=a&view=table&state=propen&range=30d')
+    out, _ = ov(chart, {}, proposals={'items': []})
+    expect(f, 'a state at 0 is still a link', [t['route'] for t in out['stats']][:4],
+           ['/reviews?state=proposed', '/reviews?state=propen', '/reviews?state=merged', '/reviews?state=rejected'])
     for rng, merged, rejected in (('24h', '1', '0'), ('7d', '1', '1'), ('30d', '2', '2')):
         o, w = timed(chart, {'range': rng})
         text = {'24h': 'in the last 24 hours', '7d': 'in the last 7 days', '30d': 'in the last 30 days'}[rng]

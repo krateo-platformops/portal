@@ -33,7 +33,8 @@ spec:
        case-insensitive, trimmed) and ?view=table (the full list).
        OUTPUT: `list` (the Deployments in the picked state, for the full table, as before), `stats`
        (Deployments, neutral; Ready, Not ready, Scaled to zero, each its state's colour; a failed read
-       is "" captioned "could not be read", orange), `chips` / `viewChips` (routes keep every page
+       is "" captioned "could not be read", orange; `route`: a state tile opens its state chip's route,
+       stateRoute, the total and a failed read ""), `chips` / `viewChips` (routes keep every page
        param, obs.href), `cards` (one per Deployment, Not ready first), `byState` and `readiness`
        (the side charts), `failed`, `emptyText`. */}}
   filter: >
@@ -61,7 +62,8 @@ spec:
     | ([ "ready", "notready", "scaled" ] | map(. as $k | { key: $k, value: ($base | map(select(.state == $k)) | length) }) | from_entries + { all: ($base | length) }) as $counts
     | ($shown | sort_by((if .state == "notready" then 0 elif .state == "ready" then 1 else 2 end), .name)) as $sorted
     | (if $sel == "all" then "" else $sel end) as $selParam
-    | { list: [ $sorted[] | .dep ],
+    | def stateRoute($k): $x | obsHref({ componentStatus: (if $k == "all" then "" else $k end), q: $qRaw }; "Components");
+      { list: [ $sorted[] | .dep ],
         failed: $failed,
         readError: $err,
         q: $qRaw,
@@ -70,14 +72,14 @@ spec:
         total: ($base | length),
         matched: ($shown | length),
         counts: $counts,
-        stats: ([ { title: "Deployments", value: $counts.all, caption: "in {{ $.Release.Namespace }}", tone: "total" },
-                  { title: "Ready", value: $counts.ready, caption: "every wanted replica ready", tone: "ready" },
-                  { title: "Not ready", value: $counts.notready, caption: "a wanted replica is not ready", tone: "notready" },
-                  { title: "Scaled to zero", value: $counts.scaled, caption: "no replica wanted", tone: "scaled" } ]
-                | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)),
+        stats: ([ { title: "Deployments", value: $counts.all, caption: "in {{ $.Release.Namespace }}", tone: "total", route: "" },
+                  { title: "Ready", value: $counts.ready, caption: "every wanted replica ready", tone: "ready", route: stateRoute("ready") },
+                  { title: "Not ready", value: $counts.notready, caption: "a wanted replica is not ready", tone: "notready", route: stateRoute("notready") },
+                  { title: "Scaled to zero", value: $counts.scaled, caption: "no replica wanted", tone: "scaled", route: stateRoute("scaled") } ]
+                | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)),
         chips: ([ "all", "notready", "ready", "scaled" ] | map(select(. == "all" or . == "notready" or ($counts[.] // 0) > 0 or . == $sel))
                 | map(. as $k | { key: $k, label: $names[$k], count: ($counts[$k] // 0), active: ($k == $sel),
-                                  route: ($x | obsHref({ componentStatus: (if $k == "all" then "" else $k end), q: $qRaw }; "Components")) })),
+                                  route: stateRoute($k) })),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: ($x | obsHref({ componentStatus: $selParam, q: $qRaw, view: "" }; "Components")) },
                      { label: "Full list", active: $tableView, route: ($x | obsHref({ componentStatus: $selParam, q: $qRaw, view: "table" }; "Components")) } ],
         cards: [ $sorted[] | { name, tone: .state, stateLabel, image: (if .image == "" then "—" else .image end),

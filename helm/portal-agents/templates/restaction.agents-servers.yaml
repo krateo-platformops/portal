@@ -141,9 +141,14 @@ spec:
   {{/* and restaction.agent-detail make. */}}
   {{/* A4 OUTPUT (the Tool servers tab: figures, chips, cards, charts; the tables above are unchanged): */}}
   {{/*   group       the state chips' pick (?group=): attention (the default while a server needs it, */}}
-  {{/*               else all), healthy, all; another tab's value falls back to the default; */}}
+  {{/*               else all), healthy, all; and, with no chip, the figures' own states: accepted */}}
+  {{/*               (Accepted True), notaccepted (tone bad), advisory (tone warn); another tab's value */}}
+  {{/*               falls back to the default; */}}
   {{/*   stats       Tool servers, Accepted, NotAccepted, Advisories, Tools discovered; each tile's tone */}}
   {{/*               is the state it counts (all, ok, bad, warn), `unread` on a failed server read; */}}
+  {{/*               `route`: a state tile (Accepted, NotAccepted, Advisories) opens the tab on its */}}
+  {{/*               group, built as the chips' routes are (href); the two totals and a failed read */}}
+  {{/*               are "", not clickable; */}}
   {{/*   serverChips / viewChips   the state chips and Summary | Full list, each with its route; */}}
   {{/*   cards       one per server in the group (attention first), tone bad/warn/ok; */}}
   {{/*   tableRows   the server table's rows for the group (table.agents-servers-list); */}}
@@ -353,9 +358,12 @@ spec:
     | ( [ $rowsOK[] | select(.tone != "ok") ] | sort_by((if .tone == "bad" then 0 else 1 end), .name) ) as $attention
     | ( [ $rowsOK[] | select(.tone == "ok") ] ) as $healthy
     | ( if ($attention | length) > 0 then "attention" else "all" end ) as $grpDefault
-    | ( (($in.group // "") | tostring | ascii_downcase) as $g | if ($g | IN("attention", "healthy", "all")) then $g else $grpDefault end ) as $grp
+    | ( (($in.group // "") | tostring | ascii_downcase) as $g | if ($g | IN("attention", "healthy", "all", "accepted", "notaccepted", "advisory")) then $g else $grpDefault end ) as $grp
     | ( (($in.view // "") | tostring) == "table" ) as $tableView
-    | { attention: $attention, healthy: $healthy, all: ($attention + $healthy) } as $groups
+    # accepted / notaccepted / advisory: what the Accepted, NotAccepted and Advisories figures count.
+    | { attention: $attention, healthy: $healthy, all: ($attention + $healthy),
+        accepted: [ ($attention + $healthy)[] | select(.accepted) ],
+        notaccepted: [ $attention[] | select(.tone == "bad") ], advisory: [ $attention[] | select(.tone == "warn") ] } as $groups
     | ( $groups[$grp] ) as $members
     | ( [ $rowsOK[] | .toolsN ] | max // 0 ) as $maxTools
     | ( [ $rowsOK[] | (.agentsN // 0) ] | max // 0 ) as $maxAgents
@@ -364,14 +372,14 @@ spec:
         view: (if $tableView then "table" else "" end),
         tableRows: $members,
         listCount: ($members | length),
-        stats: ( [ { title: "Tool servers", value: ($rowsOK | length), tone: "all",
+        stats: ( [ { title: "Tool servers", value: ($rowsOK | length), tone: "all", route: "",
                      caption: (if $agentsDenied then "agents not readable" else n([ $rowsOK[] | select((.agentsN // 0) > 0) ] | length; "server"; "servers") + " bound by an agent" end) },
-                   { title: "Accepted", value: ([ $rowsOK[] | select(.accepted) ] | length), tone: "ok", caption: ("of " + n($rowsOK | length; "server"; "servers")) },
-                   { title: "NotAccepted", value: ([ $rowsOK[] | select(.tone == "bad") ] | length), tone: "bad", caption: "kagent could not connect or list its tools" },
-                   { title: "Advisories", value: ([ $rowsOK[] | select(.tone == "warn") ] | length), tone: "warn", caption: "external endpoint, no gateway route or unknown" },
-                   { title: "Tools discovered", value: ([ $rowsOK[] | .toolsN ] | add // 0), tone: "all",
+                   { title: "Accepted", value: ($groups.accepted | length), tone: "ok", route: href("accepted"; $tableView), caption: ("of " + n($rowsOK | length; "server"; "servers")) },
+                   { title: "NotAccepted", value: ($groups.notaccepted | length), tone: "bad", route: href("notaccepted"; $tableView), caption: "kagent could not connect or list its tools" },
+                   { title: "Advisories", value: ($groups.advisory | length), tone: "warn", route: href("advisory"; $tableView), caption: "external endpoint, no gateway route or unknown" },
+                   { title: "Tools discovered", value: ([ $rowsOK[] | .toolsN ] | add // 0), tone: "all", route: "",
                      caption: (if $agentsDenied then "agents not readable" else n($inUseN; "tool"; "tools") + " in use by agents" end) } ]
-                 | map(if $serversDenied then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end) ),
+                 | map(if $serversDenied then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end) ),
         serverChips: ( [ { k: "attention", l: "Needs attention" }, { k: "healthy", l: "Healthy" }, { k: "all", l: "All" } ]
                        | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp), route: href(if .k == $grpDefault then "" else .k end; $tableView) }) ),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $grp == $grpDefault then "" else $grp end; false) },
@@ -385,7 +393,8 @@ spec:
         emptyType: (if $serversDenied then "warning" else "secondary" end),
         emptyText: (if $serversDenied then "The tool servers could not be read (" + $err.servers.why + "), so nothing on this tab counts them."
                     elif ($rowsOK | length) == 0 then "There is no tool server you can read."
-                    else ({ attention: "No tool server needs attention.", healthy: "No tool server is healthy.", all: "There is no tool server you can read." }[$grp]) end),
+                    else ({ attention: "No tool server needs attention.", healthy: "No tool server is healthy.", accepted: "No tool server is Accepted.",
+                            notaccepted: "No tool server is NotAccepted.", advisory: "No tool server has an advisory.", all: "There is no tool server you can read." }[$grp]) end),
         byState: ( [ { state: "Healthy", count: ($healthy | length) },
                      { state: "Advisory", count: ([ $attention[] | select(.tone == "warn") ] | length) },
                      { state: "NotAccepted", count: ([ $attention[] | select(.tone == "bad") ] | length) } ] | map(select(.count > 0)) ),

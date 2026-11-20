@@ -72,7 +72,8 @@ spec:
   {{/* not look at. */}}
   {{/* THE TELEMETRY TAB (the A4 dashboard layout) reads this too: its figures (`stats`: error lines,
        distinct problems, services erroring — each red, the colour of an ERROR line — and the window
-       the SQL read, neutral; a failed read is "" captioned "could not be read", orange), one card per
+       the SQL read, neutral; a failed read is "" captioned "could not be read", orange; every `route` is "": metrics of an error-only tab, no state filter),
+       one card per
        grouped error (`rows`), the errors by service (`byService`) and Summary | Full list
        (`viewChips`; the full list is the chronological stream, obs-log-stream).
        THE SEARCH (?q=, case-insensitive, trimmed) keeps the grouped errors whose service or message
@@ -133,7 +134,8 @@ spec:
          { title: "Distinct problems", value: $distinct, caption: "grouped by service and message", tone: "error" },
          { title: "Services erroring", value: $services, caption: (if $q != "" then "among the matching problems" else "among the 40 most frequent problems" end), tone: "error" },
          { title: "Window read", value: $windowShort, caption: (if $r == "1h" or $r == "24h" or $r == "7d" then "the time range" else "the logs are read per 1 h, 24 h or 7 d" end), tone: "window" } ]
-       | map(if $failed and .tone != "window" then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)) as $stats
+       | map(if $failed and .tone != "window" then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)
+       | map(. + { route: "" })) as $stats
     | (($rows | group_by(.service // "") | map({ name: (.[0].service // ""), n: ([ .[] | (.occurrences // 0) | tonumber? // 0 ] | add // 0) })
         | map(select(.name != "")) | sort_by(-.n, .name) | .[0:8]) as $g
        | ($g | .[0].n // 1) as $max

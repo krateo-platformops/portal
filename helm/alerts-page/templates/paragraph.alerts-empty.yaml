@@ -1,5 +1,6 @@
 {{/* In place of the cards or the table when they would be empty: the alerts could not be read (and
-     why), or no alert is in the picked state. Drawn as a warning when the read failed. */}}
+     why), or no alert is in the picked state; under With open incidents, that the incidents could
+     not be read when so. Drawn as a warning when a read failed. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,8 +18,8 @@ spec:
     type: secondary
   widgetDataTemplate:
   - forPath: text
-    expression: '${ if .failed then "The alerts could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.q // "") != "" and (.total // 0) == 0 then "No alert matches \"" + .q + "\"." elif (.total // 0) == 0 or .status == "all" then "There are no alerts." else ({ alert: ("Nothing is firing: all " + ((.total // 0) | tostring) + " alerts are quiet."), "not-evaluated": "Every alert is evaluated.", pending: "No alert is pending.", ok: "No alert is OK." }[.status] // "No alert is in this state.") end }'
+    expression: '${ if .failed then "The alerts could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.q // "") != "" and (.total // 0) == 0 then "No alert matches \"" + .q + "\"." elif .status == "open-incidents" and (.incidentsFailed // false) then "The incidents could not be read, so which alerts have an open incident is unknown." elif (.total // 0) == 0 or .status == "all" then "There are no alerts." else ({ alert: ("Nothing is firing: all " + ((.total // 0) | tostring) + " alerts are quiet."), "not-evaluated": "Every alert is evaluated.", pending: "No alert is pending.", ok: "No alert is OK.", "open-incidents": "No alert has an open incident." }[.status] // "No alert is in this state.") end }'
   - forPath: type
-    expression: '${ if .failed then "warning" else "secondary" end }'
+    expression: '${ if .failed or (.status == "open-incidents" and (.incidentsFailed // false)) then "warning" else "secondary" end }'
   resourcesRefs:
     items: []
