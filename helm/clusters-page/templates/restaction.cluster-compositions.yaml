@@ -38,6 +38,13 @@
 {{/* follow-up. The RESTAction CR itself stays RBAC-gated on the hub as usual. */}}
 {{/* */}}
 {{/* STAGES (all continueOnError so the page degrades honestly, never a broken widget): */}}
+{{/* target     : on the HUB, the registered KubernetesTargets' names, as the caller may list */}}
+{{/* them (userAccessFilter, as cluster-detail reads them). The spoke stages run ONLY */}}
+{{/* when the route's `.name` is one of them: no name, or a name no registration */}}
+{{/* has, dials nothing. That is the allow-list on `.name` (no cross-spoke read-across, */}}
+{{/* no request steered at an arbitrary `<x>-endpoint` Secret), and it stops a */}}
+{{/* request without a cluster (snowplow's background resolve, which has no route */}}
+{{/* extras) from dialing at all. */}}
 {{/* spokeCrds  : LIST the spoke's CRDs (exists on every cluster — also the reachability */}}
 {{/* probe). jq-bounded OUTPUT (cardinality guard): only composition.krateo.io */}}
 {{/* CRDs (plural+served version, data-driven — blueprint kinds have */}}
@@ -68,8 +75,27 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
+    {{/* The registered clusters, on the hub. Only names leave the stage. A failed read (403, */}}
+    {{/* or the CRD absent) leaves no names, so the spoke stages dial nothing: fail closed. */}}
+    - name: target
+      path: /apis/core.krateo.io/v1alpha1/kubernetestargets
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: targetError
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: kubernetestargets
+      filter: '[ .target.items[]? | .metadata.name // empty ]'
     {{/* Reachability probe + CRD discovery, one round-trip. Group-relative path (see header). */}}
+    {{/* Runs once when the route names a registered cluster, never otherwise. `.target` is */}}
+    {{/* type-checked because a failed stage may hold the apiserver's Status object, not names. */}}
     - name: spokeCrds
+      dependsOn:
+        name: target
+        iterator: '((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n | ((.target // []) | if type == "array" then . else [] end) as $t | (if ($n != "" and any($t[]; . == $n)) then [{}] else [] end)'
       path: /apiextensions.k8s.io/v1/customresourcedefinitions
       verb: GET
       headers:
@@ -82,9 +108,8 @@ spec:
         {{/* SECURITY: a crafted `.name` cannot select a reserved `<user>-clientconfig` Secret — snowplow's */}}
         {{/* `-clientconfig` refusal runs on the POST-DNS1123-truncation name at two layers (eval site + */}}
         {{/* resolveOne). (The `-endpoint` suffix itself is NOT truncation-proof, but the -clientconfig guard */}}
-        {{/* is what holds.) namespace stays literal (V1). PENDING HARDENING before multi-spoke: constrain */}}
-        {{/* `.name` to a registered-KubernetesTarget allow-list (closes cross-spoke read-across + benign */}}
-        {{/* non-spoke-endpoint SSRF; not exploitable on a single-spoke cluster). See [[snowplow-templated-endpointref]]. */}}
+        {{/* is what holds.) namespace stays literal (V1). `.name` is constrained to a registered */}}
+        {{/* KubernetesTarget by this stage's iterator (the `target` stage). See [[snowplow-templated-endpointref]]. */}}
         name: '${ ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) + "-endpoint" }'
         namespace: {{ .Values.spokeReadbackEndpointNamespace }}
       continueOnError: true
@@ -163,7 +188,9 @@ spec:
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
     ((.name // "") | gsub("[^a-zA-Z0-9.-]"; "")) as $n
     | ($n != "") as $named
-    | (.spokeCrds != null) as $reachable
+    | ((.target // []) | if type == "array" then . else [] end) as $targets
+    | ($named and any($targets[]; . == $n)) as $registered
+    | ($registered and (.spokeCrds != null)) as $reachable
     | (if ($named and $reachable)
        then [ (.spokeCompositions // [])[], (.spokeCompositionDefinitions // [])[]
               | . + { readyLabel: (if (.ready == "True" and .reason == "ReconcileGracefullyPaused") then "Paused"
@@ -238,6 +265,7 @@ spec:
         counts: { total: $total, ready: $ready, notReady: $notReady, converging: $converging, paused: $paused, unknown: $unknown },
         statusText: (
           if ($named | not) then "No cluster selected."
+          elif ($registered | not) then ("Live read-back unavailable for \($n) — it is not a registered cluster you can see.")
           elif ($reachable | not) then ("Live read-back unavailable for \($n) — no endpoint secret (\($n)-endpoint) is provisioned for this cluster, or the spoke apiserver is unreachable.")
           elif ($total == 0) then "No compositions deployed to this spoke yet."
           else (($total | tostring) + " resource(s) live on this cluster, read directly from the spoke apiserver — " + ($ready | tostring) + " Ready"
@@ -266,6 +294,7 @@ spec:
              about the cluster. */}}
         statusColor: (
           if ($named | not) then "gray"
+          elif ($registered | not) then "gray"
           elif ($reachable | not) then "red"
           elif ($total == 0) then "gray"
           elif ($notReady > 0) then "orange"
