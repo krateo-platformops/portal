@@ -1,0 +1,31 @@
+{{/* Where Agentiko's Zendesk-request proposal sits on the incident page (exception-only). It reads incident-tickets (reload-only: the Zendesk requests are read under a */}}
+{{/* userAccessFilter), so incident-detail and the rest of the page stay cacheable and live. An */}}
+{{/* empty slot renders nothing (frontend Flex, no items and no role), so it opens no gap. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-ticket-proposal-slot
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-tickets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ if ((.sections // {}).proposal // false) then [ { resourceRefId: "incident-ticket-proposal" } ] else [] end }'
+  resourcesRefs:
+    items:
+    - id: incident-ticket-proposal
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-ticket-proposal
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

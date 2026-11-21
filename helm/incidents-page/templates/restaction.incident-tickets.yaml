@@ -1,0 +1,135 @@
+{{/* Data source for the Zendesk side of ONE incident's page (/incidents/{namespace}/{name}): the */}}
+{{/* requests raised for it and Agentiko's proposal to raise one. Split out of incident-detail */}}
+{{/* (Diego, 2026-11-21: "applied the fix and re-analyzed, no sign of life for minutes"): the requests */}}
+{{/* are read under a userAccessFilter, and snowplow never caches a RESTAction with one (snowplow#561), */}}
+{{/* so while they lived in incident-detail the WHOLE page had no refresh key and only changed on a */}}
+{{/* reload. Here they keep the caller-access rule they need, and only the two cards that read this */}}
+{{/* (through incident-ticket-proposal-slot and incident-tickets-slot) are reload-only. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: incident-tickets
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: incident
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: (.namespace // "{{ $.Release.Namespace }}"), name: (.name // "") } | select(.name != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + .namespace + "/incidents/" + .name }
+      verb: GET
+      continueOnError: true
+      errorKey: incidentError
+    {{/* The Zendesk requests raised for this incident: service-desk-page's raise form labels a
+         request raised from here `krateo.io/incident-uid: <this incident's uid>` (a uid and not the
+         name, because an incident name can pass the 63 characters a label value may hold).
+         Requests live in each organisation's own namespace, so this lists the cluster-scope
+         collection under a userAccessFilter, as service-desk-page's queue does: snowplow lists with
+         its own ServiceAccount and keeps only the objects in namespaces where the CALLER may list
+         zendeskrequests. That refilter is snowplow's RBAC evaluator, not jq; the filter below then
+         only picks this incident's requests out of what the caller may already see. A literal path:
+         nothing to gate, and a cluster without the kind answers 404, which hides the card. */}}
+    - name: zendeskRequests
+      path: /apis/{{ include "servicedesk.zendeskRequestAPIVersion" . }}/zendeskrequests
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: {{ include "servicedesk.zendeskGroup" . }}
+        resource: zendeskrequests
+        namespaceFrom: .metadata.namespace
+      continueOnError: true
+      errorKey: zendeskRequestsError
+  {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into */}}
+  {{/* one line and so comment out the rest of the program. */}}
+  filter: |
+    {{- include "servicedesk.requestDefs" . | nindent 4 }}
+    # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
+    def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+    def stamp: (. // "") as $s | ($s | epoch) as $t
+      | if $t == null then ($s | tostring | .[0:10]) else ($t | strftime("%Y-%m-%d %H:%M UTC")) end;
+    (.name // "") as $n
+    | (.namespace // "{{ $.Release.Namespace }}") as $ns
+    | ((.incident // {}) | if type == "object" and ((.metadata.name // "") != "") then . else {} end) as $r
+    | (($r | length) > 0) as $exists
+    | ($r.status // {}) as $st
+    | ($st.state // "Analyzing") as $state
+    | ($st.rootCause // {}) as $rc
+    # WHOSE FIX IT IS: status.rootCause.owner (incident-provider 0.10.0), one Summary row. Absent
+    # means not assessed (an older CRD, or an analysis from before it), and then there is no row.
+    # `unknown` is assessed and undecided, and never leads to a proposal. A value outside the enum is
+    # not an owner.
+    | (($rc.owner // "") | tostring | if IN("customer", "krateo", "unknown") then . else "" end) as $owner
+    | ({ customer: "your organization", krateo: "Krateo" }[$owner] // "") as $ownerNoun
+    # THE ZENDESK REQUESTS RAISED FOR IT, from the `zendeskRequests` step. Its errorKey is a LIST —
+    # snowplow appends one entry per failure (resolve.go accumulateErrorKey), each a message string
+    # or, for an HTTP failure, the apiserver's Status object — so each entry is read in either shape,
+    # by its `code` first and its words second. 404 = the ZendeskRequest kind is not served here.
+    # A caller with no grant anywhere gets an empty list, not a 403 (the refilter drops objects).
+    | ((.zendeskRequestsError // null) | if . == null then [] elif type == "array" then . else [.] end) as $tErrs
+    | ($tErrs | map(if type == "object" then ((.message // .reason // tojson) | tostring) else tostring end) | join("; ")) as $tErrText
+    | ([ $tErrs[] | objects | (.code // empty) ]) as $tCodes
+    | ([ $tErrs[] | objects | (.reason // empty) ]) as $tReasons
+    | (((.zendeskRequests // null) | type) == "object" and (((.zendeskRequests.items // null) | type) == "array")) as $ticketsRead
+    | (if $ticketsRead then "read"
+       elif ($tErrs | length) == 0 then "none"
+       elif ($tCodes | index(404)) != null or ($tReasons | index("NotFound")) != null
+            or ($tErrText | test("could not find the requested resource|no matches for"; "i")) then "absent"
+       elif ($tCodes | index(403)) != null or ($tReasons | index("Forbidden")) != null
+            or ($tErrText | test("forbidden"; "i")) then "denied"
+       else "error" end) as $ticketsState
+    | ($r.metadata.uid // "") as $uid
+    # The state, label and colour of each request come from _zendesk.tpl — a byte-for-byte copy of
+    # service-desk-page's, so this card and the service desk cannot disagree about a request.
+    | ([ (if $ticketsRead then .zendeskRequests.items else [] end)[]
+         | select(type == "object" and (((.metadata.labels // {})["krateo.io/incident-uid"] // "") == $uid) and $uid != "")
+         | requestView
+         | . + { sortKey: (if .updated != "" then .updated elif .created != "" then .created else .portalCreated end) } ]
+       | sort_by(.sortKey) | reverse
+       | map({ name, namespace,
+               subject: (if .subject != "" then .subject else .name end),
+               label, color,
+               zendesk: (if .id != "" then ("#" + .id) else "No Zendesk # yet" end),
+               updated: ("Updated " + (.sortKey | stamp)) })) as $tickets
+    # "Raise a Zendesk request", here and in the proposal: the service desk's own raise form,
+    # pre-filled from this incident by its request-raise-context RESTAction, which reads these two
+    # parameters as the caller.
+    | ("/service-desk/new?incidentName=" + ($n | @uri) + "&incidentNamespace=" + ($ns | @uri)) as $raiseHref
+    | (((($r.metadata.annotations // {})["krateo.io/ticket-proposal"]) // "") == "dismissed") as $dismissed
+    # AGENTIKO'S PROPOSAL, COMPUTED, NOT STORED: an owner who must act (customer or krateo), an
+    # incident still open to action, a request list that came back and holds none for it, and no one
+    # having dismissed it. A list that did not come back is not "no request": a reader whose list
+    # failed gets no proposal, rather than one to raise a duplicate. (The dismiss annotation keeps
+    # its name, krateo.io/ticket-proposal, so incidents already dismissed stay dismissed.)
+    | ($exists and ($owner | IN("customer", "krateo")) and ($state | IN("Open", "Verifying"))
+       and $ticketsState == "read" and ($tickets | length) == 0 and ($dismissed | not)) as $propose
+    | {
+        incidentGvr: { apiVersion: "observability.krateo.io/v1alpha1", resource: "incidents", name: $n, namespace: $ns },
+        name: $n,
+        namespace: $ns,
+        owner: $owner,
+        # Agentiko's proposal. Both owners go to the organisation's Zendesk, through the service
+        # desk's raise form: sending a Krateo-owned incident to Krateo support waits for the support
+        # relay, so the callout states the verdict and offers the same request the customer case does.
+        proposalTitle: "Agentiko suggests raising a Zendesk request for this incident",
+        proposalText: (if $propose then ("Owner: " + $ownerNoun + ". The request goes to your organisation’s Zendesk, from the service desk.") else "" end),
+        # Dismiss: one annotation on the Incident, written with the caller's token — the grant Close needs.
+        dismissPatch: { metadata: { annotations: { "krateo.io/ticket-proposal": "dismissed" } } },
+        raiseHref: $raiseHref,
+        ticketRows: $tickets,
+        # The requests card's one line, when it has no rows to show: none yet, a refused read, or a
+        # read that failed — three different things, never drawn as one.
+        ticketsNote: (if $ticketsState == "read" then (if ($tickets | length) == 0 then "No Zendesk request yet." else "" end)
+                      elif $ticketsState == "denied" then "Your access to Zendesk requests could not be confirmed."
+                      elif $ticketsState == "error" then ("The Zendesk requests raised for this incident could not be read: " + $tErrText)
+                      else "" end),
+        ticketsState: $ticketsState,
+        sections: {
+          proposal: $propose,
+          # The requests card, wherever this cluster serves ZendeskRequest: not on a 404, and not for
+          # an incident that does not exist.
+          tickets: ($exists and ($ticketsState | IN("read", "denied", "error"))),
+          ticketRows: (($tickets | length) > 0)
+        }
+      }
