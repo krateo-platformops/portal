@@ -745,6 +745,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-editdef.py
 
+      # A composition's conditions are coloured by what they mean (a pause is gray on both rows, a
+      # converging Ready=False orange), and a paused composition's Conditions card leads with the
+      # pause note. Over the chart's own jq; a control colours by raw status again and must fail.
+      - name: Composition conditions by meaning
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-conditions.py
+
       # A version label never comes out as a bare "v" (review: "uncategorized · v"): every "v" + version
       # in a rendered chart is the one guarded form, and the marketplace header and Installed row are
       # run over a present, an empty and a missing version.
