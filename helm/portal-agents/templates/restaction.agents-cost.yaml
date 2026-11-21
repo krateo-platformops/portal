@@ -4,7 +4,7 @@
 
      WHERE THE NUMBERS COME FROM.
        - Users, groups, the gateway total, the chart and the comparison: the agent gateway's
-         access log (otel_logs, ScopeName `request`), one row per model call, carrying who made it
+         access log (otel_logs, ScopeName `request`, or `agentgateway.access` from agentgateway 1.6; both are read), one row per model call, carrying who made it
          (`jwt.sub`, `team` = the caller's groups, `principal` = human or service), the model that
          served it and its tokens. This is the gateway's chargeback record (agentgateway-policies
          `observability.accessLog`); it does not depend on gateway tracing being on.
@@ -38,7 +38,7 @@
        gw: SELECT toUnixTimestamp(toStartOfInterval(ts, INTERVAL <bk> SECOND)) AS t, usr, team,
              principal, model, provider, cmp, <tier> AS tier, count(), sums of i, c, o, r
            FROM (SELECT DISTINCT <the call's time, client address, identity, model, tokens>
-                 FROM otel_logs WHERE ScopeName = 'request' AND <has tokens> AND <window>)
+                 FROM otel_logs WHERE ScopeName IN ('request', 'agentgateway.access') AND <has tokens> AND <window>)
            GROUP BY t, usr, team, principal, model, provider, cmp, tier
        ag: WITH <from> AS wf, <to> AS wt, [<readable>] AS apps
            SELECT 'm', app, model, provider, <tier> AS tier, count and token sums of the GATEWAY rows
