@@ -101,7 +101,7 @@ def requestView:
   | (if $r == null then "filing"
      elif $rs == "True" and $rr == "Available" then "filed"
      elif $rs == "Unknown" and $rr == "ObserveFailed" then "unreachable"
-     elif $rs == "False" and $rr == "Creating" then (if $ss == "False" and $sr == "ReconcileError" then "refused" else "filing" end)
+     elif $rs == "False" and ($rr == "Creating" or $rr == "CreateRefusedPersistently") then (if $ss == "False" and $sr == "ReconcileError" then "refused" else "filing" end)
      elif $rs == "False" and $rr == "CorrelationTokenMissing" then "held"
      else "other" end) as $state
   # A Zendesk status is shown only when there is a Zendesk request to have one: filed, or
