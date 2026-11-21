@@ -303,8 +303,18 @@ spec:
                then { label: "Re-analysis since", since: $reAt, live: true, hint: $hint }
                elif $created != "" then { label: "Analyzing since", since: $created, live: true, hint: $hint }
                else null end)
+            # A Verifying incident is NOT always in progress: after INCIDENT_PROVIDER_NO_VERDICT_RUNS runs
+            # with no verdict, incident-provider raises ChecksUnknown=True and stops checking, and the state
+            # stays Verifying. Ticking "live" there asserted work that ended (krateo-057, 2026-11-21: one
+            # incident at "11501 min", its verify check last run 7 days before). Settled, not live.
             elif $state == "Verifying" then
-              (($lc.precondition.since // $doneAt) as $t | if ($t // "") != "" then { label: "Checking the fix since", since: $t, live: true } else null end)
+              ([ ($st.conditions // [])[]? | select(.type == "ChecksUnknown" and .status == "True") ][0]) as $gaveUp
+              | if $gaveUp != null then
+                  (($gaveUp.lastTransitionTime // "") as $t
+                   | if $t != "" then { label: (if $gaveUp.reason == "VerifyNoVerdict" then "Fix check gave no verdict at" else "Checks gave no verdict at" end), since: $t, live: false } else null end)
+                else
+                  (($lc.precondition.since // $doneAt) as $t | if ($t // "") != "" then { label: "Checking the fix since", since: $t, live: true } else null end)
+                end
             elif $state == "Open" then (if $doneAt != "" then { label: "Analyzed at", since: $doneAt, live: false } else null end)
             elif $state == "Resolved" then
               ((($st.resolution // {}).at // $doneAt) as $t | if ($t // "") != "" then { label: "Resolved at", since: $t, live: false } else null end)

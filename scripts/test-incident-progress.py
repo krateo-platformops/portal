@@ -10,10 +10,12 @@ incident per state and checks the line it emits:
   Analyzing, first         "Analyzing since" the incident's creation, live, with the hint
   Analyzing, stale reAt    a reanalysis.at older than completedAt is a past one: first-analysis rule
   Verifying                "Checking the fix since" lastChecks.precondition.since, live, no hint
+  Verifying, gave up       ChecksUnknown=True: "Fix check gave no verdict at" its time, NOT live
   Open                     "Analyzed at" completedAt, not live
   Resolved                 "Resolved at" resolution.at, not live
   Closed / missing         no line
 A control: with the Analyzing branch forced off, the re-analysis case must fail.
+Another: ignoring ChecksUnknown must make the gave-up Verifying case tick again, and fail.
 """
 import json
 import os
@@ -66,6 +68,18 @@ CASES = [
     ('Verifying', incident('Verifying', completedAt='2026-11-21T12:11:19Z',
                            lastChecks={'precondition': {'exit': 0, 'since': '2026-11-21T12:11:22Z'}}),
      {'label': 'Checking the fix since', 'since': '2026-11-21T12:11:22Z', 'live': True}),
+    # krateo-057's sre-krateo-composition-reconcile-error-20261113-221259: verify gave no verdict six
+    # times, incident-provider raised ChecksUnknown and stopped; the state stays Verifying. Not live.
+    ('Verifying, checks gave up', incident('Verifying', completedAt='2026-11-13T22:28:17Z',
+                                           lastChecks={'precondition': {'exit': '0', 'since': '2026-11-14T15:54:44Z'}},
+                                           conditions=[{'type': 'ChecksUnknown', 'status': 'True', 'reason': 'VerifyNoVerdict',
+                                                        'lastTransitionTime': '2026-11-14T16:55:01Z'}]),
+     {'label': 'Fix check gave no verdict at', 'since': '2026-11-14T16:55:01Z', 'live': False}),
+    ('Verifying, a resolved ChecksUnknown', incident('Verifying', completedAt='2026-11-21T12:11:19Z',
+                                                     lastChecks={'precondition': {'exit': 0, 'since': '2026-11-21T12:11:22Z'}},
+                                                     conditions=[{'type': 'ChecksUnknown', 'status': 'False', 'reason': 'Served',
+                                                                  'lastTransitionTime': '2026-11-21T12:11:22Z'}]),
+     {'label': 'Checking the fix since', 'since': '2026-11-21T12:11:22Z', 'live': True}),
     ('Open', incident('Open', completedAt='2026-11-21T12:11:19Z'),
      {'label': 'Analyzed at', 'since': '2026-11-21T12:11:19Z', 'live': False}),
     ('Resolved', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
@@ -104,6 +118,11 @@ def main():
     if broken == prog or run(broken, CASES[0][1]) == CASES[0][2]:
         bad += 1
         print('FAIL control: forcing the Analyzing branch off did not change the re-analysis case')
+    gave_up = next(c for c in CASES if c[0] == 'Verifying, checks gave up')
+    ignored = prog.replace('select(.type == "ChecksUnknown" and .status == "True")', 'select(false)', 1)
+    if ignored == prog or run(ignored, gave_up[1]) == gave_up[2]:
+        bad += 1
+        print('FAIL control: ignoring ChecksUnknown did not change the gave-up case')
     print(f'incident progress: {len(CASES) + 1} cases, {bad} failure(s)')
     return 1 if bad else 0
 
