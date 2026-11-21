@@ -1,0 +1,26 @@
+{{/* The state chips, the page's filter: Open (the default), Analyzing, Verifying, Resolved, Closed,
+     All, each with its count over every incident. Each route keeps ?range, ?view and the
+     ?projects= scope; incidents-list builds them. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-status-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .chips // [] }'
+  resourcesRefs:
+    items: []

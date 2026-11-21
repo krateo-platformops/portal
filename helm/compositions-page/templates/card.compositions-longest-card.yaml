@@ -1,0 +1,27 @@
+{{/* "Needing attention longest": the five compositions that have been NotReady, Children
+     unreadable, drifting or paused the longest; compositions-side shows it only while there are any. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-longest-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  widgetData:
+    title: "Needing attention longest"
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: compositions-longest
+  resourcesRefs:
+    items:
+    - id: compositions-longest
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-longest
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

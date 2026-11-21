@@ -1,0 +1,45 @@
+{{/* The incidents the alerts opened (by triggeredAt), per bucket over the range: per hour for 24h,
+     per day for 7d and 30d, the newest bucket the current one. Empty when the incidents could not
+     be read. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-incident-trend
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      Incidents opened: red
+    shapeField: smooth
+    area: true
+    legend: false
+    height: 160
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 5
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .incidentTrend // [] }'
+  - forPath: xTimeUnit
+    expression: '${ if .trendUnit == "hour" then "hour" else "day" end }'
+  resourcesRefs:
+    items: []

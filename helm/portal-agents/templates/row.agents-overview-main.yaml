@@ -1,0 +1,40 @@
+{{/* The Overview body: the agents and tool servers on the left two thirds, the charts on the right
+     third (mockup A4). At narrow widths, or with the Agentiko rail open, both take the full width and
+     the charts go below the list. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-overview-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - cards
+    - flexes
+    alignment: top
+    items:
+    - resourceRefId: agents-list-card
+      size: 16
+      xs: 24
+      lg: 16
+    - resourceRefId: agents-side
+      size: 8
+      xs: 24
+      lg: 8
+  resourcesRefs:
+    items:
+    - id: agents-list-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-list-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-side
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-side
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

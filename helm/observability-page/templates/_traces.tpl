@@ -19,9 +19,11 @@ def okService: . == "" or test("^[A-Za-z0-9._-]{1,128}$"); def okUser: . == "" o
 {{/* The route a filter chip opens: the current filters with one changed, always on the Traces tab.
      The tab rides in the URL because the Tabs widget remounts whenever the query string changes and
      opens on `?tab=` (else the first tab) — without it every chip click would land on
-     Reconciliation. `projects` is the shell scope and rides every route. */}}
+     Reconciliation. `projects` is the shell scope and rides every route, and so does every other page
+     param the address holds (the other tabs' filters, the search, Summary | Full list), after the
+     Traces filters, so a chip changes one filter and nothing else. */}}
 {{- define "obs.traces.route" -}}
-def tracesRoute($over): ({range: ((.range // "24h") | tostring), traceService: ((.traceService // "") | tostring), traceUser: ((.traceUser // "") | tostring), traceStatus: ((.traceStatus // "") | tostring), projects: ((.projects // "") | tostring)} + $over) as $q | ["range", "traceService", "traceUser", "traceStatus", "projects"] | map(select($q[.] != "") | . + "=" + ($q[.] | @uri)) | "/observability?" + join("&") + "&tab=Traces";
+def tracesRoute($over): . as $x | ({range: ((.range // "24h") | tostring), traceService: ((.traceService // "") | tostring), traceUser: ((.traceUser // "") | tostring), traceStatus: ((.traceStatus // "") | tostring), projects: ((.projects // "") | tostring)} + ([ "serviceName", "limit", "latencyBy", "status", "componentStatus", "q", "view" ] | map({ key: ., value: (($x[.] // "") | tostring) }) | from_entries) + $over) as $q | ["range", "traceService", "traceUser", "traceStatus", "projects", "serviceName", "limit", "latencyBy", "status", "componentStatus", "q", "view"] | map(select($q[.] != "") | . + "=" + ($q[.] | @uri)) | "/observability?" + join("&") + "&tab=Traces";
 {{- end }}
 
 {{/* Display formats. Duration is nanoseconds (the exporter writes End - Start in ns); a start time

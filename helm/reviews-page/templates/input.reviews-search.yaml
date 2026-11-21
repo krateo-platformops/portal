@@ -1,5 +1,6 @@
-{{/* Search: a proposal's title and subject, case-insensitive, written to ?q= on Enter and removed
-     when cleared. platform-reviews applies it as one more filter, so the facet counts follow it. */}}
+{{/* Search: a proposal's title, subject, kind or target repo, case-insensitive, written to ?q= on
+     Enter and removed when cleared. platform-reviews applies it as one more filter to the whole
+     page: the facet and state counts, the figures, the charts, the cards and the table. */}}
 kind: Input
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -8,12 +9,14 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, repo, today, q, group, view]
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
   widgetData:
     name: q
     queryParam: q
-    placeholder: Search proposals
+    {{/* The filter applies on SUBMIT (Enter), not per keystroke: say so in the placeholder or the */}}
+    {{/* box reads as broken while the user types. */}}
+    placeholder: Search proposals · press Enter
     allowClear: true
-    size: small
+    size: middle
   resourcesRefs:
     items: []

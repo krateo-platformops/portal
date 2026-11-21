@@ -1,0 +1,27 @@
+{{/* "Open by kind": the open proposals per kind (listy.reviews-by-kind). reviews-side shows it only
+     while there are open proposals. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-by-kind-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  widgetData:
+    title: Open by kind
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: reviews-by-kind
+  resourcesRefs:
+    items:
+    - id: reviews-by-kind
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-by-kind
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

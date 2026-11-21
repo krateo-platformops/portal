@@ -1,0 +1,26 @@
+{{/* "Opened vs resolved": per hour (24h) or per day (7d, 30d) over the range (linechart.incidents-trend). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-trend-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  widgetData:
+    title: Opened vs resolved
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: incidents-trend
+  resourcesRefs:
+    items:
+    - id: incidents-trend
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-trend
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET

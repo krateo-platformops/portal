@@ -1,0 +1,27 @@
+{{/* "Recent runs": the newest review runs of every kind (listy.reviews-runs), in place of the old
+     Runs panel. reviews-side shows it only while there are runs, or when they could not be read. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-runs-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  widgetData:
+    title: Recent runs
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: reviews-runs
+  resourcesRefs:
+    items:
+    - id: reviews-runs
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-runs
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

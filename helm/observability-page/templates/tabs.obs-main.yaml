@@ -5,9 +5,11 @@
 {{/* Reconciliation/Telemetry/Components tabs are each a single Col wrapper resolved through */}}
 {{/* resourcesRefs (the Tabs allowedResources enum has `cols` but not `flexes`), so every tab opens */}}
 {{/* with its own section header + caption. The range chips stay ABOVE the tabs */}}
-{{/* (shared filter), so all tabs re-render on a range change — hence keyExtras carries `range` */}}
-{{/* (and `projects`, the shell scope selector that rides every route) so the Tabs' own cache cell */}}
-{{/* partitions per range+scope like its children do. */}}
+{{/* (shared filter, in the toolbar with the search), so all tabs re-render on a range change or a */}}
+{{/* search — hence keyExtras carries every page param (the root's krateo.io/filter-keys), so the */}}
+{{/* Tabs' own cache cell partitions like its children do. The Reconciliation, Telemetry, Components */}}
+{{/* and Traces tabs are laid out as the A4 dashboard (figures, list card, charts); SLOs and the */}}
+{{/* snowplow SLI tabs are charts and cards only and keep their own layout. */}}
 kind: Tabs
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,9 +18,7 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): the shared range chips write ?range=, the shell writes ?projects= — */}}
-  {{/* both reach the Tabs on every visit, so both are declared here. */}}
-  keyExtras: [projects, range]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     allowedResources:
       - cols

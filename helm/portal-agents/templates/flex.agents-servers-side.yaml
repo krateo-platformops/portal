@@ -1,0 +1,43 @@
+{{/* The Tool servers charts, one third of the row: by state, tools discovered per server, agents per
+     server. A chart with nothing to draw is left out. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-servers
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.byState // []) | length) > 0 then [ { resourceRefId: "agents-servers-by-state-card" } ] else [] end) + (if ((.topTools // []) | length) > 0 then [ { resourceRefId: "agents-servers-tools-card" } ] else [] end) + (if ((.topConsumers // []) | length) > 0 then [ { resourceRefId: "agents-servers-consumers-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: agents-servers-by-state-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-by-state-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-servers-tools-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-tools-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-servers-consumers-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-consumers-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

@@ -1,0 +1,33 @@
+{{/* The five requests Zendesk has been waiting on longest (status Pending, by last update); a row
+     opens the request. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-waiting
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: true
+    itemTemplate:
+      iconVariant: dot
+      color:
+        value: gold
+      primaryText: '{name}'
+      subPrimaryText: '{why}'
+      navigateTo: '{href}'
+      ellipsis: true
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .waiting // [] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,65 @@
+{{/* The requests, two thirds of the row: "Summary | Full list" top right, then the
+     chips (the page's filter, Active by default), then one card per request in view, or with
+     ?view=table the table. When the chip holds none, the sentence that says why
+     (result.service-desk-empty). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Requests
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: service-desk-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - results
+    items:
+    - resourceRefId: service-desk-state-chips
+    - resourceRefId: service-desk-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "service-desk-state-chips" } ] + (if ((.rows // []) | length) == 0 then [ { resourceRefId: "service-desk-empty" } ] elif .view == "table" then [ { resourceRefId: "service-desk-requests" } ] else [ { resourceRefId: "service-desk-cards" } ] end) }'
+  resourcesRefs:
+    items:
+    - id: service-desk-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: service-desk-state-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-state-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: service-desk-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: service-desk-requests
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-requests
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: service-desk-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-empty
+      namespace: {{ $.Values.namespace }}
+      resource: results
+      verb: GET

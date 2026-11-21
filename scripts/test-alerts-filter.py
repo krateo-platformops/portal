@@ -2,17 +2,16 @@
 """
 test-alerts-filter — /alerts' state filter, over the chart's own jq.
 
-WHAT IT GUARDS. obs-alerts filters its rows by the ?status= chip and counts every chip over the full
-set. The rules a reader would notice:
-  - the State facet (root-pages slice 3a; it replaced the chips) offers the states some alert is in,
-    in triage order, plus the one in force even at 0; with every alert OK it is left out of the bar;
+WHAT IT GUARDS. obs-alerts filters its rows by the ?status= chip (Firing when absent) and counts
+every chip over the full set. The rules a reader would notice:
+  - the state chips (alerts dashboard): Firing, Not evaluated, Pending, OK, All, in triage order,
+    each with its count, the picked one active, every route keeping ?range, ?view and ?projects;
   - an alert with no HyperDX alert behind it is "Not evaluated", in the chip and in the table,
     whatever .status.state last said: nothing evaluates it;
-  - a state is matched in any case; a ?status= that is no state shows no rows and is a chip that
-    removes it, as on /incidents;
-  - the applied-filter chips and the "Author with Autopilot" link keep the ?projects= scope and every
-    filter, so opening the rail does not reset the view;
-  - ?view=table is the header, the filter bar, the back link and the table; no summary band;
+  - a state is matched in any case; a ?status= that is no state shows no rows, and no chip is active;
+  - the "Ask Agentiko →" link keeps the ?projects= scope and every param, so opening the rail does
+    not reset the view;
+  - ?view=table puts the table in the alerts card in place of the cards;
   - the alert page's state pill says "Not evaluated" too, in gray;
   - the Incidents column says whether a firing opens an incident, off alert-provider's
     OpensIncidents condition: "Yes", or "No" with the reason in a word, in gray; "—" without one.
@@ -73,9 +72,9 @@ def resolve(extras, items=ALERTS, failed=False):
 
 
 def states(out, extras):
-    """The State facet's options (root-pages slice 3a replaced the status chips with it)."""
-    opts = tbi.resolved_widget(CH, 'Select', 'alerts-status', out, extras, 'state facet')['spec']['widgetData']['options']
-    return [(o['label'], o['value'], o['count']) for o in opts]
+    """The state chips: label, count, active."""
+    chips = tbi.resolved_widget(CH, 'Listy', 'alerts-status-chips', out, extras, 'state chips')['spec']['widgetData']['dataSource']
+    return [(c['label'], c['count'], c['active']) for c in chips]
 
 
 def table(out, extras):
@@ -93,9 +92,9 @@ def check_counts_and_rows():
     out = resolve({})
     expect(f, 'counts over the full set', out['counts'],
            {'all': 7, 'alert': 2, 'ok': 3, 'pending': 1, 'not-evaluated': 1})
-    expect(f, 'unfiltered: every row', len(out['rows']), 7)
-    expect(f, 'unfiltered: the chip in force', out['status'], 'all')
-    for sel, want in (('alert', ['latency', 'disk']), ('OK', ['crashloop', 'restarts', 'oom']),
+    expect(f, 'no ?status: the firing ones', [r['routeName'] for r in out['rows']], ['disk', 'latency'])
+    expect(f, 'no ?status: Firing', out['status'], 'alert')
+    for sel, want in (('alert', ['disk', 'latency']), ('OK', ['crashloop', 'oom', 'restarts']),
                       ('pending', ['fresh']), ('not-evaluated', ['rejected'])):
         got = [r['routeName'] for r in resolve({'status': sel})['rows']]
         expect(f, f'{sel} chip: its rows', got, want)
@@ -107,37 +106,30 @@ def check_counts_and_rows():
     return f
 
 
-def check_state_facet():
+def check_state_chips():
     f = []
     ex = {'projects': 'team a'}
     out = resolve(ex)
-    expect(f, 'every state some alert is in, in triage order', states(out, ex),
-           [('Alert', 'alert', 2), ('Not evaluated', 'not-evaluated', 1), ('Pending', 'pending', 1), ('OK', 'ok', 3)])
-    out = resolve(dict(ex, status='alert'))
-    expect(f, 'a picked state is a chip that removes itself and keeps the scope', [(c['label'], c['href']) for c in out['chips']],
-           [('State: Alert', '/alerts?projects=team%20a'), ('Clear all', '/alerts?projects=team%20a')])
-    quiet = [a for a in ALERTS if a['metadata']['name'] in ('latency', 'crashloop')]
-    expect(f, 'a quiet platform: no Pending, no Not evaluated', states(resolve({}, quiet), {}), [('Alert', 'alert', 1), ('OK', 'ok', 1)])
-    ex = {'status': 'not-evaluated'}
-    expect(f, 'the state in force stays, even at 0, in its place', states(resolve(ex, quiet), ex),
-           [('Alert', 'alert', 1), ('Not evaluated', 'not-evaluated', 0), ('OK', 'ok', 1)])
-    only_ok = [a for a in ALERTS if a['metadata']['name'] in ('crashloop', 'restarts')]
-    expect(f, 'every alert OK: the State facet is left out of the bar',
-           [i['resourceRefId'] for i in tbi.resolved_widget(CH, 'Flex', 'alerts-filter-bar', resolve({}, only_ok), {}, 'bar')['spec']['widgetData']['items']],
-           ['alerts-search'])
+    expect(f, 'every state, in triage order, with its count, Firing active', states(out, ex),
+           [('Firing', 2, True), ('Not evaluated', 1, False), ('Pending', 1, False), ('OK', 3, False), ('All', 7, False)])
+    expect(f, 'the routes keep the scope and leave the default out', [c['route'] for c in out['chips']],
+           ['/alerts?projects=team%20a', '/alerts?projects=team%20a&status=not-evaluated', '/alerts?projects=team%20a&status=pending',
+            '/alerts?projects=team%20a&status=ok', '/alerts?projects=team%20a&status=all'])
+    ex = {'status': 'firing'}
+    expect(f, 'not a state: no chip active', [a for _, _, a in states(resolve(ex), ex)], [False] * 5)
     return f
 
 
 def check_table():
     f = []
-    rows = {r['name'][0]: r['state'] for r in table(resolve({}), {})}
-    expect(f, 'firing', rows['Latency'], ('Alert', 'red'))
-    expect(f, 'firing, paused', rows['Disk'], ('Alert · paused', 'gray'))
+    rows = {r['name'][0]: r['state'] for r in table(resolve({'status': 'all'}), {'status': 'all'})}
+    expect(f, 'firing', rows['Latency'], ('Firing', 'red'))
+    expect(f, 'firing, paused', rows['Disk'], ('Firing · paused', 'gray'))
     expect(f, 'quiet', rows['Crashloop'], ('OK', 'green'))
     expect(f, 'synced, undecided', rows['Fresh'], ('Pending', 'orange'))
     expect(f, 'no HyperDX alert', rows['Rejected'], ('Not evaluated', 'gray'))
     ex = {'status': 'alert'}
-    expect(f, 'filtered table', [r['name'][0] for r in table(resolve(ex), ex)], ['Latency', 'Disk'])
+    expect(f, 'filtered table', [r['name'][0] for r in table(resolve(ex), ex)], ['Disk', 'Latency'])
     return f
 
 
@@ -152,7 +144,7 @@ def check_incidents_column():
              alert('tenant', 'OK', opens=('False', 'OutsideHomeNamespace'), typ='Logs'),
              alert('unknown', 'OK', opens=('False', 'SomeNewReason'), typ='Logs'),
              alert('older', 'OK')]  # an alert-provider that writes no condition yet
-    rows = {r['name'][0]: r['incidents'] for r in table(resolve({}, items), {})}
+    rows = {r['name'][0]: r['incidents'] for r in table(resolve({'status': 'all'}, items), {'status': 'all'})}
     gray = 'var(--gray-color)'
     expect(f, 'incidents column', rows, {
         'Logs': ('Yes', None), 'Spans': ('Yes', None),
@@ -166,7 +158,7 @@ def check_incidents_column():
 
 def check_button_and_page():
     f = []
-    for ex, want in (({}, '/alerts'), ({'status': 'OK', 'projects': 'team-a'}, '/alerts?projects=team-a&status=ok'),
+    for ex, want in (({}, '/alerts'), ({'status': 'OK', 'projects': 'team-a', 'range': '30d'}, '/alerts?projects=team-a&status=ok&range=30d'),
                      ({'status': 'firing'}, '/alerts?status=firing')):
         out = resolve(ex)
         path = tbi.resolved_widget(CH, 'Button', 'alerts-ask-agentiko', out, ex, 'ask button')['spec']['widgetData']['actions']['navigate'][0]['path']
@@ -181,14 +173,12 @@ def check_button_and_page():
     expect(f, 'no second Agentiko button: the author button is gone', [d['metadata']['name'] for d in CH.docs if d['metadata'].get('name') == 'alerts-author-autopilot'], [])
     want = CH.get('Table', 'obs-alerts')['spec']['keyExtras']
     expect(f, 'one cache key for every reader of the filtered action',
-           [CH.get(k, n)['spec'].get('keyExtras') for k, n in (('Select', 'alerts-status'), ('Button', 'alerts-ask-agentiko'))],
+           [CH.get(k, n)['spec'].get('keyExtras') for k, n in (('Listy', 'alerts-status-chips'), ('Button', 'alerts-ask-agentiko'))],
            [want, want])
     ex = {'view': 'table'}
-    page = tbi.resolved_widget(CH, 'Flex', 'page-alerts', resolve(ex), ex, 'page')['spec']['widgetData']
-    expect(f, 'the table view: header, filter bar, back link, table', [i['resourceRefId'] for i in page['items']],
-           ['alerts-page-header', 'alerts-filter-bar', 'alerts-view-toggle', 'obs-alerts'])
-    expect(f, 'no summary band left', [d['metadata']['name'] for d in CH.docs if d.get('kind') in ('Statistic', 'Row')
-                                       or d['metadata'].get('name', '').startswith(('alerts-stat-', 'alerts-stats'))], [])
+    card = tbi.resolved_widget(CH, 'Card', 'alerts-list-card', resolve(ex), ex, 'alerts card')['spec']['widgetData']
+    expect(f, 'the table view: the state chips, then the table', [i['resourceRefId'] for i in card['items']],
+           ['alerts-status-chips', 'obs-alerts'])
     return f
 
 
@@ -205,7 +195,7 @@ def check_detail_pill():
     return f
 
 
-CHECKS = [check_counts_and_rows, check_state_facet, check_table, check_incidents_column, check_button_and_page, check_detail_pill]
+CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill]
 
 
 def main():

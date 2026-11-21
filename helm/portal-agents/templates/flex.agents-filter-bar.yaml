@@ -1,5 +1,6 @@
-{{/* The /agents Overview filter bar: a named search landmark (Flex role/ariaLabel) holding the Kind,
-     Status and Owner facets, then the search box. A facet whose values are all one (over every agent
+{{/* The /agents Overview filter bar, the left of the toolbar (row.agents-toolbar): a named search
+     landmark (Flex role/ariaLabel) holding the Kind, Status and Owner facets. The search box sits on
+     the right of the toolbar (flex.agents-search-wrap). A facet whose values are all one (over every agent
      and tool server, decision Q2) is left out unless one of its values is applied. Every agent uses
      the same model, so Model is not a facet. */}}
 kind: Flex
@@ -10,24 +11,22 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
   apiRef:
     name: agents-list
     namespace: {{ $.Values.namespace }}
   widgetData:
     allowedResources:
     - selects
-    - inputs
     role: search
     ariaLabel: Filter agents and tool servers
     wrap: true
     gap: small
     align: center
-    items:
-    - resourceRefId: agents-search
+    items: []
   widgetDataTemplate:
   - forPath: items
-    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("kind", "status", "owner") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("agents-" + $k) } ] + [ { resourceRefId: "agents-search" } ] }'
+    expression: '${ ([ (.facets // [])[] | select(.show) | .key ]) as $shown | [ ("kind", "status", "owner") as $k | select(any($shown[]; . == $k)) | { resourceRefId: ("agents-" + $k) } ] }'
   resourcesRefs:
     items:
     - id: agents-kind
@@ -47,10 +46,4 @@ spec:
       name: agents-owner
       namespace: {{ $.Values.namespace }}
       resource: selects
-      verb: GET
-    - id: agents-search
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-search
-      namespace: {{ $.Values.namespace }}
-      resource: inputs
       verb: GET

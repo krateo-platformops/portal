@@ -1,0 +1,34 @@
+{{/* The eight services with the most error lines among the grouped errors (the search narrows them),
+     each a red bar against the first with its line count. A row opens the full list (the chronological
+     stream) scoped to that service. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-errors-by-service
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-error-log-digest
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{route}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: red
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .byService // [] }'
+  resourcesRefs:
+    items: []

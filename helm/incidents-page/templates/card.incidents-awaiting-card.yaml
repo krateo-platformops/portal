@@ -1,0 +1,27 @@
+{{/* "Firing, not investigated": firing alerts with no open incident (listy.incidents-awaiting).
+     incidents-side shows it only while there are such alerts, or when the alerts could not be read. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-awaiting-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  widgetData:
+    title: Firing, not investigated
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: incidents-awaiting
+  resourcesRefs:
+    items:
+    - id: incidents-awaiting
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-awaiting
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

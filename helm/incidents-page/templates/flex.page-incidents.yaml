@@ -1,16 +1,12 @@
-{{/* /incidents (root-pages UX, build plan §3.2; mockup screen 06). Top to bottom:
-       - the header, with Ask Agentiko;
-       - the filter bar (Alert, State, Age, Owner, search; a facet with one value is left out) and,
-         when a filter is applied, its chips;
-     then the OVERVIEW (the default):
-       - group by alert or by age, when anything is active;
-       - the strip;
-       - the calm line (no alert firing without an incident, nothing matching, a failed read) or
-         the "Firing alerts with no incident" section, when there are such alerts;
-       - the active incidents, one card per alert (Open, then Analyzing and Verifying when any);
-       - Resolved and Closed, folded;
-       - "All N incidents as a table →";
-     or, with ?view=table, "← Back to the overview" and today's table, with the same filters.
+{{/* /incidents (incidents dashboard, mockup A4). Top to bottom:
+       - the header, with Ask Agentiko (no subtitle: the breadcrumb above it says where this is);
+       - the time range (24h, 7d, 30d): the window of the Resolved and Time to resolve figures and
+         of the opened-vs-resolved chart; the search on the same row, which narrows the whole page;
+       - the five figures: Open, Analyzing, Verifying, Resolved, Time to resolve;
+       - one row: the incidents on the left two thirds (the state chips, default Open, then one
+         card per incident, or with ?view=table the full table), the charts on the right third
+         (by state, opened vs resolved, time to resolve per week, the alerts firing with no
+         incident).
 
      krateo.io/filter-keys names the URL params this page's widgets receive. scripts/lint-keyextras.py
      fails any widget reachable from here whose keyExtras misses one, because snowplow declines to
@@ -26,31 +22,23 @@ metadata:
     "krateo.io/nav-label": "Incidents"
     "krateo.io/nav-order": "12"
     "krateo.io/nav-path": "/incidents"
-    "krateo.io/filter-keys": "projects,status,alert,age,owner,q,group,view"
+    "krateo.io/filter-keys": "projects,status,range,view,q"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, alert, age, owner, q, group, view]
-  apiRef:
-    name: incidents-list
-    namespace: {{ $.Values.namespace }}
+  keyExtras: [projects, status, range, view, q]
   widgetData:
     allowedResources:
     - pageheaders
     - flexes
     - listies
-    - paragraphs
-    - collapses
-    - buttons
-    - tables
+    - rows
     vertical: true
     gap: middle
     items:
     - resourceRefId: incidents-page-header
-    - resourceRefId: incidents-filter-bar
-    - resourceRefId: incidents-strip
-  widgetDataTemplate:
-  - forPath: items
-    expression: '${ . as $r | [ { resourceRefId: "incidents-page-header" }, { resourceRefId: "incidents-filter-bar" } ] + (if ((.chips // []) | length) > 0 then [ { resourceRefId: "incidents-active-filters" } ] else [] end) + (if .view == "table" then [ { resourceRefId: "incidents-view-toggle" }, { resourceRefId: "incidents-table" } ] else ((if ((.panels // []) | length) > 0 then [ { resourceRefId: "incidents-group-toggle" } ] else [] end) + [ { resourceRefId: "incidents-strip" } ] + (if .failed or .alertsFailed or (.awaitingCount // 0) == 0 or (.matched // 0) == 0 or ((.panels // []) | length) == 0 then [ { resourceRefId: "incidents-calm" } ] else [] end) + (if (.awaitingCount // 0) > 0 then [ { resourceRefId: "incidents-awaiting-section" } ] else [] end) + (if ((.panels // []) | length) > 0 then [ { resourceRefId: "incidents-groups" } ] else [] end) + (if ((.counts.resolved // 0) + (.counts.closed // 0)) > 0 then [ { resourceRefId: "incidents-done" } ] else [] end) + (if (.matched // 0) > 0 then [ { resourceRefId: "incidents-view-toggle" } ] else [] end)) end) }'
+    - resourceRefId: incidents-toolbar
+    - resourceRefId: incidents-stats
+    - resourceRefId: incidents-main
   resourcesRefs:
     items:
     - id: incidents-page-header
@@ -59,63 +47,21 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: incidents-filter-bar
+    - id: incidents-toolbar
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-filter-bar
+      name: incidents-toolbar
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: rows
       verb: GET
-    - id: incidents-active-filters
+    - id: incidents-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-active-filters
+      name: incidents-stats
       namespace: {{ $.Values.namespace }}
       resource: listies
       verb: GET
-    - id: incidents-group-toggle
+    - id: incidents-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-group-toggle
+      name: incidents-main
       namespace: {{ $.Values.namespace }}
-      resource: listies
-      verb: GET
-    - id: incidents-strip
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-strip
-      namespace: {{ $.Values.namespace }}
-      resource: listies
-      verb: GET
-    - id: incidents-calm
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-calm
-      namespace: {{ $.Values.namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: incidents-awaiting-section
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-awaiting-section
-      namespace: {{ $.Values.namespace }}
-      resource: flexes
-      verb: GET
-    - id: incidents-groups
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-groups
-      namespace: {{ $.Values.namespace }}
-      resource: collapses
-      verb: GET
-    - id: incidents-done
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-done
-      namespace: {{ $.Values.namespace }}
-      resource: collapses
-      verb: GET
-    - id: incidents-view-toggle
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-view-toggle
-      namespace: {{ $.Values.namespace }}
-      resource: buttons
-      verb: GET
-    - id: incidents-table
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incidents-table
-      namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: rows
       verb: GET

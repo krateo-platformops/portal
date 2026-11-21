@@ -1,0 +1,36 @@
+{{/* The /service-desk time range: "Time range" and the 24h / 7d / 30d chips, as on /incidents. It
+     sets the window of the Opened and Solved figures and of the opened-vs-solved chart; the chips,
+     the cards and the table are not windowed. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-range-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: service-desk-range-label
+    - resourceRefId: service-desk-range-chips
+  resourcesRefs:
+    items:
+    - id: service-desk-range-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-range-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: service-desk-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-range-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

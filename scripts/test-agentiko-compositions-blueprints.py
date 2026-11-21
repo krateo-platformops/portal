@@ -142,8 +142,11 @@ normal = run_comps()
 check('compositions: a read with no error -> readError empty', normal['readError'], '')
 href, prompt = ask(normal['askHref'])
 check('compositions: unfiltered -> self page, no params', href, '/compositions')
-check('compositions: unfiltered -> the workloads in view', prompt.split(' The ones that need attention')[0],
-      'Review my compositions: 4 in view — 2 healthy, 1 failed, 1 degraded, 1 drifted, 0 paused, 0 pending, 0 with unreadable children.')
+check('compositions: unfiltered -> the workloads needing attention (the default state)', prompt.split(' The ones that need attention')[0],
+      'Review my compositions (State: Needs attention): 3 in view — 0 healthy, 1 failed, 1 degraded, 1 drifted, 0 paused, 0 pending, 0 with unreadable children.')
+check('compositions: ?status=all -> every workload, a drifted one not counted healthy',
+      ask(run_comps(status='all')['askHref'])[1].split(' The ones that need attention')[0],
+      'Review my compositions: 4 in view — 1 healthy, 1 failed, 1 degraded, 1 drifted, 0 paused, 0 pending, 0 with unreadable children.')
 check('compositions: unfiltered -> the ones needing attention, failed first',
       prompt.split('The ones that need attention are: ')[1].split(' For each')[0],
       '1. WebApp/orders-api · team-alpha — failed 2. WebApp/web · team-alpha — degraded 3. Redis/cache · team-beta — drifted.')
@@ -160,12 +163,12 @@ check('compositions: filtered -> only the filtered rows listed', 'web' in prompt
 check('compositions: filtered -> the prompt counts what the table shows', len(filt['filtered']), 1)
 href, prompt = ask(run_comps(scope='platform')['askHref'])
 check('compositions: ?scope=platform -> kept', href, '/compositions?scope=platform')
-check('compositions: ?scope=platform -> said', prompt.startswith('Review my compositions (platform components only): 1 in view — 0 healthy, 1 failed'), True)
+check('compositions: ?scope=platform -> said', prompt.startswith('Review my compositions (State: Needs attention; platform components only): 1 in view — 0 healthy, 1 failed'), True)
 check('compositions: ?scope=platform -> the platform component listed', '1. Portal/portal · krateo-system — failed.' in prompt, True)
-_, prompt = ask(run_comps(q='site')['askHref'])
+_, prompt = ask(run_comps(q='site', status='all')['askHref'])
 check('compositions: nothing unhealthy -> no empty list', 'The ones that need attention are' in prompt, False)
 check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted, paused or unreadable.' in prompt, True)
-check('compositions: ?status=all -> not carried', ask(run_comps(status='all')['askHref'])[0], '/compositions')
+check('compositions: ?status=all -> carried (Needs attention is the default)', ask(run_comps(status='all')['askHref'])[0], '/compositions?status=all')
 
 href, prompt = ask(run_comps(status='pending')['askHref'])
 check('compositions: a filter with no rows -> keeps it', href, '/compositions?status=pending')
@@ -174,7 +177,7 @@ check('compositions: a filter with no rows -> says so', prompt,
       'Tell me whether that is expected, and whether anything in my other compositions needs attention.')
 _, prompt = ask(run_comps(items=[])['askHref'])
 check('compositions: none at all -> says so', prompt,
-      'No composition is in view. Explain how a composition is created on this platform from an installed blueprint.')
+      'No composition is in view (State: Needs attention). Explain how a composition is created on this platform from an installed blueprint.')
 
 # A FAILED READ IS NOT AN EMPTY PLATFORM.
 refused = run_comps(items=[], crdsError=ERR403)
@@ -252,6 +255,10 @@ grid = [d for d in bpage if d.get('metadata', {}).get('name') == 'blueprints-gri
 check('blueprints button: keyExtras = the grid\'s', named(bpage, 'Button', 'blueprints-ask-agentiko')['spec']['keyExtras'],
       grid['spec']['keyExtras'])
 check('blueprints header: the button alone', items_of(named(bpage, 'PageHeader', 'blueprints-page-header')), ['blueprints-ask-agentiko'])
+# UX review round 3: the card's Create is SECONDARY (the card click is the main path). Without
+# `type`, the frontend makes a card's first row action primary (rowActionButtonType).
+check('blueprints grid: Create is a secondary button',
+      [(a['label'], a.get('type')) for a in grid['spec']['widgetData']['itemTemplate']['rowActions']], [('Create', 'default')])
 
 # --- /blueprints/{namespace}/{name} ----------------------------------------------------------------
 detail_prog = named(bpage, 'RESTAction', 'blueprint-detail')['spec']['filter']

@@ -1,0 +1,45 @@
+{{/* The charts, one third of the row, top to bottom: the compositions by state, by kind, and the
+     ones that have needed attention longest (only while there are any). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: compositions-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, namespace, scope, status, kind, q, view]
+  apiRef:
+    name: compositions-list
+    namespace: {{ .Release.Namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: compositions-by-state-card
+    - resourceRefId: compositions-by-kind-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "compositions-by-state-card" }, { resourceRefId: "compositions-by-kind-card" } ] + (if ((.longest // []) | length) > 0 then [ { resourceRefId: "compositions-longest-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: compositions-by-state-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-by-state-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: compositions-by-kind-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-by-kind-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: compositions-longest-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: compositions-longest-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

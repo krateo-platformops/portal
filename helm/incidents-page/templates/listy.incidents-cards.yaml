@@ -1,0 +1,53 @@
+{{/* One card per incident in the picked state, newest first: the alert's title, the state as a
+     coloured tag, the root cause's category, the root cause, and the object the analysis read
+     (the composition when it read one). A wrench top right marks an Open incident whose fix can
+     be applied (on its page). The whole card opens the incident. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-triangle-exclamation
+      iconVariant: tile
+      primaryText: '{title}'
+      secondaryText: '{state}'
+      subPrimaryText: '{category}'
+      subSecondaryText: '{target}'
+      description: '{cause}'
+      cardCta: Open incident
+      navigateTo: '/incidents/{namespace}/{name}'
+      color:
+        value: '{state}'
+        map:
+          Open: red
+          Analyzing: blue
+          Verifying: orange
+          Resolved: green
+          Closed: gray
+        default: gray
+      status:
+        icon: '{fixIcon}'
+        color: '{fixColor}'
+        tooltip: '{fixTooltip}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.rows // [])[] | . + (if .fixReady then { fixIcon: "fa-wrench", fixColor: "primary", fixTooltip: "A fix is ready to apply" } else { fixIcon: "", fixColor: "", fixTooltip: "" } end) ] }'
+  resourcesRefs:
+    items: []

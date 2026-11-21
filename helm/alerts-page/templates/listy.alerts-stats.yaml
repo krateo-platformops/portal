@@ -1,0 +1,38 @@
+{{/* The five figures over every alert: Firing, Not evaluated, Pending, OK, and how many have open
+     incidents (and how many incidents). Each tile wears the colour the cards give the state it
+     counts (alerts-cards), zero or not; With open incidents is red, as the cards' incident mark.
+     The title says the state too, so colour is never the only signal. A failed read of the alerts is an empty value (a muted "—") captioned "could not be read", never
+     a 0; an unread incident list is "—" on With open incidents alone; either is orange. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          alert: red
+          not-evaluated: orange
+          pending: blue
+          ok: green
+          incident: red
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

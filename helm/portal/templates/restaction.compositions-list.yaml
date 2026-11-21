@@ -113,12 +113,11 @@ spec:
   {{/* the Pending card's figure and its tag cannot disagree. It used to count rows whose Ready was */}}
   {{/* neither True nor False, which left out Ready=False/Creating (Pending, above): the card could */}}
   {{/* say 3 beside a tag computed from 2. */}}
-  {{/* ?status=drift is the ONE railState-backed value (Ready+Unsynced — a healthy-state */}}
-  {{/* OVERLAY, so counts.drift overlaps counts.healthy): it powers the Drift chip and the */}}
-  {{/* reconcile-breakdown drill-down; the other status values keep filtering on .state. */}}
-  {{/* The scope params (status/range/q/from/to/projects) are ECHOED back so the toolbar */}}
-  {{/* chip Listys (compositions-status-chips) can rebuild query-merged routes and their */}}
-  {{/* active flag server-side — chip navigateTo does not client-merge like Buttons did. */}}
+  {{/* ?status= filters on `.railState` (one state per composition: Paused, NotReady, Degraded, */}}
+  {{/* Ready, Drift, Children unreadable, Pending), so a drifted composition is Drift and not also */}}
+  {{/* Ready there; `counts` keeps its older `.state` figures (counts.drift overlaps counts.healthy) */}}
+  {{/* for whoever reads them. The params are ECHOED back as routes (stateChips, viewChips, */}}
+  {{/* scopeHrefs, chips) built server-side — chip navigateTo does not client-merge. */}}
   {{/* ASK AGENTIKO. `askHref` for /compositions (compositions-page button.compositions-ask-agentiko),
        @uri-encoded server-side so its Button is a plain navigate. /compositions shows `.filtered`
        (status, scope, search and namespace applied) and counts it, so the prompt is about THAT view
@@ -146,35 +145,60 @@ spec:
      | if ($projSel | length) > 0 then $projSel elif $proj != "" then [$proj] else [] end) as $projects
     | . as $in
     | ["projects", "scope", "status", "kind", "q", "view"] as $keys
-    | ($in | fx_filters(["status", "kind"])) as $flt0
-    | ([ $flt0.status[] | ascii_downcase | select(. != "all") ] | unique) as $statusSel
+    {{/* THE STATE IS THE PAGE'S FILTER (the /incidents dashboard's layout, mockup A4). ?status= takes
+         one state or several (healthy, failed, degraded, drift, pending, unreadable, paused, any
+         case), `attention` (NotReady, Degraded, Children unreadable, Drift, Paused) or `all`; absent,
+         it is `attention`. Kind and search stay as narrowing params, for the links that carry them
+         (Observability's by-kind rows, the by-kind chart here), each a removable chip. */}}
+    | ($in | fx_filters(["kind"])) as $flt0
+    | ((.status // "") | tostring | ascii_downcase | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")) | unique) as $rawSel
+    | (if ($rawSel | length) == 0 then ["attention"] elif any($rawSel[]; . == "all") then [] else $rawSel end) as $statusSel
     | (if ($statusSel | length) == 1 then $statusSel[0] elif ($statusSel | length) == 0 then "all" else "several" end) as $status
     | (.scope // "workloads") as $scope
     | ((.q // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_downcase) as $q
-    | ($flt0 + { status: $statusSel, q: (if $q == "" then [] else ["1"] end) }) as $flt
-    | fx_set(($in | fx_params($keys)); "status"; ($statusSel | join(","))) as $p
+    | ($flt0 + { q: (if $q == "" then [] else ["1"] end) }) as $flt
+    | fx_set(($in | fx_params($keys)); "status"; (if $status == "attention" then "" elif $status == "all" then "all" else ($statusSel | join(",")) end)) as $p
     | ((($in.view // "") | tostring) == "table") as $tableView
-    | now as $now
+    | def go($st; $table): fx_href("/compositions"; fx_set(fx_set($p; "status"; (if $st == "attention" then "" else $st end)); "view"; (if $table then "table" else "" end)));
+    now as $now
     | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | (any($c[]?; .type == "Ready" and .status == "True")) as $ready | (any($c[]?; .type == "Ready" and .status == "False" and (.reason | isConvergingFalse | not)) or (any($c[]?; (.type == "Ready" and .status == "Unknown" and .reason != "ZeroEvidence" and .reason != "ChildrenForbidden")) and any($c[]?; .type == "Synced" and .status == "False"))) as $notready | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced | ($ready and (.wh == false)) as $degraded | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence")) as $silent | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden")) as $unreadable | (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift" elif $unreadable then "unreadable" else "pending" end) as $railState | (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end) as $healthPercent | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" elif $unreadable then "unreadable" else "pending" end), railState: $railState, healthPercent: $healthPercent, coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end), assessable: (($silent or $unreadable) | not), rail: (if ($silent or $unreadable) then {percent: 0, state: (if $silent then "notAssessable" else "unreadable" end), label: (if $silent then "No signal" else "Children unreadable" end), reason: (first($c[]? | select(.type == "Ready" and .status == "Unknown" and (.reason == "ZeroEvidence" or .reason == "ChildrenForbidden")) | ((.message // "") | ltrimstr("Composition health is unknown: ")) as $m | "Ready=" + .status + " · " + .reason + (if $m != "" then ": " + $m else "" end)) // "")} else {percent: $healthPercent, state: $railState, label: (($healthPercent | tostring) + "%")} end)}))) as $all
     | $all as $dated
     | ($dated | map(select(if $scope == "all" then true elif $scope == "platform" then .platform else (.platform | not) end))) as $scoped
     | ($all | map(select(.assessable | not)) | length) as $na
     | (($all | length) - $na) as $assessable
     | ($all | map(select(.assessable and .state == "pending")) | length) as $pending
-    {{/* THE FACETS (portal.facets). One state per composition, its railState (paused first, then
-         NotReady, Degraded, Ready, Drift, Children unreadable, Pending), so ?status= takes the values
-         the old chips wrote (healthy, failed, degraded, drift, pending, unreadable) plus paused; it is
-         read in any case, `all` is no filter, and it takes several values now. Search matches name or
-         kind. The base set is the scope (My workloads, Platform, Everything): the facets count and hide
-         over it. No # comments in this filter: it is a folded block, which would join them to the
-         code that follows. */}}
-    | { healthy: "Ready", paused: "Paused", degraded: "Degraded", drift: "Drift", failed: "NotReady", unreadable: "Children unreadable", pending: "Pending" } as $stateNames
-    | ($scoped | map(. + { f: { status: .railState, kind: ((.kind // "") | gsub(","; "")),
-                                q: (if $q == "" then "" elif (((.name // "") + " " + (.kind // "")) | ascii_downcase | contains($q)) then "1" else "0" end) } })) as $scopedF
-    | ($scopedF | fx_apply($flt)) as $filtered
-    | [ fx_facet($scopedF; $flt; "status"; "State"; $stateNames), fx_facet($scopedF; $flt; "kind"; "Kind"; {}) ] as $facets
+    {{/* One state per composition, its railState, in triage order: the chips, the donut and the cards
+         follow it. `attention` is every state a person should look at. No # comments in this
+         filter: it is a folded block, which would join them to the code that follows. */}}
+    | ["failed", "degraded", "unreadable", "drift", "paused", "pending", "healthy"] as $order
+    | { healthy: "Ready", paused: "Paused", degraded: "Degraded", drift: "Drift", failed: "NotReady", unreadable: "Children unreadable", pending: "Pending", attention: "Needs attention", all: "All" } as $stateNames
+    | def isAttention: (.railState | IN("failed", "degraded", "unreadable", "drift", "paused"));
+      def inState($sel): . as $c | ($sel | length) == 0 or any($sel[]; . == $c.railState or (. == "attention" and ($c | isAttention)));
+      def condAt($t): ((.conditions // []) | map(select(.type == $t)) | .[0].lastTransitionTime // "");
+      def stateAt: if .railState == "drift" then condAt("Synced") elif .railState == "degraded" then "" else condAt("Ready") end;
+      def utcstamp:
+        if type != "string" or . == "" then ""
+        else (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2})") // null) as $m
+          | if $m == null then "" else $m.d + " " + $m.t + " UTC" end end;
+      def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
+      def durlabel: (. | round) as $m
+        | if $m < 60 then ($m | tostring) + " min"
+          elif $m < 1440 then (($m / 60 | floor) | tostring) + " h" + (if $m % 60 == 0 then "" else " " + (($m % 60) | tostring) + " min" end)
+          else (($m / 1440 | floor) | tostring) + " d" + (if ($m % 1440) < 60 then "" else " " + ((($m % 1440) / 60 | floor) | tostring) + " h" end) end;
+      def why: if .railState == "unreadable" then (.rail.reason // "")
+        else ((.conditions // []) | map(select(.type == "Ready" or .type == "Synced" or .type == "Workload") | select(.status != "True" or (.reason // "") == "ReconcilePaused" or (.reason // "") == "ReconcileGracefullyPaused")) | .[0] // {}) as $k
+          | (($k.message // "") | tostring) as $msg
+          | if $msg != "" then $msg elif ($k.reason // "") != "" then $k.type + "=" + ($k.status // "") + " · " + $k.reason else "" end end;
+    ($scoped | map(. + { f: { kind: ((.kind // "") | gsub(","; "")),
+                              q: (if $q == "" then "" elif (((.name // "") + " " + (.kind // "")) | ascii_downcase | contains($q)) then "1" else "0" end) } })) as $scopedF
+    | ($scopedF | fx_apply($flt)) as $base
+    | ($base | map(select(inState($statusSel)))) as $filtered
+    | [ fx_facet($scopedF; $flt; "kind"; "Kind"; {}) ] as $facets
+    | ($order | map({ key: ., value: (. as $s | $base | map(select(.railState == $s)) | length) }) | from_entries
+       + { attention: ($base | map(select(isAttention)) | length), all: ($base | length) }) as $stateCounts
     | ([ $facets[] | select((.active | length) > 0) | .label + ": " + ([ .values[] | select(.active) | .label ] | join(", ")) ] | join("; ")) as $facetDesc
-    | ([ (if $facetDesc != "" then $facetDesc else empty end),
+    | ([ (if $status == "all" then empty else "State: " + ([ $statusSel[] | $stateNames[.] // . ] | join(", ")) end),
+         (if $facetDesc != "" then $facetDesc else empty end),
          (if $scope == "platform" then "platform components only" elif $scope == "all" then "workloads and platform components" else empty end),
          (if ($projects | length) > 0 then ("namespace" + (if ($projects | length) > 1 then "s " else " " end) + ($projects | join(", "))) else empty end),
          (if $q != "" then "name or type matching \"" + ((.q // "") | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
@@ -189,7 +213,7 @@ spec:
          ($filtered | unhealthy) as $bad
          | "Review my compositions" + (if $view != "" then " (" + $view + ")" else "" end) + ": "
            + ($filtered | length | tostring) + " in view — "
-           + ($filtered | map(select(.state == "healthy")) | length | tostring) + " healthy, "
+           + ($filtered | map(select(.railState == "healthy")) | length | tostring) + " healthy, "
            + ($filtered | map(select(.state == "failed")) | length | tostring) + " failed, "
            + ($filtered | map(select(.state == "degraded")) | length | tostring) + " degraded, "
            + ($filtered | map(select(.railState == "drift")) | length | tostring) + " drifted, "
@@ -199,8 +223,24 @@ spec:
            + (if $bad != "" then " The ones that need attention are: " + $bad + ". For each, explain what is wrong from its conditions and managed resources, and what to fix first."
               else " None of them is failed, degraded, drifted, paused or unreadable. Check their conditions and managed resources and tell me whether anything still needs attention." end)
        end + (if ($all | length) > 0 then $partial else "" end)) as $askPrompt
+    | ($readError != "" and ($all | length) == 0) as $failed
+    | ([ $filtered[] | . + { order: (.railState as $r | ($order | index($r)) // 9) } ] | sort_by(.order, .kind, .name)) as $sorted
+    | 48 as $cardCap
+    | ([ $facets[] as $fc | $fc.values[] | select(.active)
+         | { label: ($fc.label + ": " + .label), href: fx_href("/compositions"; fx_without($p; $fc.key; .value)), removable: true } ]
+       + (if $q != "" then [ { label: ("Search: " + ((.q // "") | tostring | cap(40))), href: fx_href("/compositions"; fx_set($p; "q"; "")), removable: true } ] else [] end)) as $narrow
+    | ([ $base[] | select(isAttention) | . + { since: (stateAt | if . == "" then null else epoch end) } ]
+       | map(. + { age: (if .since == null then null else (($now - .since) / 60) end) })) as $attn
+    | (([ $base | group_by(.kind)[] | { kind: .[0].kind, count: length, attention: (map(select(isAttention)) | length) } ] | sort_by(-.count, .kind)) as $kinds
+       | ($kinds | .[0].count // 1) as $max
+       | [ $kinds[0:8][] | { name: .kind,
+                             count: ((.count | tostring) + (if .attention > 0 then " · " + (.attention | tostring) + " need attention" else "" end)),
+                             percent: (.count * 100 / $max | floor),
+                             tone: (if .attention > 0 then "bad" else "ok" end),
+                             href: fx_href("/compositions"; fx_set(fx_set($p; "kind"; .kind); "status"; "all")) } ]) as $byKind
     | {
         readError: $readError,
+        failed: $failed,
         askHref: fx_href("/compositions"; $p + [["ask", $askPrompt]]),
         list: $all,
         assessment: {
@@ -218,38 +258,42 @@ spec:
         scopeCounts: {workloads: ($dated | map(select(.platform | not)) | length), platform: ($dated | map(select(.platform)) | length), all: ($dated | length)},
         scope: $scope,
         status: $status,
-        {{/* THE OVERVIEW (root-pages UX slice 3a, build plan §3.4; mockup screen 02), over the */}}
-        {{/* filtered set: the facets and their chips, the strip, every composition in view by */}}
-        {{/* state (the widgets cap and place them), Ready by kind, and the table view's hrefs. */}}
+        {{/* THE DASHBOARD (mockup A4), over the scope narrowed by kind and search (`$base`): the five
+             figures, the state chips with their counts, one card per composition in the picked
+             state (the first 48, triage order; the table has them all), the donut by state, the
+             kinds, and the compositions that have needed attention longest. */}}
         facets: $facets,
         filteredBy: $facetDesc,
-        filteredAny: ([ $flt[] | select(length > 0) ] | length > 0),
+        filteredAny: (($narrow | length) > 0 or $status != "attention"),
         view: (if $tableView then "table" else "" end),
-        chips: fx_chips("/compositions"; $p; $facets),
-        tableHref: fx_href("/compositions"; fx_set($p; "view"; "table")),
-        cardsHref: fx_href("/compositions"; fx_set($p; "view"; "")),
-        stateTableHrefs: ($stateNames | keys | map({ key: ., value: fx_seeall("/compositions"; $p; "status"; .) }) | from_entries),
+        chips: (if ($narrow | length) == 0 then [] else $narrow + [ { label: "Clear all", href: fx_href("/compositions"; [ $p[] | select(.[0] == "projects" or .[0] == "scope" or .[0] == "status" or .[0] == "view") ]) } ] end),
+        stats: ([ { title: "NotReady", v: $stateCounts.failed, caption: ("of " + ($stateCounts.all | tostring)), tone: "failed" },
+                  { title: "Degraded", v: $stateCounts.degraded, caption: "workload unhealthy", tone: "degraded" },
+                  { title: "Drift", v: $stateCounts.drift, caption: "Synced=False", tone: "drift" },
+                  { title: "Paused", v: $stateCounts.paused, caption: "ReconcilePaused", tone: "paused" },
+                  { title: "Ready", v: $stateCounts.healthy, caption: nn($base | map(select(.railState == "healthy") | .kind) | unique | length; "kind"; "kinds"), tone: "healthy" } ]
+               | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else { title, value: (.v | tostring), caption, tone } end)),
+        stateChips: ([ "attention", $order[], "all" ]
+                     | map(. as $k | select($k == "attention" or $k == "all" or ($stateCounts[$k] // 0) > 0 or any($statusSel[]; . == $k)))
+                     | map({ key: ., label: $stateNames[.], count: ($stateCounts[.] // 0), active: (if . == "all" then $status == "all" else ($statusSel == [.]) end), route: go(.; $tableView) })),
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: fx_href("/compositions"; fx_set($p; "view"; "")) },
+                     { label: "Full list", active: $tableView, route: fx_href("/compositions"; fx_set($p; "view"; "table")) } ],
         matched: ($filtered | length),
-        strip: { total: ($scoped | length),
-                 notReady: ($filtered | map(select(.railState == "failed")) | length),
-                 degraded: ($filtered | map(select(.railState == "degraded")) | length),
-                 drift: ($filtered | map(select(.railState == "drift")) | length),
-                 paused: ($filtered | map(select(.railState == "paused")) | length),
-                 ready: ($filtered | map(select(.railState == "healthy")) | length),
-                 readyKinds: ($filtered | map(select(.railState == "healthy") | .kind) | unique | length) },
-        byState: ($filtered | group_by(.railState)
-                  | map({ key: .[0].railState, value: [ sort_by(.ts) | reverse | .[] | { name, ns, kind, ts,
-                      reason: ((.conditions // []) | map(select(.type == "Ready")) | .[0].reason // ""),
-                      message: (((.conditions // []) | map(select(.type == "Ready" or .type == "Synced" or .type == "Workload") | select(.status != "True" or (.reason // "") == "ReconcilePaused" or (.reason // "") == "ReconcileGracefullyPaused")) | .[0].message // "") | tostring | cap(220)),
-                      notAssessable: (.assessable | not) } ] }) | from_entries),
-        readyByKind: ($filtered | map(select(.railState == "healthy")) | group_by(.kind)
-                      | map((sort_by(.ts) | reverse) as $k
-                            | { kind: $k[0].kind, count: ($k | length), newest: $k[0].ts, names: [ $k[0:3][] | .name ],
-                                reasons: ([ $k[] | (.conditions // []) | map(select(.type == "Ready")) | .[0].reason // "" | select(. != "Available" and . != "") ]
-                                          | group_by(.) | map({ reason: .[0], count: length })),
-                                href: (if ($k | length) == 1 then "/compositions/" + $k[0].ns + "/" + $k[0].name
-                                       else fx_href("/compositions"; fx_set(fx_set(fx_set($p; "status"; "healthy"); "kind"; $k[0].kind); "view"; "table")) end) })
-                      | sort_by(-.count, .kind)),
+        more: (if ($filtered | length) > $cardCap then (($filtered | length) - $cardCap) else 0 end),
+        rows: [ $sorted[0:$cardCap][] | (stateAt | utcstamp) as $at | {
+                  name, ns, kind,
+                  stateLabel: ($stateNames[.railState] // .railState),
+                  tone: .railState,
+                  description: (why | if . == "" then "—" else cap(220) end),
+                  foot: (.ns + (if (.railState | IN("healthy", "pending")) then " · created " + (.ts | utcstamp)
+                                elif $at != "" then " · " + ($stateNames[.railState] // .railState) + " since " + $at
+                                else " · created " + (.ts | utcstamp) end)
+                         + (if (.coverage // "") != "" then " · " + .coverage + " children evaluated" else "" end)),
+                  routeNs: .ns, routeName: .name } ],
+        byState: (if $failed then [] else [ $order[] | { state: $stateNames[.], count: $stateCounts[.] } | select(.count > 0) ] end),
+        byKind: (if $failed then [] else $byKind end),
+        longest: ([ $attn[] | select(.age != null) ] | sort_by(-.age) | .[0:5]
+                  | map({ name, why: (($stateNames[.railState] // .railState) + " · " + (.age | durlabel)), href: ("/compositions/" + .ns + "/" + .name) })),
         q: ((.q // "") | tostring),
         projects: ((.projects // "") | tostring)
       }

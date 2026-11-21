@@ -1,6 +1,7 @@
-{{/* The /incidents page header. No counter: the counts live in the strip below it. Its one
-     action is "Ask Agentiko →" (button.incidents-ask-agentiko), which carries its own apiRef, so the
-     header itself reads nothing. */}}
+{{/* The /incidents page header: the title and "Ask Agentiko →" (button.incidents-ask-agentiko),
+     which carries its own apiRef, so the header itself reads nothing. No subtitle: the shell's
+     breadcrumb (Observability / Incidents) sits above the title, and the figures below say the
+     rest. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,13 +10,11 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* Every widget on /incidents receives the page's filter params (krateo.io/filter-keys on
+  {{/* Every widget on /incidents receives the page's params (krateo.io/filter-keys on
        page-incidents); one it does not declare makes snowplow decline to cache it (F6). */}}
-  keyExtras: [projects, status, alert, age, owner, q, group, view]
+  keyExtras: [projects, status, range, view, q]
   widgetData:
     title: Incidents
-    subtitle: >-
-      Each incident tracks one problem an alert caught, from finding its cause until it is fixed or someone closes it.
     allowedResources:
     - buttons
     items:

@@ -1,33 +1,31 @@
-{{/* Tab pane: Token usage — the trend first, then who is spending it and on which model. */}}
-{{/* Charts above the table on purpose: "is this going up" is the question people arrive with, and */}}
-{{/* the breakdown is what they read once the shape has told them whether to care. */}}
-{{/* A Col because the Tabs enum carries `cols` and not `cards`; Col declares what it holds. */}}
-apiVersion: widgets.templates.krateo.io/v1beta1
+{{/* Tab pane: Token usage — what the agents' model calls cost, in the layout of /incidents: the */}}
+{{/* time range and the search, the figures, then who spent it (agents, users, groups) on the left */}}
+{{/* two thirds beside the spend over time and by model on the right third. Every widget reads */}}
+{{/* restaction.agents-cost, so no two of them can disagree about a number. A Col because the Tabs */}}
+{{/* carry `cols` panes (see col.agents-tab-flow). The search narrows the tables only: the figures */}}
+{{/* and the charts are ClickHouse aggregates over every call (input.agents-cost-search). */}}
 kind: Col
+apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: agents-tab-usage
   namespace: {{ $.Values.namespace }}
   annotations:
+    {{/* The page's filter keys plus the day picker's `from` and `to`. scripts/lint-keyextras.py checks */}}
+    {{/* every widget below declares them. */}}
+    "krateo.io/filter-keys": "projects,kind,status,owner,q,view,range,group,from,to"
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, kind, status, owner, q, view]
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
   widgetData:
     allowedResources:
-    - cards
+    - flexes
     items:
-    - resourceRefId: agents-token-charts-card
-    - resourceRefId: agents-token-usage-card
+    - resourceRefId: agents-cost
   resourcesRefs:
     items:
-    - id: agents-token-charts-card
+    - id: agents-cost
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-token-charts
+      name: agents-cost
       namespace: {{ $.Values.namespace }}
-      resource: cards
-      verb: GET
-    - id: agents-token-usage-card
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: agents-token-usage
-      namespace: {{ $.Values.namespace }}
-      resource: cards
+      resource: flexes
       verb: GET

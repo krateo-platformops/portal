@@ -1,6 +1,8 @@
-{{/* Observability → Traces tab content (installer#404). A Col wrapper like the other tabs: the */}}
-{{/* caption, the filter bar, then the span list. Clicking a row opens */}}
-{{/* /observability/traces/{traceId}. */}}
+{{/* Observability → Traces tab (installer#404, the A4 dashboard layout): the caption, the filter bar
+     (service, user, and the HyperDX-internals note), the figures (spans, errors, services, users), then
+     one row: the spans on two thirds (the status chips, then one card per span, or with ?view=table the
+     span table), the charts on one third (by status, by service, the slowest spans). A span opens
+     /observability/traces/{traceId}. The page's range and search sit above the tabs. */}}
 kind: Col
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,17 +11,18 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): the filter chips put every one of these in the URL. */}}
-  keyExtras: [projects, range, tab, traceService, traceUser, traceStatus]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     allowedResources:
     - paragraphs
     - flexes
-    - tables
+    - listies
+    - rows
     items:
     - resourceRefId: obs-sec-traces-desc
     - resourceRefId: obs-traces-filters
-    - resourceRefId: obs-traces
+    - resourceRefId: obs-traces-stats
+    - resourceRefId: obs-traces-main
   resourcesRefs:
     items:
     - id: obs-sec-traces-desc
@@ -34,9 +37,15 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET
-    - id: obs-traces
+    - id: obs-traces-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-traces
+      name: obs-traces-stats
       namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: listies
+      verb: GET
+    - id: obs-traces-main
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-traces-main
+      namespace: {{ $.Values.namespace }}
+      resource: rows
       verb: GET

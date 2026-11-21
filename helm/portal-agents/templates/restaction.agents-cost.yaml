@@ -1,0 +1,307 @@
+{{/* Spend on the Token usage tab: USD per agent, per user, per group and for the whole gateway,
+     over time, and the incident comparison on its own. Everything on the tab reads this one
+     RESTAction, so no two widgets can disagree about a number.
+
+     WHERE THE NUMBERS COME FROM.
+       - Users, groups, the gateway total, the chart and the comparison: the agent gateway's
+         access log (otel_logs, ScopeName `request`, or `agentgateway.access` from agentgateway 1.6; both are read), one row per model call, carrying who made it
+         (`jwt.sub`, `team` = the caller's groups, `principal` = human or service), the model that
+         served it and its tokens. This is the gateway's chargeback record (agentgateway-policies
+         `observability.accessLog`); it does not depend on gateway tracing being on.
+       - Agents: the gateway cannot tell agents apart (they share one ModelConfig and send the
+         caller's token), and an agent runtime's own span per model call reports no cached tokens.
+         So each span (otel_traces, `kagent.app_name`) is matched to the gateway's row for the same
+         call, and the agent is charged that row (_agents-cost.tpl, agentsCost.sql.ag*). The
+         gateway's calls no readable agent matches are one "Other calls" row, so the table adds
+         up to the Spend figure; agent calls the gateway's log lacks are counted and said.
+       - Prices: what the gateway charged each call when it made it (`cost_usd` on its row), so a
+         price change never reprices the past. A call the gateway could not price then is priced
+         with its price list as it is now, the agentgateway-policies model catalog ConfigMap, the
+         way the gateway prices a call (_agents-cost.tpl). A model missing from it is counted as
+         unpriced and named, never priced at 0.
+
+     WHO SEES WHAT. Three apiserver stages, each dispatched by snowplow's ServiceAccount and
+     narrowed through the CALLER's RBAC (userAccessFilter), decide it, and every one fails closed:
+       gatewayAccess  may the caller `get` Gateways in the gateway's namespace. Spend is the
+                      gateway's record, so reading it takes reading the gateway. Without it the
+                      ClickHouse stages make NO call (their iterators yield nothing);
+       agents         the Agents the caller may list. Per-agent spend is asked for those only,
+                      by name, in the SQL itself;
+       catalog        the price list, under the same grant as gatewayAccess.
+     A caller with no grant sees an empty tab and one sentence saying what to ask for. Caching
+     never crosses users: every resolve dials ClickHouse through an endpointRef, so no resolve of
+     this RESTAction is stored (see restaction.audit-records in audit-page for the snowplow refs).
+
+     THE QUERIES, decoded (<window> is Timestamp >= toDateTime(<from>) AND Timestamp < toDateTime(<to>),
+     epoch seconds from the preset in ?range or the days picked into ?from/?to (agentsCost.window); <bk> the
+     chart bucket in seconds; <tier> the catalog's context thresholds over `i`):
+       gw: SELECT toUnixTimestamp(toStartOfInterval(ts, INTERVAL <bk> SECOND)) AS t, usr, team,
+             principal, model, provider, cmp, <tier> AS tier, count(), sums of i, c, o, r
+           FROM (SELECT DISTINCT <the call's time, client address, identity, model, tokens>
+                 FROM otel_logs WHERE ScopeName IN ('request', 'agentgateway.access') AND <has tokens> AND <window>)
+           GROUP BY t, usr, team, principal, model, provider, cmp, tier
+       ag: WITH <from> AS wf, <to> AS wt, [<readable>] AS apps
+           SELECT 'm', app, model, provider, <tier> AS tier, count and token sums of the GATEWAY rows
+                  inside the window, count of the spans ending inside it
+           FROM (<agent spans ending within a minute of the window> AS s
+                 INNER JOIN <gateway rows within a minute of the window> AS g ON same model, input and
+                 output tokens WHERE the two ends within a minute ORDER BY the gap LIMIT 1 BY s.SpanId,
+                 then ORDER BY the gap LIMIT 1 BY the gateway row: one row, one span)
+           GROUP BY app, model, provider, tier
+           UNION ALL SELECT 's', app, …, uniqExact(SpanId) FROM <spans ending inside the window> GROUP BY app
+     The DISTINCT is there because a retried OTLP export stores a row twice (seen on kind). */}}
+{{- $ns := include "agentsCost.namespace" . -}}
+{{- $cm := include "agentsCost.catalogConfigMap" . -}}
+{{- $key := include "agentsCost.catalogKey" . -}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: agents-cost
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+  - name: gatewayAccess
+    path: /api/v1/namespaces/{{ $ns }}
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    userAccessFilter:
+      verb: get
+      group: gateway.networking.k8s.io
+      resource: gateways
+      namespaceFrom: .metadata.name
+    filter: '([ (.gatewayAccess // {}) | objects | (.metadata.name // "") ] | first // "") == "{{ $ns }}"'
+    continueOnError: true
+    errorKey: gatewayAccessError
+  - name: agents
+    path: /apis/kagent.dev/v1alpha2/agents
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    userAccessFilter:
+      verb: list
+      group: kagent.dev
+      resource: agents
+      namespaceFrom: .metadata.namespace
+    filter: '[ ((.agents // {}) | objects | .items // [])[] | {ns: (.metadata.namespace // ""), name: (.metadata.name // "")} | select(.ns != "" and .name != "") ]'
+    continueOnError: true
+    errorKey: agentsError
+  - name: catalog
+    path: /api/v1/namespaces/{{ $ns }}/configmaps/{{ $cm }}
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    userAccessFilter:
+      verb: get
+      group: gateway.networking.k8s.io
+      resource: gateways
+      namespaceFrom: .metadata.namespace
+    filter: '(((.catalog // {}) | objects | .data // {})["{{ $key }}"] // "") | (fromjson? // {}) | objects | (.providers // {}) | objects'
+    continueOnError: true
+    errorKey: catalogError
+  - name: gw
+    dependsOn:
+      name: catalog
+      iterator: '{{ include "agentsCost.window" . }} | (.gatewayAccess == true) as $ok | [ {from: ($from | tostring), to: ($to | tostring), bk: ($bk | tostring), tier: $tier} | select($ok and $span > 0) ]'
+    endpointRef:
+      name: clickhouse-endpoint
+      namespace: {{ .Release.Namespace }}
+    path: '${ "/?query={{ include "agentsCost.enc" (include "agentsCost.sql.gw1" .) }}" + (.bk | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.gw2" .) }}" + (.tier | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.gw3" .) }}" + (.from | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.until" .) }}" + (.to | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.gw4" .) }}" }'
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    continueOnError: true
+    errorKey: gwError
+  - name: ag
+    dependsOn:
+      name: gw
+      iterator: '{{ include "agentsCost.window" . }} | (.gatewayAccess == true) as $ok | ([39] | implode) as $q | ([ (.agents // []) | arrays | .[] | objects | (((.ns // "") | gsub("-"; "_")) + "__NS__" + ((.name // "") | gsub("-"; "_"))) | select(test("^[a-z0-9_]{1,253}__NS__[a-z0-9_]{1,253}$")) ] | unique) as $apps | [ {from: ($from | tostring), to: ($to | tostring), tier: $tier, apps: ($apps | map($q + . + $q) | join(", "))} | select($ok and $span > 0 and ($apps | length) > 0) ]'
+    endpointRef:
+      name: clickhouse-endpoint
+      namespace: {{ .Release.Namespace }}
+    path: '${ "/?query={{ include "agentsCost.enc" (include "agentsCost.sql.agA" .) }}" + (.from | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agB" .) }}" + (.to | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agC" .) }}" + (.apps | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agD" .) }}" + (.tier | @uri) + "{{ include "agentsCost.enc" (include "agentsCost.sql.agE" .) }}" }'
+    verb: GET
+    headers:
+    - 'Accept: application/json'
+    continueOnError: true
+    errorKey: agError
+  {{/* ClickHouse FORMAT JSON => {meta, data: [...], rows}; UInt64 sums arrive as JSON strings on a
+       default server and as numbers on others, so `num` reads both. One iterator element per
+       stage, so .gw and .ag are each one response object (or absent when the stage did not run). */}}
+  filter: |
+    {{- include "agentsCost.defs" . | nindent 4 }}
+    # A group whose every call is unpriced has no spend to show, not a spend of $0.
+    def known($priced): $priced and ((.calls // 0) == 0 or (.unpriced // 0) < .calls);
+    def found($q): $q == "" or ((. // "") | tostring | ascii_downcase | contains($q));
+    def money($priced): if known($priced) then (.usd | usd) else "—" end;
+    # Table cells are plain numbers, the unit in the column title: the Table right-aligns and sorts a
+    # column numerically only when every raw value is a plain number (tableSorting.ts NUMERIC_RE).
+    def cells($priced; $of): {calls: (.calls | tostring), input: (.i | kTokens), cached: (.c | kTokens), output: (.o | kTokens),
+                              spend: (if known($priced) then (.usd | usdCell) else "—" end), share: (if known($priced) then (.usd | shareCell($of)) else "—" end)};
+    {{ include "agentsCost.window" . }}
+    # A picked day is named by its noon in UTC, which is the same calendar day in any time zone
+    # within 12 hours of UTC: ?from and ?to are the viewer's local midnights.
+    | (if $custom then (if $from0 < $from then ($from | strftime("%b %d")) else (($from0 + 43200) | strftime("%b %d")) end) as $d1
+         | (($to0 - 43200) | strftime("%b %d")) as $d2
+         | (if $d1 == $d2 then "on " + $d1 else "from " + $d1 + " to " + $d2 end)
+       else ({"1h": "in the last hour", "6h": "in the last 6 hours", "12h": "in the last 12 hours", "24h": "in the last 24 hours",
+              "3d": "in the last 3 days", "7d": "in the last 7 days"})[$range] end) as $rangeLabel
+    | (if $span <= 43200 then "%H:%M" elif $span <= 259200 then "%a %H:%M" else "%b %d %H:%M" end) as $xfmt
+    | (.gatewayAccess == true) as $access
+    # The search (?q=), trimmed and case-insensitive. It narrows the agents, users and groups tables
+    # by name; the figures and the charts stay the range's totals (input.agents-cost-search).
+    | ((.q // "") | tostring | sub("^\\s+"; "") | sub("\\s+$"; "") | ascii_downcase) as $q
+    | errText(.gatewayAccessError) as $accErr
+    | errText(.catalogError) as $catErr
+    | errText(.agentsError) as $agentsErr
+    | (.catalog | if type == "object" then . else {} end) as $cat
+    | ([ (.agents // []) | arrays | .[] | objects ]) as $readable
+    | (reduce $readable[] as $x ({}; .[(($x.ns | gsub("-"; "_")) + "__NS__" + ($x.name | gsub("-"; "_")))] = $x)) as $appIdx
+    # No query runs for a window wholly older than the 7 days kept, so an absent .gw is not a failure.
+    | ($access and $span > 0 and .gw == null) as $gwMissing
+    | errText(.gwError) as $gwErr
+    | errText(.agError) as $agErr
+    # Every gateway row, typed, with its own price.
+    | [ ((.gw | objects | .data) // [])[] | objects
+        | { t: (.t | num), usr: ((.usr // "") | tostring), team: ((.team // "") | tostring),
+            principal: ((.principal // "") | tostring), model: ((.model // "") | tostring),
+            provider: ((.provider // "") | tostring), cmp: ((.cmp | tostring) == "1" or .cmp == true),
+            tier: (.tier | num), calls: (.calls | num), i: (.inp | num), c: (.cached | num),
+            o: (.outp | num), r: (.reas | num), hc: ((.hc | tostring) == "1" or .hc == true), rec: (.rec | num) } ] as $g0
+    # What the gateway charged the call; today's price only for a call it could not price then.
+    | [ $g0[] | . + {usd: (if .hc then .rec else costOf($cat; .provider; .) end)} ] as $g
+    # The agents' calls: k "m" are the gateway rows matched to an agent's span, priced like any
+    # gateway row (`calls` and the tokens: rows inside the window; `spans`: matched spans ending
+    # inside it); k "s" is each agent's count of spans ending inside the window, so unmatched calls
+    # are counted.
+    | [ ((.ag | objects | .data) // [])[] | objects
+        | { k: ((.k // "") | tostring), app: ((.app // "") | tostring), model: ((.model // "") | tostring),
+            provider: ((.provider // "") | tostring), tier: (.tier | num),
+            calls: (.calls | num), i: (.inp | num), c: (.cached | num), o: (.outp | num), r: (.reas | num),
+            spans: (.spans | num), hc: ((.hc | tostring) == "1" or .hc == true), rec: (.rec | num) } ] as $a0
+    | [ $a0[] | select(.k == "m" and .calls > 0) | . + {usd: (if .hc then .rec else costOf($cat; .provider; .) end)} ] as $a
+    | (reduce ($a0[] | select(.k == "s")) as $x ({}; .[$x.app] = ((.[$x.app] // 0) + $x.calls))) as $spanCalls
+    | (reduce ($a0[] | select(.k == "m")) as $x ({}; .[$x.app] = ((.[$x.app] // 0) + $x.spans))) as $matchedSpans
+    | ($g | sums) as $tot
+    | ([ $g[] | select(.cmp) ] | sums) as $cmp
+    | ([ $g[] | select(.usd == null) | .model ] | unique | map(if . == "" then "an unnamed model" else . end)) as $unpricedModels
+    # Spend can be shown when either price source is there: the price list, or a cost the gateway
+    # recorded on a call.
+    | (($cat | length) > 0) as $catOk
+    | ($catOk or any($g[], $a[]; .hc)) as $priced
+    # The gateway query stops at 20,000 rows (agentsCost.sql.gw4); ClickHouse says when it did.
+    | ([ .gw | objects | (.rows_before_limit_at_least | num) > (.rows | num) ] | any) as $capped
+    | (if $priced then $tot.usd else null end) as $total
+    # Spend over time: the five biggest spenders by name, the rest as "others", every bucket of
+    # the window present (zero where nothing ran), so the axis is time and not just the busy hours.
+    | ([ $g | group_by(.usr)[] | {k: .[0].usr, usd: (map(.usd // 0) | add)} ] | sort_by(-.usd) | map(.k)) as $byUsd
+    | ($byUsd[0:5]) as $top
+    | (if ($byUsd | length) > 5 then $top + ["others"] else $top end) as $seriesNames
+    | ((($to - 1) / $bk | floor) * $bk) as $last
+    | (($from / $bk | floor) * $bk) as $first
+    | [ range($first; $last + 1; $bk) as $b
+        | $seriesNames[] as $s
+        | { x: ($b | strftime($xfmt)),
+            series: (if $s == "" then "(no identity)" else $s end),
+            v: ([ $g[] | select(.t == $b) | select(if $s == "others" then (.usr as $u | $top | all(. != $u)) else .usr == $s end) | (.usd // 0) ] | add // 0 | (. * 10000 | round) / 10000) } ] as $series
+    | [ $g | group_by(.model)[] | {model: (if .[0].model == "" then "(unnamed)" else .[0].model end), usd: (map(.usd // 0) | add)} | select(.usd > 0) | .usd = ((.usd * 10000 | round) / 10000) ] as $byModel
+    # Per agent, for the agents the caller can read; then the comparison, which no agent makes;
+    # then the rest of the gateway's calls, so the table adds up to the Spend figure.
+    | [ $a | group_by(.app)[] | ($appIdx[.[0].app]) as $ag | select($ag != null) | sums + {name: $ag.name, ns: $ag.ns} ] as $perAgent
+    | ([ $readable[] | ((.ns | gsub("-"; "_")) + "__NS__" + (.name | gsub("-"; "_"))) as $k
+         | (($spanCalls[$k] // 0) - ($matchedSpans[$k] // 0)) | select(. > 0) ] | add // 0) as $unmatched
+    | ($perAgent + [ $cmp ] | sums) as $named
+    | { calls: ([$tot.calls - $named.calls, 0] | max), i: ([$tot.i - $named.i, 0] | max), c: ([$tot.c - $named.c, 0] | max),
+        o: ([$tot.o - $named.o, 0] | max), usd: ([$tot.usd - $named.usd, 0] | max) } as $other
+    | ($perAgent
+       + (if $cmp.calls > 0 then [ $cmp + {name: "Incident comparison (alert provider, no agent)", ns: ""} ] else [] end)
+       + (if $other.calls > 0 then [ $other + {name: "Other calls", ns: ""} ] else [] end)) as $agentRows
+    | [ $g | group_by(.usr)[] | sums + {name: (if .[0].usr == "" then "(no identity)" else .[0].usr end), principal: .[0].principal} ] as $userRows
+    # A call counts once for each group its caller is in, so group shares can add up past 100%.
+    | ([ $g[] | . as $x | ((.team | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) | if length == 0 then ["(no group)"] else . end)[] | $x + {grp: .} ]
+       | group_by(.grp) | map(sums + {name: .[0].grp, members: (map(.usr) | unique | length)})) as $groupRows
+    | {
+      range: $range,
+      access: (if $access then "gateway" else "none" end),
+      priced: $priced,
+      # A chip's route keeps the page's filters and carries no ?from/?to, so picking a preset clears
+      # a picked range.
+      rangeChips: (. as $in
+                   | [ ("projects", "kind", "status", "owner", "q", "view", "group") as $k
+                       | (($in[$k] // "") | tostring) as $v | select($v != "") | $k + "=" + ($v | @uri) ] as $keep
+                   | [ "1h", "6h", "12h", "24h", "3d", "7d"
+                       | {label: ., active: (. == $range), route: ("/agents?" + ($keep + ["tab=Token+usage", "range=" + .] | join("&")))} ]),
+      notice: ( [ (if $access and $span <= 0 then "Model calls are kept for 7 days, and nothing in the chosen range is that recent."
+                   elif $access and $from0 < $from then ("Model calls are kept for 7 days, so the range starts at " + ($from | strftime("%b %d %H:%M")) + " UTC.")
+                   else empty end),
+                  (if $access | not then
+                     (if $accErr != "" then "Your access to the agent gateway could not be checked, so no spend is shown."
+                      else "Spend is shown only to people who can read the agent gateway. Ask an administrator for read access to Gateways in the {{ $ns }} namespace." end)
+                   else empty end),
+                  (if $access and ($catOk | not) then
+                     ("The gateway's price list could not be read" + (if $catErr != "" then " (" + $catErr + ")" else "" end)
+                      + (if $priced then ", so only the calls the gateway priced when it made them are in the spend." else ", so calls are counted but not priced." end))
+                   else empty end),
+                  (if $access and $capped then
+                     "This range has too much activity to show in full, so every figure here is lower than it should be. Pick a shorter range."
+                   else empty end),
+                  (if $access and ($gwErr != "" or $gwMissing) then
+                     ("The gateway's call log could not be read" + (if $gwErr != "" then " (" + $gwErr + ")" else "" end) + ".")
+                   else empty end),
+                  (if $access and $agentsErr != "" then ("The agent list could not be read (" + $agentsErr + "), so no spend per agent is shown.") else empty end),
+                  (if $access and $agErr != "" then ("The agents' own call records could not be read (" + $agErr + "), so no spend per agent is shown.") else empty end),
+                  (if $access and $unmatched > 0 then
+                     # The agent's span arrived and the gateway's row did not: the row was lost on
+                     # its way to ClickHouse, so the call is missing from every figure here, not
+                     # only from the agent's row.
+                     (($unmatched | commas) + (if $unmatched == 1 then " model call" else " model calls" end)
+                      + " the agents made in this range never reached the gateway's log, so "
+                      + (if $unmatched == 1 then "it is" else "they are" end) + " missing from every figure on this page.")
+                   else empty end),
+                  (if $catOk and ($unpricedModels | length) > 0 then
+                     ($g | map(select(.usd == null) | .calls) | add // 0) as $n
+                     | ($unpricedModels | join(" and ")) + (if ($unpricedModels | length) == 1 then " is not on the gateway's price list, so its " else " are not on the gateway's price list, so their " end)
+                       + ($n | commas) + (if $n == 1 then " call is" else " calls are" end) + " not counted in the spend."
+                   else empty end),
+                  (if $access and $q != "" and ([ $agentRows[], $userRows[], $groupRows[] | select(.name | found($q)) ] | length) == 0 then
+                     ("No agent, user or group matches \"" + $q + "\".")
+                   else empty end) ] | join(" ") ),
+      stats: (
+        if ($access | not) then
+          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "not shared with you", tone: "hidden"})
+        elif $span <= 0 then
+          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "older than the 7 days kept", tone: "hidden"})
+        elif $gwErr != "" or $gwMissing then
+          [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "could not be read", tone: "unread"})
+        else
+          [ { title: "Spend", value: ($tot | money($priced)),
+              caption: (($tot.calls | commas) + (if $tot.calls == 1 then " model call " else " model calls " end) + $rangeLabel), tone: "spend" },
+            { title: "Per call",
+              value: (if $tot.calls > 0 and ($tot | known($priced)) then (($tot.usd / ($tot.calls - $tot.unpriced)) | usd) else "—" end),
+              caption: (if $tot.calls > 0 then ((($tot.i / $tot.calls) | compact) + " tokens in, " + (($tot.o / $tot.calls) | compact) + " out on average") else "no calls" end), tone: "percall" },
+            { title: "Cached input",
+              value: (if $tot.i > 0 then (($tot.c * 100 / $tot.i) | fixed(0)) + "%" else "—" end),
+              caption: "of input tokens came from the model's cache, at the lower cache rate", tone: "cached" },
+            { title: "Incident comparison", value: ($cmp | money($priced)),
+              caption: (($cmp.calls | commas) + (if $cmp.calls == 1 then " call" else " calls" end) + " by the alert provider, without an agent"), tone: "comparison" } ]
+          + (if $priced and $tot.unpriced > 0 then
+               [ { title: "Not priced", value: (($tot.unpriced | commas) + (if $tot.unpriced == 1 then " call" else " calls" end)),
+                   caption: (if $catOk then (($unpricedModels | join(", ")) + " not on the price list") else "the price list could not be read" end), tone: "warn" } ]
+             else [] end)
+        end ),
+      series: (if $priced then $series else [] end),
+      byModel: (if $priced then $byModel else [] end),
+      agents: [ $agentRows | sort_by(-.usd, .name)[] | select(.name | found($q))
+                | cells($priced; $tot.usd) + { name: .name, routeNs: .ns, routeName: (if .ns == "" then "" else .name end) } ],
+      users: [ $userRows | sort_by(-.usd, .name)[] | select(.name | found($q))
+               | cells($priced; $tot.usd) + { name: .name,
+                   kind: (if .principal == "human" then "person" elif .principal == "service" then "service" else "—" end) } ],
+      groups: [ $groupRows | sort_by(-.usd, .name)[] | select(.name | found($q))
+                | cells($priced; $tot.usd) + { name: .name, members: (.members | tostring) } ],
+      q: $q,
+      totals: { calls: $tot.calls, usd: $total, comparisonUsd: (if $priced then $cmp.usd else null end),
+                agentsUsd: (if $priced then ($perAgent | sums | .usd) else null end), unmatchedAgentCalls: $unmatched,
+                unpricedCalls: $tot.unpriced }
+    }

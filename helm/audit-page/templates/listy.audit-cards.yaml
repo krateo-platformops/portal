@@ -1,0 +1,51 @@
+{{/* One card per record, newest first, the latest 48 (audit-more says how many more the table has):
+     what was done to which object (Create storefront-web), the outcome and status code as a
+     coloured tag (the table's outcome pill: success green, failure red, denied orange, anything
+     else gray), who did it, where and when (namespace · UTC time, as the table's Time column), and
+     the resource with its API group (or the external host a controller wrote to). A card whose
+     trace was kept and may be opened (the table's "open ↗") opens it; any other card does not
+     navigate. The display rules are the table's own (audit.format, _audit.tpl). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-clipboard-list
+      iconVariant: tile
+      primaryText: '{title}'
+      secondaryText: '{outcome}'
+      subPrimaryText: '{user}'
+      subSecondaryText: '{where}'
+      description: '{resource}'
+      cardCta: Open trace
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          success: green
+          failure: red
+          denied: orange
+        default: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ {{ include "audit.format" . }} [ (.rows // [])[0:48][] | auditOutcomeTag as $oc | auditAction as $act | (if .name != "" then .name elif .resource != "" then .resource else .kind end | dash) as $obj | { title: (if $act == "—" then $obj else $act + " " + $obj end), outcome: $oc.label, tone: (if .outcome == "success" or .outcome == "failure" or .outcome == "denied" then .outcome else "other" end), user: (.user | dash), where: ((.namespace | dash) + " · " + (.tsMs | auditUtc) + " UTC"), resource: auditResource, href: (if .link != "" then "/observability/traces/" + .link else "" end) } ] }'
+  resourcesRefs:
+    items: []

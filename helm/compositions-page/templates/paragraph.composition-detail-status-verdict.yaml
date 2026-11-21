@@ -1,0 +1,30 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 1 (approved mockup "Composition detail, challenged", decision:
+     the Status card leads, incidents inside it). The card's first line: ONE verdict sentence over the
+     composition's managed resources, from the same composition-resources figures the bar beside it
+     reads, so the two can never disagree. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-status-verdict
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-resources
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    strong: true
+  widgetDataTemplate:
+    - forPath: text
+      expression: >-
+        ${ ((.failedCount // 0) + (.driftCount // 0)) as $bad
+        | (.total // 0) as $total
+        | if $total == 0 then "This composition manages no resources it can read yet"
+          elif $bad > 0 then (($bad | tostring) + " of " + ($total | tostring) + " resources need attention")
+          elif (.converged // false) then ("All " + ($total | tostring) + " resources match the desired state")
+          else ((.healthyCount // 0 | tostring) + " of " + ($total | tostring) + " resources ready, the rest still converging") end }
+  resourcesRefs:
+    items: []

@@ -1,0 +1,40 @@
+{{/* The eight pods with the most memory (working set, latest gauge, otel_metrics_gauge via
+     obs-resource-usage; the search narrows them by pod or namespace): a bar against the first, with its
+     memory and CPU, red over 1 GiB, orange over 512 MiB, blue otherwise. A row opens the full log list
+     scoped to the pod: obs-log-stream resolves the pod name to its owning OTel ServiceName (the one
+     whose "<name>-" prefixes it), so "this pod is the memory hog → what is it logging?" is one click. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-top-pods
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-resource-usage
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: '{route}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: '{tone}'
+          map:
+            high: red
+            mid: orange
+            low: blue
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .top // [] }'
+  resourcesRefs:
+    items: []

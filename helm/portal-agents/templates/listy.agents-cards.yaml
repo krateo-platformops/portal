@@ -1,0 +1,52 @@
+{{/* One card per agent or tool server in the picked group, triage order (Needs attention, then the
+     orchestrators, most delegates first, the specialists, the accepted tool servers): the name, its
+     state as a coloured tag (NotRegistered, NotReady, NotAccepted in red; the agent card refused or an
+     advisory in orange; Registered, Ready or Accepted in green), what it is (orchestrator, specialist,
+     tool server), its description or what is wrong, and the gateway gap, the delegates or the owner.
+     An agent's card opens its page; a tool server has no page, so its card is inert. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: '{icon}'
+      iconVariant: tile
+      primaryText: '{title}'
+      secondaryText: '{tag}'
+      subPrimaryText: '{kind}'
+      subSecondaryText: '{foot}'
+      description: '{body}'
+      cardCta: '{cta}'
+      navigateTo: '{href}'
+      color:
+        value: '{tone}'
+        map:
+          all: blue
+          ok: green
+          bad: red
+          warn: orange
+          unchecked: orange
+          unread: orange
+        default: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .cards // [] }'
+  resourcesRefs:
+    items: []

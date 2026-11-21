@@ -1,6 +1,5 @@
-{{/* Search: an alert's display name, name and description, case-insensitive, written to ?q= on Enter
-     (not per keystroke, hence the placeholder) and removed when cleared. obs-alerts applies it as
-     one more filter, so the facet counts follow it. */}}
+{{/* Search: an alert's name, description, signal type or resource name, case-insensitive,
+     written to ?q= on Enter and removed when cleared. obs-alerts applies it to the whole page. */}}
 kind: Input
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -9,12 +8,14 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  keyExtras: [projects, status, signal, hasIncidents, q, view]
+  keyExtras: [projects, status, range, view, q]
   widgetData:
     name: q
     queryParam: q
+    {{/* The filter applies on SUBMIT (Enter), not per keystroke: say so in the placeholder or the */}}
+    {{/* box reads as broken while the user types. */}}
     placeholder: Search alerts · press Enter
     allowClear: true
-    size: small
+    size: middle
   resourcesRefs:
     items: []

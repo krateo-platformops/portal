@@ -7,7 +7,9 @@
 {{/* the two pages agree on the initial window). Chip navigateTo bypasses the client-side */}}
 {{/* same-path query merge the old Buttons used, so the routes are merged SERVER-SIDE: ?projects */}}
 {{/* (the shell scope selector, rides every route) is re-emitted onto each chip's route from */}}
-{{/* extras (@uri-encoded). */}}
+{{/* extras (@uri-encoded), and so is every other page param the address holds ($rest: the log and */}}
+{{/* trace filters, the state chips, the search and Summary | Full list), so a range change keeps */}}
+{{/* the reader's view. The open tab is carried by the frontend on a same-page navigation. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,7 +20,7 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — `range` drives */}}
   {{/* the active flag, `projects` and the latency card's `latencyBy` are carried into the routes. */}}
-  keyExtras: [projects, range, latencyBy]
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     itemTemplate:
       rowVariant: chip
@@ -29,6 +31,6 @@ spec:
   {{/* widgetDataTemplate data source (same mechanism the old range Buttons used). */}}
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ ((.range // "24h") | tostring) as $sel | ((.projects // "") | tostring) as $projects | ((if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) + (if .latencyBy == "controller" then "&latencyBy=controller" else "" end)) as $carry | [{key: "1h", label: "1h"}, {key: "6h", label: "6h"}, {key: "24h", label: "24h"}, {key: "7d", label: "7d"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + .key + $carry)}) }'
+      expression: '${ (. as $x | ["serviceName", "limit", "traceService", "traceUser", "traceStatus", "status", "componentStatus", "q", "view"] | map(. as $k | (($x[$k] // "") | tostring) as $v | select($v != "") | "&" + $k + "=" + ($v | @uri)) | join("")) as $rest | ((.range // "24h") | tostring) as $sel | ((.projects // "") | tostring) as $projects | ((if $projects != "" then ("&projects=" + ($projects | @uri)) else "" end) + (if .latencyBy == "controller" then "&latencyBy=controller" else "" end)) as $carry | [{key: "1h", label: "1h"}, {key: "6h", label: "6h"}, {key: "24h", label: "24h"}, {key: "7d", label: "7d"}] | map({label: .label, active: (.key == $sel), route: ("/observability?range=" + .key + $carry + $rest)}) }'
   resourcesRefs:
     items: []

@@ -1,0 +1,25 @@
+{{/* The state chips, the page's filter: Firing (the default), Not evaluated, Pending, OK, All,
+     each with its count over every alert. Each route keeps ?range, ?view and the ?projects= scope. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-status-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .chips // [] }'
+  resourcesRefs:
+    items: []

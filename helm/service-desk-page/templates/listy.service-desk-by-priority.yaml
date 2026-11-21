@@ -1,0 +1,38 @@
+{{/* The active requests by priority, Urgent first, each a bar against the largest with its count;
+     a priority with none is left out. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-by-priority
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: '{tone}'
+          map:
+            urgent: red
+            high: orange
+            normal: blue
+            low: gray
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .byPriority // [] }'
+  resourcesRefs:
+    items: []

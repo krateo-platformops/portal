@@ -47,6 +47,12 @@ CASES = [
     ('True', 'ReconcileGracefullyPaused', None, 'Paused', 'gray'),
     ('True', 'ReconcilePaused', False, 'Paused', 'gray'),
     ('False', 'Unavailable', None, 'NotReady', 'red'),
+    # The management-policy reasons (core-provider#598). A create or a recovery the policy withholds will
+    # not happen by itself, so it is failed, never Creating or Pending; an update it withholds leaves a
+    # healthy composition at its installed chart, so it reads Ready.
+    ('False', 'CreateWithheldByPolicy', None, 'NotReady', 'red'),
+    ('False', 'RecoveryWithheldByPolicy', None, 'NotReady', 'red'),
+    ('True', 'UpdateWithheldByPolicy', None, 'Ready', 'green'),
     ('False', 'Unavailable', False, 'Unhealthy', 'red'),
     ('Unknown', 'ZeroEvidence', None, 'Unknown', 'gray'),
     ('Unknown', 'ChildrenForbidden', None, 'Unknown', 'gray'),
@@ -90,7 +96,7 @@ def pill(program, status, reason, healthy, synced=None):
 
 
 def rail_programs():
-    card = next(d for d in render() if d.get('kind') == 'Card' and d['metadata']['name'].endswith('composition-detail-rail'))
+    card = next(d for d in render() if d.get('kind') == 'Card' and d['metadata']['name'].endswith('composition-detail-status'))
     return {t['forPath']: t['expression'].strip().removeprefix('${').removesuffix('}').strip()
             for t in card['spec']['widgetDataTemplate'] if t['forPath'] in ('extra', 'extraStatus')}
 
@@ -100,6 +106,11 @@ def rail_failures():
     cases = [
         (('True', 'ReconcileSuccess'), None, 'Synced', 'success'),
         (('False', 'ReconcileError'), None, 'NotSynced', 'error'),
+        # core-provider's Synced spec errors (unstructured-runtime v1.31.0): an invalid management or
+        # deletion policy is a spec error, so the badge says NotSynced, as for ReconcileError. Ready is
+        # left to say what the (observe-only) policy means for the release.
+        (('False', 'ManagementPolicyInvalid'), None, 'NotSynced', 'error'),
+        (('False', 'DeletionPolicyInvalid'), None, 'NotSynced', 'error'),
         (('False', 'ReconcilePaused'), None, 'Paused', 'default'),
         (('False', 'ReconcileGracefullyPaused'), None, 'Paused', 'default'),
         (('False', 'ReconcilePaused'), False, 'Paused · Unhealthy', 'error'),
@@ -130,6 +141,10 @@ def exception_failures():
         ([('Synced', 'False', 'ReconcilePaused')], None),
         ([('Synced', 'False', 'ReconcileGracefullyPaused')], None),
         ([('Synced', 'False', 'ReconcileError')], 'NotSynced'),
+        ([('Synced', 'False', 'ManagementPolicyInvalid')], 'NotSynced'),
+        ([('Synced', 'False', 'DeletionPolicyInvalid')], 'NotSynced'),
+        # An invalid management policy acts as observe: create withheld (failed) and the spec error both show.
+        ([('Ready', 'False', 'CreateWithheldByPolicy'), ('Synced', 'False', 'ManagementPolicyInvalid')], 'NotSynced'),
         ([('Ready', 'False', 'Creating')], None),
         ([('Ready', 'False', 'PendingHelmOperation')], None),
         ([('Ready', 'False', 'HelmOperationInProgress')], None),

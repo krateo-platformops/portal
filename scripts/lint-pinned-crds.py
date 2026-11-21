@@ -32,11 +32,28 @@ widgets. A resolved widget can carry fields a template never writes (a widgetDat
 them at request time), and those are already covered against latest by test-ra-input-gates and
 friends. This gate answers one question: does the platform's own pinned CRD admit what we ship?
 
+THE FLOORS. The pin check above guards one direction: what portal ships against what is pinned
+NOW. The other direction is a later pin moving frontend-crds DOWN below what a chart stores, and
+a downgrade triggers nothing in this repo. So each chart that needs a minimum declares it in its
+Chart.yaml, where installer's check-chart-requires-floors reads it on every pin change, in both
+directions:
+
+    annotations:
+      krateo.io/requires-frontend-crd: ">= 1.8.54"
+
+The key names the installer COMPONENT (frontend-crd), not the chart (frontend-crds); installer's
+gate refuses a component it does not pin. A floor written by hand goes stale the day the chart
+starts storing a newer field, so this script also checks every declared floor: each chart's
+widgets are linted against frontend-crds AT ITS FLOOR, and any finding means the floor no longer
+admits what the chart ships. A chart that ships widgets and declares no floor is refused. Only ">= X.Y.Z" is accepted; anything else is refused, because a
+floor this gate cannot evaluate has not been checked.
+
 Usage: lint-pinned-crds.py. Exit code = findings.
 """
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +83,8 @@ INSTALLER_GIT = 'https://github.com/krateo-platformops/installer'
 PINS_URL = ('https://raw.githubusercontent.com/krateo-platformops/installer/{ref}/'
             'chart/files/component-pins.yaml')
 WIDGET_GROUP = 'widgets.templates.krateo.io'
+FLOOR_KEY = 'krateo.io/requires-frontend-crd'
+FLOOR_RE = re.compile(r'^>=\s*(\d+\.\d+\.\d+)$')
 
 
 def installer_main_sha():
@@ -185,6 +204,44 @@ def undeclared(value, schema, path=''):
     return bad
 
 
+def check(version, sch, rendered):
+    """(findings, checked) for the rendered widgets of each chart in `rendered` against `sch`."""
+    findings, checked, kinds_missing = [], 0, set()
+    for chart, docs in rendered.items():
+        for doc in docs:
+            api = str(doc.get('apiVersion', ''))
+            if not api.startswith(WIDGET_GROUP + '/'):
+                continue
+            kind, apiver = doc.get('kind'), api.split('/', 1)[1]
+            name = (doc.get('metadata') or {}).get('name')
+            if kind not in sch:
+                kinds_missing.add(f'{kind} ({chart})')
+                continue
+            spec_schema = sch[kind].get(apiver)
+            if not spec_schema:
+                kinds_missing.add(f'{kind}/{apiver} ({chart})')
+                continue
+            checked += 1
+            for p in undeclared(doc.get('spec') or {}, spec_schema):
+                findings.append((chart, f'{kind}/{name} spec{p}'))
+    for k in sorted(kinds_missing):
+        findings.append((k.rsplit(' (', 1)[1].rstrip(')'), f'{k.rsplit(" (", 1)[0]}: no such kind/version served'))
+    return findings, checked
+
+
+def floor_of(chart):
+    """(version or None, error or None) from the chart's krateo.io/requires-frontend-crd."""
+    meta = yaml.safe_load(open(os.path.join(REPO, 'helm', chart, 'Chart.yaml'), encoding='utf-8')) or {}
+    raw = (meta.get('annotations') or {}).get(FLOOR_KEY)
+    if raw is None:
+        return None, None
+    m = FLOOR_RE.match(str(raw).strip())
+    if not m:
+        return None, (f'{chart}: {FLOOR_KEY}: {raw!r} is not ">= X.Y.Z". Refused: a floor this gate '
+                      f'cannot evaluate has not been checked.')
+    return m.group(1), None
+
+
 def main():
     version, source = pinned_version()
     if not version:
@@ -205,34 +262,43 @@ def main():
               f'to report a pass on an empty schema set')
         return 1
 
-    findings, checked, kinds_missing = [], 0, set()
-    for chart in CHARTS:
-        for doc in render(chart):
-            api = str(doc.get('apiVersion', ''))
-            if not api.startswith(WIDGET_GROUP + '/'):
-                continue
-            kind, apiver = doc.get('kind'), api.split('/', 1)[1]
-            name = (doc.get('metadata') or {}).get('name')
-            if kind not in sch:
-                kinds_missing.add(f'{kind} ({chart})')
-                continue
-            spec_schema = sch[kind].get(apiver)
-            if not spec_schema:
-                kinds_missing.add(f'{kind}/{apiver} ({chart})')
-                continue
-            checked += 1
-            for p in undeclared(doc.get('spec') or {}, spec_schema):
-                findings.append(f'{chart}: {kind}/{name} spec{p} — frontend-crds {version} is '
-                                f'PINNED on the platform and does not declare it. Release AND pin a '
-                                f'frontend-crds that does, before merging the widget that uses it.')
+    rendered = {chart: render(chart) for chart in CHARTS}
+    found, checked = check(version, sch, rendered)
+    findings = [f'{chart}: {what} — frontend-crds {version} is PINNED on the platform and does not '
+                f'declare it. Release AND pin a frontend-crds that does, before merging the widget '
+                f'that uses it.' for chart, what in found]
 
-    for k in sorted(kinds_missing):
-        findings.append(f'{k}: frontend-crds {version} serves no such kind/version — the pinned CRD '
-                        f'chart cannot admit this widget at all.')
+    floors, floored = {}, 0
+    for chart in CHARTS:
+        floor, err = floor_of(chart)
+        widgets = sum(1 for d in rendered[chart] if str(d.get('apiVersion', '')).startswith(WIDGET_GROUP + '/'))
+        if err:
+            findings.append(err)
+        elif floor:
+            floors.setdefault(floor, []).append(chart)
+        elif widgets:
+            # A chart without a floor is one a frontend-crds downgrade can break with nothing refusing
+            # it: the day it stores a newer field, nothing here or in the installer would notice.
+            findings.append(f'{chart}: ships {widgets} widget(s) but declares no {FLOOR_KEY}. Add the '
+                            f'first frontend-crds that admits them (">= 1.8.0" if every published one does).')
+    for floor, charts in sorted(floors.items()):
+        floor_sch = schemas(unpack(floor))
+        if not floor_sch:
+            findings.append(f'{", ".join(charts)}: frontend-crds {floor} (declared floor) renders no '
+                            f'{WIDGET_GROUP} CRDs; refusing to report a pass on an empty schema set')
+            continue
+        floored += len(charts)
+        found, _ = check(floor, floor_sch, {c: rendered[c] for c in charts})
+        findings += [f'{chart}: {what} — frontend-crds {floor} is this chart\'s DECLARED FLOOR '
+                     f'({FLOOR_KEY}) and does not declare it, so the floor no longer admits what the '
+                     f'chart ships. Raise the floor to the first frontend-crds that does.'
+                     for chart, what in found]
+
     for f in findings:
         print(f'  {f}')
     print(f'\nlint-pinned-crds: frontend-crds {version} (from {source}); {checked} authored widget(s) '
-          f'checked, {len(findings)} finding(s)')
+          f'checked; {floored} chart floor(s) checked at their declared version; '
+          f'{len(findings)} finding(s)')
     return len(findings)
 
 

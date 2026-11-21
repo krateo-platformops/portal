@@ -1,0 +1,31 @@
+{{/* The agents in view by resolved model, most first (six at most), a bar each against all of them.
+     "not readable" is the ModelConfig read failing, "unresolved" a config that is not readable here. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-models
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      ellipsis: true
+      bar:
+        percent: '{percent}'
+        label: '{label}'
+        color:
+          value: blue
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .byModel // [] }'
+  resourcesRefs:
+    items: []

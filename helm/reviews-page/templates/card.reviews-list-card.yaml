@@ -1,0 +1,76 @@
+{{/* The proposals, two thirds of the row: "Summary | Full list" top right, then the state chips
+     (Open by default), then one card per proposal in that state (the first 24, and a line saying
+     how many more the full list holds), or with ?view=table the full table. When there is nothing
+     to list, or the read failed, a line says so instead. Last, while there are any, the superseded
+     and historical Refused proposals the list leaves out, counted. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  apiRef:
+    name: platform-reviews
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Proposals
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: reviews-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: reviews-state-chips
+    - resourceRefId: reviews-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "reviews-state-chips" } ] + (if .failed or (.matched // 0) == 0 then [ { resourceRefId: "reviews-empty" } ] elif .view == "table" then [ { resourceRefId: "platform-proposals" } ] else [ { resourceRefId: "reviews-cards" } ] + (if (.more // 0) > 0 then [ { resourceRefId: "reviews-more" } ] else [] end) end) + (if ((.failed // false) | not) and ((.supersededInView // 0) + (.refused // 0)) > 0 then [ { resourceRefId: "reviews-superseded" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: reviews-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: reviews-state-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-state-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: reviews-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: platform-proposals
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: platform-proposals
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: reviews-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-more
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-more
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-superseded
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-superseded
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

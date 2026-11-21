@@ -1,0 +1,27 @@
+{{/* "Top namespaces": where the most records were made (listy.audit-top-namespaces). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-namespaces-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  widgetData:
+    title: Top namespaces
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: audit-top-namespaces
+  resourcesRefs:
+    items:
+    - id: audit-top-namespaces
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: audit-top-namespaces
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

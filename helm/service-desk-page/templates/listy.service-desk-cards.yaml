@@ -1,0 +1,50 @@
+{{/* One card per request in view, the most recently changed first: the subject, its status as
+     the queue's pill (Zendesk's word and colour, or the portal's state before it is in Zendesk),
+     its kind and priority, what was asked, and its Zendesk number, who raised it and when it last
+     changed. A red mark top right on a request someone has to act on (refused, held, an unknown
+     reason). The whole card opens the request. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-cards
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: fa-headset
+      iconVariant: tile
+      primaryText: '{subject}'
+      secondaryText: '{label}'
+      subPrimaryText: '{meta}'
+      subSecondaryText: '{foot}'
+      description: '{description}'
+      cardCta: Open request
+      navigateTo: '/service-desk/{namespace}/{name}'
+      color:
+        value: '{color}'
+        default: gray
+      status:
+        icon: '{markIcon}'
+        color: red
+        tooltip: '{markTip}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .cards // [] }'
+  resourcesRefs:
+    items: []

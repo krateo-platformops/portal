@@ -1,0 +1,27 @@
+{{/* "Agents per server": the servers the most agents bind (listy.agents-servers-consumers); left out
+     when the Agent list could not be read. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-servers-consumers-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    title: Agents per server
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: agents-servers-consumers
+  resourcesRefs:
+    items:
+    - id: agents-servers-consumers
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-servers-consumers
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

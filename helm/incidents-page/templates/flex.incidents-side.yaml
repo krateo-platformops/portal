@@ -1,0 +1,53 @@
+{{/* The charts, one third of the row (mockup A4), top to bottom: the incidents by state, opened vs
+     resolved in the range, the median time to resolve per week, and the alerts firing with no
+     incident (only while there are such alerts, or their read failed). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: incidents-by-state-card
+    - resourceRefId: incidents-trend-card
+    - resourceRefId: incidents-ttr-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "incidents-by-state-card" }, { resourceRefId: "incidents-trend-card" }, { resourceRefId: "incidents-ttr-card" } ] + (if (.awaitingCount // 0) > 0 or .alertsFailed then [ { resourceRefId: "incidents-awaiting-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: incidents-by-state-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-by-state-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incidents-trend-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-trend-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incidents-ttr-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-ttr-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: incidents-awaiting-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-awaiting-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

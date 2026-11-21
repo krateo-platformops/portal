@@ -1,0 +1,52 @@
+{{/* The Overview charts, one third of the row, top to bottom: health (a donut over everything in
+     view), the agents by pattern, the agents by model, and the token usage trend. The first three are
+     left out while there is no agent to chart (or the Agent read failed); the token card says itself
+     when there is no data. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-token-trend-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.byHealth // []) | length) > 0 then [ { resourceRefId: "agents-health-card" } ] else [] end) + (if ((.byPattern // []) | length) > 0 then [ { resourceRefId: "agents-pattern-card" } ] else [] end) + (if ((.byModel // []) | length) > 0 then [ { resourceRefId: "agents-models-card" } ] else [] end) + [ { resourceRefId: "agents-token-trend-card" } ] }'
+  resourcesRefs:
+    items:
+    - id: agents-health-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-health-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-pattern-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-pattern-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-models-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-models-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-token-trend-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-token-trend-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

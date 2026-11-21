@@ -139,8 +139,19 @@ spec:
   {{/* jq itself does not care about newlines, so the literal form parses identically and lets the */}}
   {{/* reasoning live next to the expression it explains -- the same choice restaction.agents-list */}}
   {{/* and restaction.agent-detail make. */}}
+  {{/* A4 OUTPUT (the Tool servers tab: figures, chips, cards, charts; the tables above are unchanged): */}}
+  {{/*   group       the state chips' pick (?group=): attention (the default while a server needs it, */}}
+  {{/*               else all), healthy, all; another tab's value falls back to the default; */}}
+  {{/*   stats       Tool servers, Accepted, NotAccepted, Advisories, Tools discovered; each tile's tone */}}
+  {{/*               is the state it counts (all, ok, bad, warn), `unread` on a failed server read; */}}
+  {{/*   serverChips / viewChips   the state chips and Summary | Full list, each with its route; */}}
+  {{/*   cards       one per server in the group (attention first), tone bad/warn/ok; */}}
+  {{/*   tableRows   the server table's rows for the group (table.agents-servers-list); */}}
+  {{/*   listCount / emptyText / emptyType   what the list card shows, or says instead; */}}
+  {{/*   byState / topTools / topConsumers   the donut and the two bar lists. */}}
   filter: |-
-    ( [ { k: "servers",  what: "Tool servers (remotemcpservers.kagent.dev)",             e: .serversError  },
+    . as $in
+    | ( [ { k: "servers",  what: "Tool servers (remotemcpservers.kagent.dev)",             e: .serversError  },
         { k: "agents",   what: "Agents (agents.kagent.dev)",                             e: .agentsError   },
         { k: "backends", what: "Gateway backends (agentgatewaybackends.agentgateway.dev)", e: .backendsError },
         { k: "routes",   what: "HTTPRoutes (gateway.networking.k8s.io)",                 e: .routesError   } ]
@@ -240,7 +251,18 @@ spec:
                                      elif ($names | length) <= 2 then ($names | join(" · "))
                                      else (($names | length | tostring) + " agents") end ) end ),
               statusLabel: ( [ ($exc[].label), ($gw // empty) ] | join(" · ") ),
-              statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "orange" end ) } ]
+              statusColor: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "red" else "orange" end ),
+              # The A4 state: bad (a condition False: NotAccepted, NotReady), warn (an advisory: a
+              # condition Unknown, an external endpoint, no gateway route, or no Accepted condition
+              # at all), ok (Accepted, nothing to say).
+              accepted: ( [ ($s.status.conditions // [])[] | select(.type == "Accepted" and .status == "True") ] | length > 0 ),
+              tone: ( if ( [ $exc[] | select(.bad) ] | length ) > 0 then "bad"
+                      elif ( $exc | length ) > 0 or $gw != null then "warn"
+                      elif ( [ ($s.status.conditions // [])[] | select(.type == "Accepted" and .status == "True") ] | length ) == 0 then "warn"
+                      else "ok" end ),
+              description: ( ($s.spec.description // "") | tostring | .[0:160] ),
+              toolsN: ( ($s.status.discoveredTools // []) | length ),
+              agentsN: ( if $agentsDenied then null else ( [ $cons[] | (.ans + "/" + .agent) ] | unique | length ) end ) } ]
         | sort_by(.name) ) as $serverRows
     | ( [ $bindings[]
           | { server: ( ( if $multiNs then (.ns + "/" + .name) else .name end )
@@ -320,7 +342,60 @@ spec:
                                                  then " ?" else "" end ) ) end ) } ] ) } ] ) as $matrixRows
     | ( ( [ $matrixRows[] | .cells[] | select(.value | endswith("!")) ] | length ) > 0 ) as $anyHitl
     | ( ( [ $matrixRows[] | .cells[] | select(.value | endswith("?")) ] | length ) > 0 ) as $anyUndisc
-    | { servers: ( if $serversDenied
+    # ------------------------------------------------------------------ THE A4 TAB
+    | def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+      def href($grp; $table): [ ("projects", "kind", "status", "owner", "q") as $k | (($in[$k] // "") | tostring) as $v | select($v != "") | $k + "=" + ($v | @uri) ]
+        + (if $table then [ "view=table" ] else [] end)
+        + ((($in.range // "") | tostring) as $r | if $r != "" then [ "range=" + ($r | @uri) ] else [] end)
+        + (if $grp != "" then [ "group=" + $grp ] else [] end)
+        | if length == 0 then "/agents" else "/agents?" + join("&") end;
+      ( if $serversDenied then [] else $serverRows end ) as $rowsOK
+    | ( [ $rowsOK[] | select(.tone != "ok") ] | sort_by((if .tone == "bad" then 0 else 1 end), .name) ) as $attention
+    | ( [ $rowsOK[] | select(.tone == "ok") ] ) as $healthy
+    | ( if ($attention | length) > 0 then "attention" else "all" end ) as $grpDefault
+    | ( (($in.group // "") | tostring | ascii_downcase) as $g | if ($g | IN("attention", "healthy", "all")) then $g else $grpDefault end ) as $grp
+    | ( (($in.view // "") | tostring) == "table" ) as $tableView
+    | { attention: $attention, healthy: $healthy, all: ($attention + $healthy) } as $groups
+    | ( $groups[$grp] ) as $members
+    | ( [ $rowsOK[] | .toolsN ] | max // 0 ) as $maxTools
+    | ( [ $rowsOK[] | (.agentsN // 0) ] | max // 0 ) as $maxAgents
+    | ( [ $rowsOK[] | select(.inUse != "not readable") | (.inUse | tonumber? // 0) ] | add // 0 ) as $inUseN
+    | { group: $grp,
+        view: (if $tableView then "table" else "" end),
+        tableRows: $members,
+        listCount: ($members | length),
+        stats: ( [ { title: "Tool servers", value: ($rowsOK | length), tone: "all",
+                     caption: (if $agentsDenied then "agents not readable" else n([ $rowsOK[] | select((.agentsN // 0) > 0) ] | length; "server"; "servers") + " bound by an agent" end) },
+                   { title: "Accepted", value: ([ $rowsOK[] | select(.accepted) ] | length), tone: "ok", caption: ("of " + n($rowsOK | length; "server"; "servers")) },
+                   { title: "NotAccepted", value: ([ $rowsOK[] | select(.tone == "bad") ] | length), tone: "bad", caption: "kagent could not connect or list its tools" },
+                   { title: "Advisories", value: ([ $rowsOK[] | select(.tone == "warn") ] | length), tone: "warn", caption: "external endpoint, no gateway route or unknown" },
+                   { title: "Tools discovered", value: ([ $rowsOK[] | .toolsN ] | add // 0), tone: "all",
+                     caption: (if $agentsDenied then "agents not readable" else n($inUseN; "tool"; "tools") + " in use by agents" end) } ]
+                 | map(if $serversDenied then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end) ),
+        serverChips: ( [ { k: "attention", l: "Needs attention" }, { k: "healthy", l: "Healthy" }, { k: "all", l: "All" } ]
+                       | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp), route: href(if .k == $grpDefault then "" else .k end; $tableView) }) ),
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $grp == $grpDefault then "" else $grp end; false) },
+                     { label: "Full list", active: $tableView, route: href(if $grp == $grpDefault then "" else $grp end; true) } ],
+        cards: [ $members[]
+                 | { title: .name, tone: .tone,
+                     tag: (if .statusLabel != "" then .statusLabel elif .accepted then "Accepted" else "No Accepted condition" end),
+                     kind: ((if .protocol != "—" then .protocol + " · " else "" end) + "timeout " + .timeout),
+                     body: (if .description != "" then .description + " · " + .endpoint else .endpoint end),
+                     foot: (n(.toolsN; "tool"; "tools") + " discovered · " + (if .agents == "—" then "no agent binds it" elif .agents == "not readable" then "agents not readable" else "bound by " + .agents end)) } ],
+        emptyType: (if $serversDenied then "warning" else "secondary" end),
+        emptyText: (if $serversDenied then "The tool servers could not be read (" + $err.servers.why + "), so nothing on this tab counts them."
+                    elif ($rowsOK | length) == 0 then "There is no tool server you can read."
+                    else ({ attention: "No tool server needs attention.", healthy: "No tool server is healthy.", all: "There is no tool server you can read." }[$grp]) end),
+        byState: ( [ { state: "Healthy", count: ($healthy | length) },
+                     { state: "Advisory", count: ([ $attention[] | select(.tone == "warn") ] | length) },
+                     { state: "NotAccepted", count: ([ $attention[] | select(.tone == "bad") ] | length) } ] | map(select(.count > 0)) ),
+        topTools: ( [ $rowsOK[] | select(.toolsN > 0) ] | sort_by(-.toolsN, .name) | .[0:6]
+                    | map({ name, tone, label: (.toolsN | tostring), percent: ((.toolsN * 100 / $maxTools) | round) }) ),
+        topConsumers: ( if $agentsDenied then [] else
+                          [ $rowsOK[] | select((.agentsN // 0) > 0) ] | sort_by(-.agentsN, .name) | .[0:6]
+                          | map({ name, tone, label: n(.agentsN; "agent"; "agents"), percent: ((.agentsN * 100 / $maxAgents) | round) }) end ) }
+      as $a4
+    | $a4 + { servers: ( if $serversDenied
                    then [ { name: "Tool servers are not readable — the RemoteMCPServer list did not answer",
                             endpoint: "—", protocol: "—", timeout: "—", discovered: "—", inUse: "—", agents: "—",
                             statusLabel: "Not readable", statusColor: "default" } ]

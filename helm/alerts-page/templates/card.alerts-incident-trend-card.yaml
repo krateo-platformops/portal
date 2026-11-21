@@ -1,0 +1,33 @@
+{{/* "Incidents opened": per hour (24h) or per day (7d, 30d) over the range; top right, the range. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-incident-trend-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: "Incidents opened"
+    titleVariant: eyebrow
+    variant: outlined
+    extra: ""
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: alerts-incident-trend
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ "in " + (.rangeText // "the last 7 days") }'
+  resourcesRefs:
+    items:
+    - id: alerts-incident-trend
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-incident-trend
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET

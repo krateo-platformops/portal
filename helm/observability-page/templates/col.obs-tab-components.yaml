@@ -1,12 +1,9 @@
-{{/* Observability → Components tab content. A Col wrapper — mirrors obs-tab-reconciliation / */}}
-{{/* obs-tab-telemetry so every tab opens with the same section header (strong label + secondary */}}
-{{/* caption) instead of dropping straight into a bare table. Stacks the header over the */}}
-{{/* control-plane Deployment status table (obs-components). The Tabs allowedResources enum has */}}
-{{/* `cols`/`tables` (not `flexes`), so this is a Col holding `paragraphs` + `tables`. Unlike the */}}
-{{/* other two tabs, obs-components is a live apiserver Deployment GET that ignores ?range — the */}}
-{{/* caption says so, so the shared range chips reading as inert here is intentional, not a bug. */}}
-{{/* P3: the tab's own name is not repeated as a heading under it — the tab already says it, */}}
-{{/* and the strong label that did rendered as large as the page title. The caption stays. */}}
+{{/* Observability → Components tab (the A4 dashboard layout): Krateo's own control-plane Deployments,
+     live from the apiserver (the time range does not apply). The caption, the figures (Deployments,
+     Ready, Not ready, Scaled to zero), then one row: the components on two thirds (state chips, then
+     one card per Deployment, Not ready first, or with ?view=table the runtime table and, under it, the
+     versions the platform declares), the charts on one third (by state, replicas ready). A component
+     opens /observability/components/{name}. The page's search sits above the tabs. */}}
 kind: Col
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,17 +12,16 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
     allowedResources:
     - paragraphs
-    - tables
+    - listies
+    - rows
     items:
     - resourceRefId: obs-sec-components-desc
-    - resourceRefId: obs-components
-    {{/* Declared pins, below the runtime table: what is running, then what is declared. */}}
-    - resourceRefId: obs-sec-pins-label
-    - resourceRefId: obs-sec-pins-desc
-    - resourceRefId: platform-pins
+    - resourceRefId: obs-components-stats
+    - resourceRefId: obs-components-main
   resourcesRefs:
     items:
     - id: obs-sec-components-desc
@@ -34,27 +30,15 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
       verb: GET
-    - id: obs-components
+    - id: obs-components-stats
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-components
+      name: obs-components-stats
       namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: listies
       verb: GET
-    - id: obs-sec-pins-label
+    - id: obs-components-main
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-sec-pins-label
+      name: obs-components-main
       namespace: {{ $.Values.namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: obs-sec-pins-desc
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-sec-pins-desc
-      namespace: {{ $.Values.namespace }}
-      resource: paragraphs
-      verb: GET
-    - id: platform-pins
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: platform-pins
-      namespace: {{ $.Values.namespace }}
-      resource: tables
+      resource: rows
       verb: GET

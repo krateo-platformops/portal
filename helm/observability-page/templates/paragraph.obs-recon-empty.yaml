@@ -1,0 +1,25 @@
+{{/* In place of the cards or the full list when they would be empty: the compositions could not be read
+     (and why), nothing matches the search, or no composition is in the picked state. A warning when the
+     read failed, muted otherwise. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-recon-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .emptyText // "" }'
+  - forPath: type
+    expression: '${ if .failed then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

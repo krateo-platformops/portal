@@ -1,0 +1,26 @@
+{{/* In place of the cards or the table when they would be empty: the spans could not be read, a filter
+     was refused (no request was made), nothing matches the search, or no span is in the range (with the
+     status picked). A warning when the read failed or a filter was refused. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-traces-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-traces
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .emptyText // "" }'
+  - forPath: type
+    expression: '${ if .failed or ((.rejected // []) | length) > 0 then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

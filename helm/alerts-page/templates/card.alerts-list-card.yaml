@@ -1,0 +1,62 @@
+{{/* The alerts, two thirds of the row: "Summary | Full list" top right, then the state
+     chips (the page's filter, Firing by default), then one card per alert in that state, or with
+     ?view=table the full table. When there is nothing to list, or the read failed, a line says so. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: obs-alerts
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Alerts
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: alerts-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: alerts-status-chips
+    - resourceRefId: alerts-cards
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "alerts-status-chips" } ] + (if .failed or (.matched // 0) == 0 then [ { resourceRefId: "alerts-empty" } ] elif .view == "table" then [ { resourceRefId: "obs-alerts" } ] else [ { resourceRefId: "alerts-cards" } ] end) }'
+  resourcesRefs:
+    items:
+    - id: alerts-view-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-view-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: alerts-status-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-status-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: alerts-cards
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-cards
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: obs-alerts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-alerts
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: alerts-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET

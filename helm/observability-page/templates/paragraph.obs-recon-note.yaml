@@ -1,0 +1,22 @@
+{{/* Above the cards, only when something could not be read: a composition list (some may be missing),
+     or the reconcile traces (nothing is dated, nothing counted overdue — never a flag on every card). */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-recon-note
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: warning
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .note // "" }'
+  resourcesRefs:
+    items: []

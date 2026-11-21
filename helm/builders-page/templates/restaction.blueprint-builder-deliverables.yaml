@@ -159,7 +159,7 @@ spec:
              title: $pr.title,
              pr: ("#" + ($pr.number | tostring)),
              url: $pr.url,
-             version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
+             version: ($cd.version // "" | if . == "" then "—" else "v" + . end),
              status: (if ($cd != null and $cd.ready == "True") then "Registered"
                       elif ($cd != null) then "Reconciling"
                       elif $end == "merged" then "Merged"
@@ -214,7 +214,7 @@ spec:
              # PullRequest at all on an install below github-provider-kog 0.3.0.
              pr: (if (($pr.number) // 0) > 0 then ("#" + ($pr.number | tostring)) else ($p0.branch // "") end),
              url: (($pr.url) // ""),
-             version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
+             version: ($cd.version // "" | if . == "" then "—" else "v" + . end),
              status: (if ($cd != null and $cd.ready == "True") then "Registered"
                       elif ($cd != null) then "Reconciling"
                       # A change request that has ENDED outranks "In review" — it was the next rung,

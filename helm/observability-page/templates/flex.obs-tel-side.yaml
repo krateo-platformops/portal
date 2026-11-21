@@ -1,0 +1,46 @@
+{{/* The Telemetry charts, one third of the row, top to bottom: the errors by service (only while there
+     are some), the cluster resource-usage trend, and the pods with the most memory. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-tel-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-error-log-digest
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: obs-resource-trend-card
+    - resourceRefId: obs-resource-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.byService // []) | length) > 0 then [ { resourceRefId: "obs-errors-by-service-card" } ] else [] end) + [ { resourceRefId: "obs-resource-trend-card" }, { resourceRefId: "obs-resource-card" } ] }'
+  resourcesRefs:
+    items:
+    - id: obs-errors-by-service-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-errors-by-service-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-resource-trend-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-resource-trend-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: obs-resource-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-resource-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

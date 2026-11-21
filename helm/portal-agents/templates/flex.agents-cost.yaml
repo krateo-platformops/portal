@@ -1,0 +1,50 @@
+{{/* The spend view, in the layout of /incidents: the exception line (empty when all is well), the */}}
+{{/* toolbar (the time range, the search), the figures, then who spent it on the left two thirds */}}
+{{/* (agents, users, groups) beside the spend over time and by model on the right third. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
+  widgetData:
+    allowedResources:
+    - paragraphs
+    - listies
+    - rows
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: agents-cost-notice
+    - resourceRefId: agents-cost-toolbar
+    - resourceRefId: agents-cost-stats
+    - resourceRefId: agents-cost-main
+  resourcesRefs:
+    items:
+    - id: agents-cost-notice
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-notice
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: agents-cost-toolbar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-toolbar
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET
+    - id: agents-cost-stats
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-stats
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-cost-main
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-main
+      namespace: {{ $.Values.namespace }}
+      resource: rows
+      verb: GET

@@ -1,0 +1,55 @@
+{{/* The charts, one third of the row, top to bottom: the requests by status, opened vs solved in
+     the range, the active ones by priority, and the ones Zendesk is waiting on someone here for
+     (only while there are any). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: service-desk-by-status-card
+    - resourceRefId: service-desk-trend-card
+    - resourceRefId: service-desk-by-priority-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "service-desk-by-status-card" }, { resourceRefId: "service-desk-trend-card" } ] + (if ((.byPriority // []) | length) > 0 then [ { resourceRefId: "service-desk-by-priority-card" } ] else [] end) + (if ((.waiting // []) | length) > 0 then [ { resourceRefId: "service-desk-waiting-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: service-desk-by-status-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-by-status-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: service-desk-trend-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-trend-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: service-desk-by-priority-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-by-priority-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: service-desk-waiting-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-waiting-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

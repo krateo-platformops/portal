@@ -1,0 +1,26 @@
+{{/* The state chips, the tab's filter (?status=): All (the default), Needs attention, Overdue (while the
+     reconcile traces are read), then each state some composition is in, in triage order, each with its
+     count over the searched compositions. Each route keeps every other page param. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-recon-state-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-reconciliation
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .chips // [] }'
+  resourcesRefs:
+    items: []

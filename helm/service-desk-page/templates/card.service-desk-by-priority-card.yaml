@@ -1,0 +1,26 @@
+{{/* "Active by priority": the active requests by priority; service-desk-side shows it only while there are any. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-by-priority-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  widgetData:
+    title: "Active by priority"
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: service-desk-by-priority
+  resourcesRefs:
+    items:
+    - id: service-desk-by-priority
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-by-priority
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

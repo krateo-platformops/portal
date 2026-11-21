@@ -1,0 +1,26 @@
+{{/* "By status": every request by its status, as a donut (piechart.service-desk-by-status). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-by-status-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  widgetData:
+    title: "By status"
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: service-desk-by-status
+  resourcesRefs:
+    items:
+    - id: service-desk-by-status
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-by-status
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

@@ -1,0 +1,26 @@
+{{/* "By state": the incidents in each state, as a donut (piechart.incidents-by-state). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-by-state-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  widgetData:
+    title: By state
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - piecharts
+    items:
+    - resourceRefId: incidents-by-state
+  resourcesRefs:
+    items:
+    - id: incidents-by-state
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-by-state
+      namespace: {{ $.Values.namespace }}
+      resource: piecharts
+      verb: GET

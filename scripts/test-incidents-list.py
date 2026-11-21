@@ -1,52 +1,44 @@
 #!/usr/bin/env python3
 """
-test-incidents-list — /incidents, the overview and its "Ask Agentiko →", over the chart's own jq.
+test-incidents-list — /incidents, the dashboard and its "Ask Agentiko →", over the chart's own jq.
 
 WHAT IT GUARDS.
-THE OVERVIEW (root-pages UX, build plan §3.2, mockup screen 06; decisions of 2026-11-13):
-  - each facet (Alert, State, Age, Owner) counts its values under every OTHER filter, and search
-    narrows them all; a facet with one value over every incident is left out of the filter bar
-    unless one of its values is applied (Q2); the applied values are chips that remove themselves;
-  - Owner: Krateo when the alert carries krateo.io/composition-name, Yours when the alert exists
-    without it, Alert deleted when it no longer exists; with the alerts unread, nobody owns anything
-    and the facet hides (an unread alert is not a deleted one);
-  - ?status= is still the State param: /incidents?status=open lands filtered, any case, `all` is no
-    filter, and it takes several values now;
-  - the strip counts the filtered set (Open red, open longer than 7 days orange); a failed read is
-    "—", never 0;
-  - the active incidents: one card per alert, largest first, or with ?group=age per age bucket,
-    newest first; Triage opens the newest; a card holding several opens the table view filtered to
-    that alert (or age) and state, "See all N" (Q1); six cards, then the state's table;
-  - Resolved and Closed are folded, their six newest, then "See all N →" to that state's table;
-  - ?view=table swaps the overview for today's table, filtered, and the toggle keeps every filter
-    both ways;
+THE DASHBOARD (mockup A4):
+  - the state is the page's one filter: absent it is Open; ?status= is read in any case, `all` lists
+    every incident, and a value that is no state lists nothing, with the chips still there;
+  - the chips: Open, Analyzing, Verifying, Resolved, Closed, All, each counting every incident, the
+    picked one active; every route on the page (state, range and view chips) keeps the other params
+    and the ?projects= scope, and leaves out a param at its default;
+  - the five figures count every incident: Open, Analyzing, Verifying now; Resolved and the median
+    Time to resolve (triggered to resolution.at) in the range; a failed read is "—", never 0;
+  - ?range=: 7d when absent; 24h buckets the opened-vs-resolved chart per hour, 7d and 30d per day,
+    one point per bucket and series ending now; the time to resolve per week covers 8 weeks, a week
+    with nothing resolved has no point;
+  - the layout: the header (no subtitle), the range, the figures, then the row: the incidents card
+    (chips, then the cards, or ?view=table the table, or a line when there is nothing to list or the
+    read failed) on two thirds, the charts on one third, the "Firing, not investigated" card only
+    while there are such alerts or their read failed;
+  - a card says the state (its colour), the category, the cause and the object the analysis read,
+    and a wrench marks an Open incident whose fix can be applied;
   - an alert's display name loses a decorative emoji but keeps its punctuation (an em dash), with
-    whitespace runs collapsed: it is a card title, a facet label and the table's Incident.
-THE PROMPT. incidents-list builds the header button's `askHref`: /incidents with every filter param
-and the ?projects= scope kept, and a prompt about the view on screen. The rules a reader would notice:
-  - unfiltered, the prompt gives the per-state counts, the alerts firing with no incident, and the
-    open incidents (title, root cause, the DAY each was triggered), at most eight;
-  - with one state picked and nothing else, it is about that state's incidents only, as the chip's
-    was; a done state (Resolved, Closed) asks for a review, not a triage; a state with no incidents
-    says so;
-  - any other filter is named in the prompt ("Alert: Probe failing; State: Open; search ...") and the
-    prompt is about the incidents it matches;
-  - a ?status= that is no state matches nothing, and is a chip that removes it (portal.facets: an
-    unknown URL value is listed at 0 so it can be taken out);
+    whitespace runs collapsed: it is the card title and the table's Incident.
+THE PROMPT. incidents-list builds the header button's `askHref`: /incidents with every param and the
+?projects= scope kept, and a prompt about the state on screen:
+  - Open (the default) and the other active states: a triage of that state's incidents (title, root
+    cause, the DAY each was triggered), at most eight; a done state (Resolved, Closed) asks for a
+    review; a state with no incidents says so; All gives the per-state counts, the alerts firing
+    with no incident, and the open incidents;
   - A FAILED READ IS NOT A QUIET PLATFORM: an Incident list that could not be read asks what the error
     means, and an alerts read that failed is never "no alert is firing". snowplow accumulates an
     errorKey as a LIST whose elements are strings or the apiserver's Status object
     (resolve.go accumulateErrorKey); both shapes are fed here;
-  - the existing per-alert `awaiting[].askHref` keeps its path;
-  - the "Firing alerts with no incident" section is a second table laid out like the incident table:
-    each alert says why it has none, off alert-provider's OpensIncidents condition (a metric or value
-    alert opens no incidents, a counting alert has not opened one yet, listed first), and an
-    "Ask Agentiko →" pill says what a row click does; the prompt says when the alert never opens one;
-    a paused alert is not listed; the page shows the section only while it has rows.
-The fixtures of the overview checks are dated relative to now, so the age buckets hold on any day.
+  - the alerts firing with no incident: each says why it has none, off alert-provider's
+    OpensIncidents condition (a metric or value alert opens no incidents, a counting alert has not
+    opened one yet, listed first), and opens Agentiko on it; its prompt says when the alert never
+    opens one; a paused alert is not listed.
+The fixtures of the figures and the charts are dated relative to now, so they hold on any day.
 Every widget is resolved over the same output, and with --crds every resolved widget is validated
-against its CRD (the frontend's CRDs must carry Collapse, Listy `statistic`, Select counts/prefix/
-panelFooter and Flex role/ariaLabel: frontend 1.8.43).
+against its CRD.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it.
 Usage: test-incidents-list.py [--crds DIR]. Exit code = failed checks.
@@ -64,21 +56,36 @@ _spec.loader.exec_module(tbi)
 
 CHART = os.path.join(HERE, '..', 'helm', 'incidents-page')
 TAIL = ' Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page.'
+KX = ['projects', 'status', 'range', 'view', 'q']
+NOW = datetime.datetime.now(datetime.timezone.utc)
 
 
-def incident(name, state, triggered, alert=None, cause=None, error=None):
+def ago(hours):
+    return (NOW - datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def incident(name, state, triggered, alert=None, cause=None, error=None, resolved=None, category=None,
+             analyzed=None, fix=None):
     st = {} if state is None else {'state': state}
     if cause:
         st['rootCause'] = {'statement': cause}
+        if category:
+            st['rootCause']['category'] = category
     if error:
         st['error'] = error
+    if resolved:
+        st['resolution'] = {'by': 'verify' if state == 'Resolved' else 'user', 'at': resolved}
+    if analyzed:
+        st['analyzedResources'] = analyzed
+    if fix:
+        st['howToFix'] = fix
     meta = {'name': name, 'creationTimestamp': triggered}
     if alert:
         meta['labels'] = {'observability.krateo.io/alert': alert}
     return {'metadata': meta, 'spec': {'triggeredAt': triggered}, 'status': st}
 
 
-def alert(name, display, state='ALERT', opens=None, typ=None, paused=False, krateo=False):
+def alert(name, display, state='ALERT', opens=None, typ=None, paused=False):
     st = {'state': state}
     if typ:
         st['type'] = typ
@@ -88,8 +95,6 @@ def alert(name, display, state='ALERT', opens=None, typ=None, paused=False, krat
     meta = {'name': name}
     if paused:
         meta['annotations'] = {'krateo.io/paused': 'true'}
-    if krateo:
-        meta['labels'] = {'krateo.io/composition-name': 'krateo-observability'}
     return {'metadata': meta, 'spec': {'displayName': display}, 'status': st}
 
 
@@ -140,15 +145,31 @@ def expect(f, what, got, want):
         f.append(f'{what}: got {got!r}, want {want!r}')
 
 
-def check_unfiltered():
+def widget_data(kind, name, out, extras=None):
+    return tbi.resolved_widget(CH, kind, name, out, extras or {}, f'{kind} {name}')['spec']['widgetData']
+
+
+def items_of(kind, name, out, extras=None):
+    return [i['resourceRefId'] for i in widget_data(kind, name, out, extras)['items']]
+
+
+def check_default_is_open():
     f = []
     out = resolve(responses(), {'projects': 'team-a'})
+    expect(f, 'no ?status: Open', (out['status'], [r['name'] for r in out['rows']]), ('open', ['inc-lat', 'inc-disk']))
     href, prompt = ask(out['askHref'])
-    expect(f, 'self page, scope kept, no chip', href, '/incidents?projects=team-a')
-    expect(f, 'counts, awaiting, the open ones', prompt,
-           'Triage my incidents: 2 open, 1 verifying, 1 still being analyzed, and 1 alert firing with no incident '
-           '(Pod restarts). The open ones are: 1. "API latency p95" — connection pool exhausted on orders-db '
-           '(triggered 2026-11-08) 2. "Disk pressure" — PVC data-pg-0 at 97% (triggered 2026-11-06).' + TAIL)
+    expect(f, 'self page, scope kept, the default left out', href, '/incidents?projects=team-a')
+    expect(f, 'the prompt is about the open ones', prompt,
+           'Triage my open incidents: 2 of 5 incidents. They are: 1. "API latency p95" — connection pool exhausted on '
+           'orders-db (triggered 2026-11-08) 2. "Disk pressure" — PVC data-pg-0 at 97% (triggered 2026-11-06).' + TAIL)
+    expect(f, 'the chips: Open first, every incident counted, Open active',
+           [(c['label'], c['count'], c['active']) for c in out['chips']],
+           [('Open', 2, True), ('Analyzing', 1, False), ('Verifying', 1, False), ('Resolved', 1, False),
+            ('Closed', 0, False), ('All', 5, False)])
+    expect(f, 'the chips keep the scope', [c['route'] for c in out['chips']],
+           ['/incidents?projects=team-a', '/incidents?projects=team-a&status=analyzing',
+            '/incidents?projects=team-a&status=verifying', '/incidents?projects=team-a&status=resolved',
+            '/incidents?projects=team-a&status=closed', '/incidents?projects=team-a&status=all'])
     expect(f, 'the per-alert links are untouched', [a['askHref'].split('?ask=')[0] for a in out['awaiting']], ['/incidents'])
     many = [incident(f'i{i}', 'Open', f'2026-11-{i + 10:02d}T00:00:00Z', cause='x' * 200) for i in range(10)]
     _, prompt = ask(resolve(responses(incidents={'items': many}), {})['askHref'])
@@ -161,42 +182,49 @@ def check_unfiltered():
     return f
 
 
-def check_filtered():
+def check_status_param():
     f = []
-    href, prompt = ask(resolve(responses(), {'status': 'open', 'projects': 'team-a'})['askHref'])
-    expect(f, 'open state: kept with the scope', href, '/incidents?projects=team-a&status=open')
-    expect(f, 'open chip: only the open ones', prompt,
-           'Triage my open incidents: 2 of 5 incidents. They are: 1. "API latency p95" — connection pool exhausted on '
-           'orders-db (triggered 2026-11-08) 2. "Disk pressure" — PVC data-pg-0 at 97% (triggered 2026-11-06).' + TAIL)
+    out = resolve(responses(), {'status': 'all'})
+    href, prompt = ask(out['askHref'])
+    expect(f, 'all: every incident', (out['matched'], href), (5, '/incidents?status=all'))
+    expect(f, 'all: the counts, the alerts, the open ones', prompt,
+           'Triage my incidents: 2 open, 1 verifying, 1 still being analyzed, and 1 alert firing with no incident '
+           '(Pod restarts). The open ones are: 1. "API latency p95" — connection pool exhausted on orders-db '
+           '(triggered 2026-11-08) 2. "Disk pressure" — PVC data-pg-0 at 97% (triggered 2026-11-06).' + TAIL)
     href, prompt = ask(resolve(responses(), {'status': 'Resolved'})['askHref'])
-    expect(f, 'resolved chip, any case: kept', href, '/incidents?status=resolved')
-    expect(f, 'resolved chip: a review', prompt,
+    expect(f, 'resolved, any case: kept', href, '/incidents?status=resolved')
+    expect(f, 'resolved: a review', prompt,
            'Review my resolved incidents: 1 of 5 incidents. It is: 1. "Disk pressure" — log volume filled /var '
            '(triggered 2026-11-05). Tell me whether any looks resolved without its cause being fixed, and whether any '
            'is likely to come back — grounded in the evidence on this page.')
-    href, prompt = ask(resolve(responses(), {'status': 'closed'})['askHref'])
-    expect(f, 'empty chip: kept', href, '/incidents?status=closed')
-    expect(f, 'empty chip: says so', prompt,
+    out = resolve(responses(), {'status': 'closed'})
+    href, prompt = ask(out['askHref'])
+    expect(f, 'empty state: kept', href, '/incidents?status=closed')
+    expect(f, 'empty state: says so', prompt,
            'I have no closed incidents; my 5 incidents are in other states, with 1 alert firing with no incident '
            '(Pod restarts). Tell me whether anything here needs attention — grounded in the evidence on this page.')
+    expect(f, 'empty state: the line in place of the cards', items_of('Card', 'incidents-list-card', out, {'status': 'closed'}),
+           ['incidents-status-chips', 'incidents-empty'])
+    expect(f, 'empty state: the line', widget_data('Paragraph', 'incidents-empty', out)['text'], 'No incident is closed.')
     out = resolve(responses(), {'status': 'foo', 'projects': 'team-a'})
     href, prompt = ask(out['askHref'])
-    expect(f, 'not a state: no rows, as before', out['rows'], [])
-    expect(f, 'not a state: kept, so the chip can take it out', href, '/incidents?projects=team-a&status=foo')
-    expect(f, 'not a state: a removable chip at 0', [(c['label'], c['href']) for c in out['chips']],
-           [('State: foo', '/incidents?projects=team-a'), ('Clear all', '/incidents?projects=team-a')])
-    expect(f, 'not a state: the prompt says nothing matches', prompt,
-           'No incident matches the view on screen (State: foo); my 5 incidents are outside it, with 1 alert firing with '
-           'no incident (Pod restarts). Tell me whether anything here needs attention — grounded in the evidence on this page.')
+    expect(f, 'not a state: no rows, no chip active', (out['rows'], [c['active'] for c in out['chips']]), ([], [False] * 6))
+    expect(f, 'not a state: kept', href, '/incidents?projects=team-a&status=foo')
+    expect(f, 'not a state: the prompt says nothing is in it', prompt,
+           'No incident is in the state "foo"; my 5 incidents are in other states, with 1 alert firing with no incident '
+           '(Pod restarts). Tell me whether anything here needs attention — grounded in the evidence on this page.')
     return f
 
 
 def check_empty_and_failed():
     f = []
-    _, prompt = ask(resolve(responses(incidents={'items': []}), {})['askHref'])
+    out = resolve(responses(incidents={'items': []}), {})
+    _, prompt = ask(out['askHref'])
     expect(f, 'no incidents, an alert firing', prompt,
            'There are no incidents on this platform, and 3 alerts firing with no incident (API latency p95, Pod '
            'crashloop, Pod restarts). Tell me which alert to investigate first and why — grounded in the evidence on this page.')
+    expect(f, 'no incidents: the line', widget_data('Paragraph', 'incidents-empty', out)['text'], 'There are no incidents.')
+    expect(f, 'no incidents: zeros, not dashes', [s['value'] for s in out['stats']], ['0', '0', '0', '0', '—'])
     _, prompt = ask(resolve(responses(incidents={'items': []}, alerts={'items': []}), {})['askHref'])
     expect(f, 'nothing at all', prompt,
            'There are no incidents on this platform, and no alert firing without an incident. Tell me whether anything '
@@ -205,38 +233,211 @@ def check_empty_and_failed():
               'message': 'incidents.observability.krateo.io is forbidden: User "erin" cannot list resource'}
     for label, errs, said in (('a Status object', [status], status['message']),
                               ('a string', ['dial tcp: i/o timeout'], 'dial tcp: i/o timeout')):
-        out = resolve(responses(incidents=errs), {'status': 'open'})
+        out = resolve(responses(incidents=errs), {'status': 'verifying'})
         href, prompt = ask(out['askHref'])
         expect(f, f'failed read ({label}): flagged', (out['failed'], out['readError']), (True, said))
         expect(f, f'failed read ({label}): asks about the error', prompt,
                'The incidents on this page could not be read (' + said + '). Explain what that error means and what to check.')
-        expect(f, f'failed read ({label}): keeps the chip', href, '/incidents?status=open')
-    _, prompt = ask(resolve(responses(alerts=['dial tcp: i/o timeout']), {})['askHref'])
+        expect(f, f'failed read ({label}): keeps the state', href, '/incidents?status=verifying')
+        expect(f, f'failed read ({label}): every figure "could not be read", never 0',
+               {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'unread')})
+        para = widget_data('Paragraph', 'incidents-empty', out)
+        expect(f, f'failed read ({label}): said, as a warning', (para['text'], para['type']),
+               ('The incidents could not be read (' + said + '), so nothing on this page counts them.', 'warning'))
+        expect(f, f'failed read ({label}): no chart drawn from it',
+               [widget_data(k, n, out)['data'] for k, n in (('PieChart', 'incidents-by-state'), ('LineChart', 'incidents-trend'),
+                                                             ('LineChart', 'incidents-ttr'))], [[], [], []])
+    out = resolve(responses(alerts=['dial tcp: i/o timeout']), {'status': 'all'})
+    _, prompt = ask(out['askHref'])
     expect(f, 'alerts unread: never "no alert firing"', 'no alert firing' in prompt, False)
     expect(f, 'alerts unread: said', 'an unknown number of alerts firing with no incident (the alerts could not be read)' in prompt, True)
+    expect(f, 'alerts unread: the card shows, and says so', (
+        'incidents-awaiting-card' in items_of('Flex', 'incidents-side', out),
+        widget_data('Listy', 'incidents-awaiting', out)['header']),
+        (True, 'The alerts could not be read, so an alert firing without an incident would not show here.'))
     out = resolve(responses(), {})
     expect(f, 'healthy read: not failed', (out['failed'], out['readError']), (False, ''))
     return f
 
 
-def check_button_and_header():
+# Dated relative to now. Resolved: r1 in 2 h (12 h ago), r2 in 40 min (3 days ago), r3 in 6 h (20 days ago).
+TIMED = [
+    incident('o1', 'Open', ago(3), alert='a', cause='c1', category='permission',
+             analyzed=[{'gvr': 'v1/pods', 'name': 'web-0'}, {'gvr': 'composition.krateo.io/v1/fireworksapps', 'name': 'fw-prod'}],
+             fix={'applyAction': {'verb': 'patch', 'apiVersion': 'v1', 'resource': 'secrets', 'name': 's', 'payload': {}}}),
+    incident('o2', 'Open', ago(50), alert='a', cause='c2', analyzed=[{'gvr': 'apps/v1/deployments', 'name': 'snowplow'}]),
+    incident('o3', 'Open', ago(60), alert='a', cause='c3', fix={'apply': 'kubectl rollout restart deploy/x'}),
+    incident('a1', 'Analyzing', ago(1), alert='a'),
+    incident('v1', 'Verifying', ago(5), alert='a', cause='c4', fix={'apply': 'x'}),
+    incident('r1', 'Resolved', ago(14), alert='a', cause='c5', resolved=ago(12)),
+    incident('r2', 'Resolved', ago(72 + 40 / 60), alert='a', cause='c6', resolved=ago(72)),
+    incident('r3', 'Resolved', ago(486), alert='a', cause='c7', resolved=ago(480)),
+    incident('c1', 'Closed', ago(30), alert='a', cause='c8', resolved=ago(29)),
+]
+
+
+def timed(extras=None):
+    return resolve(responses(incidents={'items': TIMED}, alerts={'items': [alert('a', 'A', 'OK')]}), extras or {})
+
+
+def check_figures_and_charts():
     f = []
-    ex = {'status': 'open', 'projects': 'team-a'}
-    out = resolve(responses(), ex)
-    btn = tbi.resolved_widget(CH, 'Button', 'incidents-ask-agentiko', out, ex, 'ask button')['spec']
-    expect(f, 'button: the RA\'s link', btn['widgetData']['actions']['navigate'][0]['path'], out['askHref'])
-    expect(f, 'button: label and intent', (btn['widgetData']['label'], btn['widgetData']['intent']), ('Ask Agentiko →', 'agentiko'))
-    expect(f, 'button: keyExtras match the table', btn['keyExtras'],
-           CH.get('Table', 'incidents-table')['spec']['keyExtras'])
-    expect(f, 'button, no data: the list', tbi.widget(CH, 'Button', 'incidents-ask-agentiko', 'actions', {}, {})['navigate'][0]['path'], '/incidents')
-    hdr = tbi.resolved_widget(CH, 'PageHeader', 'incidents-page-header', {}, ex, 'header')['spec']['widgetData']
-    expect(f, 'header: the button, alone', ([i['resourceRefId'] for i in hdr['items']], hdr['allowedResources']),
-           (['incidents-ask-agentiko'], ['buttons']))
-    tbi.resolved_widget(CH, 'Table', 'incidents-table', out, ex, 'table')
+    out = timed()
+    expect(f, '7d: the five figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
+           [('Open', '3', '1 opened in the last 24 hours', 'open'), ('Analyzing', '1', 'root-cause analysis running', 'analyzing'),
+            ('Verifying', '1', 'fix applied, checks running', 'verifying'), ('Resolved', '2', 'in the last 7 days', 'resolved'),
+            ('Time to resolve', '1 h 20 min', 'median over the last 7 days', 'resolved')])
+    stats = widget_data('Listy', 'incidents-stats', out)
+    cards = widget_data('Listy', 'incidents-cards', out)
+    expect(f, 'each figure wears its state\'s card colour, zero or not',
+           {k: v for k, v in stats['itemTemplate']['color']['map'].items() if k != 'unread'},
+           {k.lower(): v for k, v in cards['itemTemplate']['color']['map'].items() if k != 'Closed'})
+    expect(f, 'a failed read is orange', stats['itemTemplate']['color']['map']['unread'], 'orange')
+    out30 = timed({'range': '30d'})
+    expect(f, '30d: Resolved and Time to resolve widen', [s['value'] for s in out30['stats'][3:]], ['3', '2 h'])
+    out24 = timed({'range': '24h'})
+    expect(f, '24h', [(s['value'], s['caption']) for s in out24['stats'][3:]],
+           [('1', 'in the last 24 hours'), ('2 h', 'median over the last 24 hours')])
+    expect(f, 'nothing resolved in the range: a dash, said',
+           [(s['value'], s['caption']) for s in resolve(responses(incidents={'items': TIMED[:5]}), {})['stats'][4:]],
+           [('—', 'nothing resolved in the last 7 days')])
+    for rng, unit, n in (('24h', 'hour', 24), ('7d', 'day', 7), ('30d', 'day', 30)):
+        o = timed({'range': rng})
+        pts = o['trend']
+        opened = [p for p in pts if p['series'] == 'Opened']
+        resolved = [p for p in pts if p['series'] == 'Resolved']
+        expect(f, f'{rng}: one point per bucket and series, per {unit}', (len(opened), len(resolved), o['trendUnit']), (n, n, unit))
+        expect(f, f'{rng}: the buckets are consecutive and end now',
+               ({b['t'] - a['t'] for a, b in zip(opened, opened[1:])}, opened[-1]['t'] <= NOW.timestamp() < opened[-1]['t'] + (3600 if unit == 'hour' else 86400)),
+               ({3600 if unit == 'hour' else 86400}, True))
+        want_opened = {'24h': 4, '7d': 8, '30d': 9}[rng]
+        want_resolved = {'24h': 1, '7d': 2, '30d': 3}[rng]
+        expect(f, f'{rng}: opened and resolved in the range', (sum(p['v'] for p in opened), sum(p['v'] for p in resolved)),
+               (want_opened, want_resolved))
+        xu = widget_data('LineChart', 'incidents-trend', o, {'range': rng})['xTimeUnit']
+        expect(f, f'{rng}: the chart labels {unit}s', xu, unit)
+    # Each resolved incident's week (epoch weeks, as the RESTAction buckets them) and minutes.
+    by_week = {}
+    for hours, minutes in ((12, 120), (72, 40), (480, 360)):
+        at = (NOW - datetime.timedelta(hours=hours)).replace(microsecond=0).timestamp()
+        by_week.setdefault(int(at // 604800) * 604800, []).append(minutes)
+    want = [{'t': t, 'v': round(sum(ms) / len(ms))} for t, ms in sorted(by_week.items())]
+    expect(f, 'per week: the median of each week with something resolved, in minutes', out['ttrWeekly'], want)
+    expect(f, 'the TTR card shows the median', widget_data('Card', 'incidents-ttr-card', out)['extra'], '1 h 20 min')
+    expect(f, 'by state: Open first, a slice per state with incidents',
+           widget_data('PieChart', 'incidents-by-state', out)['data'],
+           [{'state': 'Open', 'count': 3}, {'state': 'Analyzing', 'count': 1}, {'state': 'Verifying', 'count': 1},
+            {'state': 'Resolved', 'count': 3}, {'state': 'Closed', 'count': 1}])
     return f
 
 
-def check_awaiting_section():
+def check_routes():
+    f = []
+    ex = {'projects': 'team-a', 'status': 'resolved', 'range': '30d', 'view': 'table'}
+    out = resolve(responses(), ex)
+    expect(f, 'range chips: each keeps the rest, 7d left out', [(c['label'], c['active'], c['route']) for c in out['rangeChips']],
+           [('24h', False, '/incidents?projects=team-a&status=resolved&range=24h&view=table'),
+            ('7d', False, '/incidents?projects=team-a&status=resolved&view=table'),
+            ('30d', True, '/incidents?projects=team-a&status=resolved&range=30d&view=table')])
+    expect(f, 'view chips: cards drops ?view, table sets it', [(c['label'], c['active'], c['route']) for c in out['viewChips']],
+           [('Summary', False, '/incidents?projects=team-a&status=resolved&range=30d'),
+            ('Full list', True, '/incidents?projects=team-a&status=resolved&range=30d&view=table')])
+    expect(f, 'state chips keep range and view', [c['route'] for c in out['chips']][:2],
+           ['/incidents?projects=team-a&range=30d&view=table', '/incidents?projects=team-a&status=analyzing&range=30d&view=table'])
+    href, _ = ask(out['askHref'])
+    expect(f, 'Ask Agentiko keeps every param, in the page order', href, '/incidents?projects=team-a&status=resolved&range=30d&view=table')
+    expect(f, 'an unknown range is 7d', resolve(responses(), {'range': '1y'})['range'], '7d')
+    for name in ('incidents-status-chips', 'incidents-view-chips', 'incidents-range-chips'):
+        tpl = widget_data('Listy', name, out, ex)['itemTemplate']
+        expect(f, f'{name}: chips that navigate', (tpl['rowVariant'], tpl['navigateTo']), ('chip', '{route}'))
+    return f
+
+
+def check_search():
+    f = []
+    out = resolve(responses(), {'q': ' ORDERS '})
+    expect(f, 'case-insensitive, trimmed: the open ones that match', (out['q'], [r['name'] for r in out['rows']]), ('ORDERS', ['inc-lat']))
+    expect(f, 'the counts follow it', (out['counts']['open'], out['counts']['verifying'], out['counts']['analyzing'], out['counts']['all']), (1, 1, 0, 2))
+    expect(f, 'the figures follow it', [s['value'] for s in out['stats'][:3]], ['1', '0', '1'])
+    expect(f, 'by target and by alert too',
+           ([r['name'] for r in timed({'q': 'snowplow'})['rows']], [r['name'] for r in resolve(responses(), {'q': 'disk', 'status': 'all'})['rows']]),
+           (['o2'], ['inc-disk', 'inc-res']))
+    expect(f, 'every route keeps it', ([c['route'] for c in out['chips']][:2], out['viewChips'][1]['route'], out['rangeChips'][0]['route']),
+           (['/incidents?q=ORDERS', '/incidents?status=analyzing&q=ORDERS'], '/incidents?view=table&q=ORDERS', '/incidents?range=24h&q=ORDERS'))
+    href, prompt = ask(out['askHref'])
+    expect(f, 'Ask Agentiko keeps it and says so', (href, prompt.endswith(' These are only the incidents matching the search "ORDERS".')),
+           ('/incidents?q=ORDERS', True))
+    none = resolve(responses(), {'q': 'zzz'})
+    expect(f, 'nothing matches: said', widget_data('Paragraph', 'incidents-empty', none, {'q': 'zzz'})['text'], 'No incident matches "zzz".')
+    expect(f, 'nothing matches: the prompt says it, not "no incidents"', ask(none['askHref'])[1].startswith('No incident matches the search "zzz"; 5 incidents do not'), True)
+    expect(f, 'the awaiting alerts are not searched', [a['name'] for a in none['awaiting']], [a['name'] for a in resolve(responses(), {})['awaiting']])
+    return f
+
+
+def check_layout():
+    f = []
+    out = resolve(responses(), {})
+    expect(f, 'the page', items_of('Flex', 'page-incidents', out),
+           ['incidents-page-header', 'incidents-toolbar', 'incidents-stats', 'incidents-main'])
+    bar = widget_data('Row', 'incidents-toolbar', out)
+    expect(f, 'the toolbar: the range left, the search in a quarter (as on /marketplace), stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs']) for i in bar['items']], [('incidents-range-group', 18, 24), ('incidents-search-wrap', 6, 24)])
+    expect(f, 'the search wrap holds the search', items_of('Flex', 'incidents-search-wrap', out), ['incidents-search'])
+    search = widget_data('Input', 'incidents-search', out)
+    expect(f, 'the search writes ?q= on Enter, at the standard size', (search['queryParam'], search['allowClear'], search['size']), ('q', True, 'middle'))
+    row = widget_data('Row', 'incidents-main', out)
+    expect(f, 'two thirds and one third, stacked when narrow', [(i['resourceRefId'], i['size'], i['xs']) for i in row['items']],
+           [('incidents-list-card', 16, 24), ('incidents-side', 8, 24)])
+    card = widget_data('Card', 'incidents-list-card', out)
+    expect(f, 'the incidents card: chips, then the cards; Summary | Full list top right',
+           ([i['resourceRefId'] for i in card['items']], card['extraRefId']),
+           (['incidents-status-chips', 'incidents-cards'], 'incidents-view-chips'))
+    tbl = resolve(responses(), {'view': 'table'})
+    expect(f, '?view=table: the table instead', items_of('Card', 'incidents-list-card', tbl, {'view': 'table'}),
+           ['incidents-status-chips', 'incidents-table'])
+    expect(f, 'the charts, and the alerts firing with no incident while there are some', items_of('Flex', 'incidents-side', out),
+           ['incidents-by-state-card', 'incidents-trend-card', 'incidents-ttr-card', 'incidents-awaiting-card'])
+    quiet = resolve(responses(alerts={'items': [alert('disk', 'Disk pressure', 'OK')]}), {})
+    expect(f, 'no such alert: no card', items_of('Flex', 'incidents-side', quiet),
+           ['incidents-by-state-card', 'incidents-trend-card', 'incidents-ttr-card'])
+    for kind, name in (('Flex', 'incidents-range-group'), ('Paragraph', 'incidents-range-label'), ('Listy', 'incidents-stats'),
+                       ('Card', 'incidents-by-state-card'), ('Card', 'incidents-trend-card'), ('Card', 'incidents-awaiting-card'),
+                       ('Listy', 'incidents-awaiting')):
+        widget_data(kind, name, out)
+    hdr = widget_data('PageHeader', 'incidents-page-header', out)
+    expect(f, 'header: no subtitle, the button alone', ('subtitle' in hdr, [i['resourceRefId'] for i in hdr['items']]),
+           (False, ['incidents-ask-agentiko']))
+    btn = tbi.resolved_widget(CH, 'Button', 'incidents-ask-agentiko', out, {}, 'ask button')['spec']
+    expect(f, 'button: the RA\'s link', btn['widgetData']['actions']['navigate'][0]['path'], out['askHref'])
+    expect(f, 'button: label and intent', (btn['widgetData']['label'], btn['widgetData']['intent']), ('Ask Agentiko →', 'agentiko'))
+    expect(f, 'button, no data: the list', tbi.widget(CH, 'Button', 'incidents-ask-agentiko', 'actions', {}, {})['navigate'][0]['path'], '/incidents')
+    return f
+
+
+def check_cards_and_table():
+    f = []
+    out = timed()
+    cards = widget_data('Listy', 'incidents-cards', out)
+    tpl = cards['itemTemplate']
+    expect(f, 'a card per incident, opening it', (tpl['rowVariant'], tpl['navigateTo'], tpl['secondaryText'], tpl['description']),
+           ('card', '/incidents/{namespace}/{name}', '{state}', '{cause}'))
+    rows = {r['name']: r for r in cards['dataSource']}
+    expect(f, 'the open ones, newest first', list(rows), ['o1', 'o2', 'o3'])
+    expect(f, 'target: the composition the analysis read, else the first object',
+           [rows[n]['target'] for n in ('o1', 'o2', 'o3')], ['fireworksapps/fw-prod', 'deployments/snowplow', ''])
+    expect(f, 'category, capitalized', [rows[n]['category'] for n in ('o1', 'o2')], ['Permission', ''])
+    expect(f, 'a wrench where a fix can be applied (applyAction or an apply script)',
+           [rows[n]['fixIcon'] for n in ('o1', 'o2', 'o3')], ['fa-wrench', '', 'fa-wrench'])
+    ver = widget_data('Listy', 'incidents-cards', timed({'status': 'verifying'}), {'status': 'verifying'})['dataSource']
+    expect(f, 'no wrench once it is not Open', [r['fixIcon'] for r in ver], [''])
+    table = widget_data('Table', 'incidents-table', out, {'view': 'table'})
+    expect(f, 'the table: every column', [c['valueKey'] for c in table['columns']], ['sev', 'title', 'cause', 'category', 'target', 'state', 'age'])
+    first = {c['valueKey']: c.get('stringValue') for c in table['dataSource'][0]}
+    expect(f, 'the table row', (first['title'], first['category'], first['target'], first['state']), ('A', 'Permission', 'fireworksapps/fw-prod', 'Open'))
+    return f
+
+
+def check_awaiting():
     f = []
     alerts = [alert('disk-free', 'ClickHouse disk below 20% free', opens=('False', 'AggregatedValue', AGG), typ='Metric'),
               alert('cost', 'LLM spend over budget', opens=('False', 'AggregatedValue', AGG), typ='LogValue'),
@@ -255,322 +456,10 @@ def check_awaiting_section():
     expect(f, 'a counting alert\'s prompt is unchanged', prompts['Image pull failing'],
            'Investigate the "Image pull failing" observability alert — it is firing but has no open incident. '
            'Run a root-cause analysis and give me the concrete next steps.')
-    table = tbi.resolved_widget(CH, 'Table', 'incidents-awaiting', out, {}, 'awaiting table')['spec']['widgetData']
-    incidents = CH.get('Table', 'incidents-table')['spec']['widgetData']
-    expect(f, 'laid out like the incident table', [(c['valueKey'], c['title']) for c in table['columns']],
-           [('sev', ' '), ('name', 'Alert'), ('why', 'Why no incident'), ('ask', ' ')])
-    expect(f, 'same table style', {k: table[k] for k in ('fitContent', 'bordered', 'size')},
-           {k: incidents[k] for k in ('fitContent', 'bordered', 'size')})
-    rows = [{c['valueKey']: (c.get('stringValue'), c.get('kind'), c.get('color')) for c in r} for r in table['dataSource']]
-    expect(f, 'rows: alert, why (— when unknown)', [(r['name'][0], r['why'][0]) for r in rows],
-           [(a['name'], a['why'] or '—') for a in out['awaiting']])
-    expect(f, 'every row carries the Ask Agentiko pill', {r['ask'] for r in rows}, {('Ask Agentiko →', 'tag', 'primary')})
-    expect(f, 'row click opens Agentiko on that alert', (table['rowNavigateTo'], [r['askHref'][0] for r in rows]),
-           ('{askHref}', [a['askHref'] for a in out['awaiting']]))
-    title = tbi.resolved_widget(CH, 'Paragraph', 'incidents-awaiting-title', {}, {}, 'section title')['spec']['widgetData']
-    expect(f, 'section title, no em dash', (title['text'], title.get('level')), ('Firing alerts with no incident', 2))
-    tbi.resolved_widget(CH, 'Flex', 'incidents-awaiting-section', {}, {}, 'section')
-    page = lambda o: [i['resourceRefId'] for i in tbi.resolved_widget(CH, 'Flex', 'page-incidents', o, {}, 'page')['spec']['widgetData']['items']]
-    expect(f, 'the page shows the section while it has rows (no incident: the calm line says so)', page(out),
-           ['incidents-page-header', 'incidents-filter-bar', 'incidents-strip', 'incidents-calm', 'incidents-awaiting-section'])
-    expect(f, 'no incident, alerts firing: the calm line does not claim the alerts are quiet',
-           widget_data('Paragraph', 'incidents-calm', out)['text'], 'There are no incidents.')
-    busy = resolve(responses(), {})
-    expect(f, 'with incidents and such alerts: the section above the active incidents, no calm line', page(busy),
-           ['incidents-page-header', 'incidents-filter-bar', 'incidents-group-toggle', 'incidents-strip', 'incidents-awaiting-section',
-            'incidents-groups', 'incidents-done', 'incidents-view-toggle'])
-    quiet = resolve(responses(alerts={'items': [alert('disk', 'Disk pressure', 'OK')]}), {})
-    expect(f, 'and leaves it out when none, for the calm line', page(quiet),
-           ['incidents-page-header', 'incidents-filter-bar', 'incidents-group-toggle', 'incidents-strip', 'incidents-calm',
-            'incidents-groups', 'incidents-done', 'incidents-view-toggle'])
-    expect(f, 'the calm line', widget_data('Paragraph', 'incidents-calm', quiet)['text'],
-           'No alert is firing without an incident (0 of 1 alerts in state ALERT).')
-    hdr = tbi.resolved_widget(CH, 'PageHeader', 'incidents-page-header', {}, {}, 'header')['spec']['widgetData']
-    expect(f, 'subtitle', hdr['subtitle'],
-           'Each incident tracks one problem an alert caught, from finding its cause until it is fixed or someone closes it.')
-    return f
-
-
-# ---------------------------------------------------------------------------------------------
-# The overview: facets, strip, groups, caps, the table view
-# ---------------------------------------------------------------------------------------------
-
-NOW = datetime.datetime.now(datetime.timezone.utc)
-KX = ['projects', 'status', 'alert', 'age', 'owner', 'q', 'group', 'view']
-
-
-def ago(hours):
-    return (NOW - datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-
-
-def day(hours):
-    return ago(hours)[:10]
-
-
-# probe: a Krateo alert (4 incidents), oom: yours (2), gone: deleted since (2). One per age bucket pair.
-OV_INCIDENTS = [
-    incident('p1', 'Open', ago(2), alert='probe', cause='readiness probe on 8081 without a delay'),
-    incident('p2', 'Open', ago(30), alert='probe', cause='probe timeout after the upgrade'),
-    incident('p3', 'Open', ago(240), alert='probe', cause='probe flapping'),
-    incident('m1', 'Open', ago(72), alert='oom', cause='mongod OOMKilled at 500M'),
-    incident('m2', 'Resolved', ago(960), alert='oom', cause='mongod OOMKilled earlier'),
-    incident('g1', 'Open', ago(480), alert='gone', cause='an alert deleted since'),
-    incident('g2', 'Closed', ago(1200), alert='gone', cause='closed by hand'),
-    incident('v1', 'Verifying', ago(5), alert='probe', cause='rolled back the probe'),
-]
-OV_ALERTS = [alert('probe', 'Probe failing', 'OK', krateo=True), alert('oom', 'Pod killed for memory', 'OK')]
-
-
-def overview(extras=None, **over):
-    r = {'incidents': {'items': OV_INCIDENTS}, 'alerts': {'items': OV_ALERTS}}
-    r.update(over)
-    return resolve(r, extras or {})
-
-
-def widget_data(kind, name, out, extras=None):
-    return tbi.resolved_widget(CH, kind, name, out, extras or {}, f'{kind} {name}')['spec']['widgetData']
-
-
-def facet(out, key):
-    return [x for x in out['facets'] if x['key'] == key][0]
-
-
-def counts(out, key):
-    return {v['value']: v['count'] for v in facet(out, key)['values']}
-
-
-def page_items(out, extras=None):
-    return [i['resourceRefId'] for i in widget_data('Flex', 'page-incidents', out, extras)['items']]
-
-
-def bar(out):
-    return [i['resourceRefId'] for i in widget_data('Flex', 'incidents-filter-bar', out)['items']]
-
-
-def check_facets():
-    f = []
-    out = overview()
-    expect(f, 'no filter: alert counts', counts(out, 'alert'), {'probe': 4, 'oom': 2, 'gone': 2})
-    expect(f, 'no filter: alerts labelled with their display name, else their name',
-           {v['value']: v['label'] for v in facet(out, 'alert')['values']}, {'probe': 'Probe failing', 'oom': 'Pod killed for memory', 'gone': 'gone'})
-    expect(f, 'no filter: state counts', counts(out, 'status'), {'open': 5, 'verifying': 1, 'resolved': 1, 'closed': 1})
-    expect(f, 'no filter: age buckets', counts(out, 'age'), {'24h': 2, '7d': 2, '30d': 2, 'older': 2})
-    expect(f, 'owner: Krateo when the alert carries krateo.io/composition-name, yours without, deleted when gone',
-           counts(out, 'owner'), {'krateo': 4, 'yours': 2, 'deleted': 2})
-    expect(f, 'owner labels', {v['value']: v['label'] for v in facet(out, 'owner')['values']},
-           {'krateo': 'Krateo', 'yours': 'Yours', 'deleted': 'Alert deleted'})
-    out = overview({'status': 'open'})
-    expect(f, '?status=open: the state counts ignore their own filter', counts(out, 'status'),
-           {'open': 5, 'verifying': 1, 'resolved': 1, 'closed': 1})
-    expect(f, '?status=open: the alert counts apply it', counts(out, 'alert'), {'probe': 3, 'oom': 1, 'gone': 1})
-    expect(f, '?status=open: the owner counts apply it', counts(out, 'owner'), {'krateo': 3, 'yours': 1, 'deleted': 1})
-    expect(f, '?status=open: the age counts apply it (a value with none left stays, at 0)', counts(out, 'age'),
-           {'24h': 1, '7d': 2, '30d': 2, 'older': 0})
-    out = overview({'alert': 'probe', 'age': '24h'})
-    expect(f, 'alert and age: the alert counts apply the age only', counts(out, 'alert'), {'probe': 2, 'oom': 0, 'gone': 0})
-    expect(f, 'alert and age: the age counts apply the alert only', counts(out, 'age'), {'24h': 2, '7d': 1, '30d': 1, 'older': 0})
-    expect(f, 'alert and age: matched', [r['name'] for r in out['rows']], ['p1', 'v1'])
-    out = overview({'owner': 'deleted'})
-    expect(f, '?owner=deleted: the incidents of the deleted alert', sorted(r['name'] for r in out['rows']), ['g1', 'g2'])
-    # Search: title and root cause, any case; the facet counts follow it.
-    out = overview({'q': '  PROBE Timeout '})
-    expect(f, 'search: title and root cause, case-insensitive, trimmed', [r['name'] for r in out['rows']], ['p2'])
-    expect(f, 'search: the facet counts follow it', counts(out, 'status'), {'open': 1, 'verifying': 0, 'resolved': 0, 'closed': 0})
-    expect(f, 'search: the facets stay visible (decided over every incident)', [x['show'] for x in out['facets']], [True] * 4)
-    # The Selects: URL-bound, counted, lifecycle and age order where it is an order.
-    out = overview()
-    sel = widget_data('Select', 'incidents-status', out)
-    expect(f, 'State Select: ?status=, multiple, counted', (sel['queryParam'], sel['mode'], sel['prefix']), ('status', 'multiple', 'State'))
-    expect(f, 'State Select: lifecycle order', [o['value'] for o in sel['options']], ['open', 'verifying', 'resolved', 'closed'])
-    expect(f, 'Age Select: age order', [(o['label'], o['count']) for o in widget_data('Select', 'incidents-age', out)['options']],
-           [('Last 24 hours', 2), ('1–7 days', 2), ('7–30 days', 2), ('Over 30 days', 2)])
-    expect(f, 'Alert Select: largest first, display names', [(o['label'], o['value'], o['count']) for o in widget_data('Select', 'incidents-alert', out)['options']],
-           [('Probe failing', 'probe', 4), ('gone', 'gone', 2), ('Pod killed for memory', 'oom', 2)])
-    expect(f, 'every facet in the bar, then search', bar(out), ['incidents-alert', 'incidents-status', 'incidents-age', 'incidents-owner', 'incidents-search'])
-    search = widget_data('Input', 'incidents-search', out)
-    expect(f, 'search box writes ?q=', (search['queryParam'], search['name']), ('q', 'q'))
-    return f
-
-
-def check_hidden_facets():
-    f = []
-    one = [incident(f'o{i}', 'Open', ago(h), alert='probe', cause='x') for i, h in enumerate((1, 50, 300, 900))]
-    out = overview(incidents={'items': one})
-    expect(f, 'one alert, one state, one owner: those facets hidden, age shown',
-           [(x['key'], x['distinct'], x['show']) for x in out['facets']],
-           [('alert', 1, False), ('status', 1, False), ('age', 4, True), ('owner', 1, False)])
-    expect(f, 'the bar: age and search only', bar(out), ['incidents-age', 'incidents-search'])
-    out = overview({'status': 'open'}, incidents={'items': one})
-    expect(f, 'a hidden facet shows while one of its values is applied', bar(out), ['incidents-status', 'incidents-age', 'incidents-search'])
-    out = overview(alerts=['alerts.observability.krateo.io is forbidden'])
-    expect(f, 'alerts unread: nobody owns anything, the Owner facet hides', (facet(out, 'owner')['distinct'], facet(out, 'owner')['show']), (0, False))
-    expect(f, 'alerts unread: not in the bar', 'incidents-owner' in bar(out), False)
-    calm = widget_data('Paragraph', 'incidents-calm', out)
-    expect(f, 'alerts unread: the calm line says so, as a warning', (calm['text'], calm['type']),
-           ('The alerts could not be read, so an alert firing without an incident would not show here.', 'warning'))
-    return f
-
-
-def check_status_back_compat():
-    f = []
-    for label, param, want in (('?status=open', 'open', ['m1', 'g1', 'p1', 'p2', 'p3']),
-                               ('?status=Open (any case)', 'Open', ['m1', 'g1', 'p1', 'p2', 'p3']),
-                               ('?status=open,verifying (several now)', 'open,verifying', ['m1', 'g1', 'p1', 'p2', 'p3', 'v1']),
-                               ('?status=all (the old All chip)', 'all', [r['metadata']['name'] for r in OV_INCIDENTS])):
-        out = overview({'status': param, 'projects': 'team-a'})
-        expect(f, f'{label}: the rows', sorted(r['name'] for r in out['rows']), sorted(want))
-    out = overview({'status': 'all', 'projects': 'team-a'})
-    expect(f, '?status=all: no chip, no filter', (out['chips'], out['filtered']), ([], False))
-    expect(f, '?status=all: dropped from every href', out['tableHref'], '/incidents?projects=team-a&view=table')
-    out = overview({'status': 'Resolved', 'projects': 'team-a'})
-    expect(f, '?status=Resolved: one chip, in lower case, removing it', [(c['label'], c['href']) for c in out['chips']],
-           [('State: Resolved', '/incidents?projects=team-a'), ('Clear all', '/incidents?projects=team-a')])
-    expect(f, '?status=Resolved: the hrefs carry it lower case', out['tableHref'], '/incidents?projects=team-a&status=resolved&view=table')
-    return f
-
-
-def check_strip():
-    f = []
-    out = overview()
-    strip = widget_data('Listy', 'incidents-strip', out)
-    rows = [(r['title'], r['value'], r['caption'], r['tone']) for r in strip['dataSource']]
-    expect(f, 'the strip, as drawn, over every incident', rows, [
-        ('Open', '5', 'from 3 alerts', 'bad'),
-        ('Opened in the last 7 days', '3', '', ''),
-        ('Open longer than 7 days', '2', 'oldest ' + day(480), 'warn'),
-        ('Analyzing', '0', '', ''),
-        ('Verifying', '1', '', '')])
-    expect(f, 'a statistic strip, red and orange only through the map', (strip['itemTemplate']['rowVariant'], strip['itemTemplate']['color']['map']),
-           ('statistic', {'bad': 'red', 'warn': 'orange'}))
-    out = overview({'alert': 'oom'})
-    rows = [(r['title'], r['value'], r['tone']) for r in widget_data('Listy', 'incidents-strip', out)['dataSource']]
-    expect(f, '?alert=oom: the strip counts the filtered set', rows[:3], [('Open', '1', 'bad'), ('Opened in the last 7 days', '1', ''), ('Open longer than 7 days', '0', '')])
-    out = overview(incidents=['incidents.observability.krateo.io is forbidden: User "erin" cannot list'])
-    rows = [(r['value'], r['caption'], r['tone']) for r in widget_data('Listy', 'incidents-strip', out)['dataSource']]
-    expect(f, 'failed read: every tile is "—", never 0', rows, [('', 'could not be read', 'warn')] * 5)
-    calm = widget_data('Paragraph', 'incidents-calm', out)
-    expect(f, 'failed read: the calm line says it, as a warning', (calm['text'].startswith('The incidents could not be read ('), calm['type']), (True, 'warning'))
-    return f
-
-
-def cards_of(panel):
-    return [(c['title'], c['tag'], c['href'], c['cta']) for c in panel['dataSource']]
-
-
-def check_groups():
-    f = []
-    out = overview({'projects': 'team-a'})
-    w = widget_data('Collapse', 'incidents-groups', out)
-    expect(f, 'panels: Open (red) then Verifying; Analyzing has none', [(p['key'], p['count'], p.get('status')) for p in w['items']],
-           [('open', 5, 'error'), ('verifying', 1, None)])
-    expect(f, 'every active panel starts open', w['defaultActiveKey'], ['open', 'verifying'])
-    expect(f, 'by alert: largest first, then by label', cards_of(w['items'][0]), [
-        ('Probe failing', '3 open', '/incidents?projects=team-a&status=open&alert=probe&view=table', 'See all 3'),
-        ('Pod killed for memory', '1 open', '/incidents/krateo-system/m1', ''),
-        ('gone', '1 open', '/incidents/krateo-system/g1', '')])
-    probe = w['items'][0]['dataSource'][0]
-    expect(f, 'a card: the alert name, the newest root cause, first and newest, the alert now', (probe['meta'], probe['body'], probe['foot'], probe['tone']),
-           ('probe', 'Latest root cause: readiness probe on 8081 without a delay', f'since {day(240)} · newest {day(2)} · alert now OK', 'bad'))
-    expect(f, 'Triage opens the newest of the group', (probe['namespace'], probe['newestName']), ('krateo-system', 'p1'))
-    tmpl = w['itemTemplate']
-    act = w['actions']['navigate'][0]
-    expect(f, 'the Triage button: a row action navigating to that row\'s newest incident',
-           ([(a['actionId'], a['label']) for a in tmpl['rowActions']], act['path']), ([('triage', 'Triage')], '/incidents/${namespace}/${newestName}'))
-    expect(f, 'the panel header', w['items'][0]['extra'], '3 alerts, largest first')
-    expect(f, 'five cards: no footer', 'footer' in w['items'][0], False)
-    # ?group=age
-    out = overview({'group': 'age'})
-    w = widget_data('Collapse', 'incidents-groups', out)
-    expect(f, 'by age: one card per bucket, newest first', cards_of(w['items'][0]), [
-        ('Last 24 hours', '1 open', '/incidents/krateo-system/p1', ''),
-        ('1–7 days', '2 open', '/incidents?status=open&age=7d&group=age&view=table', 'See all 2'),
-        ('7–30 days', '2 open', '/incidents?status=open&age=30d&group=age&view=table', 'See all 2')])
-    expect(f, 'by age: the header says so', w['items'][0]['extra'], 'by age, newest first')
-    toggle = widget_data('Listy', 'incidents-group-toggle', out)
-    expect(f, 'the group toggle: By age active, each keeping the rest', [(r['label'], r['active'], r['href']) for r in toggle['dataSource']],
-           [('By alert', False, '/incidents'), ('By age', True, '/incidents?group=age')])
-    toggle = widget_data('Listy', 'incidents-group-toggle', overview({'status': 'open'}))
-    expect(f, 'the group toggle keeps the filters', [(r['active'], r['href']) for r in toggle['dataSource']],
-           [(True, '/incidents?status=open'), (False, '/incidents?status=open&group=age')])
-    expect(f, 'an unknown ?group= is by alert', overview({'group': 'nope'})['group'], 'alert')
-    return f
-
-
-def check_caps():
-    f = []
-    many = [incident(f'a{i}-{j}', 'Open', ago(10 + i * 24 + j), alert=f'a{i}', cause=f'cause {i}') for i in range(8) for j in range(8 - i)]
-    out = overview({'projects': 'team-a', 'q': 'cause'}, incidents={'items': many + [incident(f'r{i}', 'Resolved', ago(2000 + i), alert='a0', cause='r') for i in range(7)]})
-    w = widget_data('Collapse', 'incidents-groups', out)
-    panel = w['items'][0]
-    expect(f, 'eight alerts: six cards, largest first', [c['title'] for c in panel['dataSource']], [f'a{i}' for i in range(6)])
-    expect(f, 'past six: the footer opens the state\'s table, every filter kept', (panel['footer'], panel['footerNavigateTo']),
-           ('See all 36 open incidents →', '/incidents?projects=team-a&status=open&q=cause&view=table'))
-    expect(f, 'See all N on a card: the table filtered to that alert and state, every filter kept',
-           panel['dataSource'][0]['href'], '/incidents?projects=team-a&status=open&alert=a0&q=cause&view=table')
-    out = overview({'projects': 'team-a'}, incidents={'items': many + [incident(f'r{i}', 'Resolved', ago(2000 + i), alert='a0', cause='r') for i in range(7)]})
-    done = widget_data('Collapse', 'incidents-done', out)
-    expect(f, 'Resolved folded: its count, six newest, See all N to its table', (
-        [(p['key'], p['count']) for p in done['items']], done['defaultActiveKey'], [c['href'] for c in done['items'][0]['dataSource']],
-        done['items'][0]['footer'], done['items'][0]['footerNavigateTo']),
-        ([('resolved', 7)], [], [f'/incidents/krateo-system/r{i}' for i in range(6)], 'See all 7 →', '/incidents?projects=team-a&status=resolved&view=table'))
-    expect(f, 'a settled card carries no Triage', 'rowActions' in done['itemTemplate'], False)
-    out = overview()
-    done = widget_data('Collapse', 'incidents-done', out)
-    expect(f, 'Resolved and Closed, one each: no footer', [(p['label'], p['count'], 'footer' in p) for p in done['items']],
-           [('Resolved', 1, False), ('Closed', 1, False)])
-    return f
-
-
-def check_table_view():
-    f = []
-    ex = {'projects': 'team-a', 'status': 'open', 'alert': 'probe', 'view': 'table'}
-    out = overview(ex)
-    expect(f, '?view=table: the table in place of the overview, filters kept', page_items(out, ex),
-           ['incidents-page-header', 'incidents-filter-bar', 'incidents-active-filters', 'incidents-view-toggle', 'incidents-table'])
-    table = widget_data('Table', 'incidents-table', out, ex)
-    names = [{c['valueKey']: c.get('stringValue') for c in r}['name'] for r in table['dataSource']]
-    expect(f, '?view=table: the table holds what the filters match, newest first', names, ['p1', 'p2', 'p3'])
-    btn = widget_data('Button', 'incidents-view-toggle', out, ex)
-    expect(f, '?view=table: back to the overview, every filter kept', (btn['label'], btn['actions']['navigate'][0]['path']),
-           ('← Back to the overview', '/incidents?projects=team-a&status=open&alert=probe'))
-    ex = dict(ex, view='')
-    out = overview(ex)
-    btn = widget_data('Button', 'incidents-view-toggle', out, ex)
-    expect(f, 'overview: the table link counts the match and keeps every filter', (btn['label'], btn['actions']['navigate'][0]['path']),
-           ('All 3 matching incidents as a table →', '/incidents?projects=team-a&status=open&alert=probe&view=table'))
-    btn = widget_data('Button', 'incidents-view-toggle', overview())
-    expect(f, 'overview, no filter: as drawn', btn['label'], 'All 8 incidents as a table →')
-    chips = overview({'projects': 'team-a', 'status': 'open', 'alert': 'probe,oom'})['chips']
-    expect(f, 'chips: one per value, removing only itself, then Clear all keeping the scope', [(c['label'], c['href'], c.get('removable', False)) for c in chips], [
-        ('Alert: Probe failing', '/incidents?projects=team-a&status=open&alert=oom', True),
-        ('Alert: Pod killed for memory', '/incidents?projects=team-a&status=open&alert=probe', True),
-        ('State: Open', '/incidents?projects=team-a&alert=probe%2Coom', True),
-        ('Clear all', '/incidents?projects=team-a', False)])
-    out = overview({'alert': 'nope'})
-    expect(f, 'nothing matches: no groups, the calm line says so', (page_items(out)[2:], widget_data('Paragraph', 'incidents-calm', out)['text']),
-           (['incidents-active-filters', 'incidents-strip', 'incidents-calm'],
-            'No incident matches these filters. No alert is firing without an incident (0 of 2 alerts in state ALERT).'))
-    return f
-
-
-def check_ask_keeps_the_view():
-    f = []
-    ex = {'projects': 'team-a', 'status': 'open', 'alert': 'probe', 'q': 'probe', 'group': 'age', 'view': 'table'}
-    out = overview(ex)
-    href, prompt = ask(out['askHref'])
-    expect(f, 'every filter param kept, in the page order', href, '/incidents?projects=team-a&status=open&alert=probe&q=probe&group=age&view=table')
-    expect(f, 'the prompt names the view and is about what it matches', prompt,
-           'Triage the incidents in the view on screen (Alert: Probe failing; State: Open; search "probe"): 3 of 8 incidents (3 open). '
-           'The active ones are: 1. "Probe failing" — readiness probe on 8081 without a delay (triggered ' + day(2) + ') '
-           '2. "Probe failing" — probe timeout after the upgrade (triggered ' + day(30) + ') '
-           '3. "Probe failing" — probe flapping (triggered ' + day(240) + ').' + TAIL)
-    _, prompt = ask(overview({'owner': 'deleted', 'status': 'closed'})['askHref'])
-    expect(f, 'a settled view asks for a review', prompt,
-           'Review the incidents in the view on screen (State: Closed; Owner: Alert deleted): 1 of 8 incidents (1 closed). '
-           'It is: 1. "gone" — closed by hand (triggered ' + day(1200) + '). Tell me whether any looks fixed without its cause '
-           'being fixed, and whether any is likely to come back — grounded in the evidence on this page.')
-    btn = widget_data('Button', 'incidents-ask-agentiko', out, ex)
-    expect(f, 'the button carries it', btn['actions']['navigate'][0]['path'], out['askHref'])
+    lst = widget_data('Listy', 'incidents-awaiting', out)
+    expect(f, 'the list: alert, why, opens Agentiko on it',
+           ([(a['name'], a['why']) for a in lst['dataSource']], lst['itemTemplate']['navigateTo'], lst['header']),
+           ([(a['name'], a['why']) for a in out['awaiting']], '{askHref}', ''))
     return f
 
 
@@ -587,13 +476,11 @@ def check_display_names():
     f = []
     alerts = [alert(f'a{i}', shown, 'OK') for i, (shown, _) in enumerate(NAMES)]
     incs = [incident(f'i{i}', 'Open', ago(10 + i), alert=f'a{i}', cause='c') for i in range(len(NAMES))]
-    out = overview(incidents={'items': incs}, alerts={'items': alerts})
+    out = resolve(responses(incidents={'items': incs}, alerts={'items': alerts}), {})
     got = {r['alert']: r['title'] for r in out['rows']}
     for i, (shown, want) in enumerate(NAMES):
         expect(f, f'display name {shown!r}: the emoji dropped, the punctuation kept, one space, trimmed', got.get(f'a{i}'), want)
-    labels = {v['value']: v['label'] for v in facet(out, 'alert')['values']}
-    expect(f, 'the Alert facet labels them the same way', labels.get('a0'), NAMES[0][1])
-    titles = [c['title'] for c in widget_data('Collapse', 'incidents-groups', out)['items'][0]['dataSource']]
+    titles = [c['title'] for c in widget_data('Listy', 'incidents-cards', out)['dataSource']]
     expect(f, 'and so does the card title', NAMES[0][1] in titles, True)
     return f
 
@@ -602,14 +489,14 @@ def check_filter_keys():
     f = []
     for d in CH.docs:
         if d.get('apiVersion', '').startswith('widgets.templates.krateo.io/') and d['metadata']['name'].startswith(('incidents-', 'page-incidents')):
-            expect(f, f'{d["kind"]} {d["metadata"]["name"]} declares every filter key', d['spec'].get('keyExtras'), KX)
+            expect(f, f'{d["kind"]} {d["metadata"]["name"]} declares every page param', d['spec'].get('keyExtras'), KX)
     root = CH.get('Flex', 'page-incidents')
     expect(f, 'the page root names them', root['metadata']['annotations'].get('krateo.io/filter-keys'), ','.join(KX))
     return f
 
-CHECKS = [check_unfiltered, check_filtered, check_empty_and_failed, check_button_and_header, check_awaiting_section,
-          check_facets, check_hidden_facets, check_status_back_compat, check_strip, check_groups, check_caps,
-          check_table_view, check_ask_keeps_the_view, check_display_names, check_filter_keys]
+
+CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_routes,
+          check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 
 def main():

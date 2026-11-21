@@ -1,0 +1,40 @@
+{{/* The five figures over every request the caller may list: Active (of all), Pending (Zendesk is
+     waiting for a reply from someone here), Need attention (refused by Zendesk, held, or an
+     undocumented reason), Opened and Solved in the range. Each tile wears the colour the cards give
+     the status it counts (_zendesk.tpl): Active and Opened slate (New, Open), Pending gold, Need
+     attention red (Refused), Solved faint, zero or not; the title says it too, so colour is never
+     the only signal. A failed read never reaches this: the page draws the unavailable sentence in
+     its place. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          active: slate
+          pending: gold
+          attention: red
+          solved: faint
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

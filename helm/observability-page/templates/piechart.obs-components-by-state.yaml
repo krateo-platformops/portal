@@ -1,0 +1,30 @@
+{{/* The searched Deployments by state, a slice per state that has any, coloured as the cards. */}}
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-components-by-state
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  apiRef:
+    name: obs-components
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    angleField: count
+    colorField: state
+    colorMap:
+      Ready: green
+      Not ready: red
+      Scaled to zero: gray
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .byState // [] }'
+  resourcesRefs:
+    items: []

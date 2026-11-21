@@ -1,0 +1,25 @@
+{{/* Whose records these are, under the records (it was the header's subtitle before the A4 layout):
+     all namespaces for a cluster-wide reader, otherwise the namespaces whose audit trail the caller
+     was granted (audit-records' `namespaces`, the list the rows are narrowed to). Up to eight are
+     named. The card leaves it out for a caller with none, whose empty line already says so. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: audit-scope
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): every page param rides the URL (krateo.io/filter-keys on page-audit), so every widget on /audit declares all of them. */}}
+  keyExtras: [projects, range, auditNamespace, auditUser, auditOutcome, q, view]
+  apiRef:
+    name: audit-records
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ (.namespaces // []) as $ns | if .scope == "all" then "Every change made through the portal and the platform API: who made it, to which object, and the outcome. You see all namespaces." elif .scope == "namespaces" then "Records for the namespaces where you have been granted access to the audit trail: " + ($ns[0:8] | join(", ")) + (if ($ns | length) > 8 then " and " + ((($ns | length) - 8) | tostring) + " more" else "" end) + "." else "You see records for namespaces where you have been granted access to the audit trail, and you have none yet. Ask an administrator for access to a namespace." end }'
+  resourcesRefs:
+    items: []

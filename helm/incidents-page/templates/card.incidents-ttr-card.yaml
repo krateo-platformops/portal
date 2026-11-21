@@ -1,0 +1,34 @@
+{{/* "Time to resolve · per week": the median of each of the last 8 weeks (linechart.incidents-ttr);
+     top right, the median over the range, as the figure above says it. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incidents-ttr-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  apiRef:
+    name: incidents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Time to resolve · per week
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+    - linecharts
+    extra: ""
+    items:
+    - resourceRefId: incidents-ttr
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ if .failed or (.ttrMedian // "") == "" then "" else .ttrMedian end }'
+  resourcesRefs:
+    items:
+    - id: incidents-ttr
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incidents-ttr
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET

@@ -1,0 +1,42 @@
+{{/* The Status card's problems: ONLY the managed resources that need attention (failed, then drifted),
+     each with its state and a way to it (the resource page, navHref from composition-resources). A
+     healthy composition shows no list (hideWhenEmpty). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: list-composition-detail-problems
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-resources
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    dataSource: []
+    hideWhenEmpty: true
+    itemLayout: horizontal
+    split: false
+    itemTemplate:
+      iconVariant: dot
+      primaryText: '{kind} {name}'
+      subPrimaryText: '{why}'
+      secondaryText: '{stateLabel}'
+      secondaryTextAsTag: true
+      navigateTo: '{navHref}'
+      color:
+        value: '{state}'
+        map:
+          failed: red
+          drift: violet
+        default: orange
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: >-
+        ${ (.resources // []) as $r
+        | ([ $r[] | select(.state == "failed") | . + { why: "Not healthy" } ]
+          + [ $r[] | select(.state == "drift") | . + { why: "Drifted from the composition's values" } ])
+        | map({ kind: (.kind // ""), name: (.name // ""), state: .state, stateLabel: (.stateLabel // .state), why: .why, navHref: (.navHref // "") }) }
+  resourcesRefs:
+    items: []

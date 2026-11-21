@@ -1,0 +1,36 @@
+{{/* The /reviews time range: "Time range" and the 24h / 7d / 30d chips, as on /incidents. It sets
+     the window of the Merged and Rejected figures and of the trend; the state chips, the cards
+     and the table are not windowed. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: reviews-range-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, repo, today, q, view, state, range]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: reviews-range-label
+    - resourceRefId: reviews-range-chips
+  resourcesRefs:
+    items:
+    - id: reviews-range-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-range-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: reviews-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: reviews-range-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

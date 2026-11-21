@@ -1,0 +1,36 @@
+{{/* The /alerts time range: "Time range" and the 24h / 7d / 30d chips, as on /incidents. It sets
+     the window of the incidents-opened chart and of "Most incidents"; the state chips, the cards
+     and the table are not windowed. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alerts-range-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, status, range, view, q]
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: alerts-range-label
+    - resourceRefId: alerts-range-chips
+  resourcesRefs:
+    items:
+    - id: alerts-range-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-range-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: alerts-range-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alerts-range-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET

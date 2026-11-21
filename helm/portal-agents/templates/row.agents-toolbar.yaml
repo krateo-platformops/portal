@@ -1,0 +1,38 @@
+{{/* The Overview toolbar: the Kind, Status and Owner facets on the left, the search on the right in a
+     quarter of the row (as row.incidents-toolbar); stacked when narrow. */}}
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-toolbar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  widgetData:
+    allowedResources:
+    - flexes
+    alignment: middle
+    items:
+    - resourceRefId: agents-filter-bar
+      size: 18
+      xs: 24
+      lg: 18
+    - resourceRefId: agents-search-wrap
+      size: 6
+      xs: 24
+      lg: 6
+  resourcesRefs:
+    items:
+    - id: agents-filter-bar
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-filter-bar
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET
+    - id: agents-search-wrap
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-search-wrap
+      namespace: {{ $.Values.namespace }}
+      resource: flexes
+      verb: GET

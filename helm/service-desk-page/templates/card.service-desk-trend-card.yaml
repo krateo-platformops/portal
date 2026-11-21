@@ -1,0 +1,35 @@
+{{/* "Opened vs solved": per hour (24h) or per day (7d, 30d), the chart ending now. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-trend-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: "Opened vs solved"
+    titleVariant: eyebrow
+    variant: outlined
+    extra: ""
+    allowedResources:
+    - linecharts
+    items:
+    - resourceRefId: service-desk-trend
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ "in " + (.rangeText // "the last 7 days") }'
+  resourcesRefs:
+    items:
+    - id: service-desk-trend
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: service-desk-trend
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET

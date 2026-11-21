@@ -1,0 +1,37 @@
+{{/* The charts, one third of the row: the spend over time, stacked by caller, and the spend by */}}
+{{/* model. Each is left out while it has nothing to draw (no call in the range, or no price). */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-cost-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group, from, to]
+  apiRef:
+    name: agents-cost
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.series // []) | map(.v) | add // 0) > 0 then [ { resourceRefId: "agents-cost-trend-card" } ] else [] end) + (if ((.byModel // []) | length) > 0 then [ { resourceRefId: "agents-cost-models-card" } ] else [] end) }'
+  resourcesRefs:
+    items:
+    - id: agents-cost-trend-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-trend
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET
+    - id: agents-cost-models-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-cost-models
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

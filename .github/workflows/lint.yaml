@@ -484,12 +484,12 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-platform-review.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-      # /incidents: the overview (facets with their counts and hiding, ?status= back-compat, the
-      # strip, one card per alert or age, the caps and "See all" hrefs, Resolved and Closed folded,
-      # the table view), and its "Ask Agentiko →", which keeps every filter and names the view; a
-      # failed read of the incidents or of the alerts is said, never drawn as a quiet platform.
-      # Reuses the CRDs above.
-      - name: Incidents overview and Agentiko prompt, evaluated and validated
+      # /incidents: the dashboard (the state filter, Open by default, with its counts; the five
+      # figures and the range; the opened-vs-resolved and time-to-resolve series; the cards, the
+      # table view and the routes that keep every param), and its "Ask Agentiko →", about the state
+      # on screen; a failed read of the incidents or of the alerts is said, never drawn as a quiet
+      # platform. Reuses the CRDs above.
+      - name: Incidents dashboard and Agentiko prompt, evaluated and validated
         run: python3 scripts/test-incidents-list.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
       # /alerts' state chips: counts over the full set, "Not evaluated" for an alert with no HyperDX
@@ -711,6 +711,48 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-header-pill.py
 
+      # The composition detail Status card (approved redesign): the verdict, the counts and the
+      # problems list all read composition-resources and must agree. Runs the chart's own jq, with a
+      # control that a widened problems filter fails the healthy case.
+      - name: Composition detail Status card, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-status-card.py
+
+      # The composition detail page's tabs (approved redesign): the page order, the four tabs, and no
+      # card lost when the grid became tabs.
+      - name: Composition detail tabs
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-detail-tabs.py
+
+      # The incident header says what is in progress and since when (PageHeader `progress`), for each
+      # state, over the chart's own jq; a control forces the Analyzing branch off and must fail.
+      - name: Incident header progress
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-incident-progress.py
+
+      # A version label never comes out as a bare "v" (review: "uncategorized · v"): every "v" + version
+      # in a rendered chart is the one guarded form, and the marketplace header and Installed row are
+      # run over a present, an empty and a missing version.
+      - name: Version labels never a bare "v"
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-version-labels.py
+
+      # The composition detail header (approved redesign): the blueprint as a link with its version,
+      # one primary action, and Pause and Delete only under the "More actions" Dropdown.
+      - name: Composition detail header actions
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-header-actions.py
+
       # The blueprint header's pill reads Degraded from Ready=False only: a CompositionDefinition's
       # other conditions (AuthnMappingApplied, ControllerActive, ...) can be False on a healthy one.
       # Runs the chart's own jq, with a control that the old "any False" rule fails the test.
@@ -909,10 +951,11 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-dashboard-inbox.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
-      # Root-pages slice 3a: /compositions (a ReconcilePaused composition is Paused, never Ready; State
-      # and Kind facets over the scope; the exception groups, Pending folded, Ready by kind; the
-      # server-paged table at ?view=table), /alerts (the narrowed incidents read and "has open
-      # incidents"; Firing, Not evaluated and Pending first; Ask, Author and New in the header) and the
+      # /compositions (the dashboard: a ReconcilePaused composition is Paused, never Ready; the state
+      # chips with Needs attention first; the figures, the cards, by state, by kind, needing attention
+      # longest; a kind or search from a link as removable chips; the server-paged table at
+      # ?view=table), /alerts (the dashboard: the narrowed incidents read, the
+      # figures, the charts, the state chips with Firing first; Ask and New in the header) and the
       # /agents Overview tab (agents and tool servers as one set; no Status on an unchecked gateway;
       # Needs attention, Orchestrators, Specialists; every widget in every tab declaring the filter
       # keys). Reuses the CRDs above.
@@ -922,6 +965,11 @@ jobs:
           python3 scripts/test-compositions-overview.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-alerts-overview.py --crds "$RUNNER_TEMP/crds/frontend-crds"
           python3 scripts/test-agents-overview.py --crds "$RUNNER_TEMP/crds/frontend-crds"
+
+      # /agents Token usage: no Gateway `get`, no ClickHouse call; spend over time past five callers;
+      # the gateway's pricing; the agents table adding up to Spend. Reuses the CRDs above.
+      - name: Agents spend, evaluated and validated
+        run: python3 scripts/test-agents-cost.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
   observability-traces:
     runs-on: ubuntu-latest

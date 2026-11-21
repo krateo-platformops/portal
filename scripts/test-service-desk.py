@@ -11,6 +11,10 @@ WHAT IT PINS, because each is a way the page could lie:
   - The queue's chips: Active by default (hides Solved and Closed), then All, the six Zendesk
     statuses verbatim, and Mine (the raised-by label against the caller, slugged the same way the
     form slugs it).
+  - The dashboard (the /incidents layout): the range (24h, 7d, 30d) windows the Opened and Solved
+    figures and the opened-vs-solved chart, never the chips or the list; Active, Pending (Zendesk
+    waiting on someone here) and Need attention count now; one card per request or, with
+    ?view=table, the table; every route keeps the other params and leaves the defaults out.
   - ONE warning above the queue names each organisation whose requests can't be read from Zendesk;
     no row is marked, and those rows keep their last known status.
   - A cluster that does not serve the kind, a denied read and a failed read each say so in place of
@@ -36,6 +40,7 @@ Usage: test-service-desk.py [--crds DIR | --pinned]. SERVICE_DESK_CHART=<dir> re
 of the chart (the control run against main's templates). Exit code = failed checks.
 """
 import copy
+import datetime
 import importlib.util
 import json
 import os
@@ -192,6 +197,15 @@ DOCUMENTED_REASONS = [
     ('Zendesk refuses the filing (e.g. 422)', 'rest-dynamic-controller',
      [cond('Ready', 'False', 'Creating'), cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
      'refused', 'Refused by Zendesk', 'red', 'error'),
+    # oasgen-provider#846 (merged 2026-11-19, ships in 0.85.2): after an hour of refusals Ready's REASON
+    # becomes CreateRefusedPersistently in place of Creating. It is announce-only: the controller keeps
+    # re-sending every resync, and Synced stays False/ReconcileError with the remote's error (measured by
+    # oasgen-provider). So it is the same refused request, and the same red pill, as the row above.
+    ('Zendesk keeps refusing the filing, for over an hour', 'rest-dynamic-controller (oasgen-provider#846)',
+     [cond('Ready', 'False', 'CreateRefusedPersistently', 'the vendor has refused this create and the resource has not been Ready for 1h2m0s (last status 422): unexpected status: 422.'
+                                                                  ' The in-cycle retry budget is spent, and the controller will try again on the next resync -- it has NOT stopped retrying'),
+      cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
+     'refused', 'Refused by Zendesk', 'red', 'error'),
     ('held: empty krateo_reference', 'oasgen-provider dispatch',
      [cond('Ready', 'False', 'CorrelationTokenMissing', 'krateo_reference is empty'), cond('Synced', 'True', 'ReconcileSuccess')], None,
      'held', 'Held', 'orange', 'warning'),
@@ -204,6 +218,9 @@ PORTAL_CASES = [
     ('no conditions yet', [], None, 'filing', 'Filing…', 'gold', 'info'),
     ('no status at all', None, None, 'filing', 'Filing…', 'gold', 'info'),
     ('Ready=False/Creating, Synced=True', [cond('Ready', 'False', 'Creating'), cond('Synced', 'True', 'ReconcileSuccess')],
+     None, 'filing', 'Filing…', 'gold', 'info'),
+    # Red needs BOTH halves, for the new reason too: Ready's shape alone never makes a request refused.
+    ('Ready=False/CreateRefusedPersistently, Synced=True', [cond('Ready', 'False', 'CreateRefusedPersistently'), cond('Synced', 'True', 'ReconcileSuccess')],
      None, 'filing', 'Filing…', 'gold', 'info'),
     # THE MESSAGE IS NOT READ: a Creating condition whose message happens to say "ObserveFailed" or
     # "refused" is still filing.
@@ -314,8 +331,108 @@ def check_chips(chart):
     out, ex = queue(chart, mixed(), state='bogus')
     expect(f, 'a ?state= that is not one', (out['stateValid'], out['rows'], out['emptyTitle']), (False, [], 'That is not a request status'))
     root = widget(chart, 'Flex', 'page-service-desk', out, ex, 'root (bogus state)')
-    expect(f, 'a bogus state still draws chips and says so', ids(root['items']),
-           ['service-desk-header', 'service-desk-unreachable', 'service-desk-state-chips', 'service-desk-empty'])
+    card = widget(chart, 'Card', 'service-desk-list-card', out, ex, 'list card (bogus state)')
+    expect(f, 'a bogus state still draws chips and says so', (ids(root['items']), ids(card['items'])),
+           (['service-desk-header', 'service-desk-unreachable', 'service-desk-toolbar', 'service-desk-stats', 'service-desk-main'], ['service-desk-state-chips', 'service-desk-empty']))
+    return f
+
+
+def check_dashboard(chart):
+    """The /incidents layout: the range, the five figures, the cards or the table, the charts."""
+    f = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ago = lambda h: (now - datetime.timedelta(hours=h)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    items = [
+        zr('zr-new', conditions=FILED, zid=101, zstatus='new', created=ago(2), updated=ago(1), priority='urgent'),
+        zr('zr-pend', conditions=FILED, zid=102, zstatus='pending', created=ago(30), updated=ago(20), priority='high',
+           raised_by=('claude-user1-krateo.io', 'claude-user1@krateo.io')),
+        zr('zr-ref', conditions=DOCUMENTED_REASONS[3][2], created=ago(3), priority='normal'),
+        zr('zr-solved', conditions=FILED, zid=103, zstatus='solved', created=ago(24 * 9), updated=ago(5)),
+        zr('zr-old', conditions=FILED, zid=104, zstatus='closed', created=ago(24 * 40), updated=ago(24 * 20)),
+    ]
+    for o in items:
+        if o['status'].get('created_at'):
+            o['status']['created_at'] = o['metadata']['creationTimestamp']
+    out, ex = queue(chart, items)
+    expect(f, 'the five figures', [(s_['title'], s_['value'], s_['caption'], s_['tone']) for s_ in widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')['dataSource']],
+           [('Active', '3', 'of 5 requests', 'active'), ('Pending', '1', 'waiting for your reply', 'pending'),
+            ('Need attention', '1', 'refused, held or unknown', 'attention'), ('Opened', '3', 'in the last 7 days', 'active'),
+            ('Solved', '1', 'solved or closed in the last 7 days', 'solved')])
+    expect(f, 'each figure wears the colour of the status pill it counts',
+           widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')['itemTemplate']['color']['map'],
+           {'active': 'slate', 'pending': 'gold', 'attention': 'red', 'solved': 'faint'})
+    out30, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, {'username': 'claude-user1@krateo.io', 'range': '30d'})
+    expect(f, '?range=30d widens Opened and Solved', [s_['value'] for s_ in out30['stats']][3:], ['4', '2'])
+    expect(f, 'the trend: a point per day and series, the newest today',
+           (len(out['trend']), sum(p_['v'] for p_ in out['trend'] if p_['series'] == 'Opened'), out['trendUnit']), (14, 3, 'day'))
+    out24, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, {'username': 'claude-user1@krateo.io', 'range': '24h'})
+    expect(f, '?range=24h: per hour', (len(out24['trend']), out24['trendUnit']), (48, 'hour'))
+    expect(f, 'the range chips keep the state and the view, 7d left out',
+           [(c['label'], c['active'], c['route']) for c in resolve(chart, 'zendesk-requests', {'requests': {'items': items}},
+                                                                     {'username': 'x', 'state': 'mine', 'range': '24h', 'view': 'table'})[0]['rangeChips']],
+           [('24h', True, '/service-desk?state=mine&range=24h&view=table'), ('7d', False, '/service-desk?state=mine&view=table'),
+            ('30d', False, '/service-desk?state=mine&range=30d&view=table')])
+    expect(f, 'the state chips keep the range and the view', [c['route'] for c in out30['chips']][:2],
+           ['/service-desk?range=30d', '/service-desk?state=all&range=30d'])
+    card = widget(chart, 'Card', 'service-desk-list-card', out, ex, 'list card')
+    expect(f, 'cards by default', ids(card['items']), ['service-desk-state-chips', 'service-desk-cards'])
+    cards = widget(chart, 'Listy', 'service-desk-cards', out, ex, 'cards')['dataSource']
+    expect(f, 'a card per active request, newest change first', [c['name'] for c in cards], ['zr-new', 'zr-ref', 'zr-pend'])
+    c0 = cards[0]
+    expect(f, 'a card: the pill, kind and priority, the number and when', (c0['label'], c0['color'], c0['meta'], c0['foot'].split(' · ')[0], c0['markIcon']),
+           ('New', 'slate', 'Bug · Urgent priority', '#101', ''))
+    expect(f, 'a refused request is marked and not in Zendesk yet', (cards[1]['markIcon'], cards[1]['foot'].split(' · ')[0]),
+           ('fa-triangle-exclamation', 'not in Zendesk yet'))
+    expect(f, 'raised by, as recorded', 'raised by claude-user1@krateo.io' in cards[2]['foot'], True)
+    outT, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, {'username': 'x', 'view': 'table'})
+    exT = {'view': 'table'}
+    expect(f, '?view=table: the table', ids(widget(chart, 'Card', 'service-desk-list-card', outT, exT, 'list card (table)')['items']),
+           ['service-desk-state-chips', 'service-desk-requests'])
+    expect(f, 'the view chips', [(c['label'], c['active'], c['route']) for c in outT['viewChips']],
+           [('Summary', False, '/service-desk'), ('Full list', True, '/service-desk?view=table')])
+    expect(f, 'by status, largest first', [(b['status'], b['count']) for b in widget(chart, 'PieChart', 'service-desk-by-status', out, ex, 'by status')['data']],
+           [('Closed', 1), ('New', 1), ('Pending', 1), ('Refused by Zendesk', 1), ('Solved', 1)])
+    expect(f, 'active by priority, Urgent first, none left out', [(b['name'], b['count'], b['percent']) for b in out['byPriority']],
+           [('Urgent', '1', 100), ('High', '1', 100), ('Normal', '1', 100)])
+    expect(f, 'waiting for your reply: the Pending ones, a row opens it', [(w_['name'], w_['href']) for w_ in out['waiting']],
+           [('Subject of zr-pend', '/service-desk/acme-retail/zr-pend')])
+    expect(f, 'the side shows priority and waiting while there are any', ids(widget(chart, 'Flex', 'service-desk-side', out, ex, 'side')['items']),
+           ['service-desk-by-status-card', 'service-desk-trend-card', 'service-desk-by-priority-card', 'service-desk-waiting-card'])
+    quiet, qex = queue(chart, [items[3]])
+    expect(f, 'and not without', ids(widget(chart, 'Flex', 'service-desk-side', quiet, qex, 'side (quiet)')['items']),
+           ['service-desk-by-status-card', 'service-desk-trend-card'])
+    expect(f, 'the root names its filter keys', chart.get('Flex', 'page-service-desk')['metadata']['annotations'].get('krateo.io/filter-keys'), 'state,range,view,q')
+    expect(f, 'the header has no subtitle', 'subtitle' in chart.get('PageHeader', 'service-desk-header')['spec']['widgetData'], False)
+    return f
+
+
+def check_search(chart):
+    f = []
+    items = [zr('zr-new', conditions=FILED, zid=101, zstatus='new', priority='urgent'),
+             zr('zr-pend', conditions=FILED, zid=102, zstatus='pending', subject='VPN access for the new office',
+                raised_by=('claude-user1-krateo.io', 'claude-user1@krateo.io')),
+             zr('zr-solved', conditions=FILED, zid=103, zstatus='solved', subject='VPN certificate expired')]
+    ask = lambda st=None, q=None: resolve(chart, 'zendesk-requests', {'requests': {'items': items}},
+                                         dict({'username': 'claude-user1@krateo.io'}, **({'state': st} if st else {}), **({'q': q} if q is not None else {})))[0]
+    out = ask(q=' vpn ')
+    expect(f, 'subject, case-insensitive, trimmed; the chip still applies', (out['q'], [r['name'] for r in out['rows']]), ('vpn', ['zr-pend']))
+    expect(f, 'the counts and figures follow it', (out['counts']['all'], out['counts']['active'], [s_['value'] for s_ in out['stats']][:3]),
+           (2, 1, ['1', '1', '0']))
+    expect(f, 'by Zendesk number and by raiser too', ([r['name'] for r in ask(q='101')['rows']], [r['name'] for r in ask('all', 'claude-user1')['rows']]),
+           (['zr-new'], ['zr-pend']))
+    expect(f, 'every route keeps it', ([c['route'] for c in out['chips']][:2], out['viewChips'][1]['route'], out['rangeChips'][0]['route']),
+           (['/service-desk?q=vpn', '/service-desk?state=all&q=vpn'], '/service-desk?view=table&q=vpn', '/service-desk?range=24h&q=vpn'))
+    prompt = urllib.parse.parse_qs(out['askHref'].partition('?')[2])['ask'][0]
+    expect(f, 'the prompt names it', prompt.startswith('Go through my organisation\'s Zendesk requests (active requests) matching the search "vpn": 1 in view'), True)
+    none = ask(q='zzz')
+    expect(f, 'nothing matches: said, never "no requests yet"', (none['emptyTitle'], none['emptyText']), ('No request matches "zzz".', 'Clear the search to see every request.'))
+    bar = chart.get('Row', 'service-desk-toolbar')['spec']['widgetData']
+    expect(f, 'the toolbar: the range left, the search in a quarter (as on /marketplace), stacked when narrow',
+           [(i['resourceRefId'], i['size'], i['xs']) for i in bar['items']], [('service-desk-range-group', 18, 24), ('service-desk-search-wrap', 6, 24)])
+    expect(f, 'the search wrap holds the search', ids(chart.get('Flex', 'service-desk-search-wrap')['spec']['widgetData']['items']), ['service-desk-search'])
+    search = chart.get('Input', 'service-desk-search')['spec']
+    expect(f, 'the search writes ?q= on Enter, at the standard size', (search['widgetData']['queryParam'], search['widgetData']['size'], search['keyExtras']),
+           ('q', 'middle', ['state', 'range', 'view', 'q']))
     return f
 
 
@@ -330,8 +447,7 @@ def check_unreachable_warning(chart):
     pending = [r for r in out['rows'] if r['name'] == 'zr-pending'][0]
     expect(f, 'no per-row mark: the row keeps its last known status', pending['label'], 'Pending')
     root = widget(chart, 'Flex', 'page-service-desk', out, ex, 'root (unreachable)')
-    expect(f, 'the warning sits above the chips and the table', ids(root['items']),
-           ['service-desk-header', 'service-desk-unreachable', 'service-desk-state-chips', 'service-desk-requests'])
+    expect(f, 'the warning sits above everything but the header', ids(root['items']), ['service-desk-header', 'service-desk-unreachable', 'service-desk-toolbar', 'service-desk-stats', 'service-desk-main'])
     alert = widget(chart, 'Alert', 'service-desk-unreachable', out, ex, 'unreachable alert')
     expect(f, 'the alert is a warning', alert['type'], 'warning')
     out, ex = queue(chart, [zr('zr-a', conditions=UNREACHABLE, zid=48190, zstatus='pending')], state='all')
@@ -374,8 +490,9 @@ def check_empty_queue(chart):
     f = []
     out, ex = queue(chart, [])
     root = widget(chart, 'Flex', 'page-service-desk', out, ex, 'root (empty)')
-    expect(f, 'the chips stay, at 0, over the sentence', ids(root['items']),
-           ['service-desk-header', 'service-desk-state-chips', 'service-desk-empty'])
+    card = widget(chart, 'Card', 'service-desk-list-card', out, ex, 'list card (empty)')
+    expect(f, 'the chips stay, at 0, over the sentence', (ids(root['items']), ids(card['items'])),
+           (['service-desk-header', 'service-desk-toolbar', 'service-desk-stats', 'service-desk-main'], ['service-desk-state-chips', 'service-desk-empty']))
     res = widget(chart, 'Result', 'service-desk-empty', out, ex, 'empty')
     expect(f, 'empty title', res['title'], 'No Zendesk requests yet.')
     expect(f, 'it says where a request goes', 'go to Zendesk' in res['subTitle'], True)
@@ -639,10 +756,10 @@ def check_ticket_desk_is_gone(chart):
     # cannot disagree about Mine.
     readers = [d for d in chart.docs if isinstance(d.get('spec'), dict)
                and (d['spec'].get('apiRef') or {}).get('name') == 'zendesk-requests']
-    expect(f, 'the queue widgets reading zendesk-requests', len(readers), 8)
+    expect(f, 'the queue widgets reading zendesk-requests', len(readers), 19)
     for d in readers:
-            expect(f, f'{d["kind"]}/{d["metadata"]["name"]}: identity and chip key',
-                   (d['spec'].get('identityContext'), d['spec'].get('keyExtras')), (['username'], ['state']))
+            expect(f, f'{d["kind"]}/{d["metadata"]["name"]}: identity and the page\'s keys',
+                   (d['spec'].get('identityContext'), d['spec'].get('keyExtras')), (['username'], ['state', 'range', 'view', 'q']))
     return f
 
 
@@ -797,7 +914,7 @@ def check_against_the_served_crds(chart):
     return f
 
 
-CHECKS = [check_state_mapping, check_chips, check_unreachable_warning, check_failures_are_not_an_empty_queue,
+CHECKS = [check_state_mapping, check_chips, check_dashboard, check_search, check_unreachable_warning, check_failures_are_not_an_empty_queue,
           check_empty_queue, check_raise_context, check_form_submit, check_raised_from_an_incident, check_request_page,
           check_request_read_is_gated_and_as_the_caller, check_against_the_served_crds, check_ticket_desk_is_gone]
 

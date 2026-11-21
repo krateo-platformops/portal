@@ -2,6 +2,8 @@
 {{/* chips + meta → Agentiko's Zendesk-request proposal (exception-only) → analysis error → Summary (why, */}}
 {{/* fix, who fixes it) → Reasoning (trace · evidence · resources · gaps) → Zendesk requests → How to fix */}}
 {{/* (the scripts) → tabs (Incident · Alert · Apply runs · Similar incidents) → prose fallback. */}}
+{{/* The proposal and the requests card sit in two slots that read incident-tickets, so this page */}}
+{{/* (incident-detail, no userAccessFilter) stays cacheable and updates live; see that RESTAction. */}}
 {{/* `items` is templated off incident-detail's `sections`, so a section renders only when its */}}
 {{/* data exists; resourcesRefs hold the full pool and unreferenced children are never fetched. */}}
 kind: Flex
@@ -36,11 +38,11 @@ spec:
       expression: >-
         ${ (.sections // {}) as $s
         | [ { resourceRefId: "incident-detail-page-header" }, { resourceRefId: "incident-detail-header-block" } ]
-        + (if ($s.proposal // false) then [ { resourceRefId: "incident-ticket-proposal" } ] else [] end)
+        + [ { resourceRefId: "incident-ticket-proposal-slot" } ]
         + (if ($s.error // false) then [ { resourceRefId: "incident-error" } ] else [] end)
         + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
         + (if ($s.reasoning // false) then [ { resourceRefId: "incident-why-card" } ] else [] end)
-        + (if ($s.tickets // false) then [ { resourceRefId: "incident-tickets-card" } ] else [] end)
+        + [ { resourceRefId: "incident-tickets-slot" } ]
         + (if ($s.fix // false) then [ { resourceRefId: "incident-sec-remediation-card" } ] else [] end)
         + (if ($s.manifests // false) then [ { resourceRefId: "incident-detail-tabs-card" } ] else [] end)
         + (if ($s.prose // false) then [ { resourceRefId: "incident-prose" } ] else [] end) }
@@ -58,17 +60,17 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET
-    - id: incident-ticket-proposal
+    - id: incident-ticket-proposal-slot
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-ticket-proposal
+      name: incident-ticket-proposal-slot
       namespace: {{ $.Values.namespace }}
-      resource: cards
+      resource: flexes
       verb: GET
-    - id: incident-tickets-card
+    - id: incident-tickets-slot
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-tickets-card
+      name: incident-tickets-slot
       namespace: {{ $.Values.namespace }}
-      resource: cards
+      resource: flexes
       verb: GET
     - id: incident-error
       apiVersion: widgets.templates.krateo.io/v1beta1

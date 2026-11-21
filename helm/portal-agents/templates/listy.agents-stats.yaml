@@ -1,0 +1,39 @@
+{{/* The five Overview figures over the agents and tool servers in view (agents-list `stats`): Agents
+     (blue), Ready and registered (green; "Ready" while the gateway could not be checked), Needs
+     attention, Gateway gaps and Tool servers NotAccepted (red). Every tile wears the colour of the
+     state it counts, zero or not, with the same map as the cards (listy.agents-cards). A gateway that
+     could not be checked is "—", "not checked", in orange, never 0 gaps; a failed read is "—", "could
+     not be read", in orange. Replaces the exception-only strip (listy.agents-strip). */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-list
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      color:
+        value: '{tone}'
+        map:
+          all: blue
+          ok: green
+          bad: red
+          warn: orange
+          unchecked: orange
+          unread: orange
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []

@@ -2,6 +2,36 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": true,
   "properties": {
+    "costs": {
+      "description": "Where the Token usage tab reads spend from. Spend is the agent gateway's record and is priced with the gateway's own price list, so it is shown only to a caller who may `get` Gateways (gateway.networking.k8s.io) in `namespace`; spend per agent is further limited to the Agents the caller may list.",
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "default": "krateo-system",
+          "description": "Namespace of the agent gateway and of its price list ConfigMap. A caller sees spend only when they may get Gateways here.",
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+        },
+        "catalogConfigMap": {
+          "default": "agentgateway-policies-model-catalog",
+          "description": "The gateway's price list, the model catalog ConfigMap agentgateway-policies renders (<release>-model-catalog).",
+          "type": "string",
+          "pattern": "^[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?$"
+        },
+        "catalogKey": {
+          "default": "catalog.json",
+          "description": "The data key of the price list inside that ConfigMap (agentgateway-policies costCatalog.key).",
+          "type": "string",
+          "pattern": "^[-._a-zA-Z0-9]{1,253}$"
+        },
+        "comparisonCaller": {
+          "default": "krateo-alert-provider",
+          "description": "The JWT subject whose own model calls are the incident comparison \u2014 one plain call per alert firing, made by the alert provider without an agent to match the firing with an open incident.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@:+=/-]{1,256}$"
+        }
+      }
+    },
     "enableAdminUser": {
       "default": true,
       "description": "Enable admin user (basic authentication) with cluster-admin permissions",
