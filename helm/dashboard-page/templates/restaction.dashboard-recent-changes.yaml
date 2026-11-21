@@ -25,6 +25,8 @@
          AND NOT <dryRun><access> AND LogAttributes['outcome'] = 'success'
          AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io'
                   AND LogAttributes['k8s.resource.resource'] = 'auditrecords')
+         AND LogAttributes['k8s.resource.resource'] NOT IN ('selfsubjectaccessreviews', 'subjectaccessreviews',
+                  'localsubjectaccessreviews', 'selfsubjectrulesreviews', 'tokenreviews', 'selfsubjectreviews')
        ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON
      `matched` counts the whole window (a window function runs before LIMIT), so the panel can say
      how many changes the week holds while it shows five. Previews (dry runs) are not changes and are
@@ -38,6 +40,11 @@
          still shows every outcome;
        - Agentiko's AuditRecord of its own write (auditrecords.audit.krateo.io) is bookkeeping for a
          write that already has its own row, so it is left out here and kept on /audit;
+       - an ACCESS REVIEW is not a change (portal UX review, 2026-11-21: most of a week's 409 "changes"
+         read "Create selfsubjectaccessreviews", the portal's own permission checks). Kubernetes' review
+         resources (authorization.k8s.io's self/local/subject access and rules reviews, authentication.k8s.io's
+         token and self-subject reviews) are a POST that asks a question and stores nothing, so they are left
+         out by resource name, which is what the trail records verbatim. /audit, behind See all, keeps them;
        - the producer records `-` as the name when the request path carries none (every create), so the
          row reads "Create tickets in <ns>", not "tickets/-". Recording the created object's name from
          the response is the producer's fix, asked of its owner; when it lands, names appear here
@@ -68,7 +75,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $select }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io' AND LogAttributes['k8s.resource.resource'] = 'auditrecords') ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON" }}" }'
+      path: '${ {{ $window }} | {{ $filters }} | "/?query={{ include "audit.enc" $select }}{{ $pop }}" + $iv + "{{ include "audit.enc" (printf " AND NOT %s" $dry) }}" + $acc + $nsC + $usrC + $ocC + "{{ include "audit.enc" " AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io' AND LogAttributes['k8s.resource.resource'] = 'auditrecords') AND LogAttributes['k8s.resource.resource'] NOT IN ('selfsubjectaccessreviews', 'subjectaccessreviews', 'localsubjectaccessreviews', 'selfsubjectrulesreviews', 'tokenreviews', 'selfsubjectreviews') ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON" }}" }'
       verb: GET
       headers:
         - 'Accept: application/json'
