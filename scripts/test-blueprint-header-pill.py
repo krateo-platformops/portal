@@ -79,6 +79,13 @@ CASES = [
     ('derived name too long', [c('Ready', 'False', 'DerivedNameTooLong'), c('Synced', 'True', 'ReconcileSuccess')],
      'Degraded', 'red'),
     ('paused', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ReconcilePaused')], 'Paused', 'gray'),
+    # The management-policy reasons (core-provider cd-ready-reasons.md, provider-runtime): a create the
+    # policy withholds will not happen by itself (failed); an update it withholds leaves a working
+    # definition (healthy); an unparseable policy or deletion policy is a Synced=False like any other.
+    ('create withheld by policy', [c('Ready', 'False', 'CreateWithheldByPolicy'), c('Synced', 'True', 'ReconcileSuccess')], 'Degraded', 'red'),
+    ('update withheld by policy', [c('Ready', 'True', 'UpdateWithheldByPolicy'), c('Synced', 'True', 'ReconcileSuccess')], 'Healthy', 'green'),
+    ('management policy invalid', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ManagementPolicyInvalid')], 'Drift', 'violet'),
+    ('deletion policy invalid', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'DeletionPolicyInvalid')], 'Drift', 'violet'),
     ('not observed, error on Synced', [c('Ready', 'Unknown', 'NotObserved'), c('Synced', 'False', 'ReconcileError')],
      'Degraded', 'red'),
     ('a reason this portal does not know, False', [c('Ready', 'False', 'SomethingNew2028')], 'Degraded', 'red'),
