@@ -255,6 +255,10 @@ grid = [d for d in bpage if d.get('metadata', {}).get('name') == 'blueprints-gri
 check('blueprints button: keyExtras = the grid\'s', named(bpage, 'Button', 'blueprints-ask-agentiko')['spec']['keyExtras'],
       grid['spec']['keyExtras'])
 check('blueprints header: the button alone', items_of(named(bpage, 'PageHeader', 'blueprints-page-header')), ['blueprints-ask-agentiko'])
+# UX review round 3: the card's Create is SECONDARY (the card click is the main path). Without
+# `type`, the frontend makes a card's first row action primary (rowActionButtonType).
+check('blueprints grid: Create is a secondary button',
+      [(a['label'], a.get('type')) for a in grid['spec']['widgetData']['itemTemplate']['rowActions']], [('Create', 'default')])
 
 # --- /blueprints/{namespace}/{name} ----------------------------------------------------------------
 detail_prog = named(bpage, 'RESTAction', 'blueprint-detail')['spec']['filter']
