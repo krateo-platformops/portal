@@ -197,6 +197,15 @@ DOCUMENTED_REASONS = [
     ('Zendesk refuses the filing (e.g. 422)', 'rest-dynamic-controller',
      [cond('Ready', 'False', 'Creating'), cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
      'refused', 'Refused by Zendesk', 'red', 'error'),
+    # oasgen-provider#846 (merged 2026-11-19, ships in 0.85.2): after an hour of refusals Ready's REASON
+    # becomes CreateRefusedPersistently in place of Creating. It is announce-only: the controller keeps
+    # re-sending every resync, and Synced stays False/ReconcileError with the remote's error (measured by
+    # oasgen-provider). So it is the same refused request, and the same red pill, as the row above.
+    ('Zendesk keeps refusing the filing, for over an hour', 'rest-dynamic-controller (oasgen-provider#846)',
+     [cond('Ready', 'False', 'CreateRefusedPersistently', 'the vendor has refused this create and the resource has not been Ready for 1h2m0s (last status 422): unexpected status: 422.'
+                                                                  ' The in-cycle retry budget is spent, and the controller will try again on the next resync -- it has NOT stopped retrying'),
+      cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
+     'refused', 'Refused by Zendesk', 'red', 'error'),
     ('held: empty krateo_reference', 'oasgen-provider dispatch',
      [cond('Ready', 'False', 'CorrelationTokenMissing', 'krateo_reference is empty'), cond('Synced', 'True', 'ReconcileSuccess')], None,
      'held', 'Held', 'orange', 'warning'),
@@ -209,6 +218,9 @@ PORTAL_CASES = [
     ('no conditions yet', [], None, 'filing', 'Filing…', 'gold', 'info'),
     ('no status at all', None, None, 'filing', 'Filing…', 'gold', 'info'),
     ('Ready=False/Creating, Synced=True', [cond('Ready', 'False', 'Creating'), cond('Synced', 'True', 'ReconcileSuccess')],
+     None, 'filing', 'Filing…', 'gold', 'info'),
+    # Red needs BOTH halves, for the new reason too: Ready's shape alone never makes a request refused.
+    ('Ready=False/CreateRefusedPersistently, Synced=True', [cond('Ready', 'False', 'CreateRefusedPersistently'), cond('Synced', 'True', 'ReconcileSuccess')],
      None, 'filing', 'Filing…', 'gold', 'info'),
     # THE MESSAGE IS NOT READ: a Creating condition whose message happens to say "ObserveFailed" or
     # "refused" is still filing.
