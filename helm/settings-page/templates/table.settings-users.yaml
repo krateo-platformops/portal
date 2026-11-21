@@ -36,14 +36,26 @@ spec:
     {{/* dead-end — informational only, no drill-in). {user} = the username cell. */}}
     rowNavigateTo: /settings/access/{user}
     columns:
+    {{/* Column widths (portal UX review, Settings: "the nested users table's header is truncated").
+         Measured on 057 at 1512px: nothing was clipped, but under fitContent the User column took
+         970px and Groups / Managed grants / Source were squeezed to ~70px at the far right, with
+         "MANAGED GRANTS" wrapped onto two lines. Diego: natural widths, User capped. So User is
+         capped, Groups and Managed grants are wide enough for their titles on one line, and Source
+         takes what is left, so the spare width falls at the end instead of inside the name column.
+         fitContent stays (no sideways scroll inside the card, P19); a longer cell still ellipsizes
+         with the full value on hover. */}}
     - valueKey: user
       title: User
+      width: 320
     - valueKey: groups
       title: Groups
+      width: 180
     - valueKey: grants
       title: Managed grants
+      width: 190
     - valueKey: source
       title: Source
+      minWidth: 120
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
