@@ -45,7 +45,7 @@ The key names the installer COMPONENT (frontend-crd), not the chart (frontend-cr
 gate refuses a component it does not pin. A floor written by hand goes stale the day the chart
 starts storing a newer field, so this script also checks every declared floor: each chart's
 widgets are linted against frontend-crds AT ITS FLOOR, and any finding means the floor no longer
-admits what the chart ships. Only ">= X.Y.Z" is accepted; anything else is refused, because a
+admits what the chart ships. A chart that ships widgets and declares no floor is refused. Only ">= X.Y.Z" is accepted; anything else is refused, because a
 floor this gate cannot evaluate has not been checked.
 
 Usage: lint-pinned-crds.py. Exit code = findings.
@@ -271,10 +271,16 @@ def main():
     floors, floored = {}, 0
     for chart in CHARTS:
         floor, err = floor_of(chart)
+        widgets = sum(1 for d in rendered[chart] if str(d.get('apiVersion', '')).startswith(WIDGET_GROUP + '/'))
         if err:
             findings.append(err)
         elif floor:
             floors.setdefault(floor, []).append(chart)
+        elif widgets:
+            # A chart without a floor is one a frontend-crds downgrade can break with nothing refusing
+            # it: the day it stores a newer field, nothing here or in the installer would notice.
+            findings.append(f'{chart}: ships {widgets} widget(s) but declares no {FLOOR_KEY}. Add the '
+                            f'first frontend-crds that admits them (">= 1.8.0" if every published one does).')
     for floor, charts in sorted(floors.items()):
         floor_sch = schemas(unpack(floor))
         if not floor_sch:
