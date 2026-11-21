@@ -288,6 +288,27 @@ spec:
         title: $title,
         state: $state,
         flagged: $flagged,
+        # WHAT IS IN PROGRESS, AND SINCE WHEN (PageHeader `progress`; Diego's re-analysis that showed "no sign
+        # of life", approved mockup). An absolute time only: the page is cached until the incident changes, so
+        # the ticking minutes are the browser's (live: true), never a "12 min" computed here. No ETA: an
+        # analysis usually takes 2-3 min and took 17 when the model was rate-limited (observability).
+        headerProgress: (
+          (($r.metadata.creationTimestamp // "")) as $created
+          | (($reanalysis // {}).at // "") as $reAt
+          | ($st.completedAt // "") as $doneAt
+          | "Usually 2–3 min; longer when the model is rate-limited." as $hint
+          | if ($exists | not) then null
+            elif $state == "Analyzing" then
+              (if $reAt != "" and (($doneAt == "") or (($reAt | epoch) // 0) > (($doneAt | epoch) // 0))
+               then { label: "Re-analysis since", since: $reAt, live: true, hint: $hint }
+               elif $created != "" then { label: "Analyzing since", since: $created, live: true, hint: $hint }
+               else null end)
+            elif $state == "Verifying" then
+              (($lc.precondition.since // $doneAt) as $t | if ($t // "") != "" then { label: "Checking the fix since", since: $t, live: true } else null end)
+            elif $state == "Open" then (if $doneAt != "" then { label: "Analyzed at", since: $doneAt, live: false } else null end)
+            elif $state == "Resolved" then
+              ((($st.resolution // {}).at // $doneAt) as $t | if ($t // "") != "" then { label: "Resolved at", since: $t, live: false } else null end)
+            else null end),
         headerTags: (if ($exists | not) then [ { label: "Not found", color: "gray" } ] else [ { label: $state, color: ({ Analyzing: "gray", Open: "red", Verifying: "orange", Resolved: "green", Closed: "gray" }[$state] // "gray") } ]
           + (if $flagged then [ { label: "Flagged", color: "orange" } ] else [] end) end),
         # The alert chip under the title: a link to the exact alert, its live state, how long it has been OK, and this incident's number among the alert's incidents.
