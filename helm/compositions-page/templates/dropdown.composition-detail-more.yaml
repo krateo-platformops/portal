@@ -1,0 +1,35 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 2 (approved): Pause and Delete move under one "⋯" menu, so
+     Delete never sits next to Edit and the header shows one primary action. The items are the same
+     Button widgets as before, with their own confirmations and permission behaviour (a denied one is
+     left out; a menu left with nothing renders nothing). Needs frontend-crds >= 1.8.54 (Dropdown). */}}
+kind: Dropdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-more
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+      - buttons
+    ariaLabel: More actions
+    placement: bottomRight
+    items:
+      - resourceRefId: composition-detail-pause
+      - resourceRefId: composition-detail-delete
+  resourcesRefs:
+    items:
+      - id: composition-detail-pause
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-pause
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
+      - id: composition-detail-delete
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-delete
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET
