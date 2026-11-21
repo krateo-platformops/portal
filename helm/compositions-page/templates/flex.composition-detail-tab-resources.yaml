@@ -1,0 +1,33 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 3 (approved): the "Resources" tab. What the composition is made of: its topology, and the same resources as a list with each one's state. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-tab-resources
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - cards
+      - rows
+    items:
+      - resourceRefId: composition-detail-architecture-row
+      - resourceRefId: card-composition-detail-relations
+  resourcesRefs:
+    items:
+      - id: composition-detail-architecture-row
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-architecture-row
+        namespace: {{ $.Values.namespace }}
+        resource: rows
+        verb: GET
+      - id: card-composition-detail-relations
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-relations
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET

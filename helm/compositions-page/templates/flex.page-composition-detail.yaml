@@ -23,6 +23,7 @@ spec:
       - rows
       - listies
       - cards
+      - tabs
     items:
       - resourceRefId: composition-detail-page-header
       {{/* COMPOSITION DETAIL REDESIGN, step 1 (approved): the Status card leads, right under the
@@ -36,14 +37,8 @@ spec:
       {{/* header because it answers "what is this made of, and what is it waiting for". Only for a */}}
       {{/* composition whose chart renders an architecture ConfigMap: for every other one the Row's */}}
       {{/* items resolve to [] and it renders nothing, so this page looks exactly as it did before. */}}
-      - resourceRefId: composition-detail-architecture-row
-      {{/* Conditions promoted to the top (full-width, under the rail) so the composition's */}}
-      {{/* status — including the ReconcileError reason+message — is visible up front, not */}}
-      {{/* buried in the Manifest YamlViewer further down the grid. Wrapped in a Row */}}
-      {{/* (composition-detail-health-row) so it shares the grid gutter inset and aligns */}}
-      {{/* with the rail above and the Spec/Relations cards below (a bare card read wider). */}}
-      - resourceRefId: composition-detail-health-row
-      - resourceRefId: composition-detail-grid
+      {{/* Step 3 (approved): everything below the Status card sits in four tabs. */}}
+      - resourceRefId: composition-detail-tabs
   {{/* The Access card mounts only for a composition that publishes status.url or status.plan, so */}}
   {{/* every other composition neither shows it nor fetches it. The list otherwise matches the */}}
   {{/* static items above, which are what renders if the RESTAction can't be read. */}}
@@ -55,8 +50,7 @@ spec:
       expression: >-
         ${ [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-detail-status-row" } ]
         + (if (.access.visible // false) then [ { resourceRefId: "composition-detail-access" } ] else [] end)
-        + [ { resourceRefId: "composition-detail-architecture-row" },
-            { resourceRefId: "composition-detail-health-row" }, { resourceRefId: "composition-detail-grid" } ] }
+        + [ { resourceRefId: "composition-detail-tabs" } ] }
   resourcesRefs:
     items:
       - id: composition-detail-access
@@ -71,27 +65,15 @@ spec:
         namespace: {{ $.Values.namespace }}
         resource: pageheaders
         verb: GET
-      - id: composition-detail-architecture-row
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-architecture-row
-        namespace: {{ $.Values.namespace }}
-        resource: rows
-        verb: GET
       - id: composition-detail-status-row
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: composition-detail-status-row
         namespace: {{ $.Values.namespace }}
         resource: rows
         verb: GET
-      - id: composition-detail-health-row
+      - id: composition-detail-tabs
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-health-row
+        name: composition-detail-tabs
         namespace: {{ $.Values.namespace }}
-        resource: rows
-        verb: GET
-      - id: composition-detail-grid
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-grid
-        namespace: {{ $.Values.namespace }}
-        resource: rows
+        resource: tabs
         verb: GET
