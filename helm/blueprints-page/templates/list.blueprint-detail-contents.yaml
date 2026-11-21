@@ -1,0 +1,30 @@
+{{/* The kinds a blueprint creates at default values (card.blueprint-detail-contents): the kind, its */}}
+{{/* apiVersion in mono under it, and the count on the right ("×3"). Default rows, NOT the `tree` */}}
+{{/* variant: that one reports each row's health to the page header's pill, and these are not */}}
+{{/* children with a health, only what a render would create. Order is core-provider's: count */}}
+{{/* descending, then apiVersion, then kind. */}}
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: list-blueprint-detail-contents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      ellipsis: true
+      primaryText: '{kind}'
+      subPrimaryText: '{group}'
+      subPrimaryTextMono: true
+      secondaryText: '{countLabel}'
+    dataSource: []
+  widgetDataTemplate:
+    - forPath: dataSource
+      expression: '${ .contents.kinds // [] }'
+  resourcesRefs:
+    items: []

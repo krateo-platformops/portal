@@ -39,17 +39,20 @@ spec:
         group: core.krateo.io
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
-      filter: '[.compdefs.items[]? | {name: .metadata.name, version: (.spec.chart.version // ""), namespace: .metadata.namespace}]'
+      {{/* `status` is kept for "What it creates" (status.contents), read the same way on the blueprint page. */}}
+      filter: '[.compdefs.items[]? | {name: .metadata.name, version: (.spec.chart.version // ""), namespace: .metadata.namespace, status: {contents: (.status.contents // null)}}]'
   {{/* NULL-SAFE. With no ?extras.name — the background prewarm resolves this RESTAction with no */}}
   {{/* route — `.entries[null]` and `$instVer[null]` raise "expected a string for object key but got: */}}
   {{/* null" and every widget on it fails (~670/h on krateo-057). An absent name is found: false. */}}
   {{/* An entry with no name (never a real CompositionDefinition) is dropped, not keyed as null. */}}
   filter: >
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
+    {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     withLive
     | ((.name // "") | tostring) as $n
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .version} ] | from_entries ) as $instVer
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .namespace} ] | from_entries ) as $instNs
+    | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .} ] | from_entries ) as $instCd
     | ( ((.catalog // {}).entries[$n]) // [] ) as $vers
     | ( $vers[0] // {} ) as $latest
     | ( [ $vers[] | .version | select(. != null and . != "") ] | unique ) as $availableVersions
@@ -79,6 +82,10 @@ spec:
         installed: ($instVer[$n] != null),
         installedVersion: ($instVer[$n] // ""),
         installedNamespace: ($instNs[$n] // "{{ $.Release.Namespace }}"),
+        contents: (if ((.compdefsError // null) | . != null and . != [] and . != "")
+                   then { state: "none", extra: "—", kinds: [], stale: false, foot: "", title: "Not known here.",
+                          body: "Whether this blueprint is installed on this cluster could not be read, so neither could what it creates." }
+                   else (($instCd[$n] // null) | blueprintContents($instVer[$n] // "")) end),
         askHref: (if ($vers | length) > 0 then
           ("/marketplace/" + $n + "?ask="
            + (("Tell me about the \"" + $n + "\" chart in the Marketplace ("
@@ -249,8 +256,16 @@ spec:
       - cards
     items:
       - resourceRefId: card-marketplace-detail-about
+      {{/* "What it creates" (UX review round 3): Known once installed, else the blueprint page's states. */}}
+      - resourceRefId: card-marketplace-detail-contents
   resourcesRefs:
     items:
+      - id: card-marketplace-detail-contents
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-marketplace-detail-contents
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
       - id: card-marketplace-detail-about
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: card-marketplace-detail-about

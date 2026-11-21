@@ -129,6 +129,7 @@ spec:
       filter: >
         {allowed: (.mayCreate.status.allowed == true), evaluated: ((.mayCreate.status // null) != null)}
   filter: |
+    {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
     # A probe that was skipped or failed keeps the control (see the stages above).
     def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
@@ -159,6 +160,10 @@ spec:
     # falls back to the list rather than asking about a blueprint nobody found. When the
     # compositions could not be listed (compsError, under continueOnError) the prompt says so
     # rather than "0 compositions run from it".
+    # WHAT IT CREATES: the CompositionDefinition's status.contents in one of its states
+    # (portal.blueprintContentsDefs, _blueprint-contents.tpl). $d is {} when the CD could not be
+    # read, which is "Contents not available" here; "not installed" is only the marketplace's case.
+    | ($d | blueprintContents($cur)) as $contents
     | (($d.metadata.name // "") != "") as $found
     | ((.compsError // null) | if . == null or . == [] or . == "" then ""
         else ((if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end
@@ -177,6 +182,7 @@ spec:
        else "" end) as $askHref
     | {
         askHref: $askHref,
+        contents: $contents,
         may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
         detail: $d,
         compositions: $comps,

@@ -110,14 +110,15 @@ def main():
         if got_a != want_a:
             f.append(f'actions, may={out["may"]}: {got_a} != {want_a}')
         got_r = [i['resourceRefId'] for i in jq(right, out)]
-        want_r = ['card-blueprint-detail-update', 'card-blueprint-impact-picker'] if update_ok else []
+        # "What it creates" leads the column for EVERY reader (UX review round 3); the update flow follows `may`.
+        want_r = ['card-blueprint-detail-contents'] + (['card-blueprint-detail-update', 'card-blueprint-impact-picker'] if update_ok else [])
         if got_r != want_r:
             f.append(f'right column, may={out["may"]}: {got_r} != {want_r}')
     for label, out in [('no may', dict(base)), ('may with nulls', dict(base, may={'fleet': None, 'uninstall': None, 'update': None}))]:
         if len(jq(actions, out)) != 5:
             f.append(f'actions, {label}: {jq(actions, out)} — every control must stay')
-        if len(jq(right, out)) != 2:
-            f.append(f'right column, {label}: {jq(right, out)} — the update flow must stay')
+        if [i['resourceRefId'] for i in jq(right, out)] != ['card-blueprint-detail-contents', 'card-blueprint-detail-update', 'card-blueprint-impact-picker']:
+            f.append(f'right column, {label}: {jq(right, out)} — the contents card, then the update flow, must stay')
 
     for x in f:
         print(f'FAIL  {x}')

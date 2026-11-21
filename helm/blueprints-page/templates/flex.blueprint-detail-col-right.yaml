@@ -24,15 +24,24 @@ spec:
     allowedResources:
       - cards
     items:
+      - resourceRefId: card-blueprint-detail-contents
       - resourceRefId: card-blueprint-detail-update
+  {{/* "What it creates" leads the column, for every reader (UX review round 3); the update card and */}}
+  {{/* the impact picker follow only for one who may update the blueprint. */}}
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ if .may.update == false then []
+        ${ [ { resourceRefId: "card-blueprint-detail-contents" } ] + if .may.update == false then []
         else [ { resourceRefId: "card-blueprint-detail-update" } ]
         + (if (((.availableVersions // []) - [(.currentVersion // "")]) | length) > 0 then [ { resourceRefId: "card-blueprint-impact-picker" } ] else [] end) end }
   resourcesRefs:
     items:
+      - id: card-blueprint-detail-contents
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-blueprint-detail-contents
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
       - id: card-blueprint-detail-update
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: card-blueprint-detail-update

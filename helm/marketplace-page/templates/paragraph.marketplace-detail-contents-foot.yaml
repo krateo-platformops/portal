@@ -1,0 +1,24 @@
+{{/* card.marketplace-detail-contents: the footer under the kinds: at default values, which chart, how many. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: marketplace-detail-contents-foot
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: marketplace-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ .contents.foot // "" }'
+    - forPath: type
+      {{/* Orange while the list is from an older chart than the installed one (being re-read). */}}
+      expression: '${ if .contents.stale == true then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []

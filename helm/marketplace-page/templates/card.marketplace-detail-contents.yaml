@@ -1,0 +1,70 @@
+{{/* "What it creates": the kinds one composition of this blueprint creates at the chart's DEFAULT */}}
+{{/* values, as core-provider recorded them (status.contents, computed in restaction.marketplace-detail). */}}
+{{/* UX review round 3, approved mockup https://claude.ai/artifact/XTHrG6nao9fagYyEf7gL7q: the */}}
+{{/* marketplace detail page: "Known once installed" until it is, then the blueprint page's states. Its items follow .contents.state: the kinds and a footer */}}
+{{/* when known; otherwise a title saying why there is no list, never an empty list. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-marketplace-detail-contents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name]
+  apiRef:
+    name: marketplace-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: What it creates
+    extra: ""
+    items:
+      - resourceRefId: paragraph-marketplace-detail-contents-title-none
+      - resourceRefId: paragraph-marketplace-detail-contents-body
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ .contents.extra // "—" }'
+    - forPath: items
+      expression: >-
+        ${ (.contents.state // "none") as $s
+        | if $s == "known" then [ { resourceRefId: "list-marketplace-detail-contents" }, { resourceRefId: "paragraph-marketplace-detail-contents-foot" } ]
+        elif $s == "unknown" then [ { resourceRefId: "paragraph-marketplace-detail-contents-title-unknown" }, { resourceRefId: "paragraph-marketplace-detail-contents-body" }, { resourceRefId: "paragraph-marketplace-detail-contents-hint" } ]
+        else [ { resourceRefId: "paragraph-marketplace-detail-contents-title-none" }, { resourceRefId: "paragraph-marketplace-detail-contents-body" } ] end }
+  resourcesRefs:
+    items:
+      - id: list-marketplace-detail-contents
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: list-marketplace-detail-contents
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET
+      - id: paragraph-marketplace-detail-contents-foot
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-contents-foot
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-marketplace-detail-contents-title-unknown
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-contents-title-unknown
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-marketplace-detail-contents-title-none
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-contents-title-none
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-marketplace-detail-contents-body
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-contents-body
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-marketplace-detail-contents-hint
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-detail-contents-hint
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
