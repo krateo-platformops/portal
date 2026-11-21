@@ -1,0 +1,32 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 3 (approved): the "Conditions & metadata" tab. The raw conditions and the object's identity, for when the Status card is not enough. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-tab-conditions
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - cards
+    items:
+      - resourceRefId: card-composition-detail-health
+      - resourceRefId: card-composition-detail-metadata
+  resourcesRefs:
+    items:
+      - id: card-composition-detail-health
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-health
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
+      - id: card-composition-detail-metadata
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-metadata
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET

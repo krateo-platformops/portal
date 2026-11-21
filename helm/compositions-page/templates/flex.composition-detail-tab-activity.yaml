@@ -1,0 +1,32 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 3 (approved): the "Activity" tab. What has happened to it: its events, and how often and how fast it reconciles. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-tab-activity
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - cards
+    items:
+      - resourceRefId: card-composition-detail-events
+      - resourceRefId: card-composition-detail-reconcile
+  resourcesRefs:
+    items:
+      - id: card-composition-detail-events
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-events
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
+      - id: card-composition-detail-reconcile
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-reconcile
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
