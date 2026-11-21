@@ -711,6 +711,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-header-pill.py
 
+      # The composition detail Status card (approved redesign): the verdict, the counts and the
+      # problems list all read composition-resources and must agree. Runs the chart's own jq, with a
+      # control that a widened problems filter fails the healthy case.
+      - name: Composition detail Status card, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-status-card.py
+
       # The blueprint header's pill reads Degraded from Ready=False only: a CompositionDefinition's
       # other conditions (AuthnMappingApplied, ControllerActive, ...) can be False on a healthy one.
       # Runs the chart's own jq, with a control that the old "any False" rule fails the test.

@@ -1,0 +1,27 @@
+{{/* The Status card's facts line: the counts behind the verdict, each named, never colour alone. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-status-facts
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-resources
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: >-
+        ${ [ ((.healthyCount // 0 | tostring) + " healthy"),
+             (if (.failedCount // 0) > 0 then ((.failedCount | tostring) + " failed") else empty end),
+             (if (.driftCount // 0) > 0 then ((.driftCount | tostring) + " drifted from the values") else empty end),
+             (if ((.pendingCount // 0) + (.convergingCount // 0)) > 0 then ((((.pendingCount // 0) + (.convergingCount // 0)) | tostring) + " converging") else empty end),
+             (if (.unreadCount // 0) > 0 then ((.unreadCount | tostring) + " not readable with your access") else empty end)
+           ] | join(" · ") }
+  resourcesRefs:
+    items: []

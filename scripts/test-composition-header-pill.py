@@ -90,7 +90,7 @@ def pill(program, status, reason, healthy, synced=None):
 
 
 def rail_programs():
-    card = next(d for d in render() if d.get('kind') == 'Card' and d['metadata']['name'].endswith('composition-detail-rail'))
+    card = next(d for d in render() if d.get('kind') == 'Card' and d['metadata']['name'].endswith('composition-detail-status'))
     return {t['forPath']: t['expression'].strip().removeprefix('${').removesuffix('}').strip()
             for t in card['spec']['widgetDataTemplate'] if t['forPath'] in ('extra', 'extraStatus')}
 

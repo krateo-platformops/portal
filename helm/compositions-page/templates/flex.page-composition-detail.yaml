@@ -25,19 +25,18 @@ spec:
       - cards
     items:
       - resourceRefId: composition-detail-page-header
-      {{/* #6: Incidents strip — troubleshooting reports that analyzed THIS composition. Sits */}}
+      {{/* COMPOSITION DETAIL REDESIGN, step 1 (approved): the Status card leads, right under the
+           header, and holds this composition's incidents, so they no longer sit apart above it. */}}
+      - resourceRefId: composition-detail-status-row
+      {{/* (was) #6: Incidents strip — troubleshooting reports that analyzed THIS composition. Sits */}}
       {{/* directly under the pagehead so an active incident is visible up front. EXCEPTION-ONLY: */}}
       {{/* the Listy hideWhenEmpty renders nothing for a healthy composition (no incidents), and */}}
       {{/* the vertical Flex gap collapses around the absent child — the calm default shows no strip. */}}
-      - resourceRefId: composition-incidents
       {{/* The composition's topology and where it is in it (mockup 14), first thing under the */}}
       {{/* header because it answers "what is this made of, and what is it waiting for". Only for a */}}
       {{/* composition whose chart renders an architecture ConfigMap: for every other one the Row's */}}
       {{/* items resolve to [] and it renders nothing, so this page looks exactly as it did before. */}}
       - resourceRefId: composition-detail-architecture-row
-      {{/* Rail wrapped in a full-width Row (composition-detail-rail-row) so it shares the grid's */}}
-      {{/* gutter inset and aligns with the Spec/Health cards below (was a bare full-width card). */}}
-      - resourceRefId: composition-detail-rail-row
       {{/* Conditions promoted to the top (full-width, under the rail) so the composition's */}}
       {{/* status — including the ReconcileError reason+message — is visible up front, not */}}
       {{/* buried in the Manifest YamlViewer further down the grid. Wrapped in a Row */}}
@@ -54,9 +53,9 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-incidents" } ]
+        ${ [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-detail-status-row" } ]
         + (if (.access.visible // false) then [ { resourceRefId: "composition-detail-access" } ] else [] end)
-        + [ { resourceRefId: "composition-detail-architecture-row" }, { resourceRefId: "composition-detail-rail-row" },
+        + [ { resourceRefId: "composition-detail-architecture-row" },
             { resourceRefId: "composition-detail-health-row" }, { resourceRefId: "composition-detail-grid" } ] }
   resourcesRefs:
     items:
@@ -72,21 +71,15 @@ spec:
         namespace: {{ $.Values.namespace }}
         resource: pageheaders
         verb: GET
-      - id: composition-incidents
-        apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-incidents
-        namespace: {{ $.Values.namespace }}
-        resource: listies
-        verb: GET
       - id: composition-detail-architecture-row
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: composition-detail-architecture-row
         namespace: {{ $.Values.namespace }}
         resource: rows
         verb: GET
-      - id: composition-detail-rail-row
+      - id: composition-detail-status-row
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: composition-detail-rail-row
+        name: composition-detail-status-row
         namespace: {{ $.Values.namespace }}
         resource: rows
         verb: GET
