@@ -754,6 +754,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-conditions.py
 
+      # A blueprint's "What it creates" card: core-provider's status.contents in every state it can
+      # produce (known, capped, stale, unknown, empty, absent), never an empty list that reads as
+      # "creates nothing". Over the chart's own jq; a control drops the unknown branch and must fail.
+      - name: Blueprint "What it creates"
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-blueprint-contents.py
+
       # A version label never comes out as a bare "v" (review: "uncategorized · v"): every "v" + version
       # in a rendered chart is the one guarded form, and the marketplace header and Installed row are
       # run over a present, an empty and a missing version.

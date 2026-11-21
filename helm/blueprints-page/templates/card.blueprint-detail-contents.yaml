@@ -1,0 +1,70 @@
+{{/* "What it creates": the kinds one composition of this blueprint creates at the chart's DEFAULT */}}
+{{/* values, as core-provider recorded them (status.contents, computed in restaction.blueprint-detail). */}}
+{{/* UX review round 3, approved mockup https://claude.ai/artifact/XTHrG6nao9fagYyEf7gL7q: the */}}
+{{/* detail page only, not the grid cards. Its items follow .contents.state: the kinds and a footer */}}
+{{/* when known; otherwise a title saying why there is no list, never an empty list. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-blueprint-detail-contents
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: What it creates
+    extra: ""
+    items:
+      - resourceRefId: paragraph-blueprint-detail-contents-title-none
+      - resourceRefId: paragraph-blueprint-detail-contents-body
+  widgetDataTemplate:
+    - forPath: extra
+      expression: '${ .contents.extra // "—" }'
+    - forPath: items
+      expression: >-
+        ${ (.contents.state // "none") as $s
+        | if $s == "known" then [ { resourceRefId: "list-blueprint-detail-contents" }, { resourceRefId: "paragraph-blueprint-detail-contents-foot" } ]
+        elif $s == "unknown" then [ { resourceRefId: "paragraph-blueprint-detail-contents-title-unknown" }, { resourceRefId: "paragraph-blueprint-detail-contents-body" }, { resourceRefId: "paragraph-blueprint-detail-contents-hint" } ]
+        else [ { resourceRefId: "paragraph-blueprint-detail-contents-title-none" }, { resourceRefId: "paragraph-blueprint-detail-contents-body" } ] end }
+  resourcesRefs:
+    items:
+      - id: list-blueprint-detail-contents
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: list-blueprint-detail-contents
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET
+      - id: paragraph-blueprint-detail-contents-foot
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-contents-foot
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-blueprint-detail-contents-title-unknown
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-contents-title-unknown
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-blueprint-detail-contents-title-none
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-contents-title-none
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-blueprint-detail-contents-body
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-contents-body
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
+      - id: paragraph-blueprint-detail-contents-hint
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-contents-hint
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
