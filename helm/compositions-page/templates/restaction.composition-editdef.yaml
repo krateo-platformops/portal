@@ -115,6 +115,34 @@ spec:
     # fromjson can yield valid-but-non-object JSON (a bare string/number) → coerce to {} so the
     # `.properties` lookups below never index a scalar.
     | (if ($parsed | type) == "object" then $parsed else {} end) as $schema
+    # THE CONTROLLER'S OWN KEYS ARE NOT SETTINGS. composition-dynamic-controller writes ten keys into
+    # spec.global on every render (plumbing helm/utils/values.go InjectGlobalValues), and they WIN over
+    # a value the user sets, so an edit to one of them never takes effect. A generated schema that
+    # declares them showed ten empty inputs (UX review round 3). They are removed here BY PATH, at
+    # .properties.global only: the Form's propertiesToHide matches a bare key at every depth, which
+    # would also hide a user field that happens to be called `compositionName`. Any other global key
+    # (imageRegistry, …) is the user's and stays. `values` is untouched, so a save keeps them.
+    | ["compositionApiVersion", "compositionGroup", "compositionId", "compositionInstalledVersion",
+       "compositionKind", "compositionName", "compositionNamespace", "compositionResource",
+       "gracefullyPaused", "krateoNamespace"] as $injected
+    | ((($schema.properties // {}) | if type == "object" then length else 0 end) > 0) as $hadFields
+    | ($schema
+       | if ((.properties.global? // null) | type) == "object" and ((.properties.global.properties? // null) | type) == "object" then
+           .properties.global.properties |= with_entries(select(.key as $k | any($injected[]; . == $k) | not))
+           | (if (.properties.global.required | type) == "array"
+              then .properties.global.required |= map(select(. as $k | any($injected[]; . == $k) | not)) else . end)
+           | (if (.properties.global.properties | length) == 0
+              then del(.properties.global) | (if (.required | type) == "array" then .required |= map(select(. != "global")) else . end)
+              else . end)
+         else . end
+       # Every field was the controller's: say so, with no Save button. The Form renders a schema
+       # WITHOUT a `properties` key (an empty object still counts as fields) as its title and
+       # description. Only when there WERE fields: a missing or empty schema stays the Form's error.
+       | if $hadFields and (((.properties // {}) | length) == 0)
+         then del(.properties)
+              | .title = "Nothing to edit"
+              | .description = "This blueprint has no settings of its own. Krateo fills in its context values (name, namespace, kind…) on every install, so they aren't shown here."
+         else . end) as $schema
     | ([ (($schema.properties) // {}) | (if type == "object" then to_entries[] else empty end) | select((.value.title // "") | test("should be hidden"; "i")) | .key ]) as $hidden
     # x-krateo-options sources, exactly as blueprint-formdef emits them for the create form (see the
     # note there): one GET ref per `ref`, a bare name living in the blueprint's own namespace (the
