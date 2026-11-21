@@ -736,6 +736,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-incident-progress.py
 
+      # The composition Edit form leaves out the ten keys composition-dynamic-controller writes into
+      # spec.global (they win over a user's value), by path, keeping every other key; a form left
+      # with nothing says so. Over the chart's own jq; a control empties the key list and must fail.
+      - name: Composition edit form hides the controller's keys
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-editdef.py
+
       # A version label never comes out as a bare "v" (review: "uncategorized · v"): every "v" + version
       # in a rendered chart is the one guarded form, and the marketplace header and Installed row are
       # run over a present, an empty and a missing version.
