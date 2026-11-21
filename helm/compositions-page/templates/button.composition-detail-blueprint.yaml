@@ -19,7 +19,9 @@ spec:
     namespace: {{ $.Values.namespace }}
   widgetData:
     label: Blueprint
-    type: default
+    {{/* COMPOSITION DETAIL REDESIGN, step 2 (approved): the blueprint and the version this composition
+         runs are part of its identity, so they sit in the header as a link, not as one more button. */}}
+    type: link
     size: middle
     icon: fa-layer-group
     clickActionId: blueprint
@@ -29,6 +31,10 @@ spec:
           type: navigate
           path: /blueprints
   widgetDataTemplate:
+    - forPath: label
+      expression: >-
+        ${ (.detail.metadata.labels["krateo.io/composition-installed-version"] // "" | sub("^v"; "") | gsub("-"; ".")) as $v
+        | "Blueprint" + (if (.blueprintName // "") != "" then " " + .blueprintName else "" end) + (if $v != "" then " " + $v else "" end) }
     - forPath: actions
       expression: '${ { navigate: [ { id: "blueprint", type: "navigate", path: (if (.blueprintHref // "") != "" then .blueprintHref else "/blueprints" end) } ] } }'
   resourcesRefs:
