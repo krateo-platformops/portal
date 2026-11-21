@@ -1,6 +1,7 @@
 {{/* "Conditions" card → the composition's REAL status.conditions (all of them), each coloured by */}}
-{{/* its own status (True=cyan / False=crimson) — replaces the derived "% converged / Healthy" ring, */}}
-{{/* which invented a single label/number out of the raw conditions. */}}
+{{/* what it means (list-composition-detail-conditions) — replaces the derived "% converged / Healthy" */}}
+{{/* ring, which invented a single label/number out of the raw conditions. While the composition is */}}
+{{/* paused, a gray note leads the card (paragraph.composition-detail-paused). */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -11,14 +12,28 @@ metadata:
 spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [name, namespace]
+  {{/* Read only to decide whether the pause note leads the card (the conditional-items idiom of */}}
+  {{/* flex.compositions-side): paused = the krateo.io/paused annotation, as the Pause button reads it. */}}
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
   widgetData:
     title: Conditions
     titleVariant: eyebrow
     variant: outlined
     items:
       - resourceRefId: list-composition-detail-conditions
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ (if (((.detail.metadata.annotations // {})["krateo.io/paused"]) == "true") then [ { resourceRefId: "paragraph-composition-detail-paused" } ] else [] end) + [ { resourceRefId: "list-composition-detail-conditions" } ] }'
   resourcesRefs:
     items:
+      - id: paragraph-composition-detail-paused
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-paused
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET
       - id: list-composition-detail-conditions
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: list-composition-detail-conditions

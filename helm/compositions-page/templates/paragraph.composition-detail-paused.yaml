@@ -1,0 +1,27 @@
+{{/* The pause note above the composition's conditions, shown only while it is paused (the Conditions */}}
+{{/* card includes it then, card.composition-detail-health). UX review round 3: a paused composition */}}
+{{/* showed Ready=True in green and Synced=False in red, both "ReconcilePaused", which read as broken. */}}
+{{/* Diego chose a muted gray line (antd Typography secondary) over a blue info Alert or a non-antd */}}
+{{/* neutral strip: https://claude.ai/artifact/2DzX7yxTtVAb72mTgs1YE7#pause-note. */}}
+{{/* "Since" is when a condition took the ReconcilePaused reason (its lastTransitionTime): the */}}
+{{/* krateo.io/paused annotation carries no time. With none, the line says only that it is paused. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-paused
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ ([ (.detail.status.conditions // [])[] | select(.reason == "ReconcilePaused") | .lastTransitionTime // empty ] | min) as $at | (if $at == null then "" else (try ($at | fromdateiso8601 | ((strftime("%d") | tonumber | tostring) + " " + strftime("%b %H:%M") + " UTC")) catch "") end) as $since | "❚❚ Reconciliation is paused" + (if $since == "" then "" else " since " + $since end) + ". Krateo isn''t changing this composition, so these are the last values before the pause." }'
+  resourcesRefs:
+    items: []

@@ -1,8 +1,8 @@
 {{/* The composition's REAL status.conditions — NOT a derived "Healthy/Drift/Pending/converged" label. */}}
 {{/* Every condition is shown (Ready, Synced, …) with its type + status (True/False) + reason·message; */}}
-{{/* a leading dot and a right-aligned status Tag are BOTH coloured green (status True) / red (False) */}}
-{{/* — green = health per the status-pill spec (this conditions card is the one sanctioned dot+label spot). */}}
-{{/* Honest: the raw k8s conditions, all of them, coloured by their own truth value — PLUS the */}}
+{{/* a leading dot and a right-aligned status Tag share one colour, chosen by what the condition MEANS */}}
+{{/* (see `color` below), not by its raw truth value (this card is the one sanctioned dot+label spot). */}}
+{{/* Honest: the raw k8s conditions, all of them, the True/False word kept — PLUS the */}}
 {{/* Workload condition the detail RA synthesizes from .status.workloadHealthy == false (same idiom */}}
 {{/* as compositions-list), so a CrashLoopBackOff comp shows Workload=False here instead of an */}}
 {{/* all-green Ready/Synced pair that hides the failing pods. */}}
@@ -32,18 +32,24 @@ spec:
       {{/* row variant actually renders) — `description` is only painted by the `card` variant */}}
       {{/* (ListView.tsx), so it would silently drop here. */}}
       subPrimaryText: '{desc}'
+      {{/* COLOURED BY MEANING, not by the raw True/False (UX review round 3, approved mockup */}}
+      {{/* https://claude.ai/artifact/2DzX7yxTtVAb72mTgs1YE7): a pause made Ready=True green and */}}
+      {{/* Synced=False red, both ReconcilePaused. The True/False word stays; the colour is `tone`, */}}
+      {{/* computed below: ReconcilePaused → paused (gray, both rows); a Ready=False reason core-provider */}}
+      {{/* classes as converging (portal.readyReasonDefs) → orange, never red; otherwise True green, */}}
+      {{/* False red, anything else gray. 'red' is the palette's crimson failed-hex. */}}
       color:
-        value: '{status}'
+        value: '{tone}'
         map:
-          {{/* YAML 1.1 Norway problem: bare True/False parse as booleans → quote the map keys. */}}
-          {{/* 'red' is the palette's crimson failed-hex; 'crimson' is NOT a key (would fall back to ink). */}}
-          "True": green
-          "False": red
+          healthy: green
+          failed: red
+          converging: orange
+          paused: gray
         default: gray
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
       {{/* .conditions = raw status.conditions + the synthesized Workload condition (RA-side). */}}
-      expression: '${ [ (.conditions // [])[] | { type: .type, status: (.status | tostring), desc: ((.reason // "") + (if ((.message // "") | length) > 0 then (" · " + .message) else "" end)) } ] }'
+      expression: '${ {{ include "portal.readyReasonDefs" . }} [ (.conditions // [])[] | (.status | tostring) as $s | (.reason // "") as $r | { type: .type, status: $s, desc: ($r + (if ((.message // "") | length) > 0 then (" · " + .message) else "" end)), tone: (if $r == "ReconcilePaused" then "paused" elif .type == "Ready" and $s == "False" and ($r | isConvergingFalse) then "converging" elif $s == "True" then "healthy" elif $s == "False" then "failed" else "unknown" end) } ] }'
   resourcesRefs:
     items: []
