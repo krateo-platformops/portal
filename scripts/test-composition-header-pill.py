@@ -106,6 +106,11 @@ def rail_failures():
     cases = [
         (('True', 'ReconcileSuccess'), None, 'Synced', 'success'),
         (('False', 'ReconcileError'), None, 'NotSynced', 'error'),
+        # core-provider's Synced spec errors (unstructured-runtime v1.31.0): an invalid management or
+        # deletion policy is a spec error, so the badge says NotSynced, as for ReconcileError. Ready is
+        # left to say what the (observe-only) policy means for the release.
+        (('False', 'ManagementPolicyInvalid'), None, 'NotSynced', 'error'),
+        (('False', 'DeletionPolicyInvalid'), None, 'NotSynced', 'error'),
         (('False', 'ReconcilePaused'), None, 'Paused', 'default'),
         (('False', 'ReconcileGracefullyPaused'), None, 'Paused', 'default'),
         (('False', 'ReconcilePaused'), False, 'Paused · Unhealthy', 'error'),
@@ -136,6 +141,10 @@ def exception_failures():
         ([('Synced', 'False', 'ReconcilePaused')], None),
         ([('Synced', 'False', 'ReconcileGracefullyPaused')], None),
         ([('Synced', 'False', 'ReconcileError')], 'NotSynced'),
+        ([('Synced', 'False', 'ManagementPolicyInvalid')], 'NotSynced'),
+        ([('Synced', 'False', 'DeletionPolicyInvalid')], 'NotSynced'),
+        # An invalid management policy acts as observe: create withheld (failed) and the spec error both show.
+        ([('Ready', 'False', 'CreateWithheldByPolicy'), ('Synced', 'False', 'ManagementPolicyInvalid')], 'NotSynced'),
         ([('Ready', 'False', 'Creating')], None),
         ([('Ready', 'False', 'PendingHelmOperation')], None),
         ([('Ready', 'False', 'HelmOperationInProgress')], None),
