@@ -728,6 +728,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-detail-tabs.py
 
+      # A version label never comes out as a bare "v" (review: "uncategorized · v"): every "v" + version
+      # in a rendered chart is the one guarded form, and the marketplace header and Installed row are
+      # run over a present, an empty and a missing version.
+      - name: Version labels never a bare "v"
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-version-labels.py
+
       # The composition detail header (approved redesign): the blueprint as a link with its version,
       # one primary action, and Pause and Delete only under the "More actions" Dropdown.
       - name: Composition detail header actions

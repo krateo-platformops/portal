@@ -309,7 +309,7 @@ spec:
              title: (($pr.title) // ""),
              pr: (if (($pr.number) // 0) > 0 then ("#" + ($pr.number | tostring)) else ($p0.branch // "") end),
              url: (($pr.url) // ""),
-             version: (if $cd != null then ("v" + ($cd.version // "?")) else "—" end),
+             version: ($cd.version // "" | if . == "" then "—" else "v" + . end),
              status: (if $broken then "Failed"
                       # Not Ready while a credentialed kind has no Configuration naming a Secret:
                       # it would fail at its first reconcile, not here.

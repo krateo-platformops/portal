@@ -91,7 +91,7 @@ spec:
     | { noun: $noun,
         title: ($verb + " " + (if $bp != "" then $bp else $noun end)),
         subtitle: ([ (($latest.annotations // {})["krateo.io/maturity"] // empty),
-                     (if ($latest.version // "") != "" then ("v" + $latest.version) else empty end) ]
+                     ($latest.version // "" | if . == "" then empty else "v" + . end) ]
                    | map(select(. != null and . != "")) | join("  ·  ")),
         changeRequest: { url: $url, state: (($pr.state) // ""), ending: $end, mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end) },
         note: (if $indexName

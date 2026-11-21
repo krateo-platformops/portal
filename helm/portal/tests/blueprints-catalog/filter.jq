@@ -125,7 +125,7 @@ withLive
           # empty icon when not installed -> the card renders no glyph (exception-only badge).
           installedIcon: (if $match != null then "fa-circle-check" else "" end),
           installedColor: (if $match != null then "green" else "" end),
-          installedTooltip: (if $match != null then ("Installed · v" + ($match.version // "")) else "" end)
+          installedTooltip: (if $match != null then ("Installed" + ($match.version // "" | if . == "" then "" else " · v" + . end)) else "" end)
         }
     ] ) as $cards
 # The cards matching the ACTIVE facets (source + category + free-text) — computed once so
