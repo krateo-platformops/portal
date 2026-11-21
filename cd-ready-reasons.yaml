@@ -33,9 +33,13 @@ table:
   - {condition: Ready, reason: NotObserved, status: Unknown, writer: provider-runtime, verdict: "unevaluated (rolls up as healthy)", portal: "pending (orange); failed when Synced=False, where its error is"}
   - {condition: Ready, reason: Creating, status: "False", writer: provider-runtime, verdict: converging, portal: still installing (orange) / Pending}
   - {condition: Ready, reason: Deleting, status: "False", writer: provider-runtime, verdict: converging, portal: still installing (orange) / Pending}
+  - {condition: Ready, reason: CreateWithheldByPolicy, status: "False", writer: provider-runtime, verdict: failed, portal: "failed (red) / Degraded, Ready's message: the CRD is absent and the management policy withholds create; nothing happens until a human changes the policy"}
+  - {condition: Ready, reason: UpdateWithheldByPolicy, status: "True", writer: provider-runtime, verdict: healthy, portal: "ready (green) / Healthy: the definition works at its installed state; the policy withholds bringing it to its desired one"}
   - {condition: Synced, reason: ReconcileSuccess, status: "True", writer: provider-runtime, verdict: "—", portal: no effect}
   - {condition: Synced, reason: ReconcileError, status: "False", writer: provider-runtime, verdict: "—", portal: "failed (red) / Degraded, or Drift when Ready=True; Synced's message unless Ready's verdict is failed"}
   - {condition: Synced, reason: ReconcilePaused, status: "False", writer: provider-runtime, verdict: "—", portal: paused (gray) / Paused}
+  - {condition: Synced, reason: ManagementPolicyInvalid, status: "False", writer: provider-runtime, verdict: "—", portal: "failed (red) / Degraded, or Drift when Ready=True, as any Synced=False: the management-policy annotation does not parse, so the reconciler only observes; Synced's message names it"}
+  - {condition: Synced, reason: DeletionPolicyInvalid, status: "False", writer: provider-runtime, verdict: "—", portal: "failed (red) / Degraded, or Drift when Ready=True, as any Synced=False: the deletion-policy value is invalid, so the resource is kept on delete; Synced's message names it"}
   # core-provider's other conditions (#595). Their verdict is "—": core-provider's rollup reads Ready
   # only, and so does the portal. cdState reads Ready and Synced and nothing else, and no page lists
   # a definition's raw conditions, so none of these changes what a card or the header pill shows
