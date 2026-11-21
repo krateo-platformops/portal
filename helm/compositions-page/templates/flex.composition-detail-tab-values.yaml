@@ -1,0 +1,32 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 3 (approved): the "Values" tab. The values the composition was created with, as fields and as the manifest. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-tab-values
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    vertical: true
+    gap: middle
+    allowedResources:
+      - cards
+    items:
+      - resourceRefId: card-composition-detail-spec
+      - resourceRefId: card-composition-detail-manifest
+  resourcesRefs:
+    items:
+      - id: card-composition-detail-spec
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-spec
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
+      - id: card-composition-detail-manifest
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-manifest
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET

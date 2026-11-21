@@ -1,0 +1,50 @@
+{{/* COMPOSITION DETAIL REDESIGN, step 3 (approved, decision: tabs). Under the Status card, the detail
+     sits in four tabs so the first screen stays short; every card the page had is still here. The open
+     tab is kept in the address (?tab=<label>, the Tabs widget), so a link can open one. */}}
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-tabs
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    allowedResources:
+      - flexes
+    items:
+      - label: Resources
+        resourceRefId: composition-detail-tab-resources
+      - label: Values
+        resourceRefId: composition-detail-tab-values
+      - label: Activity
+        resourceRefId: composition-detail-tab-activity
+      - label: Conditions & metadata
+        resourceRefId: composition-detail-tab-conditions
+  resourcesRefs:
+    items:
+      - id: composition-detail-tab-resources
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-tab-resources
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: composition-detail-tab-values
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-tab-values
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: composition-detail-tab-activity
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-tab-activity
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
+      - id: composition-detail-tab-conditions
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-tab-conditions
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
+        verb: GET
