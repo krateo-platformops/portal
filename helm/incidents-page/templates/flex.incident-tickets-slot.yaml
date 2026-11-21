@@ -1,0 +1,31 @@
+{{/* Where the Zendesk requests card sits on the incident page. It reads incident-tickets (reload-only: the Zendesk requests are read under a */}}
+{{/* userAccessFilter), so incident-detail and the rest of the page stay cacheable and live. An */}}
+{{/* empty slot renders nothing (frontend Flex, no items and no role), so it opens no gap. */}}
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-tickets-slot
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-tickets
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    items: []
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ if ((.sections // {}).tickets // false) then [ { resourceRefId: "incident-tickets-card" } ] else [] end }'
+  resourcesRefs:
+    items:
+    - id: incident-tickets-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-tickets-card
+      namespace: {{ $.Values.namespace }}
+      resource: cards
+      verb: GET

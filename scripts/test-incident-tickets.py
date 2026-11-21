@@ -85,9 +85,9 @@ DENIED = status(403, 'Forbidden', 'zendeskrequests.zendesk.ogen.krateo.io is for
 NO_CRD = status(404, 'NotFound', 'the server could not find the requested resource')
 
 
-def resolve(chart, responses, extras=EX):
+def resolve_one(chart, name, responses, extras=EX):
     """tpr.resolve's model of snowplow, plus Err() for a Status-object errorKey entry."""
-    ra = chart.get('RESTAction', 'incident-detail')
+    ra = chart.get('RESTAction', name)
     data = copy.deepcopy(extras)
     dialled = []
     for step in ra['spec']['api']:
@@ -109,6 +109,24 @@ def resolve(chart, responses, extras=EX):
                 continue
             data[sname] = raw
     return tbi.jq(ra['spec']['filter'], data), dialled
+
+
+def resolve(chart, responses, extras=EX):
+    """The page's two RESTActions over the same responses, merged as the widgets see them: incident-detail
+    (cacheable: no userAccessFilter, so the page updates live) and incident-tickets (the Zendesk
+    requests, read under a userAccessFilter, and the proposal). Each widget reads one of the two; the
+    merge lets one `out` serve both, and `sections` holds both sets of flags. A chart without
+    incident-tickets (a BASE_REF from before the split) resolves incident-detail alone."""
+    out, dialled = resolve_one(chart, 'incident-detail', responses, extras)
+    try:
+        chart.get('RESTAction', 'incident-tickets')
+    except LookupError:
+        return out, dialled
+    tickets, more = resolve_one(chart, 'incident-tickets', responses, extras)
+    sections = dict(out.get('sections') or {}, **(tickets.get('sections') or {}))
+    merged = dict(out, **tickets)
+    merged['sections'] = sections
+    return merged, dialled + more
 
 
 def incident(state='Open', owner=None, evidence=None, annotations=None, missing=None, statement=True):
@@ -157,7 +175,10 @@ WIDGETS = (('Flex', 'page-incident-detail'), ('Card', 'incident-why-card'), ('De
            ('Card', 'incident-ticket-proposal'),
            ('Button', 'incident-ticket-proposal-raise'), ('Button', 'incident-ticket-proposal-dismiss'),
            ('Card', 'incident-tickets-card'), ('Listy', 'incident-tickets-list'), ('Button', 'incident-raise-ticket'),
-           ('Flex', 'incident-detail-actions'))
+           ('Flex', 'incident-detail-actions'),
+           ('Flex', 'incident-ticket-proposal-slot'), ('Flex', 'incident-tickets-slot'))
+
+SLOTS = ('incident-ticket-proposal-slot', 'incident-tickets-slot')
 
 
 def page(chart, inc, tickets=EMPTY, label=''):
@@ -172,6 +193,15 @@ def page(chart, inc, tickets=EMPTY, label=''):
 
 def ids(items):
     return [i['resourceRefId'] for i in items]
+
+
+def root_ids(w):
+    """The page's sections as a reader sees them: page-incident-detail's items with each slot replaced
+    by what it renders (an empty slot renders nothing, frontend Flex with no items and no role)."""
+    out = []
+    for rid in ids(w['page-incident-detail']['items']):
+        out.extend(ids(w[rid]['items']) if rid in SLOTS else [rid])
+    return out
 
 
 NEW_IDS = {'incident-ticket-proposal', 'incident-tickets-card'}
@@ -204,13 +234,13 @@ def check_owner_absent_is_todays_page(chart, base):
     f = []
     # krateo-057 today: incident-provider 0.9.0 (no owner), and ZendeskRequest not served (a 404).
     out, _, w = page(chart, incident(), Err(NO_CRD), 'absent')
-    root = ids(w['page-incident-detail']['items'])
+    root = root_ids(w)
     expect(f, 'no owner, no desk: nothing new on the page', sorted(NEW_IDS & set(root)), [])
     expect(f, 'no owner: the why card holds only its tabs', ids(w['incident-why-card']['items']), ['incident-why-tabs'])
     expect(f, 'no owner: no Summary row, no proposal', (owner_row(w), out['sections']['proposal']), (None, False))
     # With the kind served, the only addition is the requests card, right after "Why did it happen".
     out, _, w = page(chart, incident(), EMPTY, 'absent, desk')
-    with_desk = ids(w['page-incident-detail']['items'])
+    with_desk = root_ids(w)
     expect(f, 'no owner, the kind served: the same root plus the requests card after Why',
            with_desk, root[:root.index('incident-why-card') + 1] + ['incident-tickets-card'] + root[root.index('incident-why-card') + 1:])
     expect(f, 'no owner: no proposal, even with no request', out['sections']['proposal'], False)
@@ -243,7 +273,7 @@ def check_owner_krateo_and_customer(chart):
     expect(f, 'out of enum: nothing', (owner_row(w), out['sections']['proposal']), (None, False))
     # The owner shows even when the analysis left nothing else structured.
     out, _, w = page(chart, incident(owner='krateo', evidence=EVIDENCE, statement=False, missing=[]), EMPTY, 'no statement')
-    expect(f, 'no statement: the Summary still renders for the owner', 'incident-summary-card' in ids(w['page-incident-detail']['items']), True)
+    expect(f, 'no statement: the Summary still renders for the owner', 'incident-summary-card' in root_ids(w), True)
     expect(f, 'no statement, analysis done: Why says so', w['incident-summary-desc']['items'][0], {'label': 'Why', 'value': 'Not determined.'})
     return f
 
@@ -254,7 +284,7 @@ def check_owner_unknown(chart):
     expect(f, 'unknown: Not determined', owner_row(w), 'Not determined')
     expect(f, 'unknown: the why card holds only its tabs', ids(w['incident-why-card']['items']), ['incident-why-tabs'])
     expect(f, 'unknown: never a proposal', out['sections']['proposal'], False)
-    expect(f, 'unknown: the manual raise stays', ('incident-tickets-card' in ids(w['page-incident-detail']['items'])), True)
+    expect(f, 'unknown: the manual raise stays', ('incident-tickets-card' in root_ids(w)), True)
     return f
 
 
@@ -262,7 +292,7 @@ def check_proposal_conditions(chart):
     f = []
     base = dict(owner='customer', evidence=EVIDENCE)
     out, _, w = page(chart, incident(**base), EMPTY, 'proposal')
-    root = ids(w['page-incident-detail']['items'])
+    root = root_ids(w)
     expect(f, 'shown: under the header block, before everything else', root[:3],
            ['incident-detail-page-header', 'incident-detail-header-block', 'incident-ticket-proposal'])
     card = w['incident-ticket-proposal']
@@ -294,7 +324,7 @@ def check_proposal_conditions(chart):
     )
     for label, inc, tickets in flips:
         out, _, w = page(chart, inc, tickets, label)
-        expect(f, f'{label}: no proposal', (out['sections']['proposal'], 'incident-ticket-proposal' in ids(w['page-incident-detail']['items'])),
+        expect(f, f'{label}: no proposal', (out['sections']['proposal'], 'incident-ticket-proposal' in root_ids(w)),
                (False, False))
     # Another annotation value is not a dismissal.
     out, _, _ = page(chart, incident(annotations={'krateo.io/ticket-proposal': 'later'}, **base), EMPTY, 'other value')
@@ -370,7 +400,13 @@ def check_tickets_card(chart):
         # The list holds every request the caller may see; one for another incident is not shown.
         zrequest('zr-other', '2026-10-04T00:00:00Z', uid='another-uid', zid=1, zstatus='new')), 'requests')
     expect(f, 'lists ZendeskRequests across namespaces', [d for d in dialled if d[0] == 'zendeskRequests'], [('zendeskRequests', ZR_PATH)])
-    step = [st for st in chart.get('RESTAction', 'incident-detail')['spec']['api'] if st['name'] == 'zendeskRequests'][0]
+    step = [st for st in chart.get('RESTAction', 'incident-tickets')['spec']['api'] if st['name'] == 'zendeskRequests'][0]
+    # THE PAGE STAYS LIVE: snowplow never caches a RESTAction with a userAccessFilter stage (snowplow#561),
+    # so one in incident-detail would take the refresh key off every widget on the page (Diego, 2026-11-21:
+    # a re-analysis showed "no sign of life" until a reload). The Zendesk read keeps its caller-access rule
+    # in incident-tickets; incident-detail must hold none.
+    expect(f, 'incident-detail has no userAccessFilter stage (the page stays cacheable, so it live-refreshes)',
+           [st['name'] for st in chart.get('RESTAction', 'incident-detail')['spec']['api'] if st.get('userAccessFilter')], [])
     expect(f, 'refiltered as the caller', step.get('userAccessFilter'),
            {'verb': 'list', 'group': tsd.ZAPI.split('/')[0], 'resource': 'zendeskrequests', 'namespaceFrom': '.metadata.namespace'})
     rows = w['incident-tickets-list']['dataSource']
@@ -397,10 +433,10 @@ def check_tickets_card(chart):
         out, _, w = page(chart, incident(), err, label)
         expect(f, f'{label}: the refused line', (out['ticketsState'], w['incident-tickets-card']['headerLeft']),
                ('denied', 'Your access to Zendesk requests could not be confirmed.'))
-        expect(f, f'{label}: still offers the raise', ('incident-tickets-card' in ids(w['page-incident-detail']['items'])), True)
+        expect(f, f'{label}: still offers the raise', ('incident-tickets-card' in root_ids(w)), True)
     for label, err in (('[Status 404]', Err(NO_CRD)), ('[string 404]', Err(NO_CRD['message']))):
         out, _, w = page(chart, incident(), err, label)
-        expect(f, f'{label}: kind not served, no card', (out['ticketsState'], 'incident-tickets-card' in ids(w['page-incident-detail']['items'])),
+        expect(f, f'{label}: kind not served, no card', (out['ticketsState'], 'incident-tickets-card' in root_ids(w)),
                ('absent', False))
     out, _, w = page(chart, incident(), Err('dial tcp 10.0.0.1:443: i/o timeout'), 'timeout')
     expect(f, 'another failure: says so, never "No Zendesk request yet"', w['incident-tickets-card']['headerLeft'],
@@ -410,7 +446,7 @@ def check_tickets_card(chart):
     ra_out, _ = resolve(chart, resp, EX)
     expect(f, 'one Status entry: its message', ra_out['ticketsNote'],
            'The Zendesk requests raised for this incident could not be read: etcd timed out')
-    two = tbi.jq(chart.get('RESTAction', 'incident-detail')['spec']['filter'],
+    two = tbi.jq(chart.get('RESTAction', 'incident-tickets')['spec']['filter'],
                  dict(EX, incident=incident(), incidents={'items': []},
                       zendeskRequestsError=['first failure', status(500, 'InternalError', 'etcd timed out')]))
     expect(f, 'two entries: both, in order', two['ticketsNote'],
