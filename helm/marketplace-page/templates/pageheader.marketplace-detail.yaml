@@ -42,7 +42,7 @@ spec:
       expression: '${ .name }'
     {{/* Was paragraph.marketplace-detail-subtitle's `forPath: text`, lifted verbatim. */}}
     - forPath: subtitle
-      expression: '${ ([ (.category // empty), (.maturity // empty), ("v" + (.version // "?")), ((.created // "") as $ts | if ($ts | length) == 0 then empty else ((now - ($ts | sub("\\.[0-9]+"; "") | sub("Z$"; "+00:00") | fromdate)) as $sec | "published " + (if $sec < 3600 then "just now" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end)) end) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
+      expression: '${ ([ (.category // empty), (.maturity // empty), (.version // "" | if . == "" then empty else "v" + . end), ((.created // "") as $ts | if ($ts | length) == 0 then empty else ((now - ($ts | sub("\\.[0-9]+"; "") | sub("Z$"; "+00:00") | fromdate)) as $sec | "published " + (if $sec < 3600 then "just now" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end)) end) ] | map(select(. != null and . != "")) | join("  ·  ")) }'
   resourcesRefs:
     items:
       - id: marketplace-detail-actions

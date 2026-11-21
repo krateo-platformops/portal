@@ -82,10 +82,10 @@ spec:
         askHref: (if ($vers | length) > 0 then
           ("/marketplace/" + $n + "?ask="
            + (("Tell me about the \"" + $n + "\" chart in the Marketplace ("
-               + ([ (if ($latest.version // "") != "" then "v" + $latest.version else empty end), $cat,
+               + ([ ($latest.version // "" | if . == "" then empty else "v" + . end), $cat,
                     (if ($ann["krateo.io/maturity"] // "") != "" then $ann["krateo.io/maturity"] else empty end) ] | join(", "))
                + "; " + (if ((.compdefsError // null) | . != null and . != [] and . != "") then "whether it is installed here could not be read"
-                         elif $instVer[$n] != null then "installed here at v" + ($instVer[$n] // "")
+                         elif $instVer[$n] != null then "installed here" + ($instVer[$n] // "" | if . == "" then "" else " at v" + . end)
                          else "not installed here" end) + "): what it provisions, "
                + (if $instVer[$n] != null then "what it has created in my namespace" else "what installing it would create in my namespace" end)
                + ", and whether it fits this platform.") | @uri))
@@ -340,7 +340,7 @@ spec:
     items: []
   widgetDataTemplate:
     - forPath: items
-      expression: '${ [ { label: "Latest version", value: (.version // "") }, { label: "App version", value: (.appVersion // "") }, { label: "Category", value: (.category // "") }, { label: "Maturity", value: (.maturity // "") }, { label: "Krateo supported", value: (.krateoSupportedVersion // "") }, { label: "Type", value: (.type // "") }, { label: "Published", value: (.created // "") }, { label: "Digest", value: ((.digest // "")[0:19]) }, { label: "Installed", value: (if .installed then ("yes · v" + .installedVersion) else "no" end) } ] | map(select(.value != "" and .value != null)) }'
+      expression: '${ [ { label: "Latest version", value: (.version // "") }, { label: "App version", value: (.appVersion // "") }, { label: "Category", value: (.category // "") }, { label: "Maturity", value: (.maturity // "") }, { label: "Krateo supported", value: (.krateoSupportedVersion // "") }, { label: "Type", value: (.type // "") }, { label: "Published", value: (.created // "") }, { label: "Digest", value: ((.digest // "")[0:19]) }, { label: "Installed", value: (if .installed then ("yes" + (.installedVersion // "" | if . == "" then "" else " · v" + . end)) else "no" end) } ] | map(select(.value != "" and .value != null)) }'
   resourcesRefs:
     items: []
 ---
