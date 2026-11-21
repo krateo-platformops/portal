@@ -47,6 +47,12 @@ CASES = [
     ('True', 'ReconcileGracefullyPaused', None, 'Paused', 'gray'),
     ('True', 'ReconcilePaused', False, 'Paused', 'gray'),
     ('False', 'Unavailable', None, 'NotReady', 'red'),
+    # The management-policy reasons (core-provider#598). A create or a recovery the policy withholds will
+    # not happen by itself, so it is failed, never Creating or Pending; an update it withholds leaves a
+    # healthy composition at its installed chart, so it reads Ready.
+    ('False', 'CreateWithheldByPolicy', None, 'NotReady', 'red'),
+    ('False', 'RecoveryWithheldByPolicy', None, 'NotReady', 'red'),
+    ('True', 'UpdateWithheldByPolicy', None, 'Ready', 'green'),
     ('False', 'Unavailable', False, 'Unhealthy', 'red'),
     ('Unknown', 'ZeroEvidence', None, 'Unknown', 'gray'),
     ('Unknown', 'ChildrenForbidden', None, 'Unknown', 'gray'),
