@@ -652,6 +652,10 @@ SELECT = ("SELECT toUnixTimestamp64Milli(Timestamp) AS ts_ms, ScopeName AS scope
 SUCCESS = " AND LogAttributes['outcome'] = 'success'"
 NOT_AUDIT = (" AND NOT (LogAttributes['k8s.resource.group'] = 'audit.krateo.io'"
              " AND LogAttributes['k8s.resource.resource'] = 'auditrecords')")
+# Nor an access review, which asks a question and stores nothing (portal UX review, 2026-11-21: most of a
+# week's "changes" were the portal's own permission checks). Kubernetes' six review resources, by name.
+NOT_REVIEWS = (" AND LogAttributes['k8s.resource.resource'] NOT IN ('selfsubjectaccessreviews', 'subjectaccessreviews',"
+               " 'localsubjectaccessreviews', 'selfsubjectrulesreviews', 'tokenreviews', 'selfsubjectreviews')")
 
 
 @case('Recent changes: the request snowplow dials')
@@ -670,7 +674,7 @@ def _():
         check(f'{label}: a ClickHouse query', path.startswith('/?query='), True)
         once = urllib.parse.unquote(path[len('/?query='):])
         check(f'{label}: no escape survives one decode (not encoded twice)', re.search(r'%[0-9A-Fa-f]{2}', once), None)
-        check(f'{label}: the SQL', once, SELECT + POP + ' AND Timestamp > now() - INTERVAL 7 DAY AND NOT ' + DRY + access + SUCCESS + NOT_AUDIT + tail)
+        check(f'{label}: the SQL', once, SELECT + POP + ' AND Timestamp > now() - INTERVAL 7 DAY AND NOT ' + DRY + access + SUCCESS + NOT_AUDIT + NOT_REVIEWS + tail)
 
 
 # --- 11. the widgets against the CRDs ------------------------------------------------------------------------
