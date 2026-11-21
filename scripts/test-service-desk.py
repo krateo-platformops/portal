@@ -202,7 +202,8 @@ DOCUMENTED_REASONS = [
     # re-sending every resync, and Synced stays False/ReconcileError with the remote's error (measured by
     # oasgen-provider). So it is the same refused request, and the same red pill, as the row above.
     ('Zendesk keeps refusing the filing, for over an hour', 'rest-dynamic-controller (oasgen-provider#846)',
-     [cond('Ready', 'False', 'CreateRefusedPersistently', 'the vendor has refused this create and the resource has not been Ready for 1h2m0s (last status 422): unexpected status: 422'),
+     [cond('Ready', 'False', 'CreateRefusedPersistently', 'the vendor has refused this create and the resource has not been Ready for 1h2m0s (last status 422): unexpected status: 422.'
+                                                                  ' The in-cycle retry budget is spent, and the controller will try again on the next resync -- it has NOT stopped retrying'),
       cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
      'refused', 'Refused by Zendesk', 'red', 'error'),
     ('held: empty krateo_reference', 'oasgen-provider dispatch',
