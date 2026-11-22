@@ -35,6 +35,21 @@ spec:
       verb: GET
       headers:
         - 'Accept: application/json'
+    {{/* The blueprint's published values.schema.json (the <resource>-<version>-jsonschema-configmap */}}
+    {{/* next to its CD, read as the CALLER, as the formdef reads it): only to say whether its inputs */}}
+    {{/* were INFERRED from values.yaml (core-provider #568) and how many fields accept any value, on */}}
+    {{/* the "Inputs" line. Gated on the CD's status like the formdef's step; continueOnError, so a */}}
+    {{/* blueprint without the ConfigMap (or a caller who cannot read it) just shows no line. */}}
+    - name: jsonschema
+      path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .resource + "-" + .version + "-jsonschema-configmap" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      dependsOn:
+        name: compdef
+        iterator: '[ .compdef | objects | { namespace: (.metadata.namespace // "{{ .Release.Namespace }}"), resource: (.status.resource // ""), version: (((.status.apiVersion // "") | split("/"))[1] // "") } | select(.resource != "" and .version != "") ]'
+      continueOnError: true
+      errorKey: jsonschemaError
     {{/* The helm index — used to enumerate the chart's available versions (update picker). */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{/* IA correlation (blueprint → running instances): the compositions CREATED FROM this */}}
@@ -130,6 +145,7 @@ spec:
         {allowed: (.mayCreate.status.allowed == true), evaluated: ((.mayCreate.status // null) != null)}
   filter: |
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
+    {{- include "portal.inferredInputsDefs" . | nindent 4 }}
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
     # A probe that was skipped or failed keeps the control (see the stages above).
     def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
@@ -183,6 +199,11 @@ spec:
     | {
         askHref: $askHref,
         contents: $contents,
+        # The "Inputs" line (portal.inferredInputsDefs, _inferred-inputs.tpl): "" for an authored
+        # schema or no ConfigMap, so the row is left out; a follower says "Defined by another
+        # blueprint" (its owner gets a link once core-provider#616's status.owner ships).
+        inputs: (([ ($d.status.conditions // [])[]? | objects | select(.type == "ValuesSchemaAuthored") ] | first) as $valuesSchemaCond
+          | (((.jsonschema // {}) | if type == "object" then (.data["values.schema.json"]? // null) else null end) | inferredInputsLine($valuesSchemaCond))),
         may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
         detail: $d,
         compositions: $comps,

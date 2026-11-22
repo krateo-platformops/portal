@@ -86,6 +86,7 @@ spec:
   {{/* spaces so a `#` would swallow the jq after it (the composition-events filter shipped broken this */}}
   {{/* way once). `|` preserves newlines so comments terminate. */}}
   filter: |
+    {{- include "portal.inferredInputsDefs" . | nindent 4 }}
     .name as $n
     | .namespace as $ns
     # The matched composition ($d). `.found[]?` swallows a non-array `.found`; the inner `try`
@@ -198,6 +199,9 @@ spec:
        | { autocomplete: (map(select(.list == "autocomplete") | .entry)),
            dependencies: (map(select(.list == "dependencies") | .entry)) }) as $fieldLists
     | {
+        # Inputs inferred from the chart's values.yaml (core-provider #568 child 7): the Edit form's
+        # shorter notice (no Details). portal.inferredInputsDefs, _inferred-inputs.tpl (a guarded copy).
+        notices: ($raw | inferredInputsNotices(null; $hidden; "edit")),
         schemaSpec: $schema,
         optionRefs: $optionRefs,
         autocomplete: $fieldLists.autocomplete,

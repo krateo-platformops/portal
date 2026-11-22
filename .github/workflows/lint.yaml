@@ -763,6 +763,23 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-blueprint-contents.py
 
+      # Inputs inferred from a chart's values.yaml (core-provider #568): the Create and Edit forms'
+      # notice and the blueprint's "Inputs" line, over core-provider's envtest sample and the charts'
+      # own jq. The fields that accept any value must be the ones a person sees (core-provider's
+      # measured CRD-side list); a control drops the empty-items rule and must lose two of them.
+      - name: Inferred inputs notice
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-inferred-inputs.py
+
+      # lint-pinned-crds' widgetDataTemplate target walk: what it reports and what it tolerates.
+      - name: Pinned-CRD gate reads widgetDataTemplate targets
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-lint-pinned-crds.py
+
       # A version label never comes out as a bare "v" (review: "uncategorized · v"): every "v" + version
       # in a rendered chart is the one guarded form, and the marketplace header and Installed row are
       # run over a present, an empty and a missing version.

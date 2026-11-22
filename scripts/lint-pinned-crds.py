@@ -204,6 +204,48 @@ def undeclared(value, schema, path=''):
     return bad
 
 
+SEGMENT = re.compile(r'([^.\[\]]+)|\[(\d+)\]')
+
+
+def undeclared_target(for_path, schema):
+    """The first segment of a widgetDataTemplate `forPath` that `schema` (spec.widgetData's) does not
+    declare, or None. Same tolerance as undeclared(): a preserve-unknown or opaque node admits
+    anything below it, and additionalProperties admits any name.
+
+    WHY THIS EXISTS (portal 1.8.163, 2026-11-22). undeclared() reads only what a chart AUTHORS; a
+    field written through widgetDataTemplate appears only in the RESOLVED widget, so a floor below
+    the frontend-crds that declares it passed here with 0 findings (control: blueprints-page writing
+    Form `notices`, frontend 1.8.68, at a floor of 1.8.59). On the live path the apiserver never
+    sees that field and snowplow validates the resolved widget against the CRD, so the floor is the
+    only guard, and it has to read the targets too."""
+    node, walked = schema, 'widgetData'
+    for name, index in SEGMENT.findall(for_path):
+        if not isinstance(node, dict) or node.get('x-kubernetes-preserve-unknown-fields'):
+            return None
+        if name:
+            props = node.get('properties') or {}
+            extra = node.get('additionalProperties')
+            walked += f'.{name}'
+            if name in props:
+                node = props[name]
+            elif isinstance(extra, dict):
+                node = extra
+            elif extra is True or (not props and extra is None):
+                return None
+            else:
+                return walked
+        else:
+            walked += f'[{index}]'
+            items = node.get('items')
+            if isinstance(items, dict):
+                node = items
+            elif node.get('type') == 'array' or not node.get('properties'):
+                return None
+            else:
+                return walked
+    return None
+
+
 def check(version, sch, rendered):
     """(findings, checked) for the rendered widgets of each chart in `rendered` against `sch`."""
     findings, checked, kinds_missing = [], 0, set()
@@ -224,6 +266,12 @@ def check(version, sch, rendered):
             checked += 1
             for p in undeclared(doc.get('spec') or {}, spec_schema):
                 findings.append((chart, f'{kind}/{name} spec{p}'))
+            wd_schema = (spec_schema.get('properties') or {}).get('widgetData') or {}
+            for entry in (doc.get('spec') or {}).get('widgetDataTemplate') or []:
+                fp = str((entry or {}).get('forPath') or '')
+                miss = undeclared_target(fp, wd_schema) if fp else None
+                if miss:
+                    findings.append((chart, f'{kind}/{name} widgetDataTemplate forPath {fp!r} writes {miss}'))
     for k in sorted(kinds_missing):
         findings.append((k.rsplit(' (', 1)[1].rstrip(')'), f'{k.rsplit(" (", 1)[0]}: no such kind/version served'))
     return findings, checked
@@ -297,7 +345,7 @@ def main():
     for f in findings:
         print(f'  {f}')
     print(f'\nlint-pinned-crds: frontend-crds {version} (from {source}); {checked} authored widget(s) '
-          f'checked; {floored} chart floor(s) checked at their declared version; '
+          f'checked, widgetDataTemplate targets included; {floored} chart floor(s) checked at their declared version; '
           f'{len(findings)} finding(s)')
     return len(findings)
 
