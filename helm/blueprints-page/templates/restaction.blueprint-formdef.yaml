@@ -128,6 +128,7 @@ spec:
   {{/* blueprint's own `namespace` spec field is untouched; only real, create-permitted namespaces are */}}
   {{/* offered. Was previously pinned to a single [$blueprintNs] which 403'd every tenant create. */}}
   filter: |
+    {{- include "portal.inferredInputsDefs" . | nindent 4 }}
     # Where the value of the TOP-LEVEL key $key opens (the index of its `{`) in JSON text, or null.
     # A string scan that tracks depth and skips string contents, because `index("\"properties\": ")`
     # finds the FIRST occurrence: a blueprint whose schema puts an `if: { properties: … }` (or any
@@ -169,6 +170,9 @@ spec:
         + "__" + ((.namespace // "") | gsub("[^a-zA-Z0-9_.-]"; "-"))
         + "__" + ((.name // "") | gsub("[^a-zA-Z0-9_.-]"; "-"))) as $ownerKey
     | ((.compdef.status.apiVersion // "") | tostring) as $cdApiVersion
+    # core-provider's ValuesSchemaAuthored condition (#568), bound HERE because a jq function argument
+    # is evaluated against the function's input (the schema string), not this root.
+    | ([ (.compdef.status.conditions // [])[]? | objects | select(.type == "ValuesSchemaAuthored") ] | first) as $valuesSchemaCond
     # THE CRD IS NO LONGER REQUIRED (#261). A CRD read is CLUSTER-SCOPED and is dialled as the
     # caller, so requiring it here meant every persona that can reach /blueprints/{ns}/{name}/new
     # needed a ClusterRole — which is what `devs-get-list-any-customresourcedefinition-in-cluster`
@@ -189,7 +193,7 @@ spec:
             propertiesToHide: [],
             initialValues: { __owner: $ownerKey },
             optionRefs: [],
-            apiVersion: "", kind: "", resource: "", createNamespace: "" }
+            apiVersion: "", kind: "", resource: "", createNamespace: "", notices: [] }
       else
     ($cdApiVersion | split("/")[1]) as $ver
     | ((.namespace // "") | if . == "" then "{{ .Release.Namespace }}" else . end) as $blueprintNs
@@ -330,6 +334,12 @@ spec:
           | .required = (["__composition_name__", "__composition_namespace__"] + (.required // []))),
         # Only when stringSchema is "" (no jsonschema ConfigMap): say what that costs, instead of
         # silently rendering a form without its field order or dynamic options.
+        # Inputs inferred from the chart's values.yaml (core-provider #568 child 7): an info notice
+        # with the fields that accept any value and core-provider's ValuesSchemaAuthored message under
+        # Details. [] for an authored schema, or when there is no ConfigMap (then `notice` speaks).
+        # portal.inferredInputsDefs, _inferred-inputs.tpl. Approved mockup:
+        # https://claude.ai/artifact/TqxGgtmyM8smwiE83BMEjD.
+        notices: ($raw | inferredInputsNotices($valuesSchemaCond; $hidden; "create")),
         notice: (if $stringSchema == "" then
             "This form is built from the blueprint's CRD because its schema ConfigMap was not found: fields are in alphabetical order, and options a field loads at runtime are not available."
           else "" end),
