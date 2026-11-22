@@ -101,7 +101,14 @@ def requestView:
   | (if $r == null then "filing"
      elif $rs == "True" and $rr == "Available" then "filed"
      elif $rs == "Unknown" and $rr == "ObserveFailed" then "unreachable"
-     elif $rs == "False" and ($rr == "Creating" or $rr == "CreateRefusedPersistently") then (if $ss == "False" and $sr == "ReconcileError" then "refused" else "filing" end)
+     # oasgen-provider#846's CreateRefusedPersistently (Ready=False after >= 1h not Ready) is NOT progress.
+     # rest-dynamic-controller's retries are bounded (REST_CONTROLLER_MAX_ERROR_RETRIES, default 5,
+     # 1s..90s backoff: spent in minutes) and counted over the object's LIFETIME (forgotten only on
+     # success); once spent it drops the resource and sets nothing (read at oasgen-provider 0.84.0,
+     # go/rest-dynamic-controller/main.go:194-196). By the time the reason appears the budget is gone,
+     # so it means an operator must look: "Needs attention", whatever Synced says. Diego, 2026-11-22.
+     elif $rs == "False" and $rr == "CreateRefusedPersistently" then "stalled"
+     elif $rs == "False" and $rr == "Creating" then (if $ss == "False" and $sr == "ReconcileError" then "refused" else "filing" end)
      elif $rs == "False" and $rr == "CorrelationTokenMissing" then "held"
      else "other" end) as $state
   # A Zendesk status is shown only when there is a Zendesk request to have one: filed, or
@@ -115,6 +122,7 @@ def requestView:
      elif $state == "unreachable" then { label: "Not filed", color: "gray" }
      elif $state == "filing" then { label: "Filing…", color: "gold" }
      elif $state == "refused" then { label: "Refused by Zendesk", color: "red" }
+     elif $state == "stalled" then { label: "Needs attention", color: "red" }
      elif $state == "held" then { label: "Held", color: "orange" }
      else { label: (if $rr != "" then $rr elif $rs != "" then ("Ready=" + $rs) else "Unknown" end), color: "gray" } end) as $pill
   | {
