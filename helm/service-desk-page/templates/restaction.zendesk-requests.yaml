@@ -159,7 +159,7 @@ spec:
     # a request now Solved or Closed, at its last update (Zendesk keeps no solved_at on a request).
     | ([ $rows[] | (if .created != "" then .created else .portalCreated end) | epoch | select(. != null) ]) as $openedAt
     | ([ $rows[] | select(.zendeskStatus | IN("solved", "closed")) | .updated | epoch | select(. != null) ]) as $solvedAt
-    | ([ $rows[] | select(.state | IN("refused", "held", "other")) ] | length) as $attention
+    | ([ $rows[] | select(.state | IN("refused", "stalled", "held", "other")) ] | length) as $attention
     | ([ $openedAt[] | select(. >= $since) ] | length) as $openedIn
     | ([ $solvedAt[] | select(. >= $since) ] | length) as $solvedIn
     | ([ range(0; $b.n) as $i | ($start + $i * $b.size) as $t
@@ -244,8 +244,8 @@ spec:
           foot: ([ (if .id != "" then "#" + .id else "not in Zendesk yet" end),
                    (if .raisedBy != "" then "raised by " + .raisedBy else empty end),
                    ((.sortKey | utcstamp) | if . != "" then "updated " + . else empty end) ] | join(" · ")),
-          markIcon: (if .state | IN("refused", "held", "other") then "fa-triangle-exclamation" else "" end),
-          markTip: (if .state == "refused" then "Zendesk refused it: open it to see why" elif .state == "held" then "Held before filing: open it to see why" elif .state == "other" then "An unexpected state: open it to see the conditions" else "" end) } ],
+          markIcon: (if .state | IN("refused", "stalled", "held", "other") then "fa-triangle-exclamation" else "" end),
+          markTip: (if .state == "refused" then "Zendesk refused it: open it to see why" elif .state == "stalled" then "Needs attention: open it to see why" elif .state == "held" then "Held before filing: open it to see why" elif .state == "other" then "An unexpected state: open it to see the conditions" else "" end) } ],
         byStatus: ([ $rows[] | .label ] | group_by(.) | map({ status: .[0], count: length }) | sort_by(-.count, .status)),
         trend: $trend,
         trendUnit: $b.unit,

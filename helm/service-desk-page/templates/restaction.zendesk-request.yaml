@@ -90,6 +90,11 @@ spec:
          { show: true, type: "error", title: "Zendesk refused this request",
            description: ((if ($v.synced.message // "") != "" then $v.synced.message else ($v.ready.message // "") end | sentence) as $m
              | (if $m != "" then $m + " " else "" end) + "Ask an administrator.") }
+       elif $state == "stalled" then
+         { show: true, type: "error", title: "Needs attention",
+           description: ((($v.ready.message // "") | sentence) as $m
+             | (if $m != "" then $m + " " else "" end)
+               + "Zendesk refused it, and it hasn’t been filed for over an hour, so the provider has most likely stopped retrying. It won’t be filed until someone fixes the cause. Ask an administrator.") }
        elif $state == "held" then
          { show: true, type: "warning", title: "Held",
            description: ((($v.ready.message // "") | sentence) as $m

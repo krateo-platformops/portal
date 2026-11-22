@@ -197,15 +197,16 @@ DOCUMENTED_REASONS = [
     ('Zendesk refuses the filing (e.g. 422)', 'rest-dynamic-controller',
      [cond('Ready', 'False', 'Creating'), cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
      'refused', 'Refused by Zendesk', 'red', 'error'),
-    # oasgen-provider#846 (merged 2026-11-19, ships in 0.85.2): after an hour of refusals Ready's REASON
-    # becomes CreateRefusedPersistently in place of Creating. It is announce-only: the controller keeps
-    # re-sending every resync, and Synced stays False/ReconcileError with the remote's error (measured by
-    # oasgen-provider). So it is the same refused request, and the same red pill, as the row above.
-    ('Zendesk keeps refusing the filing, for over an hour', 'rest-dynamic-controller (oasgen-provider#846)',
+    # oasgen-provider#846: after an hour not Ready, Ready's REASON becomes CreateRefusedPersistently. By then
+    # rest-dynamic-controller's retries are spent: bounded (REST_CONTROLLER_MAX_ERROR_RETRIES, default 5,
+    # 1s..90s), counted over the object's lifetime, and once spent the resource is dropped with nothing
+    # set (read at oasgen-provider 0.84.0, go/rest-dynamic-controller/main.go:194-196). So it is not the
+    # same refused request still being worked: an operator must look (Diego, 2026-11-22).
+    ('Zendesk kept refusing the filing for over an hour', 'rest-dynamic-controller (oasgen-provider#846)',
      [cond('Ready', 'False', 'CreateRefusedPersistently', 'the vendor has refused this create and the resource has not been Ready for 1h2m0s (last status 422): unexpected status: 422.'
                                                                   ' The in-cycle retry budget is spent, and the controller will try again on the next resync -- it has NOT stopped retrying'),
       cond('Synced', 'False', 'ReconcileError', 'create request: 422 Unprocessable Entity: subject is too long')], None,
-     'refused', 'Refused by Zendesk', 'red', 'error'),
+     'stalled', 'Needs attention', 'red', 'error'),
     ('held: empty krateo_reference', 'oasgen-provider dispatch',
      [cond('Ready', 'False', 'CorrelationTokenMissing', 'krateo_reference is empty'), cond('Synced', 'True', 'ReconcileSuccess')], None,
      'held', 'Held', 'orange', 'warning'),
@@ -219,9 +220,9 @@ PORTAL_CASES = [
     ('no status at all', None, None, 'filing', 'Filing…', 'gold', 'info'),
     ('Ready=False/Creating, Synced=True', [cond('Ready', 'False', 'Creating'), cond('Synced', 'True', 'ReconcileSuccess')],
      None, 'filing', 'Filing…', 'gold', 'info'),
-    # Red needs BOTH halves, for the new reason too: Ready's shape alone never makes a request refused.
+    # CreateRefusedPersistently needs attention whatever Synced says: the budget is gone either way.
     ('Ready=False/CreateRefusedPersistently, Synced=True', [cond('Ready', 'False', 'CreateRefusedPersistently'), cond('Synced', 'True', 'ReconcileSuccess')],
-     None, 'filing', 'Filing…', 'gold', 'info'),
+     None, 'stalled', 'Needs attention', 'red', 'error'),
     # THE MESSAGE IS NOT READ: a Creating condition whose message happens to say "ObserveFailed" or
     # "refused" is still filing.
     ('Ready=False/Creating whose message says ObserveFailed',
