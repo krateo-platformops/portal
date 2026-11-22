@@ -15,7 +15,8 @@ The inputs are core-provider's envtest sample, measured on a real apiserver
 This runs, as they ship: blueprint-formdef's filter and the Create Form's `notices`,
 composition-editdef's filter and the Edit Form's `notices`, and blueprint-detail's filter with the
 info Descriptions' items. The untyped fields must equal the list core-provider measured on the CRD
-side (B_crdAnyValue: the fields a person sees), not its report (`lists[]`, no `empty`).
+side (B_crdAnyValue: the fields a person sees), not its report (`lists[]` where the form says `lists`;
+since plumbing v1.105.0 the report also lists `empty[]`, so the two counts agree).
 A control: treating an `items: {}` array as typed must lose `lists` and `mixedKinds`.
 """
 import json
@@ -39,7 +40,7 @@ CM_AUTHORED = '{"$schema":"https://json-schema.org/draft-07/schema#","type":"obj
 CM_FORGED = CM_AUTHORED  # the forged-marker case: core-provider's ConfigMap is byte-identical to authored
 # core-provider's measured lists for the six-leaf fixture (inferred.untyped-paths.json).
 CRD_ANY_VALUE = ['empty', 'lists', 'mixedKinds', 'nested.deep', 'nothing', 'ratio']
-REPORT_UNTYPED = ['lists[]', 'mixedKinds[]', 'nested.deep', 'nothing', 'ratio']
+REPORT_UNTYPED = ['empty[]', 'lists[]', 'mixedKinds[]', 'nested.deep', 'nothing', 'ratio']  # plumbing v1.105.0 (core-provider #620): gains empty[]
 
 COND_INFERRED = {'type': 'ValuesSchemaAuthored', 'status': 'False', 'reason': 'InferredFromValues',
                  'message': 'the chart ships no values.schema.json; the spec schema is inferred from values.yaml '
@@ -152,7 +153,7 @@ def main():
           [{'title': TITLE, 'description': [CREATE_BODY], 'details': details}])
     check('create, untyped: the fields a person sees, = core-provider\'s CRD-side list', create(CM_UNTYPED, COND_INFERRED),
           [{'title': TITLE, 'description': [CREATE_BODY, SIX], 'details': details}])
-    check('create, untyped: NOT core-provider\'s report (lists[], no empty)',
+    check('create, untyped: NOT core-provider\'s report (it says lists[], the form says lists)',
           REPORT_UNTYPED != CRD_ANY_VALUE and ', '.join(CRD_ANY_VALUE) in SIX, True)
     check('create, authored: nothing', create(CM_AUTHORED, COND_AUTHORED), [])
     check('create, forged marker (stripped by core-provider): nothing', create(CM_FORGED, COND_AUTHORED), [])
