@@ -24,6 +24,11 @@
   lands in status.resourcesRefs.items[] — the edge snowplow re-derives `allowed` on per identity,
   and the edge the prewarm walker follows.
 
+  Every entry carries its page root's `namespace` as well: the address when its ref could NOT be
+  checked. snowplow (>= 1.12.75) returns such a ref with an `error` and no path, and the frontend
+  then spells the address itself, as flexes/<page> in this namespace. Without it, it would look in
+  the portal's own namespace, where no page root lives (krateo-platformops/frontend#533).
+
   Every entry now carries `resourceRefId` too. Without it the frontend's nav gate is UNREACHABLE:
   navModel.isNavEntryAllowed fail-opens for any item with no resourceRefId, which since the
   annotation migration has been every item, so every user sees every entry regardless of what they
@@ -202,19 +207,20 @@ spec:
     | ( [ $roots[]
       | (.metadata.annotations // {}) as $a
       | (.metadata.name) as $root
+      | (.metadata.namespace) as $rootNs
       | (.metadata.name | sub("^page-"; "")) as $slug
       | (($a["krateo.io/nav-order"] // "100") | tonumber) as $ord
       | ((($a["krateo.io/nav-link-only"] // "") == "true") as $linkOnly
       | ( (if $linkOnly
              then { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, linkOnly: true }
-             else { path: $a["krateo.io/nav-path"], page: $slug, order: $ord, resourceRefId: $root }
+             else { path: $a["krateo.io/nav-path"], page: $slug, namespace: $rootNs, order: $ord, resourceRefId: $root }
            end)
           + (if $a["krateo.io/nav-label"] then { label: $a["krateo.io/nav-label"] } else {} end)
           + (if $a["krateo.io/nav-icon"]  then { icon:  $a["krateo.io/nav-icon"]  } else {} end)
           + (if $a["krateo.io/nav-group"] then { group: $a["krateo.io/nav-group"] } else {} end) ),
         ( if $linkOnly then empty
           else ( ($a["krateo.io/nav-alias"] // "") | split(",")[] | select(length > 0)
-                 | { path: ., page: $slug, order: $ord, resourceRefId: $root } )
+                 | { path: ., page: $slug, namespace: $rootNs, order: $ord, resourceRefId: $root } )
           end ))
     ] ) as $entries
     | { items: ( $entries | unique | sort_by(.order) ),
