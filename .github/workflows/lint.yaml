@@ -783,6 +783,15 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-inferred-inputs.py
 
+      # Values a new blueprint version refuses (core-provider #623): the blueprint Details row and Alert,
+      # and the composition Edit form's notice, over core-provider's envtest sample and the charts' own
+      # jq. Absent data is "no data", never an all-clear; a control drops the refused branch.
+      - name: Migrated values notice
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-migrated-values.py
+
       # lint-pinned-crds' widgetDataTemplate target walk: what it reports and what it tolerates.
       - name: Pinned-CRD gate reads widgetDataTemplate targets
         run: |

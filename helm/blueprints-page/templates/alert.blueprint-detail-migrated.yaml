@@ -1,0 +1,29 @@
+{{/* After a blueprint version migration: which compositions the served version refuses values of, or */}}
+{{/* could not check (core-provider #623). Mounted by blueprint-detail-col-left only when there is one */}}
+{{/* (migratedValues.alert from restaction.blueprint-detail). Approved mockup: */}}
+{{/* https://claude.ai/artifact/MbNWkNtpomFXsWJPArjk3U */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-blueprint-detail-migrated
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: ""
+    showIcon: true
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .migratedValues.alert.title // "" }'
+    - forPath: description
+      expression: '${ .migratedValues.alert.description // "" }'
+    - forPath: type
+      expression: '${ .migratedValues.alert.type // "info" }'
+  resourcesRefs:
+    items: []
