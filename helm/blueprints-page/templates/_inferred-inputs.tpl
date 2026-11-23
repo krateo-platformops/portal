@@ -13,7 +13,9 @@
     forged-marker ConfigMaps are byte-identical in its envtest sample);
     $cond, the CompositionDefinition's ValuesSchemaAuthored condition (or null): its message goes
     verbatim under Details, and Unknown/OwnedByAnotherDefinition marks a follower;
-    $hidden, field names the form hides (listing a field nobody sees would be noise).
+    $hidden, field names the form hides (listing a field nobody sees would be noise);
+    $owner, the CompositionDefinition's status.owner {namespace, name} (core-provider 2.13.126, set
+    only on a follower): its line names and links the owner; absent, "Defined by another blueprint".
 
   A field ACCEPTS ANY VALUE, measured on core-provider's sample (~/krateo/samples/568-marker, the
   six-leaf fixture in the ConfigMap shape):
@@ -62,8 +64,14 @@ def inferredInputsNotices($cond; $hidden; $variant):
            then { details: ("ValuesSchemaAuthored=" + (($cond.status // "") | tostring) + " · " + (($cond.reason // "") | tostring) + "\n" + ($cond.message | tostring)) }
            else {} end) ]
     end;
-def inferredInputsLine($cond):
-  if ($cond | type) == "object" and ($cond.status // "") == "Unknown" and ($cond.reason // "") == "OwnedByAnotherDefinition" then "Defined by another blueprint"
+def inferredInputsOwner($owner):
+  if ($owner | type) == "object" and (($owner.namespace // "") | tostring) != "" and (($owner.name // "") | tostring) != "" then { namespace: ($owner.namespace | tostring), name: ($owner.name | tostring) } else null end;
+def inferredInputsHref($cond; $owner):
+  if ($cond | type) == "object" and ($cond.reason // "") == "OwnedByAnotherDefinition" and (inferredInputsOwner($owner) != null)
+  then ("/blueprints/" + inferredInputsOwner($owner).namespace + "/" + inferredInputsOwner($owner).name) else "" end;
+def inferredInputsLine($cond; $owner):
+  if ($cond | type) == "object" and ($cond.status // "") == "Unknown" and ($cond.reason // "") == "OwnedByAnotherDefinition" then
+    (inferredInputsOwner($owner) as $o | if $o != null then "Defined by blueprint " + $o.namespace + "/" + $o.name else "Defined by another blueprint" end)
   else inferredSchema as $s
     | if $s == null then ""
       else ($s | inferredAnyValue([])) as $u
