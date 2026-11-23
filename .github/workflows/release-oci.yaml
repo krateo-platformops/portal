@@ -22,16 +22,15 @@ on:
 
 jobs:
   release-oci:
-    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@main
+    # 1.1.0, not 2.0.0 for now: at b030d3f 2.0.0's package-and-push dies in "Prepare all required actions"
+    # for every caller, `index_channel: none` included (a dangling symlink in the krateo-blueprints/charts
+    # action it stages; acmp, owner of krateo-platformops/.github; observability run 45082862711). Move to
+    # the fixed release-oci deliberately when acmp ships it. 1.1.0 declares no index_channel, and an
+    # unknown input fails at startup, so it is not passed.
+    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@f6185ef0a8161a4201217d6ce0953718fc736fe0 # 1.1.0
     permissions:
       contents: read
       packages: write
     with:
       chart_version: ${{ github.event.inputs.chart_version || '' }}
       app_version: ${{ github.event.inputs.app_version || '' }}
-      # Required since the shared workflow's 2.0.0 (krateo-platformops/.github 77bcf7f, 2026-11-22):
-      # which krateo-blueprints index channel these charts go to. `none`: the 18 page charts are platform
-      # components the installer pins from ghcr.io/krateo-platformops/charts. They are not the index's
-      # `pages` channel, which (2e72995) must be published to the krateo-blueprints registry. Without the
-      # input GitHub refuses to start the run, as it did for frontend 1.8.70.
-      index_channel: none
