@@ -19,18 +19,25 @@ on:
       app_version:
         description: "App image version (APP_VERSION). Default: latest tag of the app repo."
         required: false
+      dry_run:
+        description: "Rehearse: build, stamp and check everything, push nothing. Default true for a manual run."
+        type: boolean
+        default: true
 
 jobs:
   release-oci:
-    # 1.1.0, not 2.0.0 for now: at b030d3f 2.0.0's package-and-push dies in "Prepare all required actions"
-    # for every caller, `index_channel: none` included (a dangling symlink in the krateo-blueprints/charts
-    # action it stages; acmp, owner of krateo-platformops/.github; observability run 45082862711). Move to
-    # the fixed release-oci deliberately when acmp ships it. 1.1.0 declares no index_channel, and an
-    # unknown input fails at startup, so it is not passed.
-    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@f6185ef0a8161a4201217d6ce0953718fc736fe0 # 1.1.0
+    # The fixed 2.0.0 (acmp, owner of krateo-platformops/.github): 7da11cb pins krateo-blueprints/charts
+    # 1.9.3, with no dangling symlink (proven by alert-provider run 45083740900, and for frontend by a
+    # dispatch dry run). NOT b030d3f, which cannot package.
+    uses: krateo-platformops/.github/.github/workflows/release-oci.yaml@7da11cb60cee5cbfc7d9e8c9328692807b43cefd # main 2026-11-22
     permissions:
       contents: read
       packages: write
     with:
       chart_version: ${{ github.event.inputs.chart_version || '' }}
       app_version: ${{ github.event.inputs.app_version || '' }}
+      # 2.0.0's required input. `none`: the 18 page charts are platform components the installer pins
+      # from ghcr.io/krateo-platformops/charts, not the krateo-blueprints index's `pages` channel.
+      index_channel: none
+      # A manual run is a rehearsal unless asked otherwise; a tag push is never a dry run.
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
