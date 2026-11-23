@@ -792,6 +792,14 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-migrated-values.py
 
+      # Every sidebar page item names the root its ref names, so a ref snowplow could not check still has
+      # an address (frontend#533). A control drops the namespace.
+      - name: Sidebar items say where their page lives
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-sidebar-nav.py
+
       # lint-pinned-crds' widgetDataTemplate target walk: what it reports and what it tolerates.
       - name: Pinned-CRD gate reads widgetDataTemplate targets
         run: |
