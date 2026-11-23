@@ -146,6 +146,7 @@ spec:
   filter: |
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     {{- include "portal.inferredInputsDefs" . | nindent 4 }}
+    {{- include "portal.migratedValuesDefs" . | nindent 4 }}
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
     # A probe that was skipped or failed keeps the control (see the stages above).
     def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
@@ -199,6 +200,12 @@ spec:
     | {
         askHref: $askHref,
         contents: $contents,
+        # After a migration, compositions whose values the served version refuses (core-provider #623):
+        # the "Values check" row and the Alert above the Details card (portal.migratedValuesDefs,
+        # _migrated-values.tpl). {line: "", alert: null} when there is nothing to say.
+        migratedValues: (($d.status.migratedValues // null) as $mv
+          | ([ ($d.status.conditions // [])[]? | objects | select(.type == "MigratedValuesValid") ] | first) as $mvCond
+          | migratedValuesDetails($mv; $mvCond)),
         # The "Inputs" line (portal.inferredInputsDefs, _inferred-inputs.tpl): "" for an authored
         # schema or no ConfigMap, so the row is left out; a follower says "Defined by another
         # blueprint" (its owner gets a link once core-provider#616's status.owner ships).

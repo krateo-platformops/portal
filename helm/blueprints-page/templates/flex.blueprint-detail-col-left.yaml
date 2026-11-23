@@ -1,5 +1,6 @@
 {{/* Left column (wider): the Details card (chart / versions / status / synced / created) */}}
-{{/* + the Running compositions card (the blueprint's live instances — IA followup F1). */}}
+{{/* + the Running compositions card (the blueprint's live instances — IA followup F1). Above them, */}}
+{{/* only after a migration left something to say, the values-check Alert (core-provider #623). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,12 +16,27 @@ spec:
     gap: middle
     allowedResources:
       - cards
+      - alerts
     items:
       - resourceRefId: card-blueprint-detail-info
       - resourceRefId: card-blueprint-detail-metadata
       - resourceRefId: card-blueprint-detail-compositions
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (if (.migratedValues.alert // null) != null then [ { resourceRefId: "alert-blueprint-detail-migrated" } ] else [] end)
+        + [ { resourceRefId: "card-blueprint-detail-info" }, { resourceRefId: "card-blueprint-detail-metadata" }, { resourceRefId: "card-blueprint-detail-compositions" } ] }
   resourcesRefs:
     items:
+      - id: alert-blueprint-detail-migrated
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-blueprint-detail-migrated
+        namespace: {{ $.Values.namespace }}
+        resource: alerts
+        verb: GET
       - id: card-blueprint-detail-info
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: card-blueprint-detail-info
