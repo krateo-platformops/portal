@@ -85,12 +85,15 @@ def expr(doc, for_path):
     return e[2:-1]
 
 
-def compdef(cond):
+def compdef(cond, owner=None):
     conds = [{'type': 'Ready', 'status': 'True', 'reason': 'Available'}] + ([cond] if cond else [])
-    return {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+    out = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
             'metadata': {'name': 'shop', 'namespace': 'krateo-system', 'creationTimestamp': '2026-11-22T10:00:00Z'},
             'spec': {'chart': {'repo': 'shop', 'version': '0.1.0'}},
             'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'Shop', 'resource': 'shops', 'conditions': conds}}
+    if owner:
+        out['status']['owner'] = owner
+    return out
 
 
 def cm(raw):
@@ -116,8 +119,8 @@ def editdef(prog, raw):
     return jq(prog, data)
 
 
-def detail(prog, raw, cond):
-    data = {'name': 'shop', 'namespace': 'krateo-system', 'compdef': compdef(cond), 'jsonschema': cm(raw),
+def detail(prog, raw, cond, owner=None):
+    data = {'name': 'shop', 'namespace': 'krateo-system', 'compdef': compdef(cond, owner), 'jsonschema': cm(raw),
             'catalog': {'entries': {}}, 'comps': {'items': []}}
     return jq(prog, data)
 
@@ -144,9 +147,13 @@ def main():
     def edit(raw):
         return jq(edit_notices, editdef(edit_prog, raw))
 
-    def inputs_row(raw, cond):
-        rows = jq(info_items, detail(detail_prog, raw, cond))
+    def inputs_row(raw, cond, owner=None):
+        rows = jq(info_items, detail(detail_prog, raw, cond, owner))
         return [r['value'] for r in rows if r['label'] == 'Inputs'], [r['label'] for r in rows]
+
+    def inputs_link(raw, cond, owner=None):
+        rows = jq(info_items, detail(detail_prog, raw, cond, owner))
+        return [r.get('href') for r in rows if r['label'] == 'Inputs']
 
     details = 'ValuesSchemaAuthored=False · InferredFromValues\n' + COND_INFERRED['message']
     check('create, inferred: the notice, its Details, no "accept any value"', create(CM_INFERRED, COND_INFERRED),
@@ -174,8 +181,14 @@ def main():
           ['Inferred from the chart’s default values'])
     check('details, authored: no Inputs row', inputs_row(CM_AUTHORED, COND_AUTHORED)[0], [])
     check('details, no ConfigMap: no Inputs row', inputs_row(None, COND_INFERRED)[0], [])
-    check('details, follower: another blueprint defines it, no owner parsed from prose',
-          inputs_row(None, COND_FOLLOWER)[0], ['Defined by another blueprint'])
+    check('details, follower without status.owner (core-provider < 2.13.126): no owner parsed from prose',
+          (inputs_row(None, COND_FOLLOWER)[0], inputs_link(None, COND_FOLLOWER)), (['Defined by another blueprint'], [None]))
+    owner = {'namespace': 'krateo-system', 'name': 'owner'}
+    check('details, follower with status.owner: names the owner and links it',
+          (inputs_row(None, COND_FOLLOWER, owner)[0], inputs_link(None, COND_FOLLOWER, owner)),
+          (['Defined by blueprint krateo-system/owner'], ['/blueprints/krateo-system/owner']))
+    check('details, an owner on a NON-follower is not linked',
+          inputs_link(CM_UNTYPED, COND_INFERRED, owner), [None])
 
     control = create_prog.replace('elif .type == "array" and ((.items == null) or (.items == {})) then $q',
                                   'elif false then $q', 1)
