@@ -1,5 +1,6 @@
 {{/* In place of the cards or the table when they would be empty: the incidents could not be read
-     (and why: nothing on the page is a count of them), or no incident is in the picked state.
+     (and why: nothing on the page is a count of them), or no incident is in the picked state
+     (Resolved: none resolved in the range, which the line says).
      Drawn as a warning when the read failed, muted otherwise. */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -18,7 +19,7 @@ spec:
     type: secondary
   widgetDataTemplate:
   - forPath: text
-    expression: '${ if .failed then "The incidents could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.q // "") != "" and (.total // 0) == 0 then "No incident matches \"" + .q + "\"." elif (.total // 0) == 0 then "There are no incidents." elif .status == "all" then "There are no incidents." else ({ open: "No incident is open.", analyzing: "No incident is being analyzed.", verifying: "No incident is being verified.", resolved: "No incident is resolved.", closed: "No incident is closed." }[.status] // "No incident is in this state.") end }'
+    expression: '${ if .failed then "The incidents could not be read (" + (.readError // "") + "), so nothing on this page counts them." elif (.q // "") != "" and (.total // 0) == 0 then "No incident matches \"" + .q + "\"." elif (.total // 0) == 0 then "There are no incidents." elif .status == "all" then "There are no incidents." else ({ open: "No incident is open.", analyzing: "No incident is being analyzed.", verifying: "No incident is being verified.", resolved: ("No incident resolved in " + ({ "24h": "the last 24 hours", "30d": "the last 30 days" }[.range // ""] // "the last 7 days") + "."), closed: "No incident is closed." }[.status] // "No incident is in this state.") end }'
   - forPath: type
     expression: '${ if .failed then "warning" else "secondary" end }'
   resourcesRefs:

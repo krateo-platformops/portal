@@ -5,7 +5,8 @@ test-alerts-filter — /alerts' state filter, over the chart's own jq.
 WHAT IT GUARDS. obs-alerts filters its rows by the ?status= chip (Firing when absent) and counts
 every chip over the full set. The rules a reader would notice:
   - the state chips (alerts dashboard): Firing, Not evaluated, Pending, OK, All, in triage order,
-    each with its count, the picked one active, every route keeping ?range, ?view and ?projects;
+    then With open incidents (?status=open-incidents, any state; test-alerts-overview checks its
+    rows), each with its count, the picked one active, every route keeping ?range, ?view and ?projects;
   - an alert with no HyperDX alert behind it is "Not evaluated", in the chip and in the table,
     whatever .status.state last said: nothing evaluates it;
   - a state is matched in any case; a ?status= that is no state shows no rows, and no chip is active;
@@ -111,12 +112,13 @@ def check_state_chips():
     ex = {'projects': 'team a'}
     out = resolve(ex)
     expect(f, 'every state, in triage order, with its count, Firing active', states(out, ex),
-           [('Firing', 2, True), ('Not evaluated', 1, False), ('Pending', 1, False), ('OK', 3, False), ('All', 7, False)])
+           [('Firing', 2, True), ('Not evaluated', 1, False), ('Pending', 1, False), ('OK', 3, False), ('All', 7, False),
+            ('With open incidents', 0, False)])
     expect(f, 'the routes keep the scope and leave the default out', [c['route'] for c in out['chips']],
            ['/alerts?projects=team%20a', '/alerts?projects=team%20a&status=not-evaluated', '/alerts?projects=team%20a&status=pending',
-            '/alerts?projects=team%20a&status=ok', '/alerts?projects=team%20a&status=all'])
+            '/alerts?projects=team%20a&status=ok', '/alerts?projects=team%20a&status=all', '/alerts?projects=team%20a&status=open-incidents'])
     ex = {'status': 'firing'}
-    expect(f, 'not a state: no chip active', [a for _, _, a in states(resolve(ex), ex)], [False] * 5)
+    expect(f, 'not a state: no chip active', [a for _, _, a in states(resolve(ex), ex)], [False] * 6)
     return f
 
 

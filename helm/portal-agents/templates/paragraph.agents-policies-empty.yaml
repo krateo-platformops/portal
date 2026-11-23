@@ -1,0 +1,24 @@
+{{/* In place of the role cards when they would be empty: the policies could not be read (as a
+     warning), there is none, or none is in the picked state. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: agents-policies-empty
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-policies
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ .emptyText // "" }'
+  - forPath: type
+    expression: '${ .emptyType // "secondary" }'
+  resourcesRefs:
+    items: []

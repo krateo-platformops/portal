@@ -261,7 +261,9 @@ spec:
         {{/* THE DASHBOARD (mockup A4), over the scope narrowed by kind and search (`$base`): the five
              figures, the state chips with their counts, one card per composition in the picked
              state (the first 48, triage order; the table has them all), the donut by state, the
-             kinds, and the compositions that have needed attention longest. */}}
+             kinds, and the compositions that have needed attention longest. Each figure counts one
+             state (its `tone` is the ?status value) and its `route` is that state chip's route, so a
+             tile opens the list filtered to it; a failed read's tile has `route: ""`. */}}
         facets: $facets,
         filteredBy: $facetDesc,
         filteredAny: (($narrow | length) > 0 or $status != "attention"),
@@ -272,7 +274,7 @@ spec:
                   { title: "Drift", v: $stateCounts.drift, caption: "Synced=False", tone: "drift" },
                   { title: "Paused", v: $stateCounts.paused, caption: "ReconcilePaused", tone: "paused" },
                   { title: "Ready", v: $stateCounts.healthy, caption: nn($base | map(select(.railState == "healthy") | .kind) | unique | length; "kind"; "kinds"), tone: "healthy" } ]
-               | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread" } else { title, value: (.v | tostring), caption, tone } end)),
+               | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else { title, value: (.v | tostring), caption, tone, route: go(.tone; $tableView) } end)),
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($stateCounts[$k] // 0) > 0 or any($statusSel[]; . == $k)))
                      | map({ key: ., label: $stateNames[.], count: ($stateCounts[.] // 0), active: (if . == "all" then $status == "all" else ($statusSel == [.]) end), route: go(.; $tableView) })),

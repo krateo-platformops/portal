@@ -2,7 +2,9 @@
      table of the policies in that role (flex.agents-policies-groups, the very Flex /agents/policies
      renders). Not the A4 cards-and-charts row: a policy has no state to triage by beyond the exception
      the tables already tag, and the role taxonomy is the reading order (see _agents-policies.tpl), so
-     the tab keeps its catalogue shape and gains the figures every tab opens with. */}}
+     the tab keeps its catalogue shape and gains the figures every tab opens with. The state chips
+     (listy.agents-policies-chips, ?group=) sit between the two and narrow the role cards; when none
+     is left, a line says so (paragraph.agents-policies-empty). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,15 +14,23 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   keyExtras: [projects, kind, status, owner, q, view, range, group]
+  apiRef:
+    name: agents-policies
+    namespace: {{ $.Values.namespace }}
   widgetData:
     allowedResources:
     - listies
     - flexes
+    - paragraphs
     vertical: true
     gap: middle
     items:
     - resourceRefId: agents-policies-stats
+    - resourceRefId: agents-policies-chips
     - resourceRefId: agents-policies-groups
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ { resourceRefId: "agents-policies-stats" }, { resourceRefId: "agents-policies-chips" } ] + (if (.shownCount // 0) == 0 then [ { resourceRefId: "agents-policies-empty" } ] else [ { resourceRefId: "agents-policies-groups" } ] end) }'
   resourcesRefs:
     items:
     - id: agents-policies-stats
@@ -34,4 +44,16 @@ spec:
       name: agents-policies-groups
       namespace: {{ $.Values.namespace }}
       resource: flexes
+      verb: GET
+    - id: agents-policies-chips
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-chips
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+    - id: agents-policies-empty
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: agents-policies-empty
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
       verb: GET

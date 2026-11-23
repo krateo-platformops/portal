@@ -10,9 +10,11 @@
 {{/* summary; there is deliberately no separate summary table above, because a roll-up that repeats */}}
 {{/* the same headings underneath it is the same information twice. */}}
 {{/* */}}
-{{/* The count in `extra` is server-side (byRole) and singular-aware, so it stays true when the gateway */}}
-{{/* chart adds a policy — no hardcoded "13" to rot. It is plain text, NOT a tag or badge: a count is */}}
-{{/* not a status, and a coloured chip on every card would read as a health signal per role. */}}
+{{/* The count in `extra` is server-side (shownByRole) and singular-aware, so it stays true when the */}}
+{{/* gateway chart adds a policy — no hardcoded "13" to rot. The card lists `shown`, the policies in the */}}
+{{/* state the Policies tab's chips picked (?group=); with no pick, as on /agents/policies, every */}}
+{{/* policy. It is plain text, NOT a tag or badge: a count is not a status, and a coloured chip on */}}
+{{/* every card would read as a health signal per role. */}}
 {{/* */}}
 {{/* STATUS IS EXCEPTION-ONLY, and the predicate is TYPE-AWARE. An AgentgatewayPolicy reports per */}}
 {{/* ancestor (a policy attached to two Gateways has two ancestors) with types Accepted and Attached; */}}
@@ -61,7 +63,7 @@ spec:
     - resourceRefId: agents-policies-table-{{ $r.key }}
   widgetDataTemplate:
   - forPath: extra
-    expression: '${ (.byRole.{{ $r.key }} // 0) as $n | ($n | tostring) + (if $n == 1 then " policy" else " policies" end) }'
+    expression: '${ (.shownByRole.{{ $r.key }} // 0) as $n | ($n | tostring) + (if $n == 1 then " policy" else " policies" end) }'
   resourcesRefs:
     items:
     - id: agents-policies-table-{{ $r.key }}
@@ -109,9 +111,9 @@ spec:
   widgetDataTemplate:
   {{/* Status is appended ONLY when a policy in this role is not healthy — see the header. */}}
   - forPath: columns
-    expression: '${ ( [ (.rows // [])[] | select(.role == "{{ $r.key }}") | select((.statusLabel // "") != "") ] | length ) as $exc | [ {valueKey:"name",title:"Policy"}, {valueKey:"attaches",title:"Attached to"}, {valueKey:"enforces",title:"What it enforces"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
+    expression: '${ ( [ (.shown // [])[] | select(.role == "{{ $r.key }}") | select((.statusLabel // "") != "") ] | length ) as $exc | [ {valueKey:"name",title:"Policy"}, {valueKey:"attaches",title:"Attached to"}, {valueKey:"enforces",title:"What it enforces"} ] + (if $exc > 0 then [ {valueKey:"status",title:"Status"} ] else [] end) }'
   - forPath: dataSource
-    expression: '${ [ (.rows // [])[] | select(.role == "{{ $r.key }}") | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "-")}, {valueKey:"attaches",kind:"jsonSchemaType",type:"string",stringValue:(.attaches // "not attached"),color:"var(--gray-color)"}, {valueKey:"enforces",kind:"jsonSchemaType",type:"string",stringValue:(if (.enforces // "") == "" then "—" else .enforces end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end) ] ] }'
+    expression: '${ [ (.shown // [])[] | select(.role == "{{ $r.key }}") | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "-")}, {valueKey:"attaches",kind:"jsonSchemaType",type:"string",stringValue:(.attaches // "not attached"),color:"var(--gray-color)"}, {valueKey:"enforces",kind:"jsonSchemaType",type:"string",stringValue:(if (.enforces // "") == "" then "—" else .enforces end)}, (if (.statusLabel // "") == "" then {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:""} else {valueKey:"status",kind:"tag",stringValue:.statusLabel,color:(.statusColor // "orange")} end) ] ] }'
   resourcesRefs:
     items: []
 {{- end }}
