@@ -177,8 +177,8 @@ for name in sorted(SILENT):
     check(f'057: {name} rail is No signal, with its reason', rail(out)[name],
           {'percent': 0, 'state': 'notAssessable', 'label': 'No signal', 'reason': REASONS[name]})
 check('057: only the not assessable rows carry rail.reason', sorted(n for n, r in rail(out).items() if r.get('reason')), sorted(SILENT))
-check('057: the RA keeps .state and .railState pending for them',
-      sorted({(i['state'], i['railState']) for i in out['list'] if i['name'] in SILENT}), [('pending', 'pending')])
+check('057: .state and .railState are unknown for them, as the composition page says',
+      sorted({(i['state'], i['railState']) for i in out['list'] if i['name'] in SILENT}), [('unknown', 'unknown')])
 
 # --- 2. ChildrenForbidden is set aside too, and says it is a defect; other Unknowns stay Pending --
 out = compositions_list(LIVE + [UNREADABLE] + DEFECTS)
@@ -234,7 +234,7 @@ for reason in ('ObserveFailed', 'SomeNewReason', 'InventoryNotRecorded'):
     item = compositions_list([unknown(f'u-{reason.lower()}', reason)])['list'][0]
     check(f'Unknown/{reason} + Synced=True: still pending', (item['state'], item['railState']), ('pending', 'pending'))
 item = compositions_list([synced_false(only_silent_0 := next(i for i in LIVE if ready_reason(i) == 'ZeroEvidence'))])['list'][0]
-check('Unknown/ZeroEvidence + Synced=False: still not assessable, not failed', (item['assessable'], item['state']), (False, 'pending'))
+check('Unknown/ZeroEvidence + Synced=False: still not assessable, not failed', (item['assessable'], item['state']), (False, 'unknown'))
 item = compositions_list([synced_false(UNREADABLE)])['list'][0]
 check('Unknown/ChildrenForbidden + Synced=False: still unreadable, not failed', (item['assessable'], item['state']), (False, 'unreadable'))
 

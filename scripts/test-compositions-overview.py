@@ -110,7 +110,7 @@ def check_state_chips():
     out = resolve({})
     expect(f, 'no ?status: Needs attention, and the chips in triage order with their counts', chips(out),
            [('Needs attention', 5, True), ('NotReady', 1, False), ('Degraded', 1, False), ('Children unreadable', 1, False),
-            ('Drift', 1, False), ('Paused', 1, False), ('Pending', 2, False), ('Ready', 18, False), ('All', 25, False)])
+            ('Drift', 1, False), ('Paused', 1, False), ('Unknown', 1, False), ('Pending', 1, False), ('Ready', 18, False), ('All', 25, False)])
     expect(f, 'Needs attention holds the five attention states', sorted(i['name'] for i in out['filtered']),
            ['acme', 'cache', 'locked', 'orders', 'web'])
     expect(f, 'each chip keeps the scope and the view, Needs attention drops ?status',
@@ -164,7 +164,7 @@ def check_cards():
     out = resolve({'status': 'all'})
     cards = w('Listy', 'compositions-cards', out)['dataSource']
     expect(f, 'triage order, then kind and name', [c['name'] for c in cards][:8],
-           ['orders', 'web', 'locked', 'cache', 'acme', 'new-one', 'silent', 'pub-00'])
+           ['orders', 'web', 'locked', 'cache', 'acme', 'silent', 'new-one', 'pub-00'])
     by = {c['name']: c for c in cards}
     expect(f, 'NotReady: the controller\'s message, since its Ready transition',
            (by['orders']['stateLabel'], by['orders']['tone'], by['orders']['description'], by['orders']['foot'].split(' · ')[1].startswith('NotReady since ')),
@@ -188,7 +188,7 @@ def check_charts():
     ex = {'projects': 'team-a'}
     out = resolve(ex)
     expect(f, 'by state: a slice per state that has any, triage order', [(s['state'], s['count']) for s in w('PieChart', 'compositions-by-state', out)['data']],
-           [('NotReady', 1), ('Degraded', 1), ('Children unreadable', 1), ('Drift', 1), ('Paused', 1), ('Pending', 2), ('Ready', 18)])
+           [('NotReady', 1), ('Degraded', 1), ('Children unreadable', 1), ('Drift', 1), ('Paused', 1), ('Unknown', 1), ('Pending', 1), ('Ready', 18)])
     kinds = w('Listy', 'compositions-by-kind', out)['dataSource']
     expect(f, 'by kind: largest first, the attention count, a row narrows to the kind in every state',
            [(k['name'], k['count'], k['percent'], k['tone'], k['href']) for k in kinds][:3],
