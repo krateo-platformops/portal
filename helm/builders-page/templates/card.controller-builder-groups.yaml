@@ -1,0 +1,68 @@
+{{/* "RestDefinitions by API group", the Controller Builder dashboard's own chart card: how many
+     RestDefinitions each API group has on this cluster, red when one of them is failing. It reads
+     restaction.kog-restdefinitions, the RESTAction the RestDefinitions table read, so it counts the
+     same RestDefinitions, in the namespaces the caller may list them in. A bar opens the dashboard's
+     RestDefinitions view, the table of every one with why it is not Ready. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-groups-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  apiRef:
+    name: kog-restdefinitions
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: RestDefinitions by API group
+    titleVariant: eyebrow
+    variant: outlined
+    extra: ""
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: controller-builder-groups
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ (.counts.total // 0) as $n | "\($n) RestDefinition\(if $n == 1 then "" else "s" end)" + (if (.counts.failed // 0) > 0 then " · \(.counts.failed) failed" else "" end) }'
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" "controller-builder-groups" "resource" "listies") | nindent 4 }}
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: controller-builder-groups
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  apiRef:
+    name: kog-restdefinitions
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    size: small
+    split: false
+    itemTemplate:
+      primaryText: '{name}'
+      navigateTo: /controller-builder?view=restdefs
+      bar:
+        percent: '{percent}'
+        label: '{count}'
+        color:
+          value: '{tone}'
+          map:
+            bad: red
+            ok: blue
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: >-
+      ${ ([ (.rows // [])[] ] | group_by(.group) | map({ name: .[0].group, n: length, failed: (map(select(.ready == "Failed")) | length) }) | sort_by(-.n, .name)) as $groups
+      | (($groups | .[0].n) // 1) as $max
+      | [ $groups[0:8][] | { name, count: ((.n | tostring) + (if .failed > 0 then " · \(.failed) failed" else "" end)), percent: (.n * 100 / $max | floor), tone: (if .failed > 0 then "bad" else "ok" end) } ] }
+  resourcesRefs:
+    items: []

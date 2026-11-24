@@ -1,0 +1,31 @@
+{{/* The row under a builder dashboard's header: the time range on the left, the search on the right
+     in a quarter of the row, as on /compositions (row.compositions-toolbar); stacked when narrow. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-toolbar
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  widgetData:
+    allowedResources:
+    - flexes
+    alignment: middle
+    items:
+    - resourceRefId: {{ $key }}-builder-range-group
+      size: 18
+      xs: 24
+      lg: 18
+    - resourceRefId: {{ $key }}-builder-search-wrap
+      size: 6
+      xs: 24
+      lg: 6
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-range-group" $key) "resource" "flexes") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-search-wrap" $key) "resource" "flexes") | nindent 4 }}
+{{- end }}

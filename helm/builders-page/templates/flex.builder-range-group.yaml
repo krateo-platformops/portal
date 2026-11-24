@@ -1,0 +1,65 @@
+{{/* "Time range" and its chips (7d, 30d, 90d), where /incidents has its own. The range sets the
+     window of the trend, of time to merge and of the Merged figure's caption; the list is never
+     windowed (builder-overview). */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-range-group
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  widgetData:
+    allowedResources:
+    - listies
+    - paragraphs
+    gap: small
+    align: center
+    wrap: true
+    items:
+    - resourceRefId: {{ $key }}-builder-range-label
+    - resourceRefId: {{ $key }}-builder-range-chips
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-range-label" $key) "resource" "paragraphs") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-range-chips" $key) "resource" "listies") | nindent 4 }}
+---
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-range-label
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  widgetData:
+    text: Time range
+    variant: eyebrow
+  resourcesRefs:
+    items: []
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-range-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .rangeChips // [] }'
+  resourcesRefs:
+    items: []
+{{- end }}

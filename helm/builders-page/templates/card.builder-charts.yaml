@@ -1,0 +1,188 @@
+{{/* The chart cards of a builder dashboard (flex.builder-side), each an eyebrow title over one widget
+     that reads builder-overview:
+       by-state  every draft and publish by state, a donut coloured as the cards;
+       trend     published vs merged per day (7d, 30d) or week (90d), over the time range;
+       ttm       the median time from publish to merge, per day or week, and over the whole range;
+       waiting   what has waited longest: failed, a step due, ready to publish, in review. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+{{- range $c := list (dict "id" "by-state" "title" "By state" "resource" "piecharts" "extra" "")
+                    (dict "id" "trend" "title" "Published vs merged" "resource" "linecharts" "extra" "${ \"in \" + (.rangeText // \"the last 30 days\") }")
+                    (dict "id" "ttm" "title" "Time to merge" "resource" "linecharts" "extra" "${ .ttmText // \"\" }")
+                    (dict "id" "waiting" "title" "Waiting longest" "resource" "listies" "extra" "") }}
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-{{ $c.id }}-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    title: {{ $c.title | quote }}
+    titleVariant: eyebrow
+    variant: outlined
+    {{- if $c.extra }}
+    extra: ""
+    {{- end }}
+    allowedResources:
+    - {{ $c.resource }}
+    items:
+    - resourceRefId: {{ $key }}-builder-{{ $c.id }}
+  {{- if $c.extra }}
+  widgetDataTemplate:
+  - forPath: extra
+    expression: {{ $c.extra | squote }}
+  {{- end }}
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-%s" $key $c.id) "resource" $c.resource) | nindent 4 }}
+{{- end }}
+---
+kind: PieChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-by-state
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    angleField: count
+    colorField: state
+    colorMap:
+      Failed: red
+      Needs a step: orange
+      Ready to publish: gold
+      Draft: gray
+      In review: blue
+      Merged: teal
+      {{ $b.live }}: green
+      Closed: slate
+    innerRadius: 60
+    legend: true
+    legendPosition: right
+    height: 180
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .byState // [] }'
+  {{- /* The legend is the colour scale's domain, every key of colorMap: the static map above would
+       list all eight states with most of them at zero, so the overview hands the colours of the
+       states that have rows, and the static map is only the fallback. */}}
+  - forPath: colorMap
+    expression: '${ .byStateColors // {} }'
+  resourcesRefs:
+    items: []
+---
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-trend
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    colorMap:
+      Published: blue
+      Merged: green
+    shapeField: smooth
+    legend: true
+    height: 180
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 5
+      "y":
+        tickCount: 4
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .trend // [] }'
+  resourcesRefs:
+    items: []
+---
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-ttm
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    xField: t
+    yField: v
+    {{- /* One series, drawn as /incidents draws Time to resolve: an area with its points. */}}
+    shapeField: smooth
+    area: true
+    point: true
+    legend: false
+    height: 160
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 4
+      "y":
+        tickCount: 4
+        title: days
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ .ttm // [] }'
+  resourcesRefs:
+    items: []
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-waiting
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    header: ""
+    size: small
+    split: true
+    itemTemplate:
+      iconVariant: dot
+      color:
+        value: '{tone}'
+        map:
+          failed: red
+          action: orange
+          ready: orange
+          review: blue
+        default: gray
+      primaryText: '{name}'
+      subPrimaryText: '{why}'
+      navigateTo: '{href}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .waiting // [] }'
+  resourcesRefs:
+    items: []
+{{- end }}

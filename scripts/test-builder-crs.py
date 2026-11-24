@@ -15,8 +15,9 @@ WHAT IT GUARDS.
      each as a Builder of the same name, in the release namespace, with an equal spec, and renders
      no Builder the frontend does not declare.
   2. The CRs agree with the chart: each draftKind is a portal.draftBuilders kind whose route the
-     Builder's route sits under, each spec.portal.draftsCard names a widget the chart renders, and
-     each preview.restActionRef names a RESTAction the chart renders.
+     Builder's route sits under, each spec.portal.draftsCard names a widget the chart renders, each
+     spec.portal.guideCard a Card the chart renders in builders-page's namespace, and each
+     preview.restActionRef names a RESTAction the chart renders.
   3. A Role in the release namespace bound to system:authenticated grants get and list on
      builders — and nothing that writes — with the chart's defaults AND with the demo users off,
      so the frontend's /list?category=builders reads them as any signed-in caller (ADR 0001).
@@ -65,7 +66,7 @@ RAW = 'https://raw.githubusercontent.com/krateo-platformops/frontend/{ref}/ui/sr
 # SAME commit that copies new fixture bytes in, never on its own — the pin is this repo's claim
 # about where those bytes came from, so the pin without the bytes (or the bytes without the pin)
 # makes the claim false. Same convention as hack/design-lint's VENDORED AT stamp.
-FRONTEND_REF = '878d23591357f4a144ccfd5facffdaa8896cb034'
+FRONTEND_REF = '23065c1a85ce7b2b24f1a8aa486b9c44dbf9a03d'
 GROUP = 'builders.templates.krateo.io'
 WRITE_VERBS = {'create', 'update', 'patch', 'delete', 'deletecollection', '*'}
 
@@ -135,6 +136,11 @@ def check_the_crs_are_the_frontends(docs, fx):
     return problems
 
 
+def builders_page_namespace():
+    with open(os.path.join(HERE, '..', 'helm', 'builders-page', 'values.yaml')) as fh:
+        return yaml.safe_load(fh)['namespace']
+
+
 def check_the_crs_agree_with_the_chart(docs, fx):
     problems = []
     kinds = draft_builders()
@@ -152,6 +158,14 @@ def check_the_crs_agree_with_the_chart(docs, fx):
         card = ((spec.get('portal') or {}).get('draftsCard') or {}).get('name')
         if card and card not in widget_names:
             problems.append(f'{name}: portal.draftsCard {card!r} is not a widget the chart renders')
+        # The guide the composer shows above its canvas: a Card of builders-page, in that chart's
+        # default namespace (the fixture's bytes cannot follow a values override; the frontend
+        # reads the Card where the Builder says it is).
+        guide = (spec.get('portal') or {}).get('guideCard') or {}
+        if guide and ('Card', guide.get('name')) not in named:
+            problems.append(f'{name}: portal.guideCard {guide.get("name")!r} is not a Card the chart renders')
+        if guide and guide.get('namespace') != builders_page_namespace():
+            problems.append(f'{name}: portal.guideCard namespace {guide.get("namespace")!r}, want builders-page\'s {builders_page_namespace()!r}')
         ra = ((spec.get('preview') or {}).get('restActionRef') or {}).get('name')
         if ra and ('RESTAction', ra) not in named:
             problems.append(f'{name}: preview.restActionRef {ra!r} is not a RESTAction the chart renders')

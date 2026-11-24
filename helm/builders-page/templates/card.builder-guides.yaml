@@ -1,0 +1,73 @@
+{{/* THE GUIDES: how a page, a blueprint and a controller get built, four steps each, at the top of
+     each builder's Compose (the frontend's composer, /<builder>/compose). The Builder CR names its
+     guide in spec.portal.guideCard (helm/portal/files/builders), and the composer mounts the Card
+     above its canvas, with a link to hide it.
+
+     WHY HERE AND NOT ON THE BUILDER'S PAGE. The page is the record of what a builder made and what
+     waits on someone (the dashboard, mockup A4); the steps are what a person needs while building.
+     "How a page gets built" sat on /portal-builder above the drafts, read once and then scrolled
+     past on every visit; in Compose it is beside the canvas it explains. The words are the ones the
+     page carried, and the Blueprint and Controller builders get theirs, from what their page
+     subtitles used to say.
+
+     NO keyExtras: the composer mounts the guide in the chrome scope, so no route param or query
+     (?resume=) reaches it. */}}
+{{- $guides := dict
+  "portal" (dict "title" "How a page gets built" "steps" (list
+    (dict "title" "Start a draft" "icon" "fa-file-circle-plus" "description" "Name the page and drag widgets onto the canvas — the same kinds this portal is built from, nested in rows, columns, cards and tabs. A drop a parent cannot legally hold is refused, so a draft that assembles is a draft that renders.")
+    (dict "title" "Give the widgets their data" "icon" "fa-plug" "description" "Point a widget at a RESTAction already on this cluster, or write a new one into the draft — several API steps, chained with dependsOn, and your own jq filter. apiRef, widgetDataTemplate and resourcesRefsTemplate are all yours to edit.")
+    (dict "title" "Preview it for real" "icon" "fa-eye" "description" "The draft is applied to a quarantined sandbox namespace and rendered by the live server under your identity and your permissions. It is not a mockup: the same service that serves this page compiles your draft.")
+    (dict "title" "Publish as a change request" "icon" "fa-code-pull-request" "description" "Publishing commits every file — the page root, each widget, each RESTAction — to the portal's git repo and opens a change request. Review it, merge it, release the chart. Nothing reaches this portal before that.")))
+  "blueprint" (dict "title" "How a blueprint gets built" "steps" (list
+    (dict "title" "Start from a name" "icon" "fa-file-circle-plus" "description" "Name the chart and the kind it registers. The builder scaffolds a Helm chart that registers with Krateo as that kind.")
+    (dict "title" "Add resources and what each waits on" "icon" "fa-diagram-project" "description" "Place each resource the chart creates and what it waits on. architecture.yaml draws the graph, and every file stays editable as a file.")
+    (dict "title" "Shape the install form" "icon" "fa-list-check" "description" "Choose the fields people fill to install it. values.schema.json is generated from them, and core-provider builds the form from that schema.")
+    (dict "title" "Preview and publish" "icon" "fa-code-pull-request" "description" "Render the chart for real, then publish it as a change request. Once it is merged, install it from the Blueprint Builder's page and it shows on the Blueprints page.")))
+  "controller" (dict "title" "How a controller gets built" "steps" (list
+    (dict "title" "Point at an OpenAPI document" "icon" "fa-file-code" "description" "Give the document by URL or upload it. The builder lists the operations it describes.")
+    (dict "title" "Map operations to kinds" "icon" "fa-arrows-left-right" "description" "For each Kubernetes kind, choose the operations that create, get, update, delete and list it.")
+    (dict "title" "Identity and credentials" "icon" "fa-key" "description" "Say which field identifies a resource, and how the controller authenticates to the API it calls.")
+    (dict "title" "Preview and publish" "icon" "fa-code-pull-request" "description" "Generate the RestDefinitions, check them, and publish the chart as a change request. Once merged, register and install it from the Controller Builder's page.")))
+}}
+{{- range $key, $g := $guides }}
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-guide
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    title: {{ $g.title | quote }}
+    titleVariant: eyebrow
+    variant: outlined
+    allowedResources:
+      - steps
+    items:
+      - resourceRefId: {{ $key }}-builder-guide-steps
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-guide-steps" $key) "resource" "steps") | nindent 4 }}
+---
+kind: Steps
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-guide-steps
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  widgetData:
+    orientation: horizontal
+    items:
+    {{- range $i, $s := $g.steps }}
+      - eyebrow: {{ printf "Step %d" (add1 $i) | quote }}
+        title: {{ $s.title | quote }}
+        icon: {{ $s.icon }}
+        description: {{ $s.description | quote }}
+    {{- end }}
+  resourcesRefs:
+    items: []
+{{- end }}

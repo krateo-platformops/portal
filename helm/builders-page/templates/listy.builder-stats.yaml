@@ -1,0 +1,37 @@
+{{/* The five figures of a builder dashboard (builders.overviews tiles), each in the colour the cards
+     give the state it counts, zero or not; the title names the state too, so colour is never the
+     only signal. A figure that counts one state opens its chip. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-stats
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      navigateTo: '{route}'
+      color:
+        value: '{tone}'
+        map:
+          failed: red
+          action: orange
+          ready: orange
+          draft: gray
+          review: blue
+          live: green
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .stats // [] }'
+  resourcesRefs:
+    items: []
+{{- end }}

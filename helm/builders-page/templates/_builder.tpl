@@ -229,7 +229,7 @@ def installNoun($bp):
   portal.draftBuilders — the builders whose draft records "Your drafts" lists, keyed by the
   record's krateo.io/draft-kind: the route its builder lives under, and whether its tree is a
   chart (a Chart.yaml whose version the row shows) or a page set (the row says "page"), and the
-  card on that builder's page where a published draft's change request is followed to the end
+  list on that builder's dashboard where a published draft's change request is followed to the end
   (the record knows only that it was published, never whether the change request merged).
 
   ONE DECLARATION, read by restaction.my-drafts (which kinds are records at all, and where Resume
@@ -244,13 +244,13 @@ def installNoun($bp):
 blueprint:
   route: /blueprint-builder
   chart: true
-  followIn: Blueprints from this builder
+  followIn: Blueprints, above
 controller:
   route: /controller-builder
   chart: true
-  followIn: Controllers from this builder
+  followIn: Controllers, above
 page:
   route: /portal-builder
   chart: false
-  followIn: Change requests from the builders
+  followIn: Pages, above
 {{- end -}}
