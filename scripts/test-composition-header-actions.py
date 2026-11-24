@@ -68,7 +68,7 @@ def main():
         got = json.loads(subprocess.run([JQ, '-c', expr], input=json.dumps(data), capture_output=True, text=True, check=True).stdout)
         check(f'blueprint label {data["blueprintName"] or "(none)"}', got, want)
 
-    tmpl = docs[('Descriptions', 'composition-detail-metadata')]['spec']['widgetDataTemplate']
+    tmpl = docs[('Descriptions', 'descriptions-composition-detail-metadata')]['spec']['widgetDataTemplate']
     expr = next(t['expression'] for t in tmpl if t['forPath'] == 'items').strip().removeprefix('${').removesuffix('}').strip()
     data = {'detail': {'metadata': {'uid': 'u', 'labels': {'krateo.io/composition-installed-version': 'v0-3-706'}}, 'status': {'helmChartVersion': '1.8.83'}}}
     got = json.loads(subprocess.run([JQ, '-c', expr], input=json.dumps(data), capture_output=True, text=True, check=True).stdout)
