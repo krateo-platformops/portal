@@ -80,7 +80,8 @@ def rv_pills($served; $kinds):
        elif $t.state == "invalid" then { type: "Target invalid", status: "False", color: "orange" }
        else empty end) ];
 def rv_phase_color:
-  if . == "Merged" then "green" elif . == "PrOpen" then "blue" elif . == "Failed" then "red" else "gray" end;
+  if . == "PrOpen" then "blue" elif . == "Failed" then "red" else "gray" end;
+def rv_phase_label: if . == "PrOpen" then "Change request open" else . end;
 def rv_run_color:
   if . == "PartiallyCompleted" then "orange"
   elif . == "Failed" then "red" elif . == "Running" then "blue" else "gray" end;

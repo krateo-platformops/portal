@@ -19,7 +19,7 @@ reader would see:
     count the proposals in the picked state under every OTHER filter, and the search (title,
     subject, kind, target repo) narrows the whole page; a facet with one value is left out unless
     applied (Q2); no confidence anywhere, neither facet nor statistic (Q3). The state chips (Open
-    by default = Proposed + PR open, Proposed, PR open, Merged, Rejected, Failed, All) count every
+    by default = Proposed + Change request open, Proposed, Change request open, Merged, Rejected, Failed, All) count every
     proposal the filters match and pick what the cards (or, ?view=table, the Full list) show; each
     figure and card wears its phase's colour (the figures' map is the cards'), the last run its
     run colour; Merged and Rejected count the decisions in the range; the trend has one point per
@@ -592,7 +592,7 @@ def check_change_request_claim(chart):
     out = resolved(chart, 'review-proposal', detail_responses(ex['name'], claim=claim, prs={'items': [pr]}), ex)
     expect(f, 'claim exists: the action retires', out['canOpen'], False)
     facts = {x['label']: x['value'] for x in out['facts']}
-    expect(f, 'change request read back', facts.get('Change request', '').endswith('pull request #12 open · https://github.com/krateo-platformops/observability/pull/12'), True)
+    expect(f, 'change request read back', facts.get('Change request', '').endswith('#12 open · https://github.com/krateo-platformops/observability/pull/12'), True)
     resolve_widgets(chart, 'review-proposal', out, ex, 'claimed')
     return f
 
@@ -816,6 +816,9 @@ def check_decisions(chart):
         p = with_decision(dec, st)
         out, w, got = actions_for(chart, detail_responses(ex['name'], proposal=p, **over), ex)
         expect(f, f'{label}: effective phase', out['phase'], phase)
+        # The pill says change request, whatever the provider calls it; the phase stays the identifier.
+        expect(f, f'{label}: the pill', [t['label'] for t in w['review-proposal-header']['tags']][1],
+               'Change request open' if phase == 'PrOpen' else phase)
         expect(f, f'{label}: actions', got, want)
 
     # Decision row: from spec.decision first, then status.
@@ -997,7 +1000,7 @@ def check_overview_layout(chart):
     return f
 
 
-CARD_COLOURS = {'Proposed': 'gray', 'PrOpen': 'blue', 'Merged': 'green', 'Rejected': 'gray', 'Failed': 'red'}
+CARD_COLOURS = {'Proposed': 'gray', 'PrOpen': 'blue', 'Merged': 'gray', 'Rejected': 'gray', 'Failed': 'red'}
 RUN_COLOURS = {'Completed': 'gray', 'PartiallyCompleted': 'orange', 'Running': 'blue', 'Pending': 'gray', 'Failed': 'red'}
 
 
@@ -1005,7 +1008,7 @@ def check_overview_figures(chart):
     f = []
     out, w = ov(chart)
     expect(f, 'the five figures, no confidence (Q3)', [(t['title'], t['value'], t['caption'], t['tone']) for t in w['reviews-stats']['dataSource']], [
-        ('Waiting for a decision', '6', '2 new today', 'Proposed'), ('Pull request open', '1', 'waiting for its merge', 'PrOpen'),
+        ('Waiting for a decision', '6', '2 new today', 'Proposed'), ('Change request open', '1', 'waiting for its merge', 'PrOpen'),
         ('Merged', '1', 'in the last 7 days', 'Merged'), ('Rejected', '1', 'in the last 7 days', 'Rejected'),
         ('Last run (all kinds)', 'Completed', 'rr-20260929-1933 · 19:33 UTC', 'Completed')])
     tpl = w['reviews-stats']['itemTemplate']
@@ -1038,9 +1041,9 @@ def check_overview_figures(chart):
     chip = {c['label']: c['route'] for c in out['stateChips']}
     expect(f, 'a state tile routes as its state chip (q, view, range, kind, today kept); the last run is no link',
            [(t['title'], t['route']) for t in w['reviews-stats']['dataSource']],
-           [('Waiting for a decision', chip['Proposed']), ('Pull request open', chip['PR open']), ('Merged', chip['Merged']),
+           [('Waiting for a decision', chip['Proposed']), ('Change request open', chip['Change request open']), ('Merged', chip['Merged']),
             ('Rejected', chip['Rejected']), ('Last run (all kinds)', '')])
-    expect(f, 'the routes keep every param', chip['PR open'], '/reviews?kind=Alert&today=1&q=a&view=table&state=propen&range=30d')
+    expect(f, 'the routes keep every param', chip['Change request open'], '/reviews?kind=Alert&today=1&q=a&view=table&state=propen&range=30d')
     out, _ = ov(chart, {}, proposals={'items': []})
     expect(f, 'a state at 0 is still a link', [t['route'] for t in out['stats']][:4],
            ['/reviews?state=proposed', '/reviews?state=propen', '/reviews?state=merged', '/reviews?state=rejected'])
@@ -1049,15 +1052,15 @@ def check_overview_figures(chart):
         text = {'24h': 'in the last 24 hours', '7d': 'in the last 7 days', '30d': 'in the last 30 days'}[rng]
         expect(f, f'{rng}: Merged and Rejected in the range', [(t['value'], t['caption']) for t in o['stats'][2:4]],
                [(merged, text), (rejected, text)])
-        expect(f, f'{rng}: Waiting and Pull request open are now', [t['value'] for t in o['stats'][:2]], ['3', '1'])
+        expect(f, f'{rng}: Waiting and Change request open are now', [t['value'] for t in o['stats'][:2]], ['3', '1'])
     # A tile, its chip and the list it opens agree: Merged and Rejected list only what was decided in
     # the range (decidedAt, as the tile reads it), on the cards and on the Full list. A merge with no
-    # readable decidedAt is in no range. Waiting and Pull request open are current states: they agree too.
+    # readable decidedAt is in no range. Waiting and Change request open are current states: they agree too.
     undated = proposal('p-tm3', iso(40 * DAY), 'Merged, no date', subject='t/m3', phase='Merged')
     want = {'24h': {'merged': ['p-tm1'], 'rejected': []}, '7d': {'merged': ['p-tm1'], 'rejected': ['p-tr1']},
             '30d': {'merged': ['p-tm1', 'p-tm2'], 'rejected': ['p-tr1', 'p-tr2']}}
-    tiles = {'proposed': 'Waiting for a decision', 'propen': 'Pull request open', 'merged': 'Merged', 'rejected': 'Rejected'}
-    chips = {'proposed': 'Proposed', 'propen': 'PR open', 'merged': 'Merged', 'rejected': 'Rejected'}
+    tiles = {'proposed': 'Waiting for a decision', 'propen': 'Change request open', 'merged': 'Merged', 'rejected': 'Rejected'}
+    chips = {'proposed': 'Proposed', 'propen': 'Change request open', 'merged': 'Merged', 'rejected': 'Rejected'}
     for rng in ('24h', '7d', '30d'):
         for state in tiles:
             got = {}
@@ -1086,10 +1089,10 @@ def check_overview_states_and_cards(chart):
     expect(f, 'the state chips: Open first and active, each counting every proposal the filters match',
            [(c['label'], c['count'], c['active'], c['route']) for c in w['reviews-state-chips']['dataSource']],
            [('Open', 7, True, '/reviews?projects=team-a'), ('Proposed', 6, False, '/reviews?projects=team-a&state=proposed'),
-            ('PR open', 1, False, '/reviews?projects=team-a&state=propen'), ('Merged', 1, False, '/reviews?projects=team-a&state=merged'),
+            ('Change request open', 1, False, '/reviews?projects=team-a&state=propen'), ('Merged', 1, False, '/reviews?projects=team-a&state=merged'),
             ('Rejected', 1, False, '/reviews?projects=team-a&state=rejected'), ('Failed', 0, False, '/reviews?projects=team-a&state=failed'),
             ('All', 9, False, '/reviews?projects=team-a&state=all')])
-    expect(f, 'Open: Proposed and PR open, grouped by finding, newest first', [r['name'] for r in out['rows']],
+    expect(f, 'Open: Proposed and Change request open, grouped by finding, newest first', [r['name'] for r in out['rows']],
            ['p-d1', 'p-a1', 'p-w1', 'p-d2', 'p-a2', 'p-a3', 'p-a4'])
     c = w['reviews-cards']['dataSource'][0]
     expect(f, 'a card: title, phase, kind, target, the finding, the day, what it replaces',
@@ -1098,8 +1101,8 @@ def check_overview_states_and_cards(chart):
     tpl = w['reviews-cards']['itemTemplate']
     expect(f, 'a card opens the proposal', (tpl['rowVariant'], tpl['navigateTo'], tpl['cardCta'], tpl['secondaryText'], tpl['color']['value']),
            ('card', '/reviews/proposals/{name}', '{cta}', '{phaseLabel}', '{phase}'))
-    expect(f, 'a PR open card says so, in blue', [(x['phaseLabel'], tpl['color']['map'][x['phase']]) for x in w['reviews-cards']['dataSource'] if x['name'] == 'p-a3'],
-           [('PR open', 'blue')])
+    expect(f, 'a Change request open card says so, in blue', [(x['phaseLabel'], tpl['color']['map'][x['phase']]) for x in w['reviews-cards']['dataSource'] if x['name'] == 'p-a3'],
+           [('Change request open', 'blue')])
     expect(f, 'every row\'s phaseColor is its card colour', all(tpl['color']['map'][r['phase']] == r['phaseColor'] for r in out['rows']), True)
     expect(f, 'no confidence on a card (Q3)', 'onfidence' in json.dumps(w['reviews-cards']), False)
     for ex, want in (({'state': 'propen'}, ['p-a3']), ({'state': 'MERGED'}, ['p-m1']), ({'state': 'rejected'}, ['p-r1']),
@@ -1133,7 +1136,7 @@ def check_overview_search(chart):
     expect(f, 'case-insensitive, trimmed: title, subject or kind', (out['q'], [r['name'] for r in out['rows']]), ('DOCUMENT', ['p-d1', 'p-d2']))
     expect(f, 'the facet counts follow it', fcounts(out, 'kind'), {'Alert': 0, 'Documentation': 2, 'Widget': 0})
     expect(f, 'the state counts follow it', [(c['label'], c['count']) for c in out['stateChips']],
-           [('Open', 2), ('Proposed', 2), ('PR open', 0), ('Merged', 0), ('Rejected', 1), ('Failed', 0), ('All', 3)])
+           [('Open', 2), ('Proposed', 2), ('Change request open', 0), ('Merged', 0), ('Rejected', 1), ('Failed', 0), ('All', 3)])
     expect(f, 'the figures follow it', [t['value'] for t in out['stats'][:2]], ['2', '0'])
     expect(f, 'the charts follow it', (out['byState'], [k['name'] for k in out['byKind']]),
            ([{'state': 'Proposed', 'count': 2}, {'state': 'Rejected', 'count': 1}], ['Documentation']))
@@ -1195,16 +1198,18 @@ def check_overview_trend_and_charts(chart):
         lc = w['reviews-trend']
         expect(f, f'{rng}: the chart', (lc['xTimeUnit'], lc['xField'], lc['yField'], lc['colorField'], len(lc['data'])), (unit, 't', 'v', 'series', 3 * n))
         expect(f, f'{rng}: the range chip', [c['label'] for c in o['rangeChips'] if c['active']], [rng])
-    expect(f, 'the trend\'s colours are the states\'', w['reviews-trend']['colorMap'],
-           {'Proposed': CARD_COLOURS['Proposed'], 'Decided': CARD_COLOURS['Merged'], 'Runs failed': RUN_COLOURS['Failed']})
+    # A decision is blue, not Merged's gray, which is Proposed's line.
+    expect(f, 'the trend\'s lines have a colour each', w['reviews-trend']['colorMap'],
+           {'Proposed': CARD_COLOURS['Proposed'], 'Decided': 'blue', 'Runs failed': RUN_COLOURS['Failed']})
     o, w = timed(chart, {'range': '1y'})
     expect(f, 'an unknown range is 7d', (o['range'], o['trendUnit'], len(o['trend'])), ('7d', 'day', 21))
     out, w = ov(chart)
     pie = w['reviews-by-state']
     expect(f, 'by state: a slice per state with proposals', pie['data'],
-           [{'state': 'Proposed', 'count': 6}, {'state': 'PR open', 'count': 1}, {'state': 'Merged', 'count': 1}, {'state': 'Rejected', 'count': 1}])
+           [{'state': 'Proposed', 'count': 6}, {'state': 'Change request open', 'count': 1}, {'state': 'Merged', 'count': 1}, {'state': 'Rejected', 'count': 1}])
+    # The cards' colours, but Merged is slate beside Proposed's gray: two slices of one gray read as one.
     expect(f, 'by state: the cards\' colours', pie['colorMap'],
-           {('PR open' if k == 'PrOpen' else k): v for k, v in CARD_COLOURS.items()})
+           dict({('Change request open' if k == 'PrOpen' else k): v for k, v in CARD_COLOURS.items()}, Merged='slate'))
     out, w = ov(chart, {'projects': 'team-a', 'kind': 'Alert', 'state': 'merged'})
     expect(f, 'open by kind: every filter but kind, a bar against the largest, a row opens that kind\'s open ones',
            [(k['name'], k['count'], k['percent'], k['href']) for k in w['reviews-by-kind']['dataSource']],

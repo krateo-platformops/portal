@@ -118,6 +118,7 @@ spec:
             title: ($p.spec.title // $name),
             kind: ($p.spec.kind // "—"),
             phase: $ph,
+            phaseLabel: ($ph | rv_phase_label),
             phaseColor: ($ph | rv_phase_color),
             subject: ($p.spec.subject // ""),
             run: ($p.spec.producedBy.runRef // ""),
@@ -129,7 +130,7 @@ spec:
                             counted: (if .observedCount == null then "—" else ("the model counted " + (.observedCount | rv_num)) end) } ],
             evidenceCount: (($p.spec.evidence // []) | length),
             facts: ([
-              { label: "Proposed target", value: (if $repo == "" then "—" else $repo + " · " + ($p.spec.target.path // "no path given") + " (the model's choice; the pull request settles where it lands)" end) },
+              { label: "Proposed target", value: (if $repo == "" then "—" else $repo + " · " + ($p.spec.target.path // "no path given") + " (the model's choice; the change request settles where it lands)" end) },
               { label: "Target check", value: (
                   if $tc.state == "found" then "Repository found (public)"
                   elif $tc.state == "unverified" then "Target unverified: " + $tc.message
@@ -146,13 +147,13 @@ spec:
                   elif $ph == "PrOpen" or $claim != null then ("Change request opened (" + $claimName + ")"
                                              + (if $d.by != "" then " by " + $d.by else "" end)
                                              + (if $d.at != "" then " · " + ($d.at | rv_when) else "" end)
-                                             + "; decided when its pull request is merged or closed")
+                                             + "; decided when it is merged or closed")
                   elif $ph == "Superseded" then "Superseded before a decision"
                   else "Not decided" end) }
             ] + (if $claim != null then [
               { label: "Change request", value: ($claimName + " · branch " + ($claim.spec.branch // $branch)
-                  + (if $pr == null then " · pull request not opened yet"
-                     else " · pull request #" + (($pr.status.number // 0) | tostring) + " " + ($pr.status.state // "pending")
+                  + (if $pr == null then " · not opened yet"
+                     else " · #" + (($pr.status.number // 0) | tostring) + " " + ($pr.status.state // "pending")
                           + (if ($pr.status.html_url // "") != "" then " · " + $pr.status.html_url else "" end) end)) } ] else [] end)
                + (if ($p.status.error // "") != "" then [ { label: "Error", value: $p.status.error } ] else [] end)),
             format: $fmt,
@@ -161,7 +162,7 @@ spec:
                              else ($fence + (if $fmt == "diff" then "diff" else "yaml" end) + "\n" + $content + "\n" + $fence) end),
             kindCheck: $kc,
             kindAlert: (if $kc.state == "notServed" then
-                          ("The change is a " + $kc.gv + " " + $kc.kind + ". This cluster serves no such kind, so applying the file here would fail. The pull request can still be opened for a reviewer to rework.")
+                          ("The change is a " + $kc.gv + " " + $kc.kind + ". This cluster serves no such kind, so applying the file here would fail. The change request can still be opened for a reviewer to rework.")
                         else "" end),
             targetAlert: (if $tc.state == "unverified" then
                             ("The proposed repository " + $repo + " did not resolve: " + $tc.message + " Correct the repository in the change request dialog if it belongs elsewhere.")
@@ -195,7 +196,7 @@ spec:
             bpResource: (.bp.status.resource // "builderpublishes"),
             dialogFacts: [
               { label: "Branch", value: $branch },
-              { label: "Pull request title", value: ("review: " + ($p.spec.title // $name)) },
+              { label: "Change request title", value: ("review: " + ($p.spec.title // $name)) },
               { label: "Created as", value: ("BuilderPublish " + $claimName + " · builder: review · repository.create: false") },
               { label: "Change", value: ("format: " + $fmt + " · " + (($content | utf8bytelength) | tostring) + " bytes") } ],
             askHref: ("/reviews/proposals/" + $name + "?ask=" + (("Review the nightly-review proposal " + $name + " (\"" + ($p.spec.title // $name) + "\"): check its evidence against the platform's telemetry, say whether the proposed change fits this platform, and what I should do with it.") | @uri)) }
