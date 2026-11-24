@@ -58,12 +58,21 @@ def main():
     tmpl = docs[('Button', 'composition-detail-blueprint')]['spec']['widgetDataTemplate']
     expr = next(t['expression'] for t in tmpl if t['forPath'] == 'label').strip().removeprefix('${').removesuffix('}').strip()
     for data, want in [
-        ({'blueprintName': 'example-webapp', 'detail': {'metadata': {'labels': {'krateo.io/composition-installed-version': 'v1-4-2'}}}}, 'Blueprint example-webapp 1.4.2'),
-        ({'blueprintName': 'x', 'detail': {'metadata': {'labels': {'krateo.io/composition-installed-version': '0-12-0'}}}}, 'Blueprint x 0.12.0'),
+        ({'blueprintName': 'example-webapp', 'detail': {'metadata': {}, 'status': {'helmChartVersion': '1.4.2-rc.1'}}}, 'Blueprint example-webapp 1.4.2-rc.1'),
+        # A component of the installer: the label is its parent's version (krateo-057, frontend).
+        ({'blueprintName': 'frontend', 'detail': {'metadata': {'labels': {'krateo.io/composition-installed-version': 'v0-3-706'}},
+                                                  'status': {'helmChartVersion': '1.8.83'}}}, 'Blueprint frontend 1.8.83'),
+        ({'blueprintName': 'x', 'detail': {'metadata': {'labels': {'krateo.io/composition-installed-version': 'v0-3-706'}}, 'status': {}}}, 'Blueprint x'),
         ({'blueprintName': '', 'detail': {'metadata': {}}}, 'Blueprint'),
     ]:
         got = json.loads(subprocess.run([JQ, '-c', expr], input=json.dumps(data), capture_output=True, text=True, check=True).stdout)
         check(f'blueprint label {data["blueprintName"] or "(none)"}', got, want)
+
+    tmpl = docs[('Descriptions', 'descriptions-composition-detail-metadata')]['spec']['widgetDataTemplate']
+    expr = next(t['expression'] for t in tmpl if t['forPath'] == 'items').strip().removeprefix('${').removesuffix('}').strip()
+    data = {'detail': {'metadata': {'uid': 'u', 'labels': {'krateo.io/composition-installed-version': 'v0-3-706'}}, 'status': {'helmChartVersion': '1.8.83'}}}
+    got = json.loads(subprocess.run([JQ, '-c', expr], input=json.dumps(data), capture_output=True, text=True, check=True).stdout)
+    check('the metadata tab says the same version', [i['value'] for i in got if i['label'] == 'Installed version'], ['1.8.83'])
 
     print(f'composition header actions: {bad} failure(s)')
     return 1 if bad else 0
