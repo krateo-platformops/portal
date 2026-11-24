@@ -41,6 +41,10 @@ spec:
   {{/* error — "Synced" alone over a CrashLoopBackOff workload reads as all-clear, which is false. */}}
   {{/* (The per-resource bars below still come from composition-resources via the rail List's own apiRef.) */}}
   widgetDataTemplate:
+  {{/* The install's retries and last error sit under the verdict, only while there is something to say */}}
+  {{/* (_install-recovery.tpl); otherwise the list is the one above. */}}
+  - forPath: items
+    expression: '${ {{ include "portal.installRecoveryDefs" . }} (.detail // {}) as $d | [ "composition-detail-status-verdict", (if ($d | installRetryLine) != "" then "composition-detail-install-retry" else empty end), (if ($d | installErrorLine) != "" then "composition-detail-install-error" else empty end), "list-composition-detail-rail", "composition-detail-status-facts", "list-composition-detail-problems", "composition-incidents" ] | map({resourceRefId: .}) }'
   - forPath: extra
     expression: '${ (.detail.status.conditions // []) as $c | ($c | map(select(.type == "Synced")) | .[0]) as $s | (($s.reason // "") == "ReconcilePaused" or ($s.reason // "") == "ReconcileGracefullyPaused") as $paused | (if $s == null then "Unknown" elif $paused then "Paused" elif $s.status == "True" then "Synced" else "NotSynced" end) as $base | if .workloadHealthy == false then ($base + " · Unhealthy") else $base end }'
   - forPath: extraStatus
@@ -51,6 +55,18 @@ spec:
     - id: composition-detail-status-verdict
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: composition-detail-status-verdict
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: composition-detail-install-retry
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: composition-detail-install-retry
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: composition-detail-install-error
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: composition-detail-install-error
       namespace: {{ $.Values.namespace }}
       resource: paragraphs
       verb: GET
