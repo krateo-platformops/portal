@@ -1247,7 +1247,7 @@ def check_my_drafts_are_the_callers_own(chart):
            [('catalog-service', '0.2.0 · 3 files · Agentiko thread', 'preview-needed'),
             ('payments-api', '0.2.0 · 3 files · Composed by hand', 'previewed')])
     expect(f, 'blueprint published list: the change request, named', [r['meta'] for r in rendered['my-drafts-blueprint-published']['dataSource']],
-           ['0.2.0 · krateo-blueprints/aws-vpc-network #1 · follow it in Blueprints, above'])
+           ['0.2.0 · krateo-blueprints/aws-vpc-network #1 · follow it under All, above'])
     # An open list that is empty above a published one is hidden, not an antd "No data" box; with
     # nothing published it stays, as before. The published list hides when empty, always.
     published_only = {'owner': owner, 'items': [r for r in rows if r['state'] == 'published']}

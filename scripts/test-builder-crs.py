@@ -66,7 +66,7 @@ RAW = 'https://raw.githubusercontent.com/krateo-platformops/frontend/{ref}/ui/sr
 # SAME commit that copies new fixture bytes in, never on its own — the pin is this repo's claim
 # about where those bytes came from, so the pin without the bytes (or the bytes without the pin)
 # makes the claim false. Same convention as hack/design-lint's VENDORED AT stamp.
-FRONTEND_REF = '23065c1a85ce7b2b24f1a8aa486b9c44dbf9a03d'
+FRONTEND_REF = 'ddfa54a07790c8fc03de16ecf23d3c09ae9aa163'
 GROUP = 'builders.templates.krateo.io'
 WRITE_VERBS = {'create', 'update', 'patch', 'delete', 'deletecollection', '*'}
 

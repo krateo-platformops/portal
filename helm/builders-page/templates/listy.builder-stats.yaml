@@ -1,6 +1,7 @@
 {{/* The five figures of a builder dashboard (builders.overviews tiles), each in the colour the cards
-     give the state it counts, zero or not; the title names the state too, so colour is never the
-     only signal. A figure that counts one state opens its chip. */}}
+     give the state it counts, but grey at zero for a state that needs attention; the title names the
+     state too, so colour is never the only signal. A figure that counts one state opens its chip;
+     one that could not be read says so, and opens nothing. */}}
 {{- range $key, $b := include "builders.overviews" . | fromYaml }}
 ---
 kind: Listy
@@ -19,15 +20,10 @@ spec:
       secondaryText: '{value}'
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
+      {{- /* The colour comes computed (builder-overview stats): a zero is never red or orange. The
+           border will follow `highlight` once the pinned Listy CRD carries it (frontend#791). */}}
       color:
-        value: '{tone}'
-        map:
-          failed: red
-          action: orange
-          ready: orange
-          draft: gray
-          review: blue
-          live: green
+        value: '{color}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

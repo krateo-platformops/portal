@@ -70,7 +70,11 @@
           branch: (((.status.targetBranch) // (.spec.toRepo.branch)) // ""),
           synced: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.status // "")),
           syncReason: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.reason // "")),
+          syncMsg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
           reg: {{ include "portal.builderIsRegistrationFile" . }},
+          # Identity, so a failed publish can point at the object that says why.
+          ns: ((.metadata.namespace) // ""),
+          lrName: ((.metadata.name) // ""),
           created: ((.metadata.creationTimestamp) // "") } ]
 {{/* The registered controllers. Join key metadata.name == the claim's chart name, as for */}}
 {{/* blueprints; status carries the kind it generates, which the next step lists. */}}
@@ -98,7 +102,9 @@
           # oasgen both write Ready=False reason Creating (and Unavailable while the generated
           # CRD does not exist yet) for as long as they are still working.
           failed: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {}
-                   | ((.status // "") == "False" and (.reason // "") == "ReconcileError")) } ]
+                   | ((.status // "") == "False" and (.reason // "") == "ReconcileError")),
+          # What the failing Synced condition says (the row's reason when this is what broke it).
+          msg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")) } ]
 {{/* The install claims: one CLUSTER-SCOPE list per kind a controller's CompositionDefinition */}}
 {{/* generates (only the claims' charts — listing every CompositionDefinition's kind would be */}}
 {{/* forty calls for one page). Cluster scope, not per namespace: snowplow collapses an */}}
@@ -142,7 +148,9 @@
           # oasgen both write Ready=False reason Creating (and Unavailable while the generated
           # CRD does not exist yet) for as long as they are still working.
           failed: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {}
-                   | ((.status // "") == "False" and (.reason // "") == "ReconcileError")) } ]
+                   | ((.status // "") == "False" and (.reason // "") == "ReconcileError")),
+          # What the failing Synced condition says (the row's reason when this is what broke it).
+          msg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")) } ]
 {{/* The RestDefinitions, as restaction.kog-restdefinitions reads them (cluster list, filtered */}}
 {{/* to the namespaces the caller may list them in). Joined to an install by the claim labels. */}}
 - name: restdefs
@@ -171,6 +179,8 @@
           ready: ([ (.status.conditions // [])[] | select((.type // "") == "Ready") ] | first // {} | (.status // "")),
           failed: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {}
                    | ((.status // "") == "False" and (.reason // "") == "ReconcileError")),
+          # What the failing Synced condition says (the row's reason when this is what broke it).
+          msg: ([ (.status.conditions // [])[] | select((.type // "") == "Synced") ] | first // {} | (.message // "")),
           auth: (.status.hasSecuritySchemes == true),
           cfgKind: (.status.configuration.kind // ""),
           cfgApiVersion: (.status.configuration.apiVersion // "") } ]
@@ -273,6 +283,18 @@ def configured($rd): any(configsOf($rd)[]; ((.secrets // []) | length) > 0);
            | select(.compName == $i.name and .compNs == $i.namespace and (.compKind == "" or .compKind == $cd.kind)) ] ) as $mine
      | (($mine | length) > 0 and all($mine[]; .ready == "True")) as $allReady
      | (any($mine[]; .failed) or any($ins[]; .failed) or ($cd != null and $cd.failed)) as $broken
+     # WHAT BROKE IT, and where it says so: the first failing RestDefinition, else install, else
+     # the definition; for a publish that failed before its change request, the refused file.
+     | ( if ([ $mine[] | select(.failed) ] | length) > 0 then ([ $mine[] | select(.failed) ][0]
+             | { msg, href: ("/resources/" + .namespace + "/ogen.krateo.io/v1alpha1/restdefinitions/" + .name) })
+         elif ([ $ins[] | select(.failed) ] | length) > 0 then ([ $ins[] | select(.failed) ][0]
+             | { msg, href: ("/compositions/" + .namespace + "/" + .name) })
+         elif ($cd != null and $cd.failed) then
+             { msg: $cd.msg, href: ("/resources/" + $cd.namespace + "/core.krateo.io/v1alpha1/compositiondefinitions/" + $cd.name) }
+         elif ($failed and $pr == null) then ([ .[] | select(.syncReason == "ReconcileError") ][0]
+             | { msg: (.syncMsg // ""), href: ("/resources/" + ((.ns // "") | if . == "" then "{{ $.Release.Namespace }}" else . end)
+                                               + "/git.krateo.io/v1alpha1/localresources/" + (.lrName // "")) })
+         else null end ) as $failure
      # Install is offered only when the install claims could be READ: a denied list is not
      # evidence that there is none (as $cdsRead gates Register).
      | ($installsRead and $cd != null and $cd.ready == "True" and ($ins | length) == 0) as $installable
@@ -337,14 +359,19 @@ def configured($rd): any(configsOf($rd)[]; ((.secrets // []) | length) > 0);
                elif ($gvks | length) == 1 then $gvks[0]
                else "\($gvks[0]) +\(($gvks | length) - 1)" end),
          ns: "{{ $.Release.Namespace }}",
-         # Per-row destination, the Table takes it whole. The step the Next cell names first;
-         # then the install, once there is one; then the change request; else nothing.
-         rowHref: (if registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")
+         # Per-row destination, the Table takes it whole. A failing row, the object that says why;
+         # then the step the Next cell names; then the install, once there is one; then the change
+         # request; else nothing.
+         rowHref: (if $failure != null then $failure.href
+                   elif registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")
                    elif $installable then ("/blueprints/" + $cd.namespace + "/" + $chart + "/new")
                    elif ($allReady and $needsCreds) then ("/controller-builder/configure/" + $unconfigured[0].namespace + "/" + $unconfigured[0].name)
                    elif ($ins | length) > 0 then ("/compositions/" + $ins[0].namespace + "/" + $ins[0].name)
                    elif $cd != null then ("/blueprints/" + $cd.namespace + "/" + $chart)
                    else (($pr.url) // "") end),
+         # What the failing object's Synced condition says, as its provider wrote it
+         # (builder-overview shows it cleaned of any response body).
+         reason: (($failure.msg) // ""),
          # The merge date (portal.builderPrMergedAt), only when the change request merged.
          mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end),
          age: ($p0.created // "") } ]) as $claimRows

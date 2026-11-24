@@ -110,6 +110,9 @@
           # Is this file the publish's root registration file — the one the install form
           # pre-fills from? A publish without one is never offered Install (see the header).
           reg: {{ include "portal.builderIsRegistrationFile" . }},
+          # Identity, so a failed publish can point at the object that says why.
+          ns: ((.metadata.namespace) // ""),
+          lrName: ((.metadata.name) // ""),
           created: ((.metadata.creationTimestamp) // "") } ]
 {{/* The krateo-blueprints blueprints helm index — the marketplace catalog. Mirrors */}}
 {{/* restaction.blueprints-catalog's blueprints step (same endpointRef + path). The index's */}}
@@ -135,7 +138,9 @@
 | (.prs // []) as $prs
 | ((.catalog // []) | map({key: ., value: true}) | from_entries) as $inCatalog
 | ([ $prs[]
-     | select(((.publish) // "") == "" and ((.repo) // "") == "krateo-blueprints")
+     # Before claims, a blueprint went to a blueprints repository: the test builder-overview uses
+     # to give the rest to the Portal Builder, so each such change request is on exactly one page.
+     | select(((.publish) // "") == "" and (((.repo) // "") | test("blueprints$")))
      | . as $pr
      | ( [ $cds[] | select(.name == $pr.chart) ] | first ) as $cd
      | ($inCatalog[$pr.chart] // false) as $published
@@ -187,6 +192,8 @@
      | ($inCatalog[$chart] // false) as $published
      | (all(.[]; .synced == "True")) as $pushed
      | (any(.[]; .syncReason == "ReconcileError")) as $failed
+     # The first failing file, and what its Synced condition says: the reason, and the object to open.
+     | ([ .[] | select(.syncReason == "ReconcileError") ] | first // null) as $failing
      # The publish carries its root registration file (portal.builderIsRegistrationFile).
      | (any(.[]; .reg == true)) as $hasReg
      | ( [ $prs[] | select(((.publish) // "") == ($p0.publish // "")) ] | first ) as $pr
@@ -226,7 +233,15 @@
          ns: "{{ $.Release.Namespace }}",
          rowHref: (if $cd != null then ("/blueprints/{{ $.Release.Namespace }}/" + $chart)
                    elif registerable($cd; $end; $hasReg) then ("/marketplace/" + $chart + "/install")
-                   else (($pr.url) // "") end),
+                   elif (($pr.url) // "") != "" then $pr.url
+                   # A publish that failed before its change request: the file that was refused,
+                   # whose conditions say why (the resource page builder-prs links too).
+                   elif $failing != null then ("/resources/" + (($failing.ns // "") | if . == "" then "{{ $.Release.Namespace }}" else . end)
+                                               + "/git.krateo.io/v1alpha1/localresources/" + ($failing.lrName // ""))
+                   else "" end),
+         # What the refused file's Synced condition says, as the provider wrote it (builder-overview
+         # shows it cleaned of any response body).
+         reason: (if $failed and ($pr == null) then (($failing.syncMsg) // "") else "" end),
          mergedAt: (if $end == "merged" then (($pr.mergedAt) // "") else "" end),
          age: ($p0.created // "") } ]) as $claimRows
 | (($prRows + $claimRows) | sort_by(.age // "") | reverse) as $rows

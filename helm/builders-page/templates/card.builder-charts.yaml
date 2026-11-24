@@ -52,15 +52,17 @@ spec:
   widgetData:
     angleField: count
     colorField: state
+    {{- /* builders.stateColors, by the names the donut shows; the overview sends the same. */}}
+    {{- $c := include "builders.stateColors" $ | fromYaml }}
     colorMap:
-      Failed: red
-      Needs a step: orange
-      Ready to publish: gold
-      Draft: gray
-      In review: blue
-      Merged: teal
-      {{ $b.live }}: green
-      Closed: slate
+      Failed: {{ $c.failed }}
+      Needs a step: {{ $c.action }}
+      Ready to publish: {{ $c.ready }}
+      Draft: {{ $c.draft }}
+      Change request open: {{ $c.review }}
+      Merged: {{ $c.merged }}
+      {{ $b.live }}: {{ $c.live }}
+      Closed: {{ $c.closed }}
     innerRadius: 60
     legend: true
     legendPosition: right
@@ -169,13 +171,7 @@ spec:
     itemTemplate:
       iconVariant: dot
       color:
-        value: '{tone}'
-        map:
-          failed: red
-          action: orange
-          ready: orange
-          review: blue
-        default: gray
+        value: '{color}'
       primaryText: '{name}'
       subPrimaryText: '{why}'
       navigateTo: '{href}'

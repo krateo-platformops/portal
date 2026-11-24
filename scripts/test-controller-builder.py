@@ -164,8 +164,9 @@ def check_the_ladder():
     cases = [
         ('publishing', {'publishes': items(*files(P, synced='False', reason='Creating'))},
          ('Publishing', 'orange', '', '')),
+        # A failed row opens the object whose condition says why: here the refused file.
         ('publish failed', {'publishes': items(*files(P, synced='False', reason='ReconcileError'))},
-         ('Publish failed', 'red', '', '')),
+         ('Publish failed', 'red', '', f'/resources/{NS}/git.krateo.io/v1alpha1/localresources/publish-pet-000')),
         ('pushed, no change request (publish-pet today)', {}, ('Pushed', 'orange', '', '')),
         ('change request open', {'prs': items(pr(P))},
          ('Change request open', 'orange', '', 'https://github.com/krateo-platformops/pet/pull/7')),
@@ -187,7 +188,7 @@ def check_the_ladder():
         ('registering, CRD not generated yet', {'cds': items(cd('pet', ready='False', reason='Unavailable', synced='True',
                                                                 message='crd pets.composition.krateo.io does not exists yet'))},
          ('Registering', 'orange', '', f'/blueprints/{NS}/pet')),
-        ('definition failed', {'cds': items(cd('pet', ready='False', synced='False'))}, ('Failed', 'red', '', f'/blueprints/{NS}/pet')),
+        ('definition failed', {'cds': items(cd('pet', ready='False', synced='False'))}, ('Failed', 'red', '', f'/resources/{NS}/core.krateo.io/v1alpha1/compositiondefinitions/pet')),
         ('registered', {'cds': items(cd('pet', ready='True'))}, ('Registered', 'green', 'Install', f'/blueprints/{NS}/pet/new')),
         ('registered, install claims unreadable: no Install', {'cds': items(cd('pet', ready='True')), 'installs': None},
          ('Registered', 'green', '', f'/blueprints/{NS}/pet')),
@@ -240,7 +241,7 @@ def check_the_ladder():
          ('Ready', 'green', '', '/compositions/team-a/pets')),
         ('a kind failed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                            'restdefs': items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', ready='False', gen='Store', synced='False'))},
-         ('Failed', 'red', '', '/compositions/team-a/pets')),
+         ('Failed', 'red', '', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-store')),
     ]
     for label, over, (status, color, nxt, href) in cases:
         resp = dict(base)

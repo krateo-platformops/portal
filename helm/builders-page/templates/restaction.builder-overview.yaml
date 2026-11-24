@@ -5,9 +5,11 @@
      WHAT IT JOINS. The caller's own draft records (the steps and jq of restaction.my-drafts) and what
      the builder published (the steps and jq of its deliverables RESTAction: builder-prs for pages,
      blueprint-builder-deliverables, controller-builder-deliverables). Both are INCLUDED, not copied:
-     a row's status here is the one that RESTAction gives it, word for word. Each row then gets one
-     state of the builder lifecycle (_overview.tpl), and the state decides its colour, its icon, its
-     chip and its place in the list.
+     a row's status here is decided from what that RESTAction gives it, and only reworded to this
+     page's vocabulary (Change request open, never PR). Each row then gets one state of the builder
+     lifecycle (_overview.tpl), and the state decides its colour, its icon, its chip and its place in
+     the list. A failed row carries what its object's condition says, cleaned of any response body,
+     and links to that object.
 
      THE CALLER. Drafts are the caller's, so every widget that reads this declares
      identityContext: [username] (builders.overviewReader): snowplow injects .username and keys the
@@ -21,6 +23,14 @@
        ?view=   table for the Full list, a builder's own view (builders.overviews views), else the
                 Summary cards;
        ?q=      a search over name, details and status, applied before anything is counted.
+
+     A FAILED READ (records, publishes or change requests, other than a 404: no CRD is "none") is
+     never shown as zeros: every figure says "could not be read", readError says why, and with no
+     row the list says so instead of "Nothing has been built".
+
+     COLOURS are decided here, one per state (builders.stateColors), and sent with every row,
+     card, figure and slice. A figure also gets highlight (frontend#791): only a non-zero figure of
+     failed, action or ready stands out, and a zero of those is grey.
 
      WHAT IT RETURNS: stats (the five figures), stateChips, viewChips, rangeChips, cardsHead /
      cardsDrafts / cardsTail (the Summary cards, in triage order, split where the drafts are, because
@@ -41,7 +51,14 @@ spec:
     {{- include "builders.myDraftsApi" $ | nindent 4 }}
     {{- include (printf "builders.%sApi" $b.source) $ | nindent 4 }}
   filter: |
-    ({{ toJson (dict "key" $key "draftKind" $b.draftKind "route" $b.route "noun" $b.noun "live" $b.live "title" $b.title "tiles" $b.tiles "views" ($b.views | default list)) }}) as $cfg
+    ({{ toJson (dict "key" $key "draftKind" $b.draftKind "route" $b.route "noun" $b.noun "live" $b.live "title" $b.title "tiles" $b.tiles "views" ($b.views | default list) "colors" (include "builders.stateColors" $ | fromYaml)) }}) as $cfg
+    # A FAILED READ IS NOT AN EMPTY BUILDER. continueOnError plus `// []` turns a refused or failed
+    # list into zero rows; the figures say "could not be read" instead (as /incidents does). Only the
+    # reads the rows come from, and never a 404: no CRD (no git-provider, no sandbox) is "none".
+    | def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // .error // tojson) else tostring end;
+      ([ to_entries[] | select((.key | IN("recordsError", "publishesError", "prsError")) and .value != null)
+         | .value | errtext | select(. != "" and (test("404|not ?found"; "i") | not)) ] | unique | join("; ")) as $readErr
+    | ($readErr != "") as $unread
     | (
     {{- include "builders.myDraftsFilter" $ | nindent 4 }}
     ) as $mine
@@ -53,13 +70,18 @@ spec:
       def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
       def durlabel: if . < 3600 then "\((. / 60) | floor) min" elif . < 172800 then "\((. / 3600) | floor) h" else "\((. / 86400) | floor) days" end;
       def median: sort | if length == 0 then null elif length % 2 == 1 then .[(length / 2) | floor] else ((.[(length / 2) - 1] + .[length / 2]) / 2) end;
+      # A provider's message as a sentence: its first line, without the response body an upstream
+      # error carries after it (JSON, HTML), at most 140 characters.
+      def clean: str | split("\n")[0] | sub("\\s*[{<\\[].*$"; "") | sub("[\\s:;,.-]+$"; "") | if length > 140 then .[0:139] + "…" else . end;
+      def failedBecause($fallback): (.reason // "" | clean) as $r | if $r == "" then $fallback else ($r[0:1] | ascii_upcase) + $r[1:] + "." end;
       .
     | [ "failed", "action", "ready", "draft", "review", "merged", "live", "closed" ] as $order
     | [ "failed", "action", "ready", "draft" ] as $attention
-    | { failed: "Failed", action: "Needs a step", ready: "Ready to publish", draft: "Draft", review: "In review",
+    | { failed: "Failed", action: "Needs a step", ready: "Ready to publish", draft: "Draft", review: "Change request open",
         merged: "Merged", live: $cfg.live, closed: "Closed" } as $names
     | { failed: "fa-triangle-exclamation", action: "fa-circle-exclamation", ready: "fa-paper-plane", draft: "fa-pen",
         review: "fa-code-pull-request", merged: "fa-code-merge", live: "fa-circle-check", closed: "fa-circle-xmark" } as $icons
+    | $cfg.colors as $colors
     | now as $now
     | ((.state // "") | str | ascii_downcase | if . == "" then "attention" else . end) as $state
     | ($state == "attention" or $state == "all" or ($order | index($state)) != null) as $stateValid
@@ -88,7 +110,7 @@ spec:
         | { name: (.name // ""), recordName: (.recordName // ""),
             bucket: (if $previewed then "ready" else "draft" end),
             label: (if $previewed then "Ready to publish" else "Draft" end),
-            meta: ([ (if (.version // "") | test("^[0-9]") then "v" + .version else empty end), n(.files // 0; "file"; "files"), (.startedFrom // "") ]
+            meta: ([ ((.version // "") | str | if test("^[0-9]") then . else "" end | if . == "" then empty else "v" + . end), n(.files // 0; "file"; "files"), (.startedFrom // "") ]
                    | map(select(. != "")) | join(" · ")),
             description: (if $previewed then "Previewed with your permissions. Open it to publish the change request."
                           else "Not previewed yet. Resume it, then preview it against this cluster." end),
@@ -96,69 +118,98 @@ spec:
             at: (.updatedAt // ""), mergedAt: "", href: (.resumePath // ""),
             cta: (if $previewed then "Publish" else "Resume" end),
             ref: "", next: (if $previewed then "Publish" else "Preview" end), detail: "", draft: true } ] as $drafts
-    # WHAT THE BUILDER PUBLISHED, each row in one state. The source's own status stays the label.
+    # WHAT THE BUILDER PUBLISHED, each row in one state. "Merged" only on the provider's word: a
+    # change request closed while the provider cannot say whether it merged keeps its step, worded
+    # "if merged", and never reads as merged.
     | (($src.rows // []) | if type == "array" then . else [] end) as $srcRows
     | (if $cfg.key == "portal" then
          # builder-prs lists every builder's change requests. The Portal Builder's are its page
-         # publishes, and the change requests from before claims that did not go to the blueprints
-         # repository (those carry no builder).
+         # publishes, and the change requests from before claims that did not go to a blueprints
+         # repository (blueprint-builder-deliverables takes those, by the same test).
          [ $srcRows[]
-           | select((.builder // "") == "page" or ((.builder // "") == "" and ((.repo // "") | test("blueprints$") | not)))
+           | select((.builder // "") == "page" or ((.legacy // false) and ((.repo // "") | test("blueprints$") | not)))
+           | (.state == "closed" and (.next // "") != "") as $mergeUnknown
            | (if .state == "failed" then "failed" elif (.next // "") != "" then "action" elif .state == "merged" then "merged"
               elif .state == "closed" then "closed" else "review" end) as $bk
            | { name: (if (.title // "") != "" then .title else (.name // "") end), recordName: "", bucket: $bk,
-               label: (if $bk == "action" then "Merged · next step" else (.stateLabel // "") end),
+               label: (if $bk == "action" then (if $mergeUnknown then "Closed · merge not reported" else "Merged · next step" end)
+                       elif $bk == "review" then (if .state == "pushed" then "Pushed" elif .state == "pending" then "Publishing" else "Change request open" end)
+                       else (.stateLabel // "") end),
                meta: ([ (.pr // ""), (.repo // "") ] | map(select(. != "")) | join(" · ")),
-               description: (if $bk == "failed" then (if (.reason // "") != "" then .reason else "The publish failed before a change request was opened. Open it to see why." end)
-                             elif $bk == "action" then (.next // "") + "."
+               description: (if $bk == "failed" then failedBecause("The publish failed before a change request was opened. Open it to see why.")
+                             elif $bk == "action" then (if $mergeUnknown then "Closed, and the provider does not report whether it merged. " else "" end) + (.next // "") + "."
                              elif $bk == "merged" then "Merged into " + (.repo // "the portal repository") + "."
                              elif $bk == "closed" then "Closed without merging."
                              elif .state == "pushed" then "The branch is pushed. The change request opens next."
-                             else "Waiting for a review on " + (.repo // "the portal repository") + "." end),
+                             elif .state == "pending" then "Committing the files."
+                             else "Change request open on " + (.repo // "the portal repository") + ", waiting for a review." end),
+               reason: (.reason // ""),
                place: (.head // ""), at: (.created // ""), mergedAt: (.mergedAt // ""), href: (.url // ""),
                cta: (if $bk == "action" then "Install" elif $bk == "failed" then "See why" else "Open change request" end),
                ref: (.pr // ""), next: (.next // ""), detail: (.repo // ""), draft: false } ]
        elif $cfg.key == "blueprint" then
          [ $srcRows[]
+           | (.status == "Closed" and (.next // "") != "") as $mergeUnknown
            | (if .status == "Publish failed" then "failed" elif (.next // "") != "" then "action" elif .status == "Registered" then "live"
-              elif .status == "Merged" then "merged" elif .status == "Closed" then "closed" else "review" end) as $bk
+              elif .status == "Merged" or .status == "Reconciling" then "merged" elif .status == "Closed" then "closed" else "review" end) as $bk
            | ((.marketLabel // "") != "") as $inMarket
-           | { name: (.chart // ""), recordName: "", bucket: $bk, label: (if $bk == "action" then "To install" else (.status // "") end),
+           | { name: (.chart // ""), recordName: "", bucket: $bk,
+               label: (if $bk == "action" then (if $mergeUnknown then "Closed · install if merged" else "To install" end)
+                       elif .status == "In review" then "Change request open" else (.status // "") end),
                meta: ([ (if (.version // "—") != "—" then .version else empty end), (.pr // ""), (if $inMarket then "in the marketplace" else empty end) ]
                       | map(select(. != "")) | join(" · ")),
-               description: (if $bk == "failed" then "The publish failed. Open it to see which file was refused."
-                             elif $bk == "action" then "Merged. Install it, so it shows on the Blueprints page."
+               description: (if $bk == "failed" then failedBecause("The publish failed before a change request was opened. Open it to see which file was refused.")
+                             elif $bk == "action" then (if $mergeUnknown then "Closed, and the provider does not report whether it merged. If it did, install it so it shows on the Blueprints page."
+                                                         else "Merged. Install it, so it shows on the Blueprints page." end)
                              elif $bk == "live" then "Registered" + (if $inMarket then ", and in the marketplace." else "." end)
+                             elif .status == "Reconciling" then "Merged. Its CompositionDefinition exists and core-provider is still reconciling it."
                              elif $bk == "merged" then "Merged."
                              elif $bk == "closed" then "Closed without merging."
-                             elif .status == "Reconciling" then "Its CompositionDefinition exists and core-provider is still reconciling it."
-                             elif (.title // "") != "" then .title + ". Waiting for a review."
-                             else "Waiting for a review." end),
+                             elif .status == "Pushed" then "The branch is pushed. The change request opens next."
+                             elif .status == "Publishing" then "Committing the files."
+                             elif (.title // "") != "" then .title + ". Change request open, waiting for a review."
+                             else "Change request open, waiting for a review." end),
+               reason: (.reason // ""),
                place: ((.ns // "") + "/" + (.chart // "")), at: (.age // ""), mergedAt: (.mergedAt // ""),
                href: (if (.rowHref // "") != "" then .rowHref else (.url // "") end),
-               cta: (if $bk == "action" then "Install" elif $bk == "live" then "Open blueprint" elif (.url // "") != "" then "Open change request" else "Open" end),
+               cta: (if $bk == "action" then "Install" elif $bk == "live" then "Open blueprint" elif $bk == "failed" then "See why"
+                     elif (.url // "") != "" then "Open change request" else "Open" end),
                ref: (.pr // ""), next: (.next // ""), detail: (.version // ""), draft: false } ]
        else
          [ $srcRows[]
+           | (.status == "Closed" and (.next // "") != "") as $mergeUnknown
            | (if .status == "Failed" or .status == "Publish failed" then "failed" elif (.next // "") != "" then "action" elif .status == "Ready" then "live"
-              elif .status == "Merged" then "merged" elif .status == "Closed" then "closed" else "review" end) as $bk
-           | { name: (.chart // ""), recordName: "", bucket: $bk, label: (if $bk == "action" then (.next // "") else (.status // "") end),
+              elif (.status | IN("Merged", "Registering", "Registered", "Installed")) then "merged" elif .status == "Closed" then "closed" else "review" end) as $bk
+           | ((.nextNote // "") | str | if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end) as $note
+           | { name: (.chart // ""), recordName: "", bucket: $bk,
+               label: (if $bk == "action" then (if $mergeUnknown then "Closed · register if merged" else (.next // "") end) else (.status // "") end),
                meta: ([ (if (.version // "—") != "—" then .version else empty end), (.pr // ""), (if (.gvk // "—") != "—" then .gvk else empty end) ]
                       | map(select(. != "")) | join(" · ")),
-               description: (if (.nextNote // "") != "" then ((.nextNote | .[0:1] | ascii_upcase) + (.nextNote | .[1:]) + ".")
-                             elif $bk == "failed" then (if .status == "Failed" then "A RestDefinition, its install or its CompositionDefinition is failing. Open it to see the condition." else "The publish failed. Open it to see which file was refused." end)
-                             elif $bk == "action" then "Merged. " + (.next // "") + " is the next step."
-                             elif $bk == "live" then "Ready: every RestDefinition it installed is serving its kind."
+               # A failed row says what failed, never the credentials note: that is a Ready row's.
+               description: (if $bk == "failed" then failedBecause(if .status == "Failed" then "A RestDefinition, its install or its CompositionDefinition is failing. Open it to see the condition."
+                                                                   else "The publish failed before a change request was opened. Open it to see which file was refused." end)
+                             elif $bk == "action" then (if $mergeUnknown then "Closed, and the provider does not report whether it merged. If it did, register it."
+                                                         elif $note != "" then (.next // "") + ": " + $note + "."
+                                                         else "Merged. " + (.next // "") + " is the next step." end)
+                             elif $bk == "live" then "Ready: every RestDefinition it installed is serving its kind." + (if $note != "" then " " + $note + "." else "" end)
+                             elif .status == "Registering" then "Merged. Its CompositionDefinition is being registered."
+                             elif .status == "Registered" then "Registered."
+                             elif .status == "Installed" then "Installed. Its RestDefinitions are being created."
                              elif $bk == "merged" then "Merged."
                              elif $bk == "closed" then "Closed without merging."
-                             elif (.title // "") != "" then .title + ". " + (.status // "") + "."
-                             else (.status // "") + "." end),
+                             elif .status == "Pushed" then "The branch is pushed. The change request opens next."
+                             elif .status == "Publishing" then "Committing the files."
+                             elif (.title // "") != "" then .title + ". Change request open, waiting for a review."
+                             else "Change request open, waiting for a review." end),
+               reason: (.reason // ""),
                place: ((.ns // "") + "/" + (.chart // "")), at: (.age // ""), mergedAt: (.mergedAt // ""),
                href: (if (.rowHref // "") != "" then .rowHref else (.url // "") end),
-               cta: (if $bk == "action" then (.next // "") elif $bk == "live" then "Open" elif (.url // "") != "" then "Open change request" else "Open" end),
+               cta: (if $bk == "action" then (.next // "") elif $bk == "live" then "Open" elif $bk == "failed" then "See why"
+                     elif (.url // "") != "" then "Open change request" else "Open" end),
                ref: (.pr // ""), next: (.next // ""), detail: (.gvk // ""), draft: false } ]
        end) as $published
-    | [ ($drafts + $published)[] | . + { order: (.bucket as $k | $order | index($k)), ts: (.at | epoch), mts: (.mergedAt | epoch) } ] as $everything
+    | [ ($drafts + $published)[] | . + { order: (.bucket as $k | $order | index($k)), ts: (.at | epoch), mts: (.mergedAt | epoch), color: $colors[.bucket] } ] as $everything
+    # THE SEARCH narrows everything below: the list, the figures, the donut, the charts.
     | [ $everything[] | select($q == "" or ([ .name, .meta, .description, .label, .place ] | map(str | ascii_downcase) | any(contains($q)))) ] as $rows
     | (reduce $order[] as $k ({}; .[$k] = ([ $rows[] | select(.bucket == $k) ] | length))) as $byBucket
     | ($byBucket + { attention: ([ $rows[] | select(.bucket | IN($attention[])) ] | length), all: ($rows | length) }) as $counts
@@ -169,7 +220,7 @@ spec:
        | sort_by(.at) | reverse | sort_by(.order)) as $shown
     | 48 as $cap
     | def age: if .ts == null then "" else (($now - .ts) | if . < 0 then 0 else . end | durlabel) + " ago" end;
-      def card: { name, recordName, label, tone: .bucket, icon: $icons[.bucket], meta,
+      def card: { name, recordName, label, tone: .bucket, color, icon: $icons[.bucket], meta,
                   description, foot: ([ .place, age ] | map(select(. != "")) | join(" · ")), href, cta };
       .
     | $shown[0:$cap] as $first
@@ -178,7 +229,7 @@ spec:
     | ((($now / $w.size) | floor) * $w.size - ($w.n - 1) * $w.size) as $start
     | ($now - ({ "7d": 7, "30d": 30, "90d": 90 }[$range]) * 86400) as $since
     | def slot: ((. - $start) / $w.size | floor);
-      [ $everything[] | select(.draft | not) ] as $sent
+      [ $rows[] | select(.draft | not) ] as $sent
     | [ $sent[] | select(.mts != null and .ts != null and .mts >= .ts) | { m: .mts, d: ((.mts - .ts) / 86400) } ] as $merges
     | [ range(0; $w.n) as $i | ($start + $i * $w.size) as $t
         | { t: $t, series: "Published", v: ([ $sent[] | .ts | select(. != null and . >= $start) | slot | select(. == $i) ] | length) },
@@ -188,7 +239,9 @@ spec:
         | select($md != null) | { t: $t, series: "Days to merge", v: (($md * 10 | round) / 10) } ] as $ttm
     | ([ $merges[] | select(.m >= $start) | .d ] | median) as $ttmAll
     # THE FIGURES. A figure counting one state links to that state's chip; one counting several,
-    # all of which need attention, to Needs attention; any other, to All.
+    # all of which need attention, to Needs attention; any other, to All. Its colour and whether it
+    # stands out (frontend#791 highlight) are decided here: a zero is never red, orange or gold, and
+    # only a non-zero figure of a state that needs attention stands out.
     | ([ $rows[] | select(.bucket == "review") | .ts | select(. != null) ] | min) as $oldestReview
     | ([ $sent[] | .mts | select(. != null and . >= $since) ] | length) as $mergedIn
     | def caption($c):
@@ -205,6 +258,7 @@ spec:
         stateValid: $stateValid,
         range: $range,
         view: $view,
+        readError: $readErr,
         published: ([ (($mine.items // []) | if type == "array" then . else [] end)[]
                       | select(.kind == $cfg.draftKind and .state == "published") ] | length),
         q: $qRaw,
@@ -212,13 +266,18 @@ spec:
         matched: ($shown | length),
         more: (if ($shown | length) > $cap then (($shown | length) - $cap) else 0 end),
         stats: [ $cfg.tiles[]
+                 | ([ .states[] as $s | ($counts[$s] // 0) ] | add) as $v
+                 | (.tone | IN("failed", "action", "ready")) as $alarming
                  | { title: .title,
-                     value: ([ .states[] as $s | ($counts[$s] // 0) ] | add | tostring),
-                     caption: caption(.caption),
-                     tone: .tone,
-                     route: (if (.states | length) == 1 then href(.states[0]; $range; $listView)
+                     tone: (if $unread then "unread" else .tone end),
+                     route: (if $unread then ""
+                             elif (.states | length) == 1 then href(.states[0]; $range; $listView)
                              elif all(.states[]; IN($attention[])) then href("attention"; $range; $listView)
-                             else href("all"; $range; $listView) end) } ],
+                             else href("all"; $range; $listView) end) }
+                   + (if $unread then { value: "", caption: "could not be read", color: $colors.unread, highlight: true }
+                      else { value: ($v | tostring), caption: caption(.caption),
+                             color: (if $v == 0 and $alarming then "gray" else $colors[.tone] end),
+                             highlight: ($v > 0 and $alarming) } end) ],
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($counts[$k] // 0) > 0 or $k == $state))
                      | map({ key: ., label: (if . == "attention" then "Needs attention" elif . == "all" then "All" else $names[.] end),
@@ -230,20 +289,19 @@ spec:
         cardsHead: [ $first[] | select(.order < 2) | card ],
         cardsDrafts: [ $first[] | select(.draft) | card ],
         cardsTail: [ $first[] | select(.order >= 4) | card ],
-        table: [ $shown[] | { name, label, color: ({ failed: "red", action: "orange", ready: "orange", draft: "gray", review: "blue", merged: "green", live: "green", closed: "gray" }[.bucket]),
+        table: [ $shown[] | { name, label, color,
                               why: (if .bucket == "failed" then (.description // "") else "" end),
                               meta, next, ref, at, mergedAt, href } ],
         byState: [ $order[] | { state: $names[.], count: ($counts[.] // 0) } | select(.count > 0) ],
-        byStateColors: ([ $order[] | select(($counts[.] // 0) > 0)
-                          | { key: $names[.], value: ({ failed: "red", action: "orange", ready: "gold", draft: "gray", review: "blue",
-                                                        merged: "teal", live: "green", closed: "slate" }[.]) } ] | from_entries),
+        byStateColors: ([ $order[] | select(($counts[.] // 0) > 0) | { key: $names[.], value: $colors[.] } ] | from_entries),
         trend: $trend,
         ttm: $ttm,
         rangeText: $rangeText,
         ttmText: (if $ttmAll == null then "no merge in " + $rangeText else "median " + (($ttmAll * 86400) | durlabel) + " in " + $rangeText end),
         waiting: ([ $rows[] | select(.bucket | IN("failed", "action", "ready", "review")) | select(.ts != null) ] | sort_by(.ts) | .[0:5]
-                  | map({ name, why: (.label + " · " + ((($now - .ts) | if . < 0 then 0 else . end) | durlabel)), href, tone: .bucket })),
+                  | map({ name, why: (.label + " · " + ((($now - .ts) | if . < 0 then 0 else . end) | durlabel)), href, tone: .bucket, color })),
         emptyText: (if ($stateValid | not) then "That is not a state a " + $cfg.noun + " can be in. Choose a chip above."
+                    elif $unread and $counts.all == 0 then "What the " + $cfg.title + " built could not be read (" + ($readErr | clean | if . == "" then "no detail given" else . end) + "). Reload the page, or ask an administrator for access."
                     elif $q != "" and $counts.all == 0 then "Nothing matches \"" + $qRaw + "\". Clear the search to see everything."
                     elif $counts.all == 0 then "Nothing has been built with the " + $cfg.title + " yet, and you have no draft. Start one with the button above: it is saved as you work."
                     elif $state == "attention" then "Nothing needs you: no failed publish, no step waiting, no draft. All shows every " + $cfg.noun + "."

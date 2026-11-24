@@ -134,6 +134,9 @@
         # Which builder opened it: none is recorded on a change request opened before claims,
         # so it is "" here (the Portal Builder's overview tells its own by the repo).
         builder: "",
+        # From before claims: no builder recorded and no publish behind it (builder-overview gives
+        # the ones on a blueprints repository to the Blueprint Builder, the rest to the Portal Builder).
+        legacy: true,
         repo:  $repo,
         head:  $head,
         # Identity pill: "<owner>/<repo> · #<N>" (+ the head branch when present). The PR
@@ -194,6 +197,7 @@
         and ($end == "merged" or $end == "closed?")) as $register
      | { name: $p0.publish,
          builder: ($p0.builder // ""),
+         legacy: false,
          repo: $p0.repo,
          head: $p0.branch,
          sub: ($p0.repo + (if ($p0.branch // "") != "" then (" · " + $p0.branch) else "" end)),

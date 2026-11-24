@@ -17,14 +17,17 @@
                   readyDrafts, merged, market, kinds). A figure links to the chip of its state, or to
                   Needs attention when it counts several that are all in it, else to All.
 
-     THE STATES, one lifecycle and one colour each (builder-overview, by triage order):
+     THE STATES, one lifecycle and one colour each (builders.stateColors; builder-overview sends the
+     colour with every row, figure and slice, so cards, table, figures and donut cannot disagree):
        failed  red    a publish that failed, or a controller whose RestDefinition is failing;
        action  orange a person's step is due: install, register, or configure credentials;
-       ready   orange a draft previewed and not yet published;
+       ready   gold   a draft previewed and not yet published;
        draft   gray   a draft not previewed yet;
-       review  blue   a change request open, a branch pushed, a definition still reconciling;
-       merged  green  merged, nothing left to do here;
-       live    green  registered (blueprint), Ready (controller);
+       review  blue   a change request open (on screen "Change request open", never PR: GitLab
+                      has merge requests), a branch pushed, a publish still committing;
+       merged  gray   merged, and what is left is the platform's: reconciling, registering,
+                      installing;
+       live    green  registered (blueprint), Ready (controller): green is for health only;
        closed  gray   closed without merging.
      Needs attention, the default chip, is the first four. */}}
 {{- define "builders.overviews" -}}
@@ -38,10 +41,10 @@ portal:
   cardTitle: Pages
   tiles:
     - { title: Publish failed, states: [failed], tone: failed, caption: "no change request opened" }
-    - { title: Ready to publish, states: [ready], tone: ready, caption: "previewed, not published" }
-    - { title: In review, states: [review], tone: review, caption: "oldest" }
-    - { title: Drafts, states: [draft], tone: draft, caption: "only you see these" }
-    - { title: Merged, states: [merged, action], tone: live, caption: "merged" }
+    - { title: Needs a step, states: [action], tone: action, caption: "tag a release, then install" }
+    - { title: Change request open, states: [review], tone: review, caption: "oldest" }
+    - { title: Drafts, states: [draft, ready], tone: draft, caption: "readyDrafts" }
+    - { title: Merged, states: [merged], tone: merged, caption: "merged" }
 blueprint:
   source: blueprintDeliverables
   draftKind: blueprint
@@ -53,7 +56,7 @@ blueprint:
   tiles:
     - { title: Failed, states: [failed], tone: failed, caption: "the publish failed" }
     - { title: To install, states: [action], tone: action, caption: "merged, not installed yet" }
-    - { title: In review, states: [review], tone: review, caption: "oldest" }
+    - { title: Change request open, states: [review], tone: review, caption: "oldest" }
     - { title: Drafts, states: [draft, ready], tone: draft, caption: "readyDrafts" }
     - { title: Registered, states: [live], tone: live, caption: "market" }
 controller:
@@ -69,9 +72,14 @@ controller:
   tiles:
     - { title: Failed, states: [failed], tone: failed, caption: "a definition or the publish failed" }
     - { title: Needs a step, states: [action], tone: action, caption: "register, install or credentials" }
-    - { title: In review, states: [review], tone: review, caption: "oldest" }
+    - { title: Change request open, states: [review], tone: review, caption: "oldest" }
     - { title: Drafts, states: [draft, ready], tone: draft, caption: "readyDrafts" }
     - { title: Ready, states: [live], tone: live, caption: "kinds" }
+{{- end -}}
+
+{{/* One colour per state (see THE STATES above), and the colour of a figure that could not be read. */}}
+{{- define "builders.stateColors" -}}
+{failed: red, action: orange, ready: gold, draft: gray, review: blue, merged: gray, live: green, closed: gray, unread: orange}
 {{- end -}}
 
 {{/* The keys every widget of a builder dashboard declares: the page's filter params

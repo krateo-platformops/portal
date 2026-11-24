@@ -57,9 +57,11 @@ spec:
               hasAuth: (.status.hasSecuritySchemes // false) } ]
   {{/* Build the registry rows (by API group, then name — the group is the API a controller */}}
   {{/* onboarded, so its kinds read together) + counts. The Ready verdict and its chip colour */}}
-  {{/* are computed HERE (server-side), never client-side. */}}
+  {{/* are computed HERE (server-side), never client-side. The builder dashboard's search (?q=, */}}
+  {{/* its keyExtras) narrows the rows as it narrows the list: name, namespace, group, kind, OAS. */}}
   filter: >
-    ([ (.restdefs // [])[]
+    ((.q // "") | if type == "string" then ascii_downcase | sub("^\\s+"; "") | sub("\\s+$"; "") else "" end) as $q
+    | ([ (.restdefs // [])[]
         | (.readyCond.status // "") as $rs
         | { name: .name,
             namespace: .namespace,
@@ -71,7 +73,9 @@ spec:
             oasPath: (if (.oasPath // "") != "" then .oasPath else "—" end),
             auth: (.hasAuth // false),
             age: (.created // "") }
-      ] | sort_by(.name) | sort_by(.group)) as $rows
+      ]
+      | map(select($q == "" or ([ .name, .namespace, .group, .gvk, .oasPath ] | map(ascii_downcase) | any(contains($q)))))
+      | sort_by(.name) | sort_by(.group)) as $rows
     | {
         rows: $rows,
         counts: {
