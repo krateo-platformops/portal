@@ -257,10 +257,12 @@ spec:
     | ((($agt.gatewayKnown | not) and $agt.total > 0) or $srvErr != "") as $agtCaveat
     # ── platform review ────────────────────────────────────────────────────────────────────────
     | ((.proposals // []) | map(select(type == "object"))) as $props
-    | ([ $props[] | select(.phase == "Proposed" or .phase == "PrOpen") ]) as $waiting
+    # WAITING FOR A DECISION is Proposed, as on /reviews. A proposal whose pull request is open has had
+    # its decision and waits for the merge: counted apart, never in the figure.
+    | ([ $props[] | select(.phase == "Proposed") ]) as $waiting
     | { waiting: ($waiting | length),
         newToday: ([ $waiting[] | select((.created // "")[0:10] == $today) ] | length),
-        prOpen: ([ $waiting[] | select(.phase == "PrOpen") ] | length),
+        prOpen: ([ $props[] | select(.phase == "PrOpen") ] | length),
         decided: ([ $props[] | select(.phase == "Merged" or .phase == "Rejected" or .phase == "Failed") ] | length) } as $rev
     # ── compositions and blueprints ────────────────────────────────────────────────────────────
     | ([ (.allCompositions // [])[] | select(type == "object") | select(inScope) | . + {class: cclass} ]) as $comps
@@ -321,7 +323,7 @@ spec:
            | if length == 0 then "all " + ($agt.total | tostring) + " agents registered at the gateway" else join(", ") end)
         elif $s.key == "reviews" then
           (if $rev.waiting == 0 then "no review proposal waiting for a decision"
-           else n($rev.waiting; "review proposal"; "review proposals") + " waiting for a decision (" + ($rev.newToday | tostring) + " new today, " + ($rev.prOpen | tostring) + " with a pull request open)" end)
+           else n($rev.waiting; "review proposal"; "review proposals") + " waiting for a decision (" + ($rev.newToday | tostring) + " new today)" + (if $rev.prOpen > 0 then " and " + ($rev.prOpen | tostring) + " with a pull request open" else "" end) end)
         else
           (if $s.items == 0 then "no composition needing attention (" + ($cmp.ready | tostring) + " of " + ($cmp.total | tostring) + " Ready)"
            else ([ (if $cmp.notReady > 0 then ($cmp.notReady | tostring) + " not Ready" else empty end),

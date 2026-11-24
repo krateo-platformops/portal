@@ -346,7 +346,7 @@ def _():
         ('Alerts firing', '1', 'of 3', 'red'),
         ('Compositions not Ready', '0', 'of 82', None),
         ('Agent gateway gaps', '1', 'of 3 agents', 'red'),
-        ('Waiting for a decision', '5', 'review proposals', None)])
+        ('Waiting for a decision', '4', 'review proposals', None)])
     check('present: one Needs you panel, red, counting its cards', got['panel'],
           {'key': 'needs-you', 'label': 'Needs you', 'count': 5, 'status': 'error'})
     check('present: the panel has no footer (the Dashboard has no table view to link to)',
@@ -355,7 +355,7 @@ def _():
           ['/incidents?status=open', '/alerts?status=alert', '/agents', '/reviews', '/compositions'])
     check('present: faults first, then work, in source order', got['titles'], [
         '5 open incidents', '1 alert firing', '1 agent not reachable through the gateway',
-        '5 proposals waiting for a decision', '1 composition paused'])
+        '4 proposals waiting for a decision', '1 composition paused'])
     inc = got['cards'][0]
     check('present: the incidents card', (inc['secondaryText'], inc['subPrimaryText'], inc['description'], inc['subSecondaryText'], inc['cardCta'], inc['navigateTo'], inc['color']),
           ('Open', 'from 2 alerts · oldest opened 2026-10-02', '3 of them come from one alert, probe.', 'Incidents', 'Triage', '/incidents?status=open', 'red'))
@@ -364,14 +364,14 @@ def _():
           ('nightly-review-agent', 'Gateway: not routed · no Allow rule. Also 1 tool server NotAccepted.', '/agents'))
     rev = got['cards'][3]
     check('present: the review card is work, not a fault', (rev['subPrimaryText'], rev['description'], rev['color']),
-          ('1 new today · 1 with a pull request open', '2 proposals decided so far.', None))
+          ('1 new today · 1 more with a pull request open', '2 proposals decided so far.', None))
     cmp_ = got['cards'][4]
     check('present: the paused composition', (cmp_['subPrimaryText'], cmp_['description'], cmp_['color']),
           ('acme-feedback-controller', 'Ready reason ReconcilePaused.', None))
     check('present: the calm line lists what is fine, beside Needs you', got['quiet'],
           'The rest is fine: 80 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
     check('present: the source facet, largest first, counted in items', got['options'], [
-        ('Incidents', 'incidents', 5), ('Platform review', 'reviews', 5), ('Agents', 'agents', 2),
+        ('Incidents', 'incidents', 5), ('Platform review', 'reviews', 4), ('Agents', 'agents', 2),
         ('Alerts', 'alerts', 1), ('Compositions', 'compositions', 1)])
     check('present: no chips without a filter', got['chips'], [])
     href, prompt, params = got['ask']
@@ -379,7 +379,7 @@ def _():
     check('present: the prompt covers every source', prompt,
           'Brief me on what needs me on my platform: 5 open incidents from 2 alerts, 3 of them from probe; '
           '1 alert firing (Probe failing); 1 agent not reachable through the gateway (nightly-review-agent: not routed · no Allow rule), '
-          '1 tool server not Accepted (cujbench-evidence); 5 review proposals waiting for a decision (1 new today, 1 with a pull request open); '
+          '1 tool server not Accepted (cujbench-evidence); 4 review proposals waiting for a decision (1 new today) and 1 with a pull request open; '
           '1 paused composition (acme-feedback-controller). Tell me what to look at first and why, grounded in the evidence on those pages.')
 
 
@@ -441,6 +441,10 @@ def _():
     check('no page open: the sentence', got['quiet'],
           'None of the pages this inbox reads (Incidents, Alerts, Agents, Platform review, Compositions) is open to you.')
     check('no page open: the prompt asks about access', got['ask'][1].startswith('None of the pages behind my Dashboard inbox'), True)
+    # A proposal whose pull request is open waits for its merge, not for a decision (as /reviews counts).
+    out = inbox(raw={'proposals': {'items': [proposal('m1', 'PrOpen'), proposal('m2', 'PrOpen')]}})
+    check('only open pull requests: nothing waits for a decision',
+          (out['reviews']['waiting'], out['reviews']['prOpen'], [t for t in page(out)['titles'] if 'decision' in t]), (0, 2, []))
     # A UAF read serves [] to a caller without the grant: with the gate closed it says nothing.
     out = inbox(gates={'Reviews': False}, raw={'proposals': {'items': []}})
     check('gate closed, empty UAF read: no "no proposal waiting" claim', 'proposal' in page(out)['quiet'], False)
@@ -510,7 +514,7 @@ def _():
     check('?source=incidents: nothing else is called fine', got['quiet'], '')
     check('?source=incidents: no calm line in the body', 'dashboard-quiet' in got['body'], False)
     check('?source=incidents: the facet still counts every source', dict((o[1], o[2]) for o in got['options']),
-          {'reviews': 5, 'incidents': 5, 'agents': 2, 'alerts': 1, 'compositions': 1})
+          {'reviews': 4, 'incidents': 5, 'agents': 2, 'alerts': 1, 'compositions': 1})
     check('?source=incidents: one removable chip, then Clear all', got['chips'],
           [('Source: Incidents', '/dashboard', True), ('Clear all', '/dashboard', False)])
     check('?source=incidents: the chips are in the body', 'dashboard-active-filters' in got['body'], True)
