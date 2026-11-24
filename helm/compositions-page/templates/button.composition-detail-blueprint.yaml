@@ -32,8 +32,11 @@ spec:
           path: /blueprints
   widgetDataTemplate:
     - forPath: label
+      {{/* The version is the chart the controller installed (status.helmChartVersion). The label
+           krateo.io/composition-installed-version names the PARENT's version on a composition another one
+           created: every component of the installer read the installer's ("frontend 0.3.705"). */}}
       expression: >-
-        ${ (.detail.metadata.labels["krateo.io/composition-installed-version"] // "" | sub("^v"; "") | gsub("-"; ".")) as $v
+        ${ (.detail.status.helmChartVersion // "") as $v
         | "Blueprint" + (if (.blueprintName // "") != "" then " " + .blueprintName else "" end) + (if $v != "" then " " + $v else "" end) }
     - forPath: actions
       expression: '${ { navigate: [ { id: "blueprint", type: "navigate", path: (if (.blueprintHref // "") != "" then .blueprintHref else "/blueprints" end) } ] } }'
