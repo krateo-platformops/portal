@@ -513,6 +513,15 @@ def check_policies_tab():
     expect(f, 'the state chips, All by default', [(c['label'], c['count'], c['active'], c['route']) for c in w('Listy', 'agents-policies-chips', out)['dataSource']],
            [('All', 3, True, '/agents'), ('Healthy', 2, False, '/agents?group=healthy'),
             ('Not healthy', 1, False, '/agents?group=nothealthy'), ('Not attached', 1, False, '/agents?group=notattached')])
+    # A policy may target any kind the CRD allows: tools-kagent-tools targets an AgentgatewayBackend, is Accepted
+    # and Attached on krateo-057, and read "not attached: enforces nothing" while every other kind was known.
+    backend = {'metadata': {'name': 'agentgateway-policies-tools', 'namespace': NS},
+               'spec': {'targetRefs': [{'kind': 'AgentgatewayBackend', 'name': 'agentgateway-policies-mcp-tools'}], 'traffic': {'cors': {'allowMethods': ['GET']}}},
+               'status': {'ancestors': [{'conditions': [{'type': 'Attached', 'status': 'True'}]}]}}
+    other = policies_out({}, pols=[*POLS, backend])
+    expect(f, 'a policy on another kind is attached, and says to what',
+           ([r['attaches'] for r in other['rows'] if r['name'] == 'tools'], {t['title']: t['value'] for t in other['stats']}['Not attached']),
+           (['AgentgatewayBackend mcp-tools'], '1'))
     expect(f, 'All: every role card, every policy', role_rows(out, {}),
            {'identity': (['jwt'], '1 policy'), 'resiliency': (['retry'], '1 policy'), 'cors': (['cors'], '1 policy')})
     # With q, view and range set (and another tab's facet), a state tile routes as its chip and counts what it counts.
