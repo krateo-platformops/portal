@@ -1,0 +1,32 @@
+{{/* A builder dashboard's body: what it built on the left two thirds, the charts on the right third
+     (row.compositions-main). At narrow widths both take the full width and the charts go below. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Row
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-main
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  widgetData:
+    allowedResources:
+    - cards
+    - flexes
+    alignment: top
+    items:
+    - resourceRefId: {{ $key }}-builder-list-card
+      size: 16
+      xs: 24
+      lg: 16
+    - resourceRefId: {{ $key }}-builder-side
+      size: 8
+      xs: 24
+      lg: 8
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-list-card" $key) "resource" "cards") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-side" $key) "resource" "flexes") | nindent 4 }}
+{{- end }}

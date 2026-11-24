@@ -1,0 +1,98 @@
+{{/* The Summary cards of a builder dashboard, one per draft or publish in the picked state: its
+     name, its state as a coloured tag with its icon, what it is (version, change request, kinds),
+     what is true of it and what comes next, then where it lives and how long ago it moved. Three
+     lists, one template (card.builder-list-card says why):
+       cards-head    failed, or a person's step is due: the card opens that step;
+       cards-drafts  the caller's drafts: Resume, and Discard behind the confirm every DELETE gets
+                     (the action list.my-drafts has always had);
+       cards-tail    in review, merged, live, closed: the card opens the change request or what it
+                     became. */}}
+{{- $sandbox := .Values.previewSandbox.namespace }}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+{{- range $part := list "head" "drafts" "tail" }}
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-cards-{{ $part }}
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    grid:
+      gutter: 12
+      column: 1
+    split: false
+    pagination:
+      pageSize: 8
+    itemTemplate:
+      rowVariant: card
+      icon: '{icon}'
+      iconVariant: tile
+      primaryText: '{name}'
+      secondaryText: '{label}'
+      subPrimaryText: '{meta}'
+      subSecondaryText: '{foot}'
+      description: '{description}'
+      navigateTo: '{href}'
+      {{- if eq $part "drafts" }}
+      rowActionsDisplay: buttons
+      rowActions:
+        - actionId: resume
+          label: Resume
+          icon: fa-rotate-left
+        - actionId: discard
+          label: Discard
+          icon: fa-trash
+      {{- else }}
+      cardCta: '{cta}'
+      {{- end }}
+      {{- /* The state's colour, sent with the row (builders.stateColors). */}}
+      color:
+        value: '{color}'
+    {{- if eq $part "drafts" }}
+    actions:
+      navigate:
+        - id: resume
+          type: navigate
+          {{- /* A path that starts with ${ is jq over the WIDGET, not the row (useHandleActions
+               runNavigate), so the row's own href cannot be the whole path: the placeholder sits in
+               the path, filled from the row. The same route my-drafts names as resumePath. */}}
+          path: {{ printf "%s/compose?resume=${recordName}" $b.route }}
+      rest:
+        - id: discard
+          type: rest
+          resourceRefId: discard-draft-record
+          headers:
+            - 'Accept: application/json'
+          requireConfirmation: true
+          payloadToOverride:
+            - name: metadata.name
+              value: '${ .json.recordName }'
+            - name: metadata.namespace
+              value: {{ $sandbox | quote }}
+          successMessage: Draft discarded
+          errorMessage: The draft could not be removed — it may already be gone; the list refreshes on its own
+          loading:
+            display: true
+    {{- end }}
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .cards{{ title $part }} // [] }'
+  resourcesRefs:
+    {{- if eq $part "drafts" }}
+    items:
+      - id: discard-draft-record
+        apiVersion: v1
+        resource: configmaps
+        name: select-a-draft
+        namespace: {{ $sandbox }}
+        verb: DELETE
+    {{- else }}
+    items: []
+    {{- end }}
+{{- end }}
+{{- end }}

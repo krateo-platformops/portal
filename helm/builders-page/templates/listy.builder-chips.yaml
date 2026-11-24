@@ -1,0 +1,31 @@
+{{/* The chips of a builder dashboard, all routes built by builder-overview, each keeping every other
+     param:
+       <key>-builder-view-chips   "Summary | Full list", top right of the list card (?view=table);
+       <key>-builder-state-chips  the page's filter: Needs attention (the default: failed, a step
+                                  due, ready to publish, draft), each state something is in, in
+                                  triage order, then All, each with its count. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+{{- range $chips := list "view" "state" }}
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-{{ $chips }}-chips
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    itemTemplate:
+      rowVariant: chip
+      primaryText: '{label}'
+      navigateTo: '{route}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .{{ $chips }}Chips // [] }'
+  resourcesRefs:
+    items: []
+{{- end }}
+{{- end }}

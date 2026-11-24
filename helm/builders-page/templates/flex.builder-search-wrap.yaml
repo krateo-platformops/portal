@@ -1,0 +1,41 @@
+{{/* The search, a quarter of the toolbar row (flex.compositions-search-wrap). It writes ?q=, which
+     builder-overview applies before it counts anything, so the figures, the chips, the list and the
+     charts all follow it. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-search-wrap
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  widgetData:
+    allowedResources:
+    - inputs
+    items:
+    - resourceRefId: {{ $key }}-builder-search
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-search" $key) "resource" "inputs") | nindent 4 }}
+---
+kind: Input
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-search
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: {{ include "builders.overviewKeys" $ }}
+  widgetData:
+    name: q
+    queryParam: q
+    placeholder: Search by name · press Enter
+    allowClear: true
+    size: middle
+  resourcesRefs:
+    items: []
+{{- end }}

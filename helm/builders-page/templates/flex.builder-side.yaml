@@ -1,0 +1,43 @@
+{{/* The charts of a builder dashboard, one third of the row, top to bottom: by state, published vs
+     merged, time to merge, waiting longest (only while something waits), then one card that is the
+     builder's own: the unowned page drafts for the Portal Builder, the RestDefinitions by API group
+     for the Controller Builder. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Flex
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-side
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    allowedResources:
+    - cards
+    vertical: true
+    gap: middle
+    items:
+    - resourceRefId: {{ $key }}-builder-by-state-card
+  widgetDataTemplate:
+  - forPath: items
+    expression: >-
+      ${ [ { resourceRefId: "{{ $key }}-builder-by-state-card" }, { resourceRefId: "{{ $key }}-builder-trend-card" }, { resourceRefId: "{{ $key }}-builder-ttm-card" } ]
+      + (if ((.waiting // []) | length) > 0 then [ { resourceRefId: "{{ $key }}-builder-waiting-card" } ] else [] end)
+      {{- if eq $key "portal" }}
+      + [ { resourceRefId: "unowned-drafts-card" } ]
+      {{- else if eq $key "controller" }}
+      + [ { resourceRefId: "controller-builder-groups-card" } ]
+      {{- end }} }
+  resourcesRefs:
+    items:
+    {{- range $card := list "by-state" "trend" "ttm" "waiting" }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-%s-card" $key $card) "resource" "cards") | nindent 4 }}
+    {{- end }}
+    {{- if eq $key "portal" }}
+    {{- include "builders.ref" (dict "ctx" $ "id" "unowned-drafts-card" "resource" "cards") | nindent 4 }}
+    {{- else if eq $key "controller" }}
+    {{- include "builders.ref" (dict "ctx" $ "id" "controller-builder-groups-card" "resource" "cards") | nindent 4 }}
+    {{- end }}
+{{- end }}

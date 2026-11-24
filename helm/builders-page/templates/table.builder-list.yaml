@@ -1,0 +1,46 @@
+{{/* The Full list of a builder dashboard (?view=table): every draft and publish in the picked state,
+     with the columns the deliverables tables had in common, in triage order. A row opens what its
+     card opens: the draft, the next step, the change request, or what it became. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-table
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: '{href}'
+    pagination:
+      defaultPageSize: 15
+    columns:
+    - valueKey: name
+      title: {{ $b.noun | title }}
+    - valueKey: status
+      title: Status
+    - valueKey: why
+      title: Why
+    - valueKey: meta
+      title: Details
+    - valueKey: next
+      title: Next step
+    - valueKey: ref
+      title: Ref
+    - valueKey: at
+      title: Updated
+    - valueKey: merged
+      title: Merged
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.table // [])[] | [ {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"status",kind:"tag",stringValue:(.label // ""),color:(.color // "gray")}, {valueKey:"why",kind:"jsonSchemaType",type:"string",stringValue:(.why // "")}, {valueKey:"meta",kind:"jsonSchemaType",type:"string",stringValue:(.meta // ""),color:"var(--gray-color)"}, {valueKey:"next",kind:"jsonSchemaType",type:"string",stringValue:(.next // "")}, {valueKey:"ref",kind:"jsonSchemaType",type:"string",stringValue:(.ref // ""),color:"var(--gray-color)"}, {valueKey:"at",kind:"jsonSchemaType",type:"string",stringValue:(.at // ""),format:"relative"}, {valueKey:"merged",kind:"jsonSchemaType",type:"string",stringValue:(.mergedAt // ""),format:"relative"}, {valueKey:"href",kind:"jsonSchemaType",type:"string",stringValue:(.href // "")} ] ] }'
+  resourcesRefs:
+    items: []
+{{- end }}
