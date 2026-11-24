@@ -126,6 +126,10 @@ spec:
         | ( [ $tr[] | select(.kind == "Gateway")   | .name ] ) as $gw
         | ( [ $tr[] | select(.kind == "HTTPRoute") | .name ] ) as $rt
         | ( [ $tr[] | select(.kind == "Service")   | .name ] ) as $svc
+        # Any other kind the CRD lets a policy target (AgentgatewayBackend, ListenerSet, …), by its own
+        # name: a policy is "not attached" only when it names no target at all.
+        | ( [ $tr[] | select(.kind != "Gateway" and .kind != "HTTPRoute" and .kind != "Service")
+              | (.kind // "?") + " " + ((.name // "?") | ltrimstr("agentgateway-policies-")) ] | unique ) as $other
         # Every spec block the object carries, named. This is the fallback summary for anything the
         # branches below do not read, so a block we do not understand is still visible as itself.
         | ( [ (($p.spec.traffic  // {}) | keys[] | "traffic."  + .),
@@ -277,7 +281,7 @@ spec:
                   else (($rt | length | tostring) + " routes") end ) + $scope )
             elif ($svc | length) > 0 then
               ( ($svc | length | tostring) + ( if ($svc | length) == 1 then " service" else " services" end ) )
-            else "" end ) as $byRef
+            else ($other | join(", ")) end ) as $byRef
         # targetSelectors is the CRD's OTHER attachment mechanism, and the one it recommends for
         # exactly the fan-out this chart has ("Prefer targetRefs when reconciliation latency is
         # important, especially when many policies target the same resource"). Reading only
