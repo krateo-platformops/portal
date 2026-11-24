@@ -140,7 +140,7 @@ def recon_out(c, extras=None, spans=SPANS, lists=None, ch_down=False, crds=CDS):
 
 
 CARD_MAP = {'failed': 'red', 'degraded': 'red', 'unreadable': 'orange', 'drift': 'orange', 'paused': 'gray',
-            'pending': 'blue', 'healthy': 'green'}
+            'unknown': 'gray', 'pending': 'blue', 'healthy': 'green'}
 
 
 # ---------------------------------------------------------------------------------------------
