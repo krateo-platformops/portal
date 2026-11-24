@@ -48,6 +48,9 @@ spec:
     {{/* Persona groups — readable only for basic-strategy users (User CR spec.groups). */}}
     {{/* Cluster-wide list, matched on metadata.name == the route's username extra. */}}
     {{/* Missing CRD / no match → groups [] + strategy "unknown" (user-only check). */}}
+    {{/* A STAGE filter sees {extras, <stage>}: the request's params are under .extras there (they are the
+         top level in payloads and in the final filter). Read as .username it matched nobody, so every
+         local user was checked without their groups: an administrator read "No access" ten times. */}}
     - name: userinfo
       path: /apis/basic.authn.krateo.io/v1alpha1/users
       verb: GET
@@ -56,7 +59,7 @@ spec:
       continueOnError: true
       errorKey: userinfoError
       filter: >
-        (.username // "") as $n
+        ((.extras.username) // "") as $n
         | ([ .userinfo.items[]? | select((.metadata.name // "") == $n) ] | first) as $u
         | { groups: (($u | .spec.groups) // []),
             strategy: (if $u != null then "basic" else "unknown" end) }
