@@ -364,7 +364,7 @@ def _():
           ('nightly-review-agent', 'Gateway: not routed · no Allow rule. Also 1 tool server NotAccepted.', '/agents'))
     rev = got['cards'][3]
     check('present: the review card is work, not a fault', (rev['subPrimaryText'], rev['description'], rev['color']),
-          ('1 new today · 1 more with a pull request open', '2 proposals decided so far.', None))
+          ('1 new today · 1 more with a change request open', '2 proposals decided so far.', None))
     cmp_ = got['cards'][4]
     check('present: the paused composition', (cmp_['subPrimaryText'], cmp_['description'], cmp_['color']),
           ('acme-feedback-controller', 'Ready reason ReconcilePaused.', None))
@@ -379,7 +379,7 @@ def _():
     check('present: the prompt covers every source', prompt,
           'Brief me on what needs me on my platform: 5 open incidents from 2 alerts, 3 of them from probe; '
           '1 alert firing (Probe failing); 1 agent not reachable through the gateway (nightly-review-agent: not routed · no Allow rule), '
-          '1 tool server not Accepted (cujbench-evidence); 4 review proposals waiting for a decision (1 new today) and 1 with a pull request open; '
+          '1 tool server not Accepted (cujbench-evidence); 4 review proposals waiting for a decision (1 new today) and 1 with a change request open; '
           '1 paused composition (acme-feedback-controller). Tell me what to look at first and why, grounded in the evidence on those pages.')
 
 
@@ -441,9 +441,9 @@ def _():
     check('no page open: the sentence', got['quiet'],
           'None of the pages this inbox reads (Incidents, Alerts, Agents, Platform review, Compositions) is open to you.')
     check('no page open: the prompt asks about access', got['ask'][1].startswith('None of the pages behind my Dashboard inbox'), True)
-    # A proposal whose pull request is open waits for its merge, not for a decision (as /reviews counts).
+    # A proposal whose change request is open waits for its merge, not for a decision (as /reviews counts).
     out = inbox(raw={'proposals': {'items': [proposal('m1', 'PrOpen'), proposal('m2', 'PrOpen')]}})
-    check('only open pull requests: nothing waits for a decision',
+    check('only open change requests: nothing waits for a decision',
           (out['reviews']['waiting'], out['reviews']['prOpen'], [t for t in page(out)['titles'] if 'decision' in t]), (0, 2, []))
     # A UAF read serves [] to a caller without the grant: with the gate closed it says nothing.
     out = inbox(gates={'Reviews': False}, raw={'proposals': {'items': []}})
