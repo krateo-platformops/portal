@@ -156,7 +156,8 @@ def resolve(ra, extras, responses, caller=ADMIN):
                 continue           # snowplow skips the dial (setup.go:227-255): no request
             payload = step.get('payload')
             if payload is not None and query(payload) is not None:
-                payload = json.loads(tbi.jq(query(payload), item))
+                payload = tbi.jq(query(payload), item)      # an object, or the JSON text of one (tojson)
+                payload = json.loads(payload) if isinstance(payload, str) else payload
             calls.append((path, payload))
         if it and (step.get('verb') or 'GET') == 'GET':
             calls = [(p, None) for p in collapsed(step, [p for p, _ in calls], caller)]
