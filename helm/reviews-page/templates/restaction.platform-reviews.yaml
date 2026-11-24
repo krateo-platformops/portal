@@ -115,7 +115,7 @@ spec:
     # The state chips, in the order they are drawn: what needs someone first.
     | [ { key: "open", label: "Open", phases: ["Proposed", "PrOpen"] },
         { key: "proposed", label: "Proposed", phases: ["Proposed"] },
-        { key: "propen", label: "PR open", phases: ["PrOpen"] },
+        { key: "propen", label: "Change request open", phases: ["PrOpen"] },
         { key: "merged", label: "Merged", phases: ["Merged"], windowed: true },
         { key: "rejected", label: "Rejected", phases: ["Rejected"], windowed: true },
         { key: "failed", label: "Failed", phases: ["Failed"] },
@@ -157,7 +157,7 @@ spec:
             sources: (rv_sources | if . == "" then "—" else . end),
             checks: (rv_pills($served; $kinds) | tojson),
             phase: $ph,
-            phaseLabel: (if $ph == "PrOpen" then "PR open" else $ph end),
+            phaseLabel: ($ph | rv_phase_label),
             phaseColor: ($ph | rv_phase_color),
             superseded: $sup,
             created: (.metadata.creationTimestamp // ""),
@@ -208,8 +208,8 @@ spec:
       ([ $matchedAll[] | select(.decidedAt != "") | { phase, at: (.decidedAt | rv_epoch) } | select(.at != null) ]) as $decisions
     | ([ $matchedAll[] | select(.phase == "Proposed" and .f.today == "1") ] | length) as $newToday
     | ([ { title: "Waiting for a decision", value: $counts.proposed,
-          caption: (if $newToday > 0 then ($newToday | tostring) + " new today" else "no pull request yet" end), tone: "Proposed", key: "proposed" },
-        { title: "Pull request open", value: $counts.propen, caption: "waiting for its merge", tone: "PrOpen", key: "propen" },
+          caption: (if $newToday > 0 then ($newToday | tostring) + " new today" else "no change request yet" end), tone: "Proposed", key: "proposed" },
+        { title: "Change request open", value: $counts.propen, caption: "waiting for its merge", tone: "PrOpen", key: "propen" },
         { title: "Merged", value: $counts.merged, caption: ("in " + $rangeText), tone: "Merged", key: "merged" },
         { title: "Rejected", value: $counts.rejected, caption: ("in " + $rangeText), tone: "Rejected", key: "rejected" } ]
       | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else { title, value: (.value | tostring), caption, tone, route: stateHref(.key) } end)
