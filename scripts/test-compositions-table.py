@@ -19,8 +19,11 @@ catches, so the agreement is asserted rather than eyeballed.
 CHILDREN UNREADABLE. Ready=Unknown with reason `ChildrenForbidden` (core-provider 2.13.82) means the
 controller was refused reading the children: an RBAC defect, not a composition converging. The
 table's reconcile tag says "Children unreadable" (`warning`) rather than "Pending", it leaves the
-Pending chip and the Observability Pending stat, and ?status=unreadable filters to it. ZeroEvidence
-and every other Unknown stay Pending.
+Pending chip and the Observability Pending stat, and ?status=unreadable filters to it.
+
+UNKNOWN. ZeroEvidence (no child publishes a readiness the controller can read) is `unknown`, as the
+composition's own page says (Diego, 2026-11-24): neither Pending nor Needs attention. Every other
+Unknown stays Pending.
 """
 import json
 import os
@@ -207,8 +210,8 @@ check('unavailable is failed', state_of([{'reason': 'Unavailable', 'status': 'Fa
 check('paused is not drift, and not healthy', state_of(PAUSED), ('paused', 'paused'))
 check('a real drift is still drift', state_of([{'reason': 'Available', 'status': 'True', 'type': 'Ready'},
       {'reason': 'ReconcileError', 'status': 'False', 'type': 'Synced'}]), ('healthy', 'drift'))
-check('unknown is pending', state_of([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}]),
-      ('pending', 'pending'))
+check('no evidence is unknown, neither pending nor attention', state_of([{'reason': 'ZeroEvidence', 'status': 'Unknown', 'type': 'Ready'}]),
+      ('unknown', 'unknown'))
 check('children forbidden is unreadable, not pending',
       state_of([{'reason': 'ChildrenForbidden', 'status': 'Unknown', 'type': 'Ready'}]), ('unreadable', 'unreadable'))
 check('inventory not recorded stays pending',
@@ -235,10 +238,12 @@ def listing(items, **params):
 
 
 out = listing(MIX)
-check('counts: pending leaves children unreadable out, keeps the other Unknowns and Creating',
-      (out['counts']['pending'], out['counts'].get('unreadable')), (3, 1))
+check('counts: pending leaves children unreadable and no evidence out, keeps the other Unknowns and Creating',
+      (out['counts']['pending'], out['counts'].get('unreadable'), out['counts'].get('unknown')), (2, 1, 1))
 check('?status=pending lists no unreadable composition',
-      sorted(i['name'] for i in listing(MIX, status='pending')['filtered']), ['creating', 'inventory', 'zero-evidence'])
+      sorted(i['name'] for i in listing(MIX, status='pending')['filtered']), ['creating', 'inventory'])
+check('?status=unknown lists exactly what can’t be assessed', [i['name'] for i in listing(MIX, status='unknown')['filtered']], ['zero-evidence'])
+check('and Needs attention does not', 'zero-evidence' in [i['name'] for i in listing(MIX, status='attention')['filtered']], False)
 check('?status=unreadable lists exactly the unreadable ones',
       [i['name'] for i in listing(MIX, status='unreadable')['filtered']], ['forbidden'])
 check('?status=all still lists every composition', len(listing(MIX, status='all')['filtered']), len(MIX))
@@ -252,18 +257,18 @@ def states(out):
 
 
 check('State: Children unreadable is offered with its count while some are unreadable, in triage order',
-      states(out), [('NotReady', 'failed', 1), ('Children unreadable', 'unreadable', 1), ('Pending', 'pending', 3), ('Ready', 'healthy', 1)])
+      states(out), [('NotReady', 'failed', 1), ('Children unreadable', 'unreadable', 1), ('Unknown', 'unknown', 1), ('Pending', 'pending', 2), ('Ready', 'healthy', 1)])
 check('State: ?status=unreadable lists exactly them, and the others stay counted',
       ([i['name'] for i in listing(MIX, status='unreadable')['filtered']], states(listing(MIX, status='unreadable'))[1]),
       (['forbidden'], ('Children unreadable', 'unreadable', 1)))
 none_out = listing([i for i in MIX if i['name'] != 'forbidden'])
-check('State: no Children unreadable option when none is', [c[0] for c in states(none_out)], ['NotReady', 'Pending', 'Ready'])
+check('State: no Children unreadable option when none is', [c[0] for c in states(none_out)], ['NotReady', 'Unknown', 'Pending', 'Ready'])
 check('State: kept while it is the selected filter, even at 0',
       [c for c in states(listing([MIX[0]], status='unreadable')) if c[1] == 'unreadable'], [('Children unreadable', 'unreadable', 0)])
 
 # /observability's Reconciliation tab reads the compositions itself (obs-reconciliation) and states them
-# as compositions-list does, so its Pending figure is /compositions' Pending: Creating, ZeroEvidence and
-# InventoryNotRecorded, never Children unreadable.
+# as compositions-list does, so its Pending figure is /compositions' Pending: Creating and
+# InventoryNotRecorded, never Children unreadable nor what has no evidence (Unknown).
 obs_filter = named(render('observability-page'), 'obs-reconciliation')['spec']['filter']
 
 
@@ -271,7 +276,7 @@ def obs_figure(items, title):
     return next(s['value'] for s in jq(obs_filter, {'comps': items})['stats'] if s['title'] == title)
 
 
-check('observability Pending leaves children unreadable out (Creating, ZeroEvidence and InventoryNotRecorded stay)',
+check('observability Pending leaves children unreadable and no evidence out (Creating and InventoryNotRecorded stay)',
       obs_figure(MIX, 'Pending'), str(out['counts']['pending']))
 check('observability Pending is unchanged without an unreadable composition',
       obs_figure([i for i in MIX if i['name'] != 'forbidden'], 'Pending'), str(out['counts']['pending']))
