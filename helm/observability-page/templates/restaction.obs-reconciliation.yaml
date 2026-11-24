@@ -18,7 +18,7 @@
 
      THE STATE is compositions-list's railState, read the same way (portal.readyReasonDefs, copied
      into this chart): paused, failed (NotReady), degraded, healthy (Ready), drift, unreadable
-     (Children unreadable), pending. `attention` is failed, degraded, unreadable, drift and paused,
+     (Children unreadable), unknown, pending. `attention` is failed, degraded, unreadable, drift and paused,
      as on /compositions. OVERDUE (tracing only): no reconcile span in the trace window, or the last
      one over 5 min ago — a healthy composition reconciles every couple of minutes.
 
@@ -143,9 +143,10 @@ spec:
       | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused
       | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
       | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden")) as $unreadable
+      | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence")) as $silent
       | if $paused then "paused" elif $notready then "failed" elif $ready and (.wh == false) then "degraded"
         elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift"
-        elif $unreadable then "unreadable" else "pending" end;
+        elif $unreadable then "unreadable" elif $silent then "unknown" else "pending" end;
     # What is wrong, in the controller's words: the first Ready, Synced or workload verdict that is
     # not True (or a pause), its message, else its type=status · reason.
     def why: (((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end))
@@ -180,8 +181,8 @@ spec:
         | select(($projects | length) == 0 or ((.ns // "") as $n | $projects | index($n)) != null) ] as $live
     | ($listError and ($live | length) == 0) as $failed
     | { failed: "NotReady", degraded: "Degraded", unreadable: "Children unreadable", drift: "Drift", paused: "Paused",
-        pending: "Pending", healthy: "Ready", attention: "Needs attention", overdue: "Overdue", all: "All" } as $names
-    | ["failed", "degraded", "unreadable", "drift", "paused", "pending", "healthy"] as $order
+        unknown: "Unknown", pending: "Pending", healthy: "Ready", attention: "Needs attention", overdue: "Overdue", all: "All" } as $names
+    | ["failed", "degraded", "unreadable", "drift", "paused", "unknown", "pending", "healthy"] as $order
     | [ $live[]
         | railState as $st
         | (if $telemetry == "ok" then $byKey[(.kind // "") + "|" + (.ns // "") + "|" + (.name // "")] else null end) as $t
