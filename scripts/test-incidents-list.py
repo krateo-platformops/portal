@@ -294,6 +294,15 @@ def check_figures_and_charts():
            [('Open', '3', '1 opened in the last 24 hours', 'open'), ('Analyzing', '1', 'root-cause analysis running', 'analyzing'),
             ('Verifying', '1', 'fix applied, checks running', 'verifying'), ('Resolved', '2', 'in the last 7 days', 'resolved'),
             ('Time to resolve', '1 h 20 min', 'median over the last 7 days', 'resolved')])
+    # Verifying is not always in progress: ChecksUnknown=True means the checks stopped with no verdict.
+    gave_up = incident('v2', 'Verifying', ago(200), alert='a', cause='c9', fix={'apply': 'x'})
+    gave_up['status']['conditions'] = [{'type': 'ChecksUnknown', 'status': 'True', 'reason': 'VerifyNoVerdict'}]
+    cleared = incident('v3', 'Verifying', ago(6), alert='a', cause='c10', fix={'apply': 'x'})
+    cleared['status']['conditions'] = [{'type': 'ChecksUnknown', 'status': 'False', 'reason': 'Verdict'}]
+    caption = lambda items: next(s['caption'] for s in resolve(responses(incidents={'items': items}, alerts={'items': [alert('a', 'A', 'OK')]}), {})['stats'] if s['title'] == 'Verifying')
+    expect(f, 'Verifying: what its checks are doing, never "running" once they gave up',
+           [caption([gave_up]), caption([gave_up, TIMED[4]]), caption([cleared]), caption([TIMED[0]])],
+           ['fix applied, checks gave no verdict', '1 with checks running, 1 with no verdict', 'fix applied, checks running', ''])
     stats = widget_data('Listy', 'incidents-stats', out)
     cards = widget_data('Listy', 'incidents-cards', out)
     expect(f, 'each figure wears its state\'s card colour, zero or not',
