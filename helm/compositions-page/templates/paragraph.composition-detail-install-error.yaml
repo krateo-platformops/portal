@@ -1,0 +1,21 @@
+{{/* The last failed install attempt, the chart’s own words, once the install is InstallFailing (_install-recovery.tpl). The Status card lists it only then. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-install-error
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    code: true
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ {{ include "portal.installRecoveryDefs" . }} (.detail // {}) | installErrorLine }'
+  resourcesRefs:
+    items: []
