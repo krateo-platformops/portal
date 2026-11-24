@@ -5,14 +5,14 @@ chart's own jq.
 
 WHAT IT GUARDS:
   - obs-alerts reads the Incidents too, through a stage filter that keeps only each incident's
-    alert label, state and trigger time (an Incident is ~26 KB), for each alert's open incidents and
+    alert label, state and trigger time (an Incident is ~26 KB), for each alert's unresolved incidents and
     the incidents opened in the range;
   - the five figures over every alert: Firing (of N, red above 0), Not evaluated (orange above 0),
-    Pending, OK, With open incidents (and how many incidents); with the incidents unread that figure
+    Pending, OK, With unresolved incidents (and how many incidents); with the incidents unread that figure
     is "—", never 0; with the alerts unread every figure is "—";
   - each figure opens the list filtered to what it counts, the route of its chip, every other param
-    kept, zero or not; With open incidents is ?status=open-incidents (a chip too): the alerts in any
-    state with an open incident, said when the incidents are unread; a failed read is not clickable;
+    kept, zero or not; With unresolved incidents is ?status=open-incidents (a chip too): the alerts in any
+    state with an unresolved incident, said when the incidents are unread; a failed read is not clickable;
   - ?range= (7d when absent): incidents opened per hour (24h) or per day (7d, 30d), ending now, and
     the five alerts that opened the most in the range, most first, each linking to its alert;
   - the donuts: by state (triage order) and by signal;
@@ -117,7 +117,7 @@ def check_incidents_read():
            (False, True, 'incidentsError'))
     out = resolve({'status': 'all'})
     open_by = {r['routeName']: r['openIncidents'] for r in out['rows']}
-    expect(f, 'open incidents per alert: Resolved and Closed do not count', {k: v for k, v in open_by.items() if v},
+    expect(f, 'unresolved incidents per alert: Resolved and Closed do not count', {k: v for k, v in open_by.items() if v},
            {'probe': 5, 'reconcile-errors': 1, 'cert-expiry': 1, 'oom': 1})
     return f
 
@@ -127,15 +127,15 @@ def check_figures():
     out = resolve({})
     expect(f, 'the five figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
            [('Firing', '1', 'of 10 alerts', 'alert'), ('Not evaluated', '1', 'no HyperDX alert behind it', 'not-evaluated'),
-            ('Pending', '1', 'not decided yet', 'pending'), ('OK', '7', '', 'ok'), ('With open incidents', '4', '8 open incidents', 'incident')])
+            ('Pending', '1', 'not decided yet', 'pending'), ('OK', '7', '', 'ok'), ('With unresolved incidents', '4', '8 not resolved', 'incident')])
     smap = w('Listy', 'alerts-stats', out)['itemTemplate']['color']['map']
     cmap = w('Listy', 'alerts-cards', out)['itemTemplate']['color']['map']
     expect(f, 'each state figure wears its card colour, zero or not', {k: smap[k] for k in ('alert', 'not-evaluated', 'pending', 'ok')},
            {k: cmap[k] for k in ('alert', 'not-evaluated', 'pending', 'ok')})
-    expect(f, 'open incidents red, as the cards\' mark; a failed read orange', (smap['incident'], smap['unread']), ('red', 'orange'))
+    expect(f, 'unresolved incidents red, as the cards\' mark; a failed read orange', (smap['incident'], smap['unread']), ('red', 'orange'))
     out = resolve({}, incidents='ERROR')
     expect(f, 'incidents unread: that figure is a dash, said', out['stats'][4],
-           {'title': 'With open incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread', 'route': ''})
+           {'title': 'With unresolved incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread', 'route': ''})
     expect(f, 'incidents unread: no trend, no top list', (out['incidentTrend'], out['topIncidents']), ([], []))
     ra = CH.get('RESTAction', 'obs-alerts')
     failed = tbi.jq(ra['spec']['filter'], {'alertsError': ['dial tcp: i/o timeout'], 'incidents': []})
@@ -244,8 +244,8 @@ def check_cards():
     expect(f, 'triage order', [c['routeName'] for c in cards['dataSource']][:3], ['reconcile-errors', 'orphan', 'fresh'])
     expect(f, 'labels and tones', [(by[n]['stateLabel'], by[n]['tone']) for n in ('reconcile-errors', 'orphan', 'fresh', 'probe')],
            [('Firing', 'alert'), ('Not evaluated', 'not-evaluated'), ('Pending', 'pending'), ('OK', 'ok')])
-    expect(f, 'a red triangle with the count of open incidents', [(by[n]['incidentIcon'], by[n]['incidentTip']) for n in ('probe', 'oom', 'quiet-logs')],
-           [('fa-triangle-exclamation', '5 open incidents'), ('fa-triangle-exclamation', '1 open incident'), ('', '')])
+    expect(f, 'a red triangle with the count of unresolved incidents', [(by[n]['incidentIcon'], by[n]['incidentTip']) for n in ('probe', 'oom', 'quiet-logs')],
+           [('fa-triangle-exclamation', '5 unresolved incidents'), ('fa-triangle-exclamation', '1 unresolved incident'), ('', '')])
     paused = alert('p', 'ALERT')
     paused['metadata']['annotations'] = {'krateo.io/paused': 'true'}
     c = w('Listy', 'alerts-cards', resolve({}, [paused], incidents=[]))['dataSource'][0]
@@ -280,8 +280,8 @@ def check_header_and_asks():
     expect(f, 'Ask also offers to author a new alert', params['ask'][0].endswith(author), True)
     path = w('Button', 'alerts-ask-agentiko', resolve({'status': 'all'}, incidents='ERROR'), {'status': 'all'})['actions']['navigate'][0]['path']
     prompt = parse_qs(path.partition('?')[2])['ask'][0]
-    expect(f, 'incidents unread: the prompt says so, never "no open incidents"',
-           ('the incidents could not be read' in prompt, 'with open incidents (' in prompt), (True, False))
+    expect(f, 'incidents unread: the prompt says so, never "no unresolved incidents"',
+           ('the incidents could not be read' in prompt, 'with unresolved incidents (' in prompt), (True, False))
     return f
 
 
@@ -301,8 +301,8 @@ def check_tile_routes():
     out = resolve(ex)
     chip = {c['label']: c['route'] for c in out['chips']}
     expect(f, 'each figure routes as its chip (q, view, range, projects kept)', [(s['title'], s['route']) for s in out['stats']],
-           [(t, chip[t]) for t in ('Firing', 'Not evaluated', 'Pending', 'OK', 'With open incidents')])
-    expect(f, 'Firing (the default) leaves ?status out; With open incidents is a status value',
+           [(t, chip[t]) for t in ('Firing', 'Not evaluated', 'Pending', 'OK', 'With unresolved incidents')])
+    expect(f, 'Firing (the default) leaves ?status out; With unresolved incidents is a status value',
            (out['stats'][0]['route'], out['stats'][4]['route']),
            ('/alerts?projects=team-a&range=30d&view=table&q=o', '/alerts?projects=team-a&status=open-incidents&range=30d&view=table&q=o'))
     zero = resolve({}, [alert('a', 'OK')], incidents=[])
@@ -313,18 +313,18 @@ def check_tile_routes():
     wi = resolve(ex)
     expect(f, 'open-incidents: the alerts with one, any state, in triage order; its chip active',
            ([r['routeName'] for r in wi['rows']], [c['label'] for c in wi['chips'] if c['active']], wi['counts']),
-           (['reconcile-errors', 'cert-expiry', 'oom', 'probe'], ['With open incidents'], resolve({})['counts']))
+           (['reconcile-errors', 'cert-expiry', 'oom', 'probe'], ['With unresolved incidents'], resolve({})['counts']))
     path = w('Button', 'alerts-ask-agentiko', wi, ex)['actions']['navigate'][0]['path']
-    starts = 'Review my observability alerts in the view on screen (With open incidents): 4 alerts —'
+    starts = 'Review my observability alerts in the view on screen (With unresolved incidents): 4 alerts —'
     expect(f, 'open-incidents: the prompt names it', parse_qs(path.partition('?')[2])['ask'][0][:len(starts)], starts)
     none = resolve(ex, incidents=[])
     para = w('Paragraph', 'alerts-empty', none, ex)
-    expect(f, 'open-incidents, none: said', (none['rows'], para['text'], para['type']), ([], 'No alert has an open incident.', 'secondary'))
+    expect(f, 'open-incidents, none: said', (none['rows'], para['text'], para['type']), ([], 'No alert has an unresolved incident.', 'secondary'))
     unread = resolve(ex, incidents='ERROR')
     para = w('Paragraph', 'alerts-empty', unread, ex)
     expect(f, 'open-incidents, incidents unread: said as a warning, no chip, no route',
            (unread['rows'], para['text'], para['type'], [c['label'] for c in unread['chips']][-1], unread['stats'][4]['route']),
-           ([], 'The incidents could not be read, so which alerts have an open incident is unknown.', 'warning', 'All', ''))
+           ([], 'The incidents could not be read, so which alerts have an unresolved incident is unknown.', 'warning', 'All', ''))
     ra = CH.get('RESTAction', 'obs-alerts')
     failed = tbi.jq(ra['spec']['filter'], {'alertsError': ['dial tcp: i/o timeout'], 'incidents': []})
     expect(f, 'alerts unread: no figure is clickable', [s['route'] for s in failed['stats']], [''] * 5)

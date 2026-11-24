@@ -128,7 +128,7 @@ spec:
         ask: ("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps."),
         askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
         aboutMd: $about,
-        # The Incidents card: every open incident, then the five latest ended ones, newest first within each.
+        # The Incidents card: every unresolved incident, then the five latest ended ones, newest first within each.
         incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route })),
         incidentsTitle: ("Incidents · " + ($open | length | tostring) + " open"
           + (if ($ended | length) > 0 then (" · " + ($ended | length | tostring) + " ended" + (if ($ended | length) > 5 then ", the latest 5 shown" else "" end)) else "" end)),
