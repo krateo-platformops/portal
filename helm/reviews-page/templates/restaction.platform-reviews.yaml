@@ -164,7 +164,7 @@ spec:
             target: (.spec.target.repo // "—"),
             decidedBy: (if $d.by == "" then "—" else $d.by end),
             # When it was decided, for the figures, the Merged and Rejected chips and the trend: a merge is the service's (status,
-            # or the pull request's merge), never the PrOpen decision spec.decision still carries.
+            # or the change request's merge), never the PrOpen decision spec.decision still carries.
             decidedAt: (if $ph == "Merged" then (.status.decidedAt // .status.pullRequest.mergedAt // $d.at // "") else $d.at end),
             outcome: (if (.status.pullRequest.url // "") != "" then .status.pullRequest.url
                       elif $d.reason != "" then $d.reason else (.status.error // "—") end),
@@ -200,7 +200,7 @@ spec:
     | ((.proposalsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $perrText
     | ((.runsError // null) | if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end) as $rerr
     | ($perr != "") as $failed
-    # THE FIGURES. Waiting and Pull request open count now; Merged and Rejected count the decisions
+    # THE FIGURES. Waiting and Change request open count now; Merged and Rejected count the decisions
     # in the range. Each is its state chip's count, so the list a tile opens holds that many. A proposals read that failed is "—" on those four, never 0; a runs read that
     # failed is "—" on the last.
     # A state chip's route, and a state tile's: every other param kept.
