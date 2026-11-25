@@ -487,6 +487,30 @@ WANT_CAT = {'aws-rds-stack': 'Database', 'rds-chart': 'Database', 'acm-chart': '
 cat_cards = {c['name']: c for c in jq(cat_prog, {'catalog': CAT_INDEX, 'operators': CAT_OPS, 'compdefs': []})['cards']}
 check('category rule: each tile\'s tag', {n: c.get('category') for n, c in cat_cards.items()}, WANT_CAT)
 check('category rule: the key beside the word', {n: c.get('categoryKey') for n, c in cat_cards.items()}, {n: v.lower() for n, v in WANT_CAT.items()})
+
+# --- THE TILE (UX audit MKT-5, approved mockup 2026-11-25) -----------------------------------------
+# The glyph is the category's (the same rule as the tag), else the type's; every tile has two title
+# lines (the tag, and the version badge) so every icon is 48 px; the footer names the type in words;
+# one neutral tint for every tile (Diego, 2026-11-25), colour staying for the installed check.
+WANT_GLYPH = {'aws-rds-stack': 'fa-database', 'rds-chart': 'fa-database', 'acm-chart': 'fa-shield-halved',
+              'autoscaling-chart': 'fa-server', 'agentgateway': 'fa-network-wired', 'kube-thing': 'fa-layer-group',
+              'odd-annotation': 'fa-hard-drive', 'acme-feedback': 'fa-layer-group', 'cert-manager': 'fa-shield-halved'}
+check('tile: the glyph is the category\'s, else the type\'s', {n: c.get('icon') for n, c in cat_cards.items()}, WANT_GLYPH)
+bare_op = jq(cat_prog, {'catalog': {'entries': {}}, 'operators': {'entries': {'x-op': [{'name': 'x-op', 'version': '1.0.0', 'urls': ['https://e/x.tgz'], 'keywords': ['kubernetes']}]}}, 'compdefs': []})['cards'][0]
+check('tile: an operator with no category -> fa-gears, never a keyword substring\'s glyph', (bare_op.get('icon'), bare_op.get('category')), ('fa-gears', ''))
+check('tile: one glyph per category, so the icon and the tag agree',
+      {c['category']: c['icon'] for c in cat_cards.values() if c['category']},
+      {'Database': 'fa-database', 'Security': 'fa-shield-halved', 'Compute': 'fa-server', 'Network': 'fa-network-wired', 'Storage': 'fa-hard-drive'})
+tmpl = named(mpage, 'Listy', 'marketplace-grid')['spec']['widgetData']['itemTemplate']
+check('tile: two title lines, the tag and the version badge (every icon 48 px)', (tmpl.get('secondaryText'), tmpl.get('subPrimaryText')), ('{category}', 'v{version}'))
+check('tile: the footer names the type', tmpl.get('subSecondaryText'), '{typeLabel}')
+check('tile: one neutral tint, nothing per type', tmpl.get('color'), {'default': 'gray'})
+check('tile: the type tint is gone from the catalog', any('typeColor' in c for c in cat_cards.values()), False)
+row = jq(expr_of(named(mpage, 'Listy', 'marketplace-grid'), 'dataSource'), {'cards': [cat_cards['acm-chart']]})[0]
+check('tile: the row carries what the template reads', {k: row.get(k) for k in ('icon', 'category', 'version', 'typeLabel')},
+      {'icon': 'fa-shield-halved', 'category': 'Security', 'version': '1.0.0', 'typeLabel': 'Blueprint'})
+check('tile: the installed check keeps its colour', tmpl.get('status', {}).get('color'), '{installedColor}')
+
 cat_details = {n: jq(detail_prog, {'name': n, 'catalog': CAT_INDEX, 'operators': CAT_OPS, 'compdefs': []}) for n in WANT_CAT}
 check('category rule: the detail page says what the tile says', {n: d['category'] for n, d in cat_details.items()}, WANT_CAT)
 about = expr_of(named(mpage, 'Descriptions', 'descriptions-marketplace-detail-about'), 'items')

@@ -1,7 +1,7 @@
 {{/* Marketplace catalog — the INSTALLABLE items, merged from TWO helm-repo */}}
 {{/* indexes: /charts/blueprints/index.yaml (~311 CompositionDefinition blueprints) AND */}}
 {{/* /charts/operators/index.yaml (~18 Kubernetes operators). Every entry is stamped with */}}
-{{/* `source: blueprint|operator` so the grid can tell them apart (badge + tinted icon) and */}}
+{{/* `source: blueprint|operator` so the grid can tell them apart (the footer word) and */}}
 {{/* a type toggle can filter them. Honest fields straight off each index: name/description/ */}}
 {{/* version/url. Categories are NOT a curated annotation any more — each card's `tags` are */}}
 {{/* its raw helm `keywords` (multi-tag: a card lives under EVERY one of its keywords), and */}}
@@ -65,46 +65,15 @@ spec:
     def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
     def failed: . != null and . != [] and . != "";
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
-    # Presentational icon variety (honest — driven by the card's REAL helm data, not invented).
-    # At ~330 charts the two source glyphs (fa-layer-group / fa-gears) make the grid a wall of
-    # identical icons; this maps a card to a Font Awesome glyph off its own keywords first
-    # (the service-family signal — ec2/rds/s3/kafka/...), then its `krateo.io/category`
-    # annotation (compute/network/database/...), then falls back to the source glyph. Every
-    # value here is a plain glyph name; a card with no matching keyword/category just gets the
-    # source fallback (never an error, never a blank).
-    #   $kwIcon: keyword (lower-case, matched by substring) -> glyph. Ordered most→least
-    #   specific; FIRST hit wins. Keys are real tokens seen in the index keywords.
-    def kwIcon:
-      [ ["database","fa-database"], ["rds","fa-database"], ["dynamodb","fa-database"],
-        ["documentdb","fa-database"], ["memorydb","fa-database"], ["docdb","fa-database"],
-        ["elasticache","fa-bolt"], ["cache","fa-bolt"], ["redis","fa-bolt"],
-        ["s3","fa-hard-drive"], ["storage","fa-hard-drive"], ["efs","fa-hard-drive"],
-        ["backup","fa-box-archive"], ["ecr","fa-box-archive"], ["registry","fa-box-archive"],
-        ["kafka","fa-list"], ["queue","fa-list"], ["sqs","fa-list"], ["sns","fa-bell"],
-        ["eventbridge","fa-bell"], ["network","fa-network-wired"], ["vpc","fa-network-wired"],
-        ["route53","fa-network-wired"], ["elbv2","fa-network-wired"], ["elb","fa-network-wired"],
-        ["alb","fa-network-wired"], ["loadbalancer","fa-network-wired"], ["cloudfront","fa-network-wired"],
-        ["apigateway","fa-route"], ["gateway","fa-route"], ["firewall","fa-shield-halved"],
-        ["waf","fa-shield-halved"], ["security","fa-shield-halved"], ["iam","fa-key"],
-        ["kms","fa-key"], ["identity","fa-key"], ["certificate","fa-certificate"],
-        ["acm","fa-certificate"], ["vault","fa-shield-halved"], ["eks","fa-dharmachakra"],
-        ["ecs","fa-cubes"], ["cluster","fa-dharmachakra"], ["kubernetes","fa-dharmachakra"],
-        ["lambda","fa-bolt"], ["ec2","fa-server"], ["compute","fa-server"], ["ssm","fa-terminal"],
-        ["sagemaker","fa-brain"], ["bedrock","fa-brain"], ["ai-agent","fa-robot"],
-        ["kagent","fa-robot"], ["quicksight","fa-chart-line"], ["dashboard","fa-gauge-high"],
-        ["cloudwatch","fa-chart-line"], ["prometheus","fa-chart-line"], ["observability","fa-chart-line"],
-        ["opentelemetry","fa-chart-line"], ["codegen","fa-code"], ["oasgen","fa-code"],
-        ["kog","fa-code"], ["helm","fa-ship"], ["domain","fa-globe"] ];
-    #   $catIcon: krateo.io/category annotation -> glyph (the coarse fallback when no keyword hit).
-    def catIcon:
-      { "compute":"fa-server", "network":"fa-network-wired", "database":"fa-database",
-        "storage":"fa-hard-drive", "security":"fa-shield-halved", "observability":"fa-chart-line",
-        "application":"fa-cubes", "generator":"fa-code" };
-    # iconFor: first keyword substring hit -> its glyph; else the category glyph; else the
-    # source fallback ($fallback). $kws lower-cased upstream.
-    def iconFor($kws; $cat; $fallback):
-      ( first( kwIcon[] | select( . as $pair | any($kws[]; contains($pair[0])) ) | .[1] ) )
-      // (catIcon[$cat]) // $fallback;
+    # THE TILE'S GLYPH says its category (UX audit MKT-5, approved mockup 2026-11-25): one glyph per
+    # category (portal.marketplaceCategoryDefs, the rule its tag and the chips use), so the icon and
+    # the tag beside it say the same thing; a chart with no category gets its type's glyph. It
+    # replaced a first-substring-hit keyword table (24 glyphs over the same charts, "kubernetes"
+    # giving every ACK operator the wheel). The charts' own index icons cannot serve: 793 of 820
+    # blueprints point at the Krateo logo and 68 operators at the AWS logo.
+    def categoryGlyph: { "network": "fa-network-wired", "compute": "fa-server", "database": "fa-database",
+      "application": "fa-cubes", "security": "fa-shield-halved", "observability": "fa-chart-line",
+      "storage": "fa-hard-drive", "generator": "fa-code" };
     # INSTALLED: portal.marketplaceInstalledDefs (_installed.tpl), the ONE rule this grid and the
     # chart's detail page share: chart identity, the helm repo + chart for a helm-repo install and
     # the chart name for an OCI one (same name counts, UX audit MKT-2), never the CD's own name.
@@ -140,20 +109,14 @@ spec:
               tags: (.keywords // []),
               source: .source,
               typeLabel: (if .source == "operator" then "Operator" else "Blueprint" end),
-              typeColor: (if .source == "operator" then "magenta" else "cyan" end),
               # CATEGORY (portal.marketplaceCategoryDefs, _category.tpl, the rule the detail page
               # shares): the krateo.io/category annotation, else the first keyword the fixed table
               # lists, else "" -> the card renders no tag (never "uncategorized"). `category` is the
               # printed word (Database), `categoryKey` the key (database).
               categoryKey: marketplaceCategory,
               category: (marketplaceCategory | marketplaceCategoryLabel),
-              # Per-card icon: keyword service-family -> category annotation -> source glyph.
-              # Presentational, driven entirely by the card's own real helm data.
-              icon: iconFor(
-                      ((.keywords // []) | map(ascii_downcase));
-                      ((.annotations // {})["krateo.io/category"] // "" | ascii_downcase);
-                      (if .source == "operator" then "fa-gears" else "fa-layer-group" end)
-                    ),
+              # Per-card glyph: its category's, else its type's (fa-gears an operator, fa-layer-group a blueprint).
+              icon: (categoryGlyph[marketplaceCategory] // (if .source == "operator" then "fa-gears" else "fa-layer-group" end)),
               maturity: ((.annotations // {})["krateo.io/maturity"] // ""),
               version: (.version // ""),
               # helm index publish timestamp (RFC3339); drives the "recently updated" sort.
