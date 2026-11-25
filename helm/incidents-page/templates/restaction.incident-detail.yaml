@@ -367,7 +367,9 @@ spec:
            + ". A new analysis has been requested automatically.") else "" end),
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
-                      (if ($st.completedAt // "") != "" and ($noAnalysis | not) then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
+                      # On an Open incident the header's progress line already says "Analyzed at" this
+                      # same time (headerProgress), so the row does not say it twice.
+                      (if ($st.completedAt // "") != "" and ($noAnalysis | not) and $state != "Open" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
                       (if $reanalysisPending then { label: "Re-analysis", value: "requested, waiting to start" }
                        elif $reanalysingStale then { label: "Re-analysing", value: "previous fix targeted an unserved version" }
                        elif $reanalysis != null then { label: "Re-analysis", value: ("#" + (($reanalysis.count // 1) | tostring) + " · " + ($reanalysis.at | stamp)

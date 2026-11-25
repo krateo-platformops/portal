@@ -201,7 +201,10 @@ def check_drawer_form_patches_spec_reanalysis(chart):
 def check_meta_items_show_the_reanalysis(chart):
     f = []
     out, _ = resolve(chart, incident('m-1'), 'none')
-    expect(f, 'no reanalysis: no item', [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
+    expect(f, 'no reanalysis: no item; Open, "Analyzed" is the header\'s alone', [i['label'] for i in out['metaItems']], ['Started'])
+    out, _ = resolve(chart, incident('m-1v', state='Verifying'), 'verifying')
+    expect(f, 'Verifying: the header says something else, so the row says when it was analyzed',
+           [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
     out, _ = resolve(chart, incident('m-2', spec_reanalysis={'feedback': 'x'}), 'pending')
     expect(f, 'a waiting request', out['metaItems'][-1], {'label': 'Re-analysis', 'value': 'requested, waiting to start'})
     out, _ = resolve(chart, incident('m-3', reanalysis={'at': '2026-10-21T10:00:00Z', 'count': 2,
@@ -237,7 +240,7 @@ def check_meta_items_name_what_ended_it(chart):
         expect(f, f'resolution.by={by!r}', out['metaItems'][-1], {'label': label, 'value': value})
     inc = incident('r-open')
     out, _ = resolve(chart, inc, 'no resolution')
-    expect(f, 'no resolution: no item', [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
+    expect(f, 'no resolution: no item', [i['label'] for i in out['metaItems']], ['Started'])
     return f
 
 
