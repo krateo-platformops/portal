@@ -1,0 +1,63 @@
+{{/* The alert's incidents and its manifest, one tab open at a time (audit ALD-1): the incidents as */}}
+{{/* a one-line table, the manifest in a tab so it no longer fills the screen and catches the scroll */}}
+{{/* wheel. The Incidents tab is there while the alert has any incident (sections.incident). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-tabs-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    variant: outlined
+    items:
+    - resourceRefId: alert-detail-tabs
+  resourcesRefs:
+    items:
+    - id: alert-detail-tabs
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-tabs
+      namespace: {{ $.Values.namespace }}
+      resource: tabs
+      verb: GET
+---
+kind: Tabs
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-tabs
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+    - tables
+    - yamlviewers
+    items:
+    - label: Manifest
+      resourceRefId: alert-detail-manifest
+  widgetDataTemplate:
+    - forPath: items
+      expression: >-
+        ${ (if (.sections.incident // false) then [ { label: (.incidentsTab // "Incidents"), resourceRefId: "alert-detail-incidents-table" } ] else [] end)
+        + [ { label: "Manifest", resourceRefId: "alert-detail-manifest" } ] }
+  resourcesRefs:
+    items:
+    - id: alert-detail-incidents-table
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-incidents-table
+      namespace: {{ $.Values.namespace }}
+      resource: tables
+      verb: GET
+    - id: alert-detail-manifest
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-manifest
+      namespace: {{ $.Values.namespace }}
+      resource: yamlviewers
+      verb: GET

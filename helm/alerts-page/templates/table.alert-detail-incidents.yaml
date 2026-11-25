@@ -1,0 +1,40 @@
+{{/* This alert's incidents, from alert-detail (.incidents): every open one, then the five latest */}}
+{{/* ended ones, newest first within each, one line each: its number among the alert's incidents */}}
+{{/* (the one its own page gives it), when it started (an ISO time the browser writes as an age), */}}
+{{/* the root cause (ellipsis-truncated by fitContent, the full text on hover) and the state. A row */}}
+{{/* opens the incident; the {namespace}/{name} placeholders fill from hidden cells. */}}
+kind: Table
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-incidents-table
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    fitContent: true
+    allowedResources: []
+    bordered: false
+    size: small
+    rowNavigateTo: /incidents/{namespace}/{name}
+    pagination:
+      defaultPageSize: 10
+    columns:
+    - valueKey: number
+      title: '#'
+    - valueKey: started
+      title: Started
+    - valueKey: cause
+      title: Root cause
+    - valueKey: state
+      title: State
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ [ (.incidents // [])[] | [ {valueKey:"number",kind:"jsonSchemaType",type:"string",stringValue:(.number // "")}, {valueKey:"started",kind:"jsonSchemaType",type:"string",stringValue:(.when // ""),format:"ago"}, {valueKey:"cause",kind:"jsonSchemaType",type:"string",stringValue:(.cause // "—")}, {valueKey:"state",kind:"tag",stringValue:(.state // "Analyzing"),color:({ Open: "red", Verifying: "orange", Resolved: "green" }[.state // ""] // "gray")}, {valueKey:"name",kind:"jsonSchemaType",type:"string",stringValue:(.name // "")}, {valueKey:"namespace",kind:"jsonSchemaType",type:"string",stringValue:(.namespace // "")} ] ] }'
+  resourcesRefs:
+    items: []

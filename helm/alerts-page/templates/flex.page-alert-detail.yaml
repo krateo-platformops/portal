@@ -1,13 +1,13 @@
-{{/* Convention page root for /alerts/{namespace}/{name} — the per-alert detail (item 25; */}}
-{{/* there was none before, /alerts was header + rules table and the row-click deep-linked to */}}
-{{/* /incidents?ask=). Strict top-to-bottom: pagehead (back-link + H1 + State tag + meta + */}}
-{{/* "Investigate with Autopilot") → Manifest card (the raw Alert CR as YAML) → Console card */}}
-{{/* (HyperDX external links) → Incidents card (every unresolved incident, then the latest ended ones). */}}
+{{/* Convention page root for /alerts/{namespace}/{name} — the per-alert detail. Strict top to */}}
+{{/* bottom, facts first (audit ALD-1, approved mockup 2026-11-25): pagehead (H1 + State tag + */}}
+{{/* actions) → the warnings, each an amber Alert (whether it runs; whether its latest analysis went */}}
+{{/* wrong) → Details card (description, what it watches, when it fires, how often it is checked */}}
+{{/* and when it last was, since when it is in its state, whether it opens incidents) → a Tabs card */}}
+{{/* (the incidents as a one-line table, while there are any; the manifest) → Console card (HyperDX */}}
+{{/* external links). */}}
 {{/* */}}
-{{/* Reuses the composition-detail / incident-detail page structure/wrappers for consistency. The */}}
-{{/* Console and Incidents cards are templated SERVER-SIDE off alert-detail's `sections` flags: */}}
-{{/* each renders ONLY when its data exists (a configured console + recorded id; an incident), */}}
-{{/* so an alert with no console and no incident degrades to just pagehead + Manifest — nothing ever */}}
+{{/* The warnings, the Incidents tab and the Console card are templated SERVER-SIDE off */}}
+{{/* alert-detail's `sections` flags: each renders ONLY when its data exists, so nothing ever */}}
 {{/* renders as fabricated empty structure (exception-only, honest data). resourcesRefs stay static */}}
 {{/* (the full pool); unreferenced children are simply never fetched. */}}
 kind: Flex
@@ -28,23 +28,24 @@ spec:
   widgetData:
     allowedResources:
     - pageheaders
+    - alerts
     - flexes
     - cards
     vertical: true
     gap: middle
     items:
     - resourceRefId: alert-detail-page-header
-    - resourceRefId: alert-detail-about-card
-    - resourceRefId: card-alert-detail-manifest
+    - resourceRefId: alert-detail-details-card
+    - resourceRefId: alert-detail-tabs-card
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ (.sections // {}) as $s
         | [ { resourceRefId: "alert-detail-page-header" } ]
-        + (if ($s.about // false) then [ { resourceRefId: "alert-detail-about-card" } ] else [] end)
-        + [ { resourceRefId: "card-alert-detail-manifest" } ]
-        + (if ($s.console // false) then [ { resourceRefId: "card-alert-detail-console" } ] else [] end)
-        + (if ($s.incident // false) then [ { resourceRefId: "card-alert-detail-incident" } ] else [] end) }
+        + (if ($s.runWarning // false) then [ { resourceRefId: "alert-detail-run-warning" } ] else [] end)
+        + (if ($s.analysisWarning // false) then [ { resourceRefId: "alert-detail-analysis-warning" } ] else [] end)
+        + [ { resourceRefId: "alert-detail-details-card" }, { resourceRefId: "alert-detail-tabs-card" } ]
+        + (if ($s.console // false) then [ { resourceRefId: "card-alert-detail-console" } ] else [] end) }
   resourcesRefs:
     items:
     - id: alert-detail-page-header
@@ -53,27 +54,33 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: pageheaders
       verb: GET
-    - id: alert-detail-about-card
+    - id: alert-detail-run-warning
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: alert-detail-about-card
+      name: alert-detail-run-warning
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+    - id: alert-detail-analysis-warning
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-analysis-warning
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
+      verb: GET
+    - id: alert-detail-details-card
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-details-card
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
-    - id: card-alert-detail-manifest
+    - id: alert-detail-tabs-card
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: card-alert-detail-manifest
+      name: alert-detail-tabs-card
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET
     - id: card-alert-detail-console
       apiVersion: widgets.templates.krateo.io/v1beta1
       name: card-alert-detail-console
-      namespace: {{ $.Values.namespace }}
-      resource: cards
-      verb: GET
-    - id: card-alert-detail-incident
-      apiVersion: widgets.templates.krateo.io/v1beta1
-      name: card-alert-detail-incident
       namespace: {{ $.Values.namespace }}
       resource: cards
       verb: GET

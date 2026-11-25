@@ -1,0 +1,82 @@
+{{/* The alert's facts first (audit ALD-1, approved mockup 2026-11-25): its description, a line when */}}
+{{/* no model analyses its incidents, what it watches (the query as code), then when it fires, how */}}
+{{/* often it is checked, when it last was, since when it is in its state and whether it opens */}}
+{{/* incidents. All of it from alert-detail (detailsMd, facts). */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-details-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    title: Details
+    titleVariant: eyebrow
+    variant: outlined
+    items:
+    - resourceRefId: alert-detail-about
+    - resourceRefId: alert-detail-facts
+  resourcesRefs:
+    items:
+    - id: alert-detail-about
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-about
+      namespace: {{ $.Values.namespace }}
+      resource: markdowns
+      verb: GET
+    - id: alert-detail-facts
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: alert-detail-facts
+      namespace: {{ $.Values.namespace }}
+      resource: descriptions
+      verb: GET
+---
+{{/* The description, a no-analysis notice when there is one, and what the alert watches. */}}
+kind: Markdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-about
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    markdown: ''
+  widgetDataTemplate:
+  - forPath: markdown
+    expression: '${ .detailsMd // "" }'
+  resourcesRefs:
+    items: []
+---
+{{/* The facts as label/value pairs. The two times (Last checked, "<State> since") are ISO times */}}
+{{/* the browser writes as an age, in the viewer's zone, full date on hover: the Descriptions item */}}
+{{/* `format` (frontend #803). A time computed here would freeze in snowplow's cache. */}}
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-facts
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    column: 3
+    variant: default
+    bordered: false
+    size: small
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ .facts // [] }'
+  resourcesRefs:
+    items: []

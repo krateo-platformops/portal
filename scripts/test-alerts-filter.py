@@ -14,6 +14,12 @@ every chip over the full set. The rules a reader would notice:
     not reset the view;
   - ?view=table puts the table in the alerts card in place of the cards;
   - the alert page's state pill says "Not evaluated" too, in gray;
+  - THE ALERT PAGE, FACTS FIRST (audit ALD-1): the header, an amber warning only while one holds,
+    the Details card (the description, what it watches with the query as code, then when it fires,
+    how often it is checked, when it last was, since when it is in its state as the browser's
+    ages, and whether it opens incidents), then a Tabs card: "Incidents · N open" (a table of #,
+    started, root cause, state, each row opening its incident; # is the number the incident's own
+    page gives it) while there are incidents, and the manifest;
   - the Incidents column says whether a firing opens an incident, off alert-provider's
     OpensIncidents condition: "Yes", or "No" with the reason in a word, in gray; "—" without one.
 Every resolved widget is validated against its CRD with --crds.
@@ -197,7 +203,103 @@ def check_detail_pill():
     return f
 
 
-CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill]
+def detail(a, incidents=(), ex=None):
+    ex = ex or {'name': a['metadata']['name'], 'namespace': 'krateo-system'}
+    return tbi.jq(CH.get('RESTAction', 'alert-detail')['spec']['filter'], dict(ex, alert=a, incidents={'items': list(incidents)})), ex
+
+
+def detail_widget(kind, name, out, ex, label):
+    return tbi.resolved_widget(CH, kind, name, out, ex, f'{label}: {kind} {name}')['spec']['widgetData']
+
+
+def incident(name, alert_name, at, state='Open', cause=None):
+    st = {'state': state}
+    if cause:
+        st['rootCause'] = {'statement': cause}
+    return {'metadata': {'name': name, 'namespace': 'krateo-system', 'creationTimestamp': at,
+                         'labels': {'observability.krateo.io/alert': alert_name}},
+            'spec': {'triggeredAt': at}, 'status': st}
+
+
+WHERE = "ServiceName NOT IN ('snowplow') AND Body ILIKE '%certificate%'"
+
+
+def cert_alert(**status):
+    a = alert('cert', 'OK', typ='Logs', opens=('True', 'CountsRecords'))
+    a['spec'].update({'interval': '1h', 'threshold': 1, 'where': WHERE, 'description': 'Something logged an expiring certificate.'})
+    a['status'].update({'stateObservedAt': '2026-11-25T18:46:12.118402+00:00', 'stateSince': '2026-11-25T19:31:07+01:00'}, **status)
+    return a
+
+
+def check_detail_page():
+    f = []
+    incs = [incident('cert-1', 'cert', '2026-11-10T09:00:00Z', 'Resolved', 'old cause'),
+            incident('cert-2', 'cert', '2026-11-20T09:00:00Z', 'Open', 'a long root cause ' * 20),
+            incident('cert-3', 'cert', '2026-11-25T17:58:02Z', 'Analyzing'),
+            incident('other-1', 'other', '2026-11-21T09:00:00Z', 'Open', 'not this alert')]
+    out, ex = detail(cert_alert(), incs)
+    page = detail_widget('Flex', 'page-alert-detail', out, ex, 'detail')
+    expect(f, 'facts first: header, Details, then the tabs', [i['resourceRefId'] for i in page['items']],
+           ['alert-detail-page-header', 'alert-detail-details-card', 'alert-detail-tabs-card'])
+    card = detail_widget('Card', 'alert-detail-details-card', out, ex, 'detail')
+    expect(f, 'the Details card: the text, then the facts', (card['title'], [i['resourceRefId'] for i in card['items']]),
+           ('Details', ['alert-detail-about', 'alert-detail-facts']))
+    expect(f, 'the description, then what it watches, the query as code',
+           detail_widget('Markdown', 'alert-detail-about', out, ex, 'detail')['markdown'],
+           'Something logged an expiring certificate.\n\n**Watches:** logs where\n\n```sql\n' + WHERE + '\n```')
+    expect(f, 'the facts, the times as ISO UTC for the browser', detail_widget('Descriptions', 'alert-detail-facts', out, ex, 'detail')['items'],
+           [{'label': 'Fires when', 'value': 'more than 1 match in an hour'},
+            {'label': 'Checked', 'value': 'every hour'},
+            {'label': 'Last checked', 'value': '2026-11-25T18:46:12Z', 'format': 'ago'},
+            {'label': 'OK since', 'value': '2026-11-25T18:31:07Z', 'format': 'ago'},
+            {'label': 'Opens incidents', 'value': 'Yes'}])
+    expect(f, 'the new outputs', (out['stateObservedAt'], out['stateSince']), ('2026-11-25T18:46:12Z', '2026-11-25T18:31:07Z'))
+    tabs = detail_widget('Tabs', 'alert-detail-tabs', out, ex, 'detail')
+    expect(f, 'the tabs: incidents, then the manifest', [(t['label'], t['resourceRefId']) for t in tabs['items']],
+           [('Incidents · 2 open', 'alert-detail-incidents-table'), ('Manifest', 'alert-detail-manifest')])
+    table = detail_widget('Table', 'alert-detail-incidents-table', out, ex, 'detail')
+    expect(f, 'the table: #, started, root cause, state', [(c['valueKey'], c['title']) for c in table['columns']],
+           [('number', '#'), ('started', 'Started'), ('cause', 'Root cause'), ('state', 'State')])
+    rows = [{c['valueKey']: c for c in r} for r in table['dataSource']]
+    expect(f, 'open first, newest first; # among this alert\'s incidents only',
+           [(r['number']['stringValue'], r['name']['stringValue'], r['state']['stringValue']) for r in rows],
+           [('3', 'cert-3', 'Analyzing'), ('2', 'cert-2', 'Open'), ('1', 'cert-1', 'Resolved')])
+    expect(f, 'started: the browser\'s age', (rows[0]['started']['stringValue'], rows[0]['started']['format']), ('2026-11-25T17:58:02Z', 'ago'))
+    expect(f, 'the root cause whole (one line in the table, the full text on hover), or why there is none',
+           ([r['cause']['stringValue'] for r in rows], table['fitContent']), (['analyzing', 'a long root cause ' * 20, 'old cause'], True))
+    expect(f, 'a row opens its incident', table['rowNavigateTo'], '/incidents/{namespace}/{name}')
+    # The number is the one the incident's own page gives it (portal.incidentOrdinalDefs, copied).
+    expect(f, 'the number: incidents-page\'s rule', [r['number']['stringValue'] for r in rows], ['3', '2', '1'])
+    # No incident: no Incidents tab; the manifest alone.
+    out, ex = detail(cert_alert())
+    expect(f, 'no incident: the manifest alone', [t['label'] for t in detail_widget('Tabs', 'alert-detail-tabs', out, ex, 'no incident')['items']], ['Manifest'])
+    # A warning sits above Details, amber.
+    out, ex = detail(alert('lost', 'PENDING', synced=False))
+    page = detail_widget('Flex', 'page-alert-detail', out, ex, 'not running')
+    expect(f, 'a warning: above Details', [i['resourceRefId'] for i in page['items']][:3],
+           ['alert-detail-page-header', 'alert-detail-run-warning', 'alert-detail-details-card'])
+    w = detail_widget('Alert', 'alert-detail-run-warning', out, ex, 'not running')
+    expect(f, 'the warning is amber', (w['type'], w['title']), ('warning', 'Not running'))
+    expect(f, 'not evaluated: no "since" fact', [i['label'] for i in out['facts']], ['Fires when', 'Checked'])
+    # The words follow the alert.
+    a = alert('lat', 'ALERT', opens=('True', 'CountsRecords'))
+    a['spec'].update({'interval': '15m', 'threshold': 3, 'thresholdType': 'below'})
+    a['status']['stateSince'] = '2026-11-25T10:00:00Z'
+    out, _ = detail(a)
+    expect(f, 'firing, fewer than, 15 minutes', [(i['label'], i['value']) for i in out['facts']],
+           [('Fires when', 'fewer than 3 matches in 15 minutes'), ('Checked', 'every 15 minutes'),
+            ('Firing since', '2026-11-25T10:00:00Z'), ('Opens incidents', 'Yes')])
+    m = alert('disk', 'PENDING', opens=('False', 'AggregatedValue'), typ='Metric')
+    m['spec'].update({'metricRef': {'name': 'disk_free'}, 'threshold': 20, 'thresholdType': 'below', 'interval': '2h'})
+    m['status']['stateSince'] = '2026-11-25T10:00:00Z'
+    out, _ = detail(m)
+    expect(f, 'a metric: its value, and opens none', ([(i['label'], i['value']) for i in out['facts']], out['detailsMd'].split('\n\n')[-1]),
+           ([('Fires when', 'the value is below 20'), ('Checked', 'every 2 hours'), ('Pending since', '2026-11-25T10:00:00Z'),
+             ('Opens incidents', 'No · metric')], '**Watches:** the metric `disk_free`'))
+    return f
+
+
+CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill, check_detail_page]
 
 
 def main():

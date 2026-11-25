@@ -887,12 +887,12 @@ def check_edit_form_loads_field_options(charts):
 
 
 def check_alert_about_card(charts):
-    """The alert detail's About card is the description, plus a warning only for a failure the page
-    would otherwise hide: an alert HyperDX never accepted, a row alert firing with no open
-    incident, a failed analysis. A metric or value alert opens no incident, so its firing is not
-    one; neither is a paused alert's. An incident no model analyses (its alert analysed by a person,
-    or no analysis agent installed) is no failed analysis: the card says so in incidents-page's
-    words, by incidents-page's rules."""
+    """The alert detail page (audit ALD-1): the Details card is the description, then, when no model
+    analyses its incidents (its alert analysed by a person, or no analysis agent installed), a line
+    saying so in incidents-page's words, by incidents-page's rules, then what it watches. A failure the
+    page would otherwise hide is an amber warning above the card: an alert HyperDX never accepted, a
+    row alert firing with no open incident, a failed or empty analysis. A metric or value alert opens
+    no incident, so its firing is not one; neither is a paused alert's."""
     ra = charts['alert-detail'].get('RESTAction', 'alert-detail')
     desc = 'A container keeps crashing.'
     synced = {'hyperdxAlertId': 'h1'}
@@ -904,64 +904,74 @@ def check_alert_about_card(charts):
         return inc
     no_agent = lambda message, status='True': {'type': 'AnalysisUnavailable', 'status': status,
                                                'reason': 'NoAnalysisAgent', 'message': message}
+    person = '**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched, so no analysis or fix is proposed here.'
+    watches = '**Watches:** all logs'
+    # name: (spec, status, incidents, the Details notice, the run warning, the analysis warning)
     cases = {
-        'healthy: the description alone': ({'description': desc}, {**synced, 'state': 'OK'}, [], desc, True),
-        'healthy, no description: no card': ({}, {**synced, 'state': 'OK'}, [], '', False),
-        'not accepted by HyperDX': ({'description': desc}, {'state': 'PENDING', 'error': 'x'}, [],
-                                    desc + '\n\n**Not running.** HyperDX hasn\'t accepted this alert, so nothing checks it.'
-                                    ' The manifest below shows the error.', True),
-        'firing, no incident': ({'description': desc}, {**synced, 'state': 'ALERT'}, [], 'Firing, but no incident', True),
+        'healthy: the description alone': ({'description': desc}, {**synced, 'state': 'OK'}, [], None, None, None),
+        'healthy, no description: what it watches': ({}, {**synced, 'state': 'OK'}, [], None, None, None),
+        'not accepted by HyperDX': ({'description': desc}, {'state': 'PENDING', 'error': 'x'}, [], None,
+                                    ('Not running', "HyperDX hasn't accepted this alert, so nothing checks it. The Manifest tab shows the error."), None),
+        'not accepted, no error': ({'description': desc}, {'state': 'PENDING'}, [], None,
+                                   ('Not running', "HyperDX hasn't accepted this alert, so nothing checks it."), None),
+        'firing, no incident': ({'description': desc}, {**synced, 'state': 'ALERT'}, [], None,
+                                ('Firing, but no incident has opened', "One normally opens within a minute; if none does, check the alert-provider's logs."), None),
         'firing, an open incident': ({'description': desc}, {**synced, 'state': 'ALERT'},
-                                     [incident('Open', rootCause={'statement': 'r'})], desc, True),
+                                     [incident('Open', rootCause={'statement': 'r'})], None, None, None),
         'metric alert firing, no incident': ({'description': desc, 'metricRef': {'name': 'm'}, 'aggregation': 'max'},
-                                             {**synced, 'state': 'ALERT'}, [], desc, True),
+                                             {**synced, 'state': 'ALERT'}, [], None, None, None),
         'value alert firing, no incident': ({'description': desc, 'value': 'v', 'aggregation': 'sum'},
-                                            {**synced, 'state': 'ALERT'}, [], desc, True),
-        'analysis failed': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Open', error='boom')],
-                            'The latest analysis failed.', True),
-        'analysis still running': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Analyzing')], desc, True),
+                                            {**synced, 'state': 'ALERT'}, [], None, None, None),
+        'analysis failed': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Open', error='boom')], None, None,
+                            ('The latest analysis failed', 'Open its incident in the Incidents tab to see the error.')),
+        'analysis produced nothing': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Open')], None, None,
+                                      ('The latest analysis produced no result', 'Open its incident in the Incidents tab.')),
+        'analysis still running': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Analyzing')], None, None, None),
         # No model analyses it (incidents-page's incident-detail rules and words): not a failure.
         'analyzed by a person, alert-provider\'s reason in status.error': (
             {'description': desc}, {**synced, 'state': 'ALERT'},
-            [by_person(incident('Open', error='This alert is analysed by a person, so no model reads it.'))],
-            desc + '\n\n**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched,'
-            ' so no analysis or fix is proposed here.', True),
+            [by_person(incident('Open', error='This alert is analysed by a person, so no model reads it.'))], person, None, None),
         'analyzed by a person, resolved': (
-            {'description': desc}, {**synced, 'state': 'OK'}, [by_person(incident('Resolved', error='x'))],
-            desc + '\n\n**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched,'
-            ' so no analysis or fix is proposed here.', True),
+            {'description': desc}, {**synced, 'state': 'OK'}, [by_person(incident('Resolved', error='x'))], person, None, None),
         'no analysis agent, its message': (
             {'description': desc}, {**synced, 'state': 'ALERT'},
             [incident('Open', conditions=[no_agent('No analysis agent is installed; a person investigates.')])],
-            desc + '\n\n**No analysis on this platform.** No analysis agent is installed; a person investigates.', True),
+            '**No analysis on this platform.** No analysis agent is installed; a person investigates.', None, None),
         'no analysis agent, no message': (
             {'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Verifying', conditions=[no_agent('')])],
-            desc + '\n\n**No analysis on this platform.** No analysis agent is installed here: a person looks into'
-            ' this incident.', True),
+            '**No analysis on this platform.** No analysis agent is installed here: a person looks into this incident.', None, None),
         'no analysis agent, read on Open and Verifying only': (
-            {'description': desc}, {**synced, 'state': 'OK'}, [incident('Resolved', error='boom', conditions=[no_agent('m')])],
-            'The latest analysis failed.', True),
+            {'description': desc}, {**synced, 'state': 'OK'}, [incident('Resolved', error='boom', conditions=[no_agent('m')])], None, None,
+            ('The latest analysis failed', 'Open its incident in the Incidents tab to see the error.')),
         'AnalysisUnavailable False: an ordinary failure': (
             {'description': desc}, {**synced, 'state': 'ALERT'},
-            [incident('Open', error='boom', conditions=[no_agent('m', status='False')])], 'The latest analysis failed.', True),
+            [incident('Open', error='boom', conditions=[no_agent('m', status='False')])], None, None,
+            ('The latest analysis failed', 'Open its incident in the Incidents tab to see the error.')),
     }
     problems = []
-    for name, (spec, status, incidents, want, shown) in cases.items():
+
+    def warning(w):
+        return None if w is None else (w.get('title'), w.get('text'))
+    for name, (spec, status, incidents, notice, run, analysis) in cases.items():
         alert = {'metadata': {'name': 'a1'}, 'spec': {'interval': '5m', 'threshold': 1, 'thresholdType': 'above', **spec},
                  'status': status}
         _, _, out = resolve(ra, {'name': 'a1', 'namespace': 'team-a'},
                             {'alert': alert, 'incidents': {'items': incidents}, 'reports': EMPTY})
-        about = out.get('aboutMd') or ''
-        exact = want in ('', desc) or want.startswith(desc + '\n')
-        if (about != want) if exact else (want not in about):
-            problems.append(f'{name}: aboutMd is {about!r}, wants {"" if exact else "to contain "}{want!r}')
-        if (out.get('sections') or {}).get('about') != shown:
-            problems.append(f'{name}: sections.about is {(out.get("sections") or {}).get("about")!r}, wants {shown!r}')
+        metric = (spec.get('metricRef') or {}).get('name')
+        want = '\n\n'.join(x for x in (spec.get('description'), notice, f'**Watches:** the metric `{metric}`' if metric else watches) if x)
+        if out.get('detailsMd') != want:
+            problems.append(f'{name}: detailsMd is {out.get("detailsMd")!r}, wants {want!r}')
+        got = (warning(out.get('runWarning')), warning(out.get('analysisWarning')))
+        if got != (run, analysis):
+            problems.append(f'{name}: the warnings are {got!r}, want {(run, analysis)!r}')
+        sections = out.get('sections') or {}
+        if (sections.get('runWarning'), sections.get('analysisWarning')) != (run is not None, analysis is not None):
+            problems.append(f'{name}: sections {sections!r} do not match the warnings')
     alert = {'metadata': {'name': 'a1', 'annotations': {'krateo.io/paused': 'true'}},
              'spec': {'description': desc}, 'status': {**synced, 'state': 'ALERT'}}
     _, _, out = resolve(ra, {'name': 'a1', 'namespace': 'team-a'}, {'alert': alert, 'incidents': EMPTY, 'reports': EMPTY})
-    if out.get('aboutMd') != desc:
-        problems.append(f'paused and firing: aboutMd is {out.get("aboutMd")!r}, wants the description alone')
+    if out.get('runWarning') is not None or out.get('detailsMd') != desc + '\n\n' + watches:
+        problems.append(f'paused and firing: {out.get("runWarning")!r} / {out.get("detailsMd")!r}, wants no warning and the description')
     return problems
 
 

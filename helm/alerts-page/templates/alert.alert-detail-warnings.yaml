@@ -1,0 +1,55 @@
+{{/* The alert page's warnings (audit ALD-1), each an amber Alert above the Details card, shown only */}}
+{{/* while it holds (alert-detail's sections): what the page would otherwise hide. */}}
+{{/*   run       whether the alert runs at all: "Not running" (HyperDX has not accepted it) or */}}
+{{/*             "Firing, but no incident has opened"; */}}
+{{/*   analysis  whether its latest incident's analysis failed or produced no result. */}}
+{{/* An incident no model analyses is information, not a warning: the Details card says it. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-run-warning
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Not running
+    type: warning
+    showIcon: true
+    description: ''
+  widgetDataTemplate:
+  - forPath: title
+    expression: '${ .runWarning.title // "" }'
+  - forPath: description
+    expression: '${ .runWarning.text // "" }'
+  resourcesRefs:
+    items: []
+---
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-detail-analysis-warning
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: alert-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: The latest analysis failed
+    type: warning
+    showIcon: true
+    description: ''
+  widgetDataTemplate:
+  - forPath: title
+    expression: '${ .analysisWarning.title // "" }'
+  - forPath: description
+    expression: '${ .analysisWarning.text // "" }'
+  resourcesRefs:
+    items: []

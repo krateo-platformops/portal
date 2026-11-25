@@ -8,6 +8,8 @@
 {{/* incidents : the alert namespace's Incidents — this alert's are the ones labelled */}}
 {{/* observability.krateo.io/alert: <name>. Several can be open at once, one per problem, so */}}
 {{/* the page lists every open one, then the latest ended ones. */}}
+{{/* The page reads facts first (audit ALD-1): the warnings, the Details card (detailsMd, facts), */}}
+{{/* then the incidents table and the manifest in tabs. */}}
 {{/* Everything is derived server-side (nothing-hardcoded): */}}
 {{/* the State tag label+colour (ALERT→red/PENDING→orange/OK→green — palette: green=health, so */}}
 {{/* the healthy quiet state OK reads green), the "above N" threshold prose, the */}}
@@ -48,7 +50,29 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: incidentsError
-  filter: >
+  {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into */}}
+  {{/* one line and so comment out the rest of the program. */}}
+  filter: |
+    {{- include "portal.incidentOrdinalDefs" . | nindent 4 }}
+    # An RFC 3339 time as the browser takes it, in UTC: "2026-11-25T18:46:12Z". alert-provider writes
+    # microseconds and a +00:00 offset ("2026-11-25T18:46:12.118402+00:00"); any offset is folded to
+    # UTC. "" when absent or unparseable, so no time is invented.
+    def isoz:
+      if type != "string" or . == "" then ""
+      else (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.[0-9]+)?(?<z>[Zz]|(?<sg>[+-])(?<oh>[0-9]{2}):?(?<om>[0-9]{2}))$")? // null) as $m
+        | if $m == null then ""
+          else ((($m.d + "T" + $m.t + "Z") | fromdateiso8601?) // null) as $local
+          | if $local == null then ""
+            else ($local - (if ($m.sg // "") == "" then 0
+                            else (if $m.sg == "-" then -1 else 1 end) * (($m.oh | tonumber) * 3600 + ($m.om | tonumber) * 60) end)) | todate end end end;
+    # An interval ("1h", "15m", "1d", "30s") in words: { span: "an hour" | "15 minutes", every:
+    # "every hour" | "every 15 minutes" }. One it cannot read is said as written.
+    def intervalwords:
+      (if type == "string" then (capture("^(?<n>[0-9]+)(?<u>[smhd])$")? // null) else null end) as $m
+      | if $m == null then { span: tostring, every: ("every " + tostring) }
+        else ($m.n | tonumber) as $k | ({ s: "second", m: "minute", h: "hour", d: "day" }[$m.u]) as $unit
+        | if $k == 1 then { span: ((if $unit == "hour" then "an " else "a " end) + $unit), every: ("every " + $unit) }
+          else { span: (($k | tostring) + " " + $unit + "s"), every: ("every " + ($k | tostring) + " " + $unit + "s") } end end;
     ({{ .Values.observabilityConsoleUrl | default "" | quote }} | rtrimstr("/")) as $console
     | (.name // "") as $n
     | (.namespace // "{{ $.Release.Namespace }}") as $ns
@@ -56,19 +80,21 @@ spec:
     | (.alert.status // {}) as $st
     | ($sp.displayName // .alert.metadata.name // $n) as $dn
     | ($st.state // "PENDING") as $state
-      # Metric and value Alerts open no incidents; only counted rows do.
+    # Metric and value Alerts open no incidents; only counted rows do.
     | (($sp.metricRef.name // "") == "" and ($sp.value // "") == "") as $opensIncidents
-      # krateo.io/paused: "true" — the alert-provider skips this alert's firings.
+    # krateo.io/paused: "true" — the alert-provider skips this alert's firings.
     | (((.alert.metadata.annotations // {})["krateo.io/paused"] // "") == "true") as $paused
     | ($st.hyperdxAlertId // "") as $haid
     | ($st.hyperdxDashboardId // "") as $hdid
-      # This alert's incidents, newest first: the ones carrying its label.
-    | ([ ((.incidents.items) // [])[]
-         | select(((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "") == $n) ]) as $incs
+    # This alert's incidents, newest first: the ones carrying its label.
+    | ([ ((.incidents.items) // [])[] | select($n != "" and incidentAlert == $n) ]) as $incs
+    # Each incident's number among this alert's incidents, the one its own page and its /incidents
+    # card give it (portal.incidentOrdinalDefs).
+    | ($incs | incidentPlaces) as $places
     | ([ $incs[]
          | { name: (.metadata.name // ""), namespace: (.metadata.namespace // $ns),
-             title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement else ("Incident " + (.metadata.name // "")) end),
              state: (.status.state // "Analyzing"),
+             statement: (.status.rootCause.statement // ""),
              error: (.status.error // ""),
              reportText: ((.status.report // "") | if type == "string" then . else "" end),
              structured: ((.status.rootCause.statement // "") != ""),
@@ -81,50 +107,92 @@ spec:
                            and ([ (.status.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ] | length) > 0),
              unavailableMsg: ([ (.status.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ][0].message // ""),
              byPerson: (((.metadata.labels // {})["observability.krateo.io/analysis"] // "") == "human"),
-             when: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]
+             when: incidentWhen,
+             place: ($places[.metadata.name // ""] // null) } ]
        | sort_by(.when) | reverse
        | map(. + { open: (.state != "Resolved" and .state != "Closed"),
-                   route: ("/incidents/" + .namespace + "/" + .name) })) as $shaped
+                   route: ("/incidents/" + .namespace + "/" + .name),
+                   # The Root cause column, in the words of the /incidents list.
+                   cause: (if .statement != "" then .statement
+                           elif .byPerson then "analyzed by a person"
+                           elif .unavailable then "no analysis agent"
+                           elif .error != "" then "analysis failed"
+                           elif .state == "Analyzing" then "analyzing"
+                           else "—" end) })) as $shaped
     | ($shaped[0] // null) as $rep
     | [ $shaped[] | select(.open) ] as $open
     | [ $shaped[] | select(.open | not) ] as $ended
-      # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
-      # An incident no model analyses had no analysis to fail or to produce: it is said as such.
-      | ($rep != null and (($rep.byPerson // false) or ($rep.unavailable // false))) as $repNoAnalysis
-      | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
-      | ($rep != null and ($repNoAnalysis | not) and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
-      | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
-      # The About card: the description, then a warning for each failure the page would otherwise
-      # hide. A healthy alert shows its description alone.
-    | ([ ($sp.description // ""),
-         (if $haid == "" then ("**Not running.** HyperDX hasn't accepted this alert, so nothing checks it."
-                               + (if ($st.error // "") != "" then " The manifest below shows the error." else "" end))
-          elif $state == "ALERT" and ($paused | not) and $opensIncidents and ($open | length) == 0
-          then "**Firing, but no incident has opened.** One normally opens within a minute; if none does, check the alert-provider's logs."
-          else "" end),
-         # In incidents-page's words (incident-no-analysis): information, not a failure.
-         (if $repNoAnalysis then
-            (if $rep.byPerson then "**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched, so no analysis or fix is proposed here."
-             else "**No analysis on this platform.** " + (($rep.unavailableMsg // "") | if . == "" then "No analysis agent is installed here: a person looks into this incident." else . end) end)
-          elif $rep == null or ($rep.state // "") == "Analyzing" or $repProduced then ""
-          elif $repFailed then "**The latest analysis failed.** Open its incident below to see the error."
-          else "**The latest analysis produced no result.** Open its incident below." end)
-       ] | map(select(. != "")) | join("\n\n")) as $about
+    # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
+    # An incident no model analyses had no analysis to fail or to produce: it is said as such.
+    | ($rep != null and (($rep.byPerson // false) or ($rep.unavailable // false))) as $repNoAnalysis
+    | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
+    | ($rep != null and ($repNoAnalysis | not) and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
+    | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
+    # THE WARNINGS, each an amber Alert above the Details card: what the page would otherwise hide.
+    # Whether the alert runs at all (not accepted by HyperDX, or firing with no incident) ...
+    | (if $haid == "" then { title: "Not running", text: ("HyperDX hasn't accepted this alert, so nothing checks it."
+                                                          + (if ($st.error // "") != "" then " The Manifest tab shows the error." else "" end)) }
+       elif $state == "ALERT" and ($paused | not) and $opensIncidents and ($open | length) == 0
+       then { title: "Firing, but no incident has opened", text: "One normally opens within a minute; if none does, check the alert-provider's logs." }
+       else null end) as $runWarning
+    # ... and whether its latest incident's analysis went wrong.
+    | (if $rep == null or $repNoAnalysis or ($rep.state // "") == "Analyzing" or $repProduced then null
+       elif $repFailed then { title: "The latest analysis failed", text: "Open its incident in the Incidents tab to see the error." }
+       else { title: "The latest analysis produced no result", text: "Open its incident in the Incidents tab." } end) as $analysisWarning
+    # An incident no model analyses is information, not a failure (incidents-page's
+    # incident-no-analysis words): a line in the Details card, under the description.
+    | (if $repNoAnalysis | not then ""
+       elif $rep.byPerson then "**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched, so no analysis or fix is proposed here."
+       else "**No analysis on this platform.** " + (($rep.unavailableMsg // "") | if . == "" then "No analysis agent is installed here: a person looks into this incident." else . end) end) as $notice
+    # WHAT IT WATCHES: a metric alert its metric (spec.metricRef); any other the rows of its signal
+    # (status.type: Logs, Traces; logs until alert-provider says) that spec.where matches, the query
+    # as code. No where: all of them.
+    | (($st.type // "") | if . == "" then "Logs" else . end) as $signal
+    | (($sp.where // "") | tostring) as $where
+    | (if ($sp.metricRef.name // "") != "" then "**Watches:** the metric `" + ($sp.metricRef.name | gsub("`"; "'")) + "`"
+       elif $where == "" then "**Watches:** all " + ($signal | ascii_downcase)
+       else (if ($where | test("```")) then "````" else "```" end) as $fence
+            | "**Watches:** " + ($signal | ascii_downcase) + " where\n\n" + $fence + "sql\n" + $where + "\n" + $fence end) as $watches
+    | ([ ($sp.description // ""), $notice, $watches ] | map(select(. != "")) | join("\n\n")) as $detailsMd
+    # WHEN IT FIRES: a counting alert compares the matches in one interval with its threshold; a metric
+    # or value alert compares the value it reads.
+    | (($sp.interval // "") | tostring) as $interval
+    | ($interval | if . == "" then null else intervalwords end) as $iw
+    | ($sp.threshold // null) as $th
+    | (($sp.thresholdType // "") | tostring | ascii_downcase) as $tt
+    | (if $th == null then ""
+       elif $opensIncidents then
+         ({ above: "more than", below: "fewer than" }[$tt] // $tt) + " " + ($th | tostring) + " " + (if $th == 1 then "match" else "matches" end)
+         + (if $iw != null then " in " + $iw.span else "" end)
+       else "the value is " + ({ above: "above", below: "below" }[$tt] // $tt) + " " + ($th | tostring) end) as $firesWhen
+    # OPENS INCIDENTS: alert-provider's OpensIncidents condition, in the alerts list's words.
+    | ([ ($st.conditions // [])[] | select(.type == "OpensIncidents") ] | .[0] // {}) as $oc
+    | (if $oc.status == "True" then "Yes"
+       elif $oc.status == "False" then "No" + ({ AggregatedValue: (if $signal == "Metric" then " · metric" else " · value" end),
+                                                Paused: " · paused", OutsideHomeNamespace: " · other namespace" }[$oc.reason // ""] // "")
+       else "" end) as $opensText
+    | ({ ALERT: "Firing", PENDING: "Pending", OK: "OK" }[$state] // $state) as $stateWord
+    | (($st.stateObservedAt // "") | isoz) as $observedAt
+    | (($st.stateSince // "") | isoz) as $since
     | {
         displayName: $dn,
-        where: ($sp.where // "all logs"),
+        where: (if $where == "" then "all logs" else $where end),
         # "above 1" — thresholdType + threshold, empty-safe (never a bare " " or leading space).
         thresholdText: ((($sp.thresholdType // "") + " " + (($sp.threshold // 0) | tostring)) | ltrimstr(" ")),
-        interval: ($sp.interval // ""),
+        interval: $interval,
         description: ($sp.description // ""),
         state: $state,
         phase: ($st.phase // "Pending"),
         paused: $paused,
+        # When alert-provider last saw the state, and when the state last changed, as UTC ISO times
+        # for the browser to write ("" when absent).
+        stateObservedAt: $observedAt,
+        stateSince: $since,
         # State tag — same map as the /alerts table, but OK→green (palette: green=health only,
         # and a quiet-OK alert IS the healthy default), ALERT→red (failure), PENDING→orange
         # (transitional). "OK" kept verbatim — the literal HyperDX state word. An alert with no
         # HyperDX alert behind it reads "Not evaluated" in gray, as in the table, whatever its last
-        # mirrored state: the About card says why.
+        # mirrored state: the warning above Details says why.
         stateLabel: (if $haid == "" then "Not evaluated" else ($state | if . == "ALERT" then "Alert" elif . == "PENDING" then "Pending" else . end) end),
         stateColor: (if $haid == "" then "gray" else ($state | if . == "ALERT" then "red" elif . == "PENDING" then "orange" elif . == "OK" then "green" else "gray" end) end),
         hyperdxAlertId: $haid,
@@ -142,14 +210,27 @@ spec:
         # pre-encoded exactly once). The raw `ask` is also emitted for any raw consumer.
         ask: ("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps."),
         askHref: ("/incidents?ask=" + (("Investigate the \"" + $dn + "\" observability alert — it is currently " + $state + "; explain what it watches, why it is in this state, and give me the concrete next steps.") | @uri)),
-        aboutMd: $about,
-        # The Incidents card: every unresolved incident, then the five latest ended ones, newest first within each.
-        incidents: ($open + $ended[0:5] | map({ name, namespace, title, state, when, route })),
-        incidentsTitle: ("Incidents · " + ($open | length | tostring) + " open"
-          + (if ($ended | length) > 0 then (" · " + ($ended | length | tostring) + " ended" + (if ($ended | length) > 5 then ", the latest 5 shown" else "" end)) else "" end)),
+        # THE DETAILS CARD (audit ALD-1): the description, a no-analysis notice, what it watches
+        # (detailsMd), then the facts (Descriptions): when it fires, how often it is checked, when
+        # it last was, since when it is in its state, and whether it opens incidents. A fact with
+        # nothing to say is left out; the two times are ISO, written by the browser (`format: ago`).
+        detailsMd: $detailsMd,
+        facts: ([ (if $firesWhen != "" then { label: "Fires when", value: $firesWhen } else empty end),
+                  (if $iw != null then { label: "Checked", value: $iw.every } else empty end),
+                  (if $observedAt != "" then { label: "Last checked", value: $observedAt, format: "ago" } else empty end),
+                  (if $since != "" and $haid != "" then { label: ($stateWord + " since"), value: $since, format: "ago" } else empty end),
+                  (if $opensText != "" then { label: "Opens incidents", value: $opensText } else empty end) ]),
+        runWarning: $runWarning,
+        analysisWarning: $analysisWarning,
+        # The Incidents tab: every unresolved incident, then the five latest ended ones, newest first
+        # within each; # is the incident's number among the alert's incidents.
+        incidents: ($open + $ended[0:5] | map({ name, namespace, cause, state, when, route,
+                                                 number: (if .place == null then "" else (.place | tostring) end) })),
+        incidentsTab: ("Incidents" + (if ($open | length) > 0 then " · " + ($open | length | tostring) + " open" else "" end)),
         sections: {
+          runWarning: ($runWarning != null),
+          analysisWarning: ($analysisWarning != null),
           incident: ($rep != null),
-          about: ($about != ""),
           console: (($console != "") and (($haid != "") or ($hdid != "")))
         },
         # Static GVR for the plain Alert CRD — the DELETE target for button.alert-detail-delete
