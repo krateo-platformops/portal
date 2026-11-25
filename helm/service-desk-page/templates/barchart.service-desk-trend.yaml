@@ -1,0 +1,53 @@
+{{/* Requests opened (Zendesk's created_at, else when raised here) and solved (now Solved or
+     Closed, at their last update) per bucket of the range. */}}
+{{/* COUNTS AS BARS (charts mockup, CHART-3): whole-number ticks, the top of the axis the smallest
+     multiple of 4 at or above the largest count (at least 4: 0..4, 0..8, ...), so a single incident is
+     never a bump on a 0.2 axis; a measured 0 is the BarChart's grey hairline on the baseline, so a red
+     series never paints a zero. The newest bucket is the one still filling: slot "partial" (a hatched
+     bar, "so far"). */}}
+kind: BarChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: service-desk-trend
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [state, range, view, q]
+  identityContext:
+    - username
+  apiRef:
+    name: zendesk-requests
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    xField: t
+    yField: v
+    colorField: series
+    slotField: slot
+    group: true
+    colorMap:
+      Opened: blue
+      Solved: gray
+    legend: true
+    height: 180
+    xTimeUnit: day
+    scale:
+      "y":
+        zero: true
+        domainMin: 0
+        domainMax: 4
+        tickCount: 5
+    axis:
+      "y":
+        tickCount: 5
+        title: requests
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ (.trend // []) as $rows | (($rows | last) // {} | .t) as $cur | [ $rows[] | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
+  - forPath: scale
+    expression: '${ ([ (.trend // [])[] | (.v // 0) ] | max // 0) as $m | { "y": { zero: true, domainMin: 0, domainMax: (if $m <= 4 then 4 else (($m / 4) | ceil) * 4 end), tickCount: 5 } } }'
+  - forPath: xTimeUnit
+    expression: '${ if .trendUnit == "hour" then "hour" else "day" end }'
+  resourcesRefs:
+    items: []

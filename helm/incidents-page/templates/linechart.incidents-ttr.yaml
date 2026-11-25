@@ -1,6 +1,9 @@
 {{/* The median time to resolve (triggered to resolution.at, Resolved incidents) of each of the last
-     8 weeks, in minutes, hours or days (incidents-list `ttrUnit`, the y axis's title); a week with
-     nothing resolved has no point. */}}
+     8 weeks, in minutes, hours or days (incidents-list `ttrUnit`, the y axis's title). incidents-list
+     leaves out a week with nothing resolved; this emits all 8 (the weeks incidents-list reads, epoch
+     weeks ending with the current one), such a week as {v: null, slot: "missing"} (a median of
+     nothing is no data, drawn as a "No data" band), and the current week partial (charts mockup,
+     CHART-3). A line, unsmoothed: a median is a measurement, not a count. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -16,8 +19,7 @@ spec:
   widgetData:
     xField: t
     yField: v
-    shapeField: smooth
-    area: true
+    slotField: slot
     point: true
     legend: false
     height: 160
@@ -37,7 +39,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ if .failed then [] else (.ttrWeekly // []) end }'
+    expression: '${ if .failed then [] else ((((now / 604800) | floor) - 7) * 604800) as $w0 | (reduce (.ttrWeekly // [])[] as $r ({}; .[$r.t | tostring] = $r)) as $at | [ range(0; 8) as $i | ($w0 + $i * 604800) as $t | ($at[$t | tostring] // null) as $r | if $r == null then { t: $t, v: null, slot: "missing" } else $r + (if $i == 7 then { slot: "partial" } else {} end) end ] end }'
   - forPath: axis
     expression: '${ { x: { tickCount: 4 }, "y": { tickCount: 4, title: (.ttrUnit // "minutes") } } }'
   resourcesRefs:

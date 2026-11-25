@@ -63,6 +63,7 @@ def _load(mod, file):
 
 
 tbi = _load('tbi', 'test-builder-install.py')
+counts = _load('counts', 'chart-counts.py')     # the count charts' shared rules (CHART-3)
 CHART_DIR = os.environ.get('SERVICE_DESK_CHART') or os.path.join(REPO, 'helm', 'service-desk-page')
 GROUP = 'zendesk.ogen.krateo.io'
 # The served apiVersions are read FROM THE CHART (servicedesk.zendeskRequestAPIVersion and
@@ -372,6 +373,12 @@ def check_dashboard(chart):
            (len(out['trend']), sum(p_['v'] for p_ in out['trend'] if p_['series'] == 'Opened'), out['trendUnit']), (14, 3, 'day'))
     out24, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, {'username': 'claude-user1@krateo.io', 'range': '24h'})
     expect(f, '?range=24h: per hour', (len(out24['trend']), out24['trendUnit']), (48, 'hour'))
+    for label, o, unit in (('7d', out, 'day'), ('24h', out24, 'hour')):
+        bars = widget(chart, 'BarChart', 'service-desk-trend', o, ex, f'service-desk-trend ({label})')
+        expect(f, f'{label}: the bars label {unit}s', bars['xTimeUnit'], unit)
+        f += counts.problems(f'{label}: Requests opened and solved', bars, title='requests', colors={'Opened': 'blue', 'Solved': 'gray'},
+                             resolve_rows=lambda rows, o=o, label=label: widget(chart, 'BarChart', 'service-desk-trend', dict(o, trend=rows), ex,
+                                                                               f'service-desk-trend ({label}, counts)'))
     expect(f, 'the range chips keep the state and the view, 7d left out',
            [(c['label'], c['active'], c['route']) for c in resolve(chart, 'zendesk-requests', {'requests': {'items': items}},
                                                                      {'username': 'x', 'state': 'mine', 'range': '24h', 'view': 'table'})[0]['rangeChips']],

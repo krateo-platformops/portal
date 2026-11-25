@@ -65,6 +65,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
 tbi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tbi)
+_spec = importlib.util.spec_from_file_location('counts', os.path.join(HERE, 'chart-counts.py'))
+counts = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(counts)
 
 NS = tbi.NS
 RAS = ('platform-reviews', 'review-proposal', 'review-run')
@@ -1198,6 +1201,11 @@ def check_overview_trend_and_charts(chart):
         lc = w['reviews-trend']
         expect(f, f'{rng}: the chart', (lc['xTimeUnit'], lc['xField'], lc['yField'], lc['colorField'], len(lc['data'])), (unit, 't', 'v', 'series', 3 * n))
         expect(f, f'{rng}: the range chip', [c['label'] for c in o['rangeChips'] if c['active']], [rng])
+        expect(f, f'{rng}: a bar chart', chart.get('BarChart', 'reviews-trend')['kind'], 'BarChart')
+        f += counts.problems(f'{rng}: Proposed vs decided', lc, title='change requests',
+                             colors={'Proposed': CARD_COLOURS['Proposed'], 'Decided': 'blue', 'Runs failed': RUN_COLOURS['Failed']},
+                             resolve_rows=lambda rows, o=o, rng=rng: tbi.resolved_widget(chart, 'BarChart', 'reviews-trend', dict(o, trend=rows), {'range': rng},
+                                                                                       f'BarChart reviews-trend ({rng}, counts)')['spec']['widgetData'])
     # A decision is blue, not Merged's gray, which is Proposed's line.
     expect(f, 'the trend\'s lines have a colour each', w['reviews-trend']['colorMap'],
            {'Proposed': CARD_COLOURS['Proposed'], 'Decided': 'blue', 'Runs failed': RUN_COLOURS['Failed']})

@@ -38,6 +38,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
 tbi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tbi)
+_spec = importlib.util.spec_from_file_location('counts', os.path.join(HERE, 'chart-counts.py'))
+counts = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(counts)
 
 NOW = datetime.datetime.now(datetime.timezone.utc)
 KX = ['projects', 'status', 'range', 'view', 'q']
@@ -154,7 +157,10 @@ def check_charts():
         expect(f, f'{rng}: one point per {unit}, ending now', (len(pts), out['trendUnit'],
                pts[-1]['t'] <= NOW.timestamp() < pts[-1]['t'] + (3600 if unit == 'hour' else 86400)), (n, unit, True))
         expect(f, f'{rng}: the incidents opened in it', sum(p['v'] for p in pts), opened)
-        expect(f, f'{rng}: the chart labels {unit}s', w('LineChart', 'alerts-incident-trend', out, {'range': rng})['xTimeUnit'], unit)
+        bars = w('BarChart', 'alerts-incident-trend', out, {'range': rng})
+        expect(f, f'{rng}: the chart labels {unit}s', bars['xTimeUnit'], unit)
+        f += counts.problems(f'{rng}: Incidents opened', bars, title='incidents', colors={'Incidents opened': 'red'},
+                             resolve_rows=lambda rows, out=out: w('BarChart', 'alerts-incident-trend', dict(out, incidentTrend=rows)))
     top = resolve({})['topIncidents']
     expect(f, '7d: most incidents, most first, linked, bars against the first', [(t['name'], t['count'], t['percent'], t['href']) for t in top],
            [('Probe', '5', 100, '/alerts/krateo-system/probe'), ('Cert Expiry', '1', 20, '/alerts/krateo-system/cert-expiry'),

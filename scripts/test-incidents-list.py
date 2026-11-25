@@ -61,6 +61,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('tbi', os.path.join(HERE, 'test-builder-install.py'))
 tbi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tbi)
+_spec = importlib.util.spec_from_file_location('counts', os.path.join(HERE, 'chart-counts.py'))
+counts = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(counts)
 
 CHART = os.path.join(HERE, '..', 'helm', 'incidents-page')
 TAIL = ' Tell me which to work on first, whether any share a cause, and the next step for each — grounded in the evidence on this page.'
@@ -253,7 +256,7 @@ def check_empty_and_failed():
         expect(f, f'failed read ({label}): said, as a warning', (para['text'], para['type']),
                ('The incidents could not be read (' + said + '), so nothing on this page counts them.', 'warning'))
         expect(f, f'failed read ({label}): no chart drawn from it',
-               [widget_data(k, n, out)['data'] for k, n in (('PieChart', 'incidents-by-state'), ('LineChart', 'incidents-trend'),
+               [widget_data(k, n, out)['data'] for k, n in (('PieChart', 'incidents-by-state'), ('BarChart', 'incidents-trend'),
                                                              ('LineChart', 'incidents-ttr'))], [[], [], []])
     out = resolve(responses(alerts=['dial tcp: i/o timeout']), {'status': 'all'})
     _, prompt = ask(out['askHref'])
@@ -337,8 +340,10 @@ def check_figures_and_charts():
         want_resolved = {'24h': 1, '7d': 2, '30d': 3}[rng]
         expect(f, f'{rng}: opened and resolved in the range', (sum(p['v'] for p in opened), sum(p['v'] for p in resolved)),
                (want_opened, want_resolved))
-        xu = widget_data('LineChart', 'incidents-trend', o, {'range': rng})['xTimeUnit']
-        expect(f, f'{rng}: the chart labels {unit}s', xu, unit)
+        bars = widget_data('BarChart', 'incidents-trend', o, {'range': rng})
+        expect(f, f'{rng}: the chart labels {unit}s', bars['xTimeUnit'], unit)
+        f += counts.problems(f'{rng}: Opened vs resolved', bars, title='incidents', colors={'Opened': 'red', 'Resolved': 'gray'},
+                             resolve_rows=lambda rows, o=o: widget_data('BarChart', 'incidents-trend', dict(o, trend=rows)))
     # Each resolved incident's week (epoch weeks, as the RESTAction buckets them) and minutes.
     by_week = {}
     for hours, minutes in ((12, 120), (72, 40), (480, 360)):
@@ -349,6 +354,22 @@ def check_figures_and_charts():
     want = [{'t': t, 'v': round(sum(ms) / len(ms) / 60 * 10) / 10} for t, ms in sorted(by_week.items())]
     expect(f, 'per week: the median of each week with something resolved, in hours', (out['ttrWeekly'], out['ttrUnit']), (want, 'hours'))
     expect(f, 'the chart names the unit on its axis', widget_data('LineChart', 'incidents-ttr', out)['axis']['y']['title'], 'hours')
+    # CHART-3: the chart has all 8 weeks; a week with nothing resolved is no data (a median of nothing),
+    # never left out or drawn as 0; the current week is still filling. A line, unsmoothed.
+    ttr = widget_data('LineChart', 'incidents-ttr', out)
+    w0 = (int(NOW.timestamp()) // 604800 - 7) * 604800
+    weeks = [w0 + i * 604800 for i in range(8)]
+    measured = {p['t']: p['v'] for p in want}
+    expect(f, 'time to resolve: all 8 weeks, in order', [p['t'] for p in ttr['data']], weeks)
+    expect(f, 'time to resolve: a week with something resolved keeps its median', [p['v'] for p in ttr['data'] if p['t'] in measured],
+           [measured[t] for t in weeks if t in measured])
+    expect(f, 'time to resolve: a week with nothing resolved is no data',
+           [(p['v'], p.get('slot')) for p in ttr['data'] if p['t'] not in measured and p['t'] != weeks[-1]],
+           [(None, 'missing')] * len([t for t in weeks[:-1] if t not in measured]))
+    expect(f, 'time to resolve: the current week is still filling', ttr['data'][-1].get('slot'), 'partial' if weeks[-1] in measured else 'missing')
+    expect(f, 'time to resolve: a line, unsmoothed, with a slot field', (ttr.get('shapeField'), ttr.get('area'), ttr.get('slotField')), (None, None, 'slot'))
+    expect(f, 'time to resolve: nothing resolved in 8 weeks, 8 weeks of no data',
+           [p.get('slot') for p in widget_data('LineChart', 'incidents-ttr', dict(out, ttrWeekly=[]))['data']], ['missing'] * 8)
     quick = resolve(responses(incidents={'items': [TIMED[6]]}, alerts={'items': [alert('a', 'A', 'OK')]}), {'range': '30d'})
     expect(f, 'under 2 h: minutes', (quick['ttrWeekly'][0]['v'], quick['ttrUnit']), (40, 'minutes'))
     slow = incident('s1', 'Resolved', ago(24 * 30), alert='a', cause='c', resolved=ago(24))

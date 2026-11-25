@@ -1,7 +1,12 @@
 {{/* The incidents the alerts opened (by triggeredAt), per bucket over the range: per hour for 24h,
      per day for 7d and 30d, the newest bucket the current one. Empty when the incidents could not
      be read. */}}
-kind: LineChart
+{{/* COUNTS AS BARS (charts mockup, CHART-3): whole-number ticks, the top of the axis the smallest
+     multiple of 4 at or above the largest count (at least 4: 0..4, 0..8, ...), so a single incident is
+     never a bump on a 0.2 axis; a measured 0 is the BarChart's grey hairline on the baseline, so a red
+     series never paints a zero. The newest bucket is the one still filling: slot "partial" (a hatched
+     bar, "so far"). */}}
+kind: BarChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
   name: alerts-incident-trend
@@ -17,28 +22,28 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       Incidents opened: red
-    shapeField: smooth
-    area: true
     legend: false
     height: 160
     xTimeUnit: day
     scale:
       "y":
         zero: true
-        nice: true
         domainMin: 0
-        tickCount: 4
-    axis:
-      x:
+        domainMax: 4
         tickCount: 5
+    axis:
       "y":
-        tickCount: 4
+        tickCount: 5
+        title: incidents
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ .incidentTrend // [] }'
+    expression: '${ (.incidentTrend // []) as $rows | (($rows | last) // {} | .t) as $cur | [ $rows[] | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
+  - forPath: scale
+    expression: '${ ([ (.incidentTrend // [])[] | (.v // 0) ] | max // 0) as $m | { "y": { zero: true, domainMin: 0, domainMax: (if $m <= 4 then 4 else (($m / 4) | ceil) * 4 end), tickCount: 5 } } }'
   - forPath: xTimeUnit
     expression: '${ if .trendUnit == "hour" then "hour" else "day" end }'
   resourcesRefs:

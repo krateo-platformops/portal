@@ -72,6 +72,7 @@ gates = _load('gates', 'test-ra-input-gates.py')        # dependsOn order, itera
 tbi = gates.tbi                                           # render helpers + CRD validation
 spath = gates.spath                                       # snowplow's own path renderer
 rownav = _load('rownav', 'test-rownavigateto-f8.py')      # Table.tsx buildRowPath, ported
+counts = _load('counts', 'chart-counts.py')               # the count charts' shared rules (CHART-3)
 
 NS = 'krateo-audit'                  # the chart's default page namespace
 RELEASE_NS = 'krateo-system'
@@ -1280,7 +1281,7 @@ def check_figures(c):
            (smap['untraced'], cmap['default'], smap['records'], smap['unread']), ('gray', 'gray', 'slate', 'orange'))
     expect(p, 'the donut and the activity lines use the same colours',
            ({k.lower(): v for k, v in wd(c, 'PieChart', 'audit-outcomes', out)['colorMap'].items() if k != 'Other'},
-            {k.lower(): v for k, v in wd(c, 'LineChart', 'audit-activity', out)['colorMap'].items()},
+            {k.lower(): v for k, v in wd(c, 'BarChart', 'audit-activity', out)['colorMap'].items()},
             wd(c, 'PieChart', 'audit-outcomes', out)['colorMap']['Other']),
            (cmap['map'], cmap['map'], 'gray'))
     _, fo, _ = records_all(c, {'auditOutcome': 'failure'}, ADMIN)
@@ -1398,10 +1399,12 @@ def check_trend(c):
         chart = 'audit-activity-minutes' if unit == 'minute' else 'audit-activity'
         expect(p, f'{rng}: the card draws {chart}', (ids(card['items']), card['extra']),
                ([chart], {'minute': 'per 5 minutes · UTC', 'hour': 'per hour', 'day': 'per day'}[unit]))
-        lc = wd(c, 'LineChart', chart, out, {'range': rng}, f'{chart} ({rng})')
+        lc = wd(c, 'BarChart', chart, out, {'range': rng}, f'{chart} ({rng})')
         expect(p, f'{rng}: the chart\'s data and time unit', (len(lc['data']), lc.get('xTimeUnit')),
                (3 * n, None if unit == 'minute' else unit))
-        other = wd(c, 'LineChart', 'audit-activity' if unit == 'minute' else 'audit-activity-minutes', out, {'range': rng}, f'other chart ({rng})')
+        p += counts.problems(f'{rng}: Activity', lc, title='records', colors={'Success': 'green', 'Failure': 'red', 'Denied': 'orange'},
+                             resolve_rows=lambda rows, out=out, chart=chart, rng=rng: wd(c, 'BarChart', chart, dict(out, trend=rows), {'range': rng}, f'{chart} ({rng}, counts)'))
+        other = wd(c, 'BarChart', 'audit-activity' if unit == 'minute' else 'audit-activity-minutes', out, {'range': rng}, f'other chart ({rng})')
         expect(p, f'{rng}: the other chart is empty', other['data'], [])
     _, out, _ = records_all(c, {'range': '24h'}, ADMIN)
     hour = {x['t']: x['v'] for x in out['trend'] if x['series'] == 'Success'}
