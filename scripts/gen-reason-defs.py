@@ -49,7 +49,7 @@ import urllib.request
 
 # core-provider main after #679 (the reason tables as JSON). Switch to the first tag that carries
 # them, 2.13.134, once it is cut.
-CORE_PROVIDER_REF = '833e86d419eebf9f1d0582918ad46c331c96a7f6'
+CORE_PROVIDER_REF = '2.13.134'
 RAW = 'https://raw.githubusercontent.com/krateo-platformops/core-provider/{ref}/docs/{name}.json'
 
 HERE = os.path.dirname(os.path.abspath(__file__))
