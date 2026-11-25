@@ -48,7 +48,32 @@ spec:
       verb: GET
       continueOnError: true
       errorKey: incidentsError
+  {{/* The header's subtitle is the rule in words, and when the provider last read its state */}}
+  {{/* (ALD-1: threshold, interval and the last evaluation were only in the manifest). */}}
+  {{/* - thresholdType is HyperDX's doesExceedThreshold: `above` is value >= threshold, so it reads */}}
+  {{/* "at least", never "above"; between/not_between name thresholdMax too. */}}
+  {{/* - what is compared follows the spec, as the CRD's rules decide the alert's type: a metric */}}
+  {{/* (metricRef, aggregated, per groupBy series), a value read from rows (value), or a count of */}}
+  {{/* the rows of source (logs when omitted; an empty where is every row). */}}
+  {{/* - "last checked" is status.stateObservedAt: set on every pass that reads the live state, so */}}
+  {{/* an old stamp is a provider that stopped evaluating, whatever Ready says. Shown as the page */}}
+  {{/* shows a time (utcstamp: the same normalisation as obs-alerts' stateSince), and left out when */}}
+  {{/* HyperDX holds no alert (the About card says nothing checks it) or the stamp is absent. */}}
   filter: >
+    def utcstamp:
+      if type != "string" or . == "" then ""
+      else (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.[0-9]+)?(?<z>[Zz]|(?<sg>[+-])(?<oh>[0-9]{2}):?(?<om>[0-9]{2}))$")? // null) as $m
+        | if $m == null then ""
+          else ((($m.d + "T" + $m.t + "Z") | fromdateiso8601?) // null) as $local
+          | if $local == null then ""
+            else ($local - (if ($m.sg // "") == "" then 0
+                            else (if $m.sg == "-" then -1 else 1 end) * (($m.oh | tonumber) * 3600 + ($m.om | tonumber) * 60) end))
+                 | strftime("%Y-%m-%d %H:%M UTC") end end end;
+    def span:
+      (capture("^(?<n>[0-9]+)(?<u>[smhd])$")? // null) as $m
+      | if $m == null then .
+        else $m.n + " " + ({ s: "second", m: "minute", h: "hour", d: "day" }[$m.u]) + (if ($m.n | tonumber) == 1 then "" else "s" end) end;
+    def num: if . == null then "?" else tostring end;
     ({{ .Values.observabilityConsoleUrl | default "" | quote }} | rtrimstr("/")) as $console
     | (.name // "") as $n
     | (.namespace // "{{ $.Release.Namespace }}") as $ns
@@ -113,9 +138,36 @@ spec:
     | {
         displayName: $dn,
         where: ($sp.where // "all logs"),
-        # "above 1" — thresholdType + threshold, empty-safe (never a bare " " or leading space).
-        thresholdText: ((($sp.thresholdType // "") + " " + (($sp.threshold // 0) | tostring)) | ltrimstr(" ")),
         interval: ($sp.interval // ""),
+        # "Fires when the number of matching log lines over 5 minutes is at least 1 · last checked
+        # 2026-11-25 14:02 UTC". "" when the alert could not be read.
+        subtitle: (if (.alert.metadata.name // "") == "" then ""
+          else
+            (if ($sp.source // "logs") == "traces" then "spans" else "log lines" end) as $rows
+            | ({ avg: "average", max: "maximum", min: "minimum", sum: "sum", p95: "95th percentile", increase: "increase" }[$sp.aggregation // ""]
+               // ($sp.aggregation // "value")) as $agg
+            | (if ($sp.metricRef.name // "") != "" then
+                 "the " + $agg + " of " + $sp.metricRef.name
+                 + (if ($sp.ratio // null) != null then " as a share" else "" end)
+                 + (if (($sp.groupBy // []) | length) > 0 then " per " + ($sp.groupBy | join(", ")) else "" end)
+               elif ($sp.value // "") != "" then "the " + $agg + " of a value read from matching " + $rows
+               elif ($sp.where // "") == "" then "the number of " + $rows
+               else "the number of matching " + $rows end) as $subject
+            | ($sp.threshold | num) as $t
+            | ($sp.thresholdType // "above") as $tt
+            | ({ above: "at least ", above_exclusive: "more than ", below: "less than ", below_or_equal: "at most ",
+                 equal: "exactly ", not_equal: "anything but " }[$tt]) as $op
+            | (if $tt == "between" then "between " + $t + " and " + ($sp.thresholdMax | num)
+               elif $tt == "not_between" then "outside " + $t + " to " + ($sp.thresholdMax | num)
+               elif $op != null then $op + $t
+               else $tt + " " + $t end) as $cmp
+            | (($sp.consecutiveWindows // 1) | if . > 1 then ", " + tostring + " intervals in a row" else "" end) as $windows
+            | (if $haid == "" then "" else (($st.stateObservedAt // "") | utcstamp) end) as $checked
+            | "Fires when " + $subject
+              + (if ($sp.interval // "") == "" then "" else " over " + ($sp.interval | span) end)
+              + " is " + $cmp + $windows
+              + (if $checked == "" then "" else " · last checked " + $checked end)
+          end),
         description: ($sp.description // ""),
         state: $state,
         phase: ($st.phase // "Pending"),
