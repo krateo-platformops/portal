@@ -164,8 +164,9 @@ def check_the_ladder():
     cases = [
         ('publishing', {'publishes': items(*files(P, synced='False', reason='Creating'))},
          ('Publishing', 'orange', '', '')),
+        # A failed row opens the object whose condition says why: here the refused file.
         ('publish failed', {'publishes': items(*files(P, synced='False', reason='ReconcileError'))},
-         ('Publish failed', 'red', '', '')),
+         ('Publish failed', 'red', '', f'/resources/{NS}/git.krateo.io/v1alpha1/localresources/publish-pet-000')),
         ('pushed, no change request (publish-pet today)', {}, ('Pushed', 'orange', '', '')),
         ('change request open', {'prs': items(pr(P))},
          ('Change request open', 'orange', '', 'https://github.com/krateo-platformops/pet/pull/7')),
@@ -187,7 +188,7 @@ def check_the_ladder():
         ('registering, CRD not generated yet', {'cds': items(cd('pet', ready='False', reason='Unavailable', synced='True',
                                                                 message='crd pets.composition.krateo.io does not exists yet'))},
          ('Registering', 'orange', '', f'/blueprints/{NS}/pet')),
-        ('definition failed', {'cds': items(cd('pet', ready='False', synced='False'))}, ('Failed', 'red', '', f'/blueprints/{NS}/pet')),
+        ('definition failed', {'cds': items(cd('pet', ready='False', synced='False'))}, ('Failed', 'red', '', f'/resources/{NS}/core.krateo.io/v1alpha1/compositiondefinitions/pet')),
         ('registered', {'cds': items(cd('pet', ready='True'))}, ('Registered', 'green', 'Install', f'/blueprints/{NS}/pet/new')),
         ('registered, install claims unreadable: no Install', {'cds': items(cd('pet', ready='True')), 'installs': None},
          ('Registered', 'green', '', f'/blueprints/{NS}/pet')),
@@ -240,7 +241,7 @@ def check_the_ladder():
          ('Ready', 'green', '', '/compositions/team-a/pets')),
         ('a kind failed', {'cds': items(cd('pet', ready='True')), 'installs': items(claim('pets', 'pet')),
                            'restdefs': items(restdef('pets-pet', 'pets'), restdef('pets-store', 'pets', ready='False', gen='Store', synced='False'))},
-         ('Failed', 'red', '', '/compositions/team-a/pets')),
+         ('Failed', 'red', '', '/resources/team-a/ogen.krateo.io/v1alpha1/restdefinitions/pets-store')),
     ]
     for label, over, (status, color, nxt, href) in cases:
         resp = dict(base)
@@ -354,6 +355,11 @@ def check_registry_groups_by_api():
     expect(f, 'rows by API group, then name', [(r['group'], r['name']) for r in out['rows']],
            [('github.krateo.io', 'z'), ('petstore.example.io', 'a'), ('petstore.example.io', 'b')])
     tbi.resolved_widget(CHART, 'Table', 'kog-restdefinitions', out, {}, 'kog-restdefinitions (three)')
+    # The dashboard's chart of the same RestDefinitions: one bar per API group, the longest first.
+    bars = tbi.widget(CHART, 'Listy', 'controller-builder-groups', 'dataSource', out, {})
+    expect(f, 'by API group: one bar per group, the longest first', [(b['name'], b['count'], b['percent']) for b in bars],
+           [('petstore.example.io', '2', 100), ('github.krateo.io', '1', 50)])
+    tbi.resolved_widget(CHART, 'Listy', 'controller-builder-groups', out, {}, 'controller-builder-groups (three)')
     _, _, out = gates.resolve(ra, {}, {})
     tbi.resolved_widget(CHART, 'Table', 'kog-restdefinitions', out, {}, 'kog-restdefinitions (prewarm)')
     return f
@@ -370,8 +376,16 @@ def blank(x):
 
 ALIGNED = [
     # (kind, blueprint widget, controller widget, the paths allowed to differ, and why)
-    ('Flex', 'page-blueprint-builder', 'page-kog-builder', {'items': 'the registry card', 'resourcesRefs': 'the registry card',
-                                                             'annotations': 'the old routes stay aliases'}),
+    ('Flex', 'page-blueprint-builder', 'page-kog-builder', {'annotations': 'the old routes stay aliases'}),
+    # The dashboard (mockup A4): the same widgets, bar the side column, which ends on the
+    # controller's own chart (the RestDefinitions by API group).
+    ('Row', 'blueprint-builder-toolbar', 'controller-builder-toolbar', {}),
+    ('Listy', 'blueprint-builder-stats', 'controller-builder-stats', {}),
+    ('Row', 'blueprint-builder-main', 'controller-builder-main', {}),
+    ('Card', 'blueprint-builder-list-card', 'controller-builder-list-card',
+     {'items': 'its RestDefinitions view mounts the registry table (test-builders-overview)'}),
+    ('Listy', 'blueprint-builder-cards-drafts', 'controller-builder-cards-drafts', {}),
+    ('Table', 'blueprint-builder-table', 'controller-builder-table', {}),
     ('PageHeader', 'blueprint-builder-page-header', 'controller-builder-page-header', {}),
     ('Button', 'blueprint-builder-ask', 'controller-builder-ask', {}),
     ('Button', 'blueprint-builder-compose', 'controller-builder-compose', {}),
@@ -415,10 +429,9 @@ def check_mirrors_the_blueprint_builder():
               if c['valueKey'] not in cols]
     expect(f, 'hidden cells: the same three the blueprint table carries', hidden, ['ns', 'url', 'rowHref'])
     page = CHART.get('Flex', 'page-kog-builder')['spec']['widgetData']
-    expect(f, 'page order: header, drafts, deliverables, then the registry', [i['resourceRefId'] for i in page['items']],
-           ['controller-builder-page-header', 'controller-builder-drafts-card', 'controller-builder-deliverables-card',
-            'controller-builder-registry-card'])
-    expect(f, 'page: no Form, no Flex wrapper, no bare Table', page['allowedResources'], ['pageheaders', 'cards'])
+    expect(f, 'page order: header, toolbar, figures, then the list and the charts', [i['resourceRefId'] for i in page['items']],
+           ['controller-builder-page-header', 'controller-builder-toolbar', 'controller-builder-stats', 'controller-builder-main'])
+    expect(f, 'page: no Form, no bare Table', page['allowedResources'], ['pageheaders', 'rows', 'listies'])
     buttons = {n: CHART.get('Button', n)['spec']['widgetData'] for n in ('controller-builder-ask', 'controller-builder-compose')}
     expect(f, 'the page action, into the composer', (buttons['controller-builder-compose']['type'], buttons['controller-builder-compose']['label'],
                                                   buttons['controller-builder-compose']['actions']['navigate'][0]['path']),

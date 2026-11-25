@@ -35,9 +35,53 @@
 {{/* WHICH KINDS ARE RECORDS, AND WHERE EACH RESUMES, is portal.draftBuilders (_builder.tpl), not */}}
 {{/* this filter: a record whose kind no builder declares is not listed (nothing could resume it), */}}
 {{/* and Resume opens <route>/compose?resume=<record> for the kind that wrote it. */}}
+{{- define "builders.myDraftsApi" -}}
+- name: records
+  path: /api/v1/namespaces/{{ .Values.previewSandbox.namespace }}/configmaps
+  verb: GET
+  headers:
+    - 'Accept: application/json'
+  continueOnError: true
+  errorKey: recordsError
+{{- end }}
+{{- define "builders.myDraftsFilter" -}}
 {{- $routes := dict }}
 {{- range $kind, $b := include "portal.draftBuilders" . | fromYaml }}
 {{- $_ := set $routes $kind $b.route }}
+{{- end }}
+({{ toJson $routes }}) as $routes
+| ((.username // "") | if type == "string" then . else "" end) as $username
+| ($username | ascii_downcase | gsub("[^a-z0-9-]+"; "-") | gsub("^-+|-+$"; "") | .[0:40] | gsub("-+$"; "")
+   | if . == "" then "unknown" else . end) as $owner
+| ((.kind // "") | if type == "string" then . else "" end) as $kind
+| { owner: (if $username == "" then "" else $owner end),
+    items: (if $username == "" or $owner == "unknown" then [] else
+      [ ((.records.items // [])[]
+        | select((.metadata.labels["krateo.io/purpose"] // "") == "draft-record")
+        | select((.metadata.labels["krateo.io/draft-owner"] // "") == $owner)
+        | select($kind == "" or (.metadata.labels["krateo.io/draft-kind"] // "") == $kind)
+        | ((.data["draft.json"] // "") | (try fromjson catch {}) | if type == "object" then . else {} end) as $body
+        | ((.metadata.labels["krateo.io/draft-kind"] // $body.kind // "") | tostring) as $recordKind
+        | ((.metadata.labels["krateo.io/draft-state"] // $body.state // "open") | tostring) as $state
+        | (($body.publish // {}) | if type == "object" then . else {} end) as $publish
+        | (($body.files // {}) | if type == "object" then . else {} end) as $files
+        | select(($routes[$recordKind] // "") != "")
+        | { recordName: (.metadata.name // ""),
+            kind: $recordKind,
+            name: ((.metadata.annotations["krateo.io/draft-name"] // $body.name // .metadata.name // "") | tostring),
+            updatedAt: ((.metadata.annotations["krateo.io/draft-updated-at"] // $body.updatedAt // .metadata.creationTimestamp // "") | tostring),
+            state: $state,
+            statusLabel: (if $state == "published" then "Published"
+                          elif (.metadata.labels["krateo.io/draft-previewed"] // "") == "true" then "Previewed · ready to publish"
+                          else "Preview needed" end),
+            prUrl: (($publish.prUrl // "") | if type == "string" then . else "" end),
+            repo: (($publish.repo // "") | if type == "string" then . else "" end),
+            startedFrom: (if (($body.threadId // "") | type == "string" and . != "") then "Agentiko thread" else "Composed by hand" end),
+            files: ($files | length),
+            version: ((($files["Chart.yaml"] // "") | if type == "string" then . else "" end)
+                      | [match("(?m)^version:[ \t]*[\"']?([^\"'\\s]+)").captures[0].string] | .[0] // ""),
+            resumePath: ($routes[$recordKind] + "/compose?resume=" + (.metadata.name // "")) }
+      ) ] | sort_by(.updatedAt) | reverse end) }
 {{- end }}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
@@ -48,44 +92,6 @@ metadata:
     "krateo.io/verbose": "true"
 spec:
   api:
-    - name: records
-      path: /api/v1/namespaces/{{ .Values.previewSandbox.namespace }}/configmaps
-      verb: GET
-      headers:
-        - 'Accept: application/json'
-      continueOnError: true
-      errorKey: recordsError
-  filter: >
-    ({{ toJson $routes }}) as $routes
-    | ((.username // "") | if type == "string" then . else "" end) as $username
-    | ($username | ascii_downcase | gsub("[^a-z0-9-]+"; "-") | gsub("^-+|-+$"; "") | .[0:40] | gsub("-+$"; "")
-       | if . == "" then "unknown" else . end) as $owner
-    | ((.kind // "") | if type == "string" then . else "" end) as $kind
-    | { owner: (if $username == "" then "" else $owner end),
-        items: (if $username == "" or $owner == "unknown" then [] else
-          [ ((.records.items // [])[]
-            | select((.metadata.labels["krateo.io/purpose"] // "") == "draft-record")
-            | select((.metadata.labels["krateo.io/draft-owner"] // "") == $owner)
-            | select($kind == "" or (.metadata.labels["krateo.io/draft-kind"] // "") == $kind)
-            | ((.data["draft.json"] // "") | (try fromjson catch {}) | if type == "object" then . else {} end) as $body
-            | ((.metadata.labels["krateo.io/draft-kind"] // $body.kind // "") | tostring) as $recordKind
-            | ((.metadata.labels["krateo.io/draft-state"] // $body.state // "open") | tostring) as $state
-            | (($body.publish // {}) | if type == "object" then . else {} end) as $publish
-            | (($body.files // {}) | if type == "object" then . else {} end) as $files
-            | select(($routes[$recordKind] // "") != "")
-            | { recordName: (.metadata.name // ""),
-                kind: $recordKind,
-                name: ((.metadata.annotations["krateo.io/draft-name"] // $body.name // .metadata.name // "") | tostring),
-                updatedAt: ((.metadata.annotations["krateo.io/draft-updated-at"] // $body.updatedAt // .metadata.creationTimestamp // "") | tostring),
-                state: $state,
-                statusLabel: (if $state == "published" then "Published"
-                              elif (.metadata.labels["krateo.io/draft-previewed"] // "") == "true" then "Previewed · ready to publish"
-                              else "Preview needed" end),
-                prUrl: (($publish.prUrl // "") | if type == "string" then . else "" end),
-                repo: (($publish.repo // "") | if type == "string" then . else "" end),
-                startedFrom: (if (($body.threadId // "") | type == "string" and . != "") then "Agentiko thread" else "Composed by hand" end),
-                files: ($files | length),
-                version: ((($files["Chart.yaml"] // "") | if type == "string" then . else "" end)
-                          | [match("(?m)^version:[ \t]*[\"']?([^\"'\\s]+)").captures[0].string] | .[0] // ""),
-                resumePath: ($routes[$recordKind] + "/compose?resume=" + (.metadata.name // "")) }
-          ) ] | sort_by(.updatedAt) | reverse end) }
+    {{- include "builders.myDraftsApi" $ | nindent 4 }}
+  filter: |
+    {{- include "builders.myDraftsFilter" $ | nindent 4 }}

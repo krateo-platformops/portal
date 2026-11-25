@@ -1,0 +1,72 @@
+{{/* What a builder built, two thirds of the row (card.compositions-list-card): "Summary | Full list"
+     top right, then the state chips (the page's filter, Needs attention by default), then one card per
+     draft or publish in that state, in triage order, or with ?view=table the Full list. When nothing
+     is in the state, a line says so; past the first 48 cards, a line says how many more the Full list
+     holds.
+
+     THE CARDS ARE THREE LISTS, in this order: what failed or waits on a step, the caller's drafts,
+     everything else. The order is the triage order either way; the split is there because only a
+     draft can be discarded, and a Listy's row actions are one set for all of its rows.
+
+     UNDER THE SUMMARY, the caller's published drafts (list.my-drafts), when there are any: a record
+     stays in the sandbox after its publish until its owner removes it, and this is where they do.
+
+     A BUILDER'S OWN VIEW (builders.overviews views) replaces the whole card body with its table:
+     the Controller Builder's RestDefinitions, every one on the cluster with why it is not Ready. */}}
+{{- range $key, $b := include "builders.overviews" . | fromYaml }}
+---
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: {{ $key }}-builder-list-card
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{- include "builders.overviewReader" (dict "ctx" $ "key" $key) | nindent 2 }}
+  widgetData:
+    title: {{ $b.cardTitle }}
+    titleVariant: eyebrow
+    variant: outlined
+    extraRefId: {{ $key }}-builder-view-chips
+    allowedResources:
+    - listies
+    - tables
+    - paragraphs
+    items:
+    - resourceRefId: {{ $key }}-builder-state-chips
+  widgetDataTemplate:
+  - forPath: items
+    expression: >-
+      ${ {{- range $b.views }}
+      if .view == {{ .key | quote }} then [ { resourceRefId: {{ include "builders.viewWidget" .key | quote }} } ] else
+      {{- end }}
+      [ { resourceRefId: "{{ $key }}-builder-state-chips" } ]
+      + (if (.matched // 0) == 0 then [ { resourceRefId: "{{ $key }}-builder-empty" } ]
+         elif .view == "table" then [ { resourceRefId: "{{ $key }}-builder-table" } ]
+         else
+           (if ((.cardsHead // []) | length) > 0 then [ { resourceRefId: "{{ $key }}-builder-cards-head" } ] else [] end)
+           + (if ((.cardsDrafts // []) | length) > 0 then [ { resourceRefId: "{{ $key }}-builder-cards-drafts" } ] else [] end)
+           + (if ((.cardsTail // []) | length) > 0 then [ { resourceRefId: "{{ $key }}-builder-cards-tail" } ] else [] end)
+           + (if (.more // 0) > 0 then [ { resourceRefId: "{{ $key }}-builder-more" } ] else [] end)
+         end)
+      + (if .view == "" and (.published // 0) > 0
+         then [ { resourceRefId: "{{ $key }}-builder-published-label" }, { resourceRefId: "my-drafts-{{ $b.draftKind }}-published" } ]
+         else [] end)
+      {{- range $b.views }} end{{ end }} }
+  resourcesRefs:
+    items:
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-view-chips" $key) "resource" "listies") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-state-chips" $key) "resource" "listies") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-cards-head" $key) "resource" "listies") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-cards-drafts" $key) "resource" "listies") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-cards-tail" $key) "resource" "listies") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-table" $key) "resource" "tables") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-empty" $key) "resource" "paragraphs") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-more" $key) "resource" "paragraphs") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "%s-builder-published-label" $key) "resource" "paragraphs") | nindent 4 }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (printf "my-drafts-%s-published" $b.draftKind) "resource" "listies") | nindent 4 }}
+    {{- range $b.views }}
+    {{- include "builders.ref" (dict "ctx" $ "id" (include "builders.viewWidget" .key) "resource" "tables") | nindent 4 }}
+    {{- end }}
+{{- end }}
