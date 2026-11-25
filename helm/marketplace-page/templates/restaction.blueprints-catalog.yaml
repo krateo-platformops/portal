@@ -14,10 +14,11 @@
 {{/* */}}
 {{/* A compdefs api-step LISTs installed CompositionDefinitions and the filter LEFT-JOINs them onto */}}
 {{/* the catalog by the helm-repo identity "<repoBaseUrl>|<chartName>" (a helm-repo CD carries */}}
-{{/* spec.chart.repo = chart NAME + spec.chart.url = repo BASE URL). Only helm-repo CDs (non-empty */}}
-{{/* .repo) can match; OCI/platform-component CDs are excluded, so a same-named OCI component never */}}
-{{/* false-lights a tile → `installed` + `installedVersion` + `installedNs`/`installedName` (detail */}}
-{{/* link). `continueOnError` everywhere: a missing index or a UAF-denied compdef list degrades to an */}}
+{{/* spec.chart.repo = chart NAME + spec.chart.url = repo BASE URL), and an OCI CD by its chart */}}
+{{/* name, the last segment of oci://…/<name> (same name counts, UX audit MKT-2) → `installed` + */}}
+{{/* `installedVersion` + `installedNs`/`installedName` (detail link) + the card's primary action */}}
+{{/* (`actionLabel`/`actionIcon`/`actionPath`: Configure when installed, else Install). */}}
+{{/* `continueOnError` everywhere: a missing index or a UAF-denied compdef list degrades to an */}}
 {{/* empty/partial catalog, not a broken page. */}}
 {{/* */}}
 {{/* The catalogLive step (marketplace.liveIndex) reads the live blueprints index too, and withLive */}}
@@ -109,14 +110,24 @@ spec:
     # spec.chart.repo = the chart NAME and spec.chart.url = the helm-repo BASE URL, so the key
     # matches a catalog entry's own (repoBase | name). OCI/platform-component CDs have EMPTY .repo
     # and are excluded entirely, so a same-named platform component (e.g. an OCI `kagent`) can NEVER
-    # false-light a catalog tile. On a cluster with only OCI components NOTHING matches → installed
-    # is false everywhere → the tile badge stays hidden (correct + honest; never fabricated).
+    # false-light a catalog tile through that join.
+    # SAME CHART NAME COUNTS for an OCI install (Diego, 2026-11-25, UX audit MKT-2): a CD installed
+    # from oci://<registry>/<path>/<name> is an install of catalog chart <name>. A krateo-blueprints
+    # chart is published both to its registry and to the index (acme-feedback: installed from
+    # oci://ghcr.io/krateo-blueprints/charts/acme-feedback, listed in the index), and the tile said
+    # "Install" while its detail page said "Configure". The chart name is the URL's last path
+    # segment, a :tag or @digest dropped; with several, the first by namespace and name.
     # withLive first: the live index's newly published blueprints join the catalog (_catalog.tpl).
     withLive
     | ( [ (.compdefs // [])[] | select((.repo // "") != "")
         | { key: ((.url // "") + "|" + (.repo // "")),
             value: {ns: .ns, name: .name, version: .version} } ]
       | from_entries ) as $instByRepo
+    | ( [ (.compdefs // [])[] | select((.repo // "") == "" and ((.url // "") | startswith("oci://")))
+        | { chart: ((.url // "") | sub("@[^/]*$"; "") | sub("/+$"; "") | split("/") | last | sub(":[^:]*$"; "")),
+            value: {ns: .ns, name: .name, version: .version} } ]
+      | sort_by(.value.ns, .value.name) | group_by(.chart)
+      | map({ key: .[0].chart, value: .[0].value }) | from_entries ) as $instOciByName
     | ((.category) // "all") as $sel
     | ((.source) // "all") as $src
     | ((.q) // "") as $q
@@ -138,7 +149,7 @@ spec:
           # the installed-join key "<repoBase>|<chartName>". Looked up in $instByRepo (helm-repo CDs
           # only); a hit means a CompositionDefinition installed FROM this exact repo+chart exists.
           | (.repoBase // ((.urls[0] // "") | sub("/[^/]+$"; ""))) as $repoBase
-          | ($instByRepo[$repoBase + "|" + .name]) as $match
+          | ($instByRepo[$repoBase + "|" + .name] // $instOciByName[.name]) as $match
           | {
               name: .name,
               description: (.description // ""),
@@ -177,7 +188,16 @@ spec:
               # empty icon when not installed -> the card renders no glyph (exception-only badge).
               installedIcon: (if $match != null then "fa-circle-check" else "" end),
               installedColor: (if $match != null then "green" else "" end),
-              installedTooltip: (if $match != null then ("Installed" + ($match.version // "" | if . == "" then "" else " · v" + . end)) else "" end)
+              installedTooltip: (if $match != null then ("Installed" + ($match.version // "" | if . == "" then "" else " · v" + . end)) else "" end),
+              # The card's primary action, the detail page's: Configure (the installed blueprint's
+              # page) when installed, else Install. The grid's rowAction reads the label and icon
+              # (frontend: a card action's {path} label) and its navigate action the route, written
+              # without the leading slash because a path that STARTS with "${" is a jq expression
+              # over the widget, not the row: the action's path is "/${actionPath}".
+              actionLabel: (if $match != null then "Configure" else "Install" end),
+              actionIcon: (if $match != null then "fa-sliders" else "fa-download" end),
+              actionPath: (if $match != null then ("blueprints/" + ($match.ns // "") + "/" + ($match.name // ""))
+                           else ("marketplace/" + .name + "/install") end)
             }
         ] ) as $cards
     # The cards matching the ACTIVE facets (source + category + free-text) — computed once so

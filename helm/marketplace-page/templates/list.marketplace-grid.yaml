@@ -5,7 +5,8 @@
 {{/* in via ?category extras (marketplace-category-chips). Honest fields only (name/version/ */}}
 {{/* category/maturity off the helm index); no invented ratings/install-counts. Each tile's footer Install button */}}
 {{/* (rowActions → `install`, a navigate action) opens the install form at */}}
-{{/* /marketplace/{name}/install, which renders the CompositionDefinition CRD and deploys it. */}}
+{{/* /marketplace/{name}/install, which renders the CompositionDefinition CRD and deploys it; on an */}}
+{{/* installed chart the same button reads Configure and opens its blueprint page. */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Listy
 metadata:
@@ -83,10 +84,14 @@ spec:
       {{/* button (ListView card variant). Install leads — the page's job is acquisition, and the */}}
       {{/* whole tile already navigates to Details, so a primary Details button would be double */}}
       {{/* emphasis on navigation. Mirrors blueprints-grid, where Create leads. */}}
+      {{/* UX audit MKT-2: the label, icon and route come from the card, so an installed chart */}}
+      {{/* offers "Configure" (its blueprint page), as its detail page does, and the rest "Install". */}}
+      {{/* NEEDS the frontend release whose card rowAction resolves a {path} label; an older one */}}
+      {{/* prints "{actionLabel}" (marketplace-page's krateo.io/requires-frontend-crd floor). */}}
       rowActions:
         - actionId: install
-          label: Install
-          icon: fa-download
+          label: '{actionLabel}'
+          icon: '{actionIcon}'
         - actionId: details
           label: Details
           icon: fa-circle-info
@@ -95,11 +100,12 @@ spec:
         - id: details
           type: navigate
           path: /marketplace/${name}
+        {{/* "/${actionPath}": the card's route without its slash; a path starting "${" is jq over the widget. */}}
         - id: install
           type: navigate
-          path: /marketplace/${name}/install
+          path: /${actionPath}
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ [ .cards[] | { name, version, typeLabel, typeColor, category, source, tags, installed, installedNs, installedName, installedIcon, installedColor, installedTooltip, repoUrl, icon, description } ] }'
+      expression: '${ [ .cards[] | { name, version, typeLabel, typeColor, category, source, tags, installed, installedNs, installedName, installedIcon, installedColor, installedTooltip, actionLabel, actionIcon, actionPath, repoUrl, icon, description } ] }'
   resourcesRefs:
     items: []

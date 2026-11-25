@@ -75,13 +75,13 @@ def conds(*triples):
 
 # One managed child, fetched, with these conditions. The shapes mirror what the upstream stages
 # project: `found[]` carries the managed entry, `resources` the fetched object.
-def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps'):
-    grp, rns = ('apiextensions.k8s.io', '') if kind == 'customresourcedefinitions' else ('core', 'ns')
+def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps', grp=None, phase=''):
+    grp, rns = ('apiextensions.k8s.io', '') if kind == 'customresourcedefinitions' else (grp or 'core', 'ns')
     return {
         'found': [{'_cn': 'comp', '_cns': 'ns', '_rns': rns, '_name': 'c', '_kind': kind,
                    '_grp': grp, '_ver': 'v1', '_cluster': rns == '', '_getpath': getpath,
                    '_wh': True, '_whMsg': ''}],
-        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions}],
+        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions, 'phase': phase}],
         'name': 'comp', 'namespace': 'ns',
     }
 
@@ -122,6 +122,20 @@ CASES = [
     # Conditions, but none that says ready for a kind with no readiness model: honest, not pending.
     ('no Ready/Available among conditions',
      conds(('Complete', 'True', ''),), 'noReadiness', 'NoReadyCondition'),
+]
+
+# EXISTING IS NOT BEING HEALTHY (portal#230): with no conditions, only a kind whose existence is
+# its state is healthy by presence. (label, kind, group, phase, state, stateLabel, healthPercent)
+PRESENCE_CASES = [
+    ('a ConfigMap with no conditions', 'configmaps', 'core', '', 'healthy', 'Healthy', 100),
+    ('a RoleBinding with no conditions', 'rolebindings', 'rbac.authorization.k8s.io', '', 'healthy', 'Healthy', 100),
+    ('a Failed MongoDBCommunity (no conditions, status.phase)', 'mongodbcommunity', 'mongodbcommunity.mongodb.com', 'Failed', 'noReadiness', 'Failed', 50),
+    ('a custom resource with no conditions and no phase', 'widgets', 'example.io', '', 'noReadiness', 'NoReadyCondition', 50),
+    ('a Bound PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Bound', 'healthy', 'Bound', 100),
+    ('an Active Namespace', 'namespaces', 'core', 'Active', 'healthy', 'Healthy', 100),
+    ('a Terminating Namespace', 'namespaces', 'core', 'Terminating', 'converging', 'Terminating', 50),
+    ('a Pending PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Pending', 'converging', 'Pending', 50),
+    ('a Lost PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Lost', 'failed', 'Lost', 20),
 ]
 
 # A CRD child: readiness is Established/NamesAccepted, never Ready (krateo-057 authn-crd showed
@@ -169,6 +183,15 @@ for label, conditions, want_state, want_label, kind, getpath in ALL:
                'terminalCount', 'convergingCount', 'noReadinessCount']
     summed = sum(out.get(b, 0) for b in buckets)
     check(f'{label}: counts sum to total', summed, out['total'])
+
+for label, kind, grp, phase, want_state, want_label, want_pct in PRESENCE_CASES:
+    out = jq(prog, payload([], getpath=f'/apis/{grp}/v1/namespaces/ns/{kind}/c', kind=kind, grp=grp, phase=phase))
+    row = out['resources'][0]
+    check(f'{label}: state, label, percent', (row['state'], row['stateLabel'], row['healthPercent']), (want_state, want_label, want_pct))
+# The composition whose child failed this way no longer reads 100% match.
+out = jq(prog, payload([], getpath='/apis/mongodbcommunity.mongodb.com/v1/namespaces/ns/mongodbcommunity/c',
+                       kind='mongodbcommunity', grp='mongodbcommunity.mongodb.com', phase='Failed'))
+check('a failed conditionless custom resource: not healthy, not converged', (out['healthyCount'], out['converged']), (0, False))
 
 # A state the chain can emit but nothing counts would pass every case above and still be wrong, so
 # the set of emitted states is compared against the colour map rather than enumerated by hand.
