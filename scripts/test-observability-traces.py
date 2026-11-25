@@ -21,6 +21,11 @@ snowplow-path.py), runs the widgets' own jq over the result, and checks what a r
   - an Error span's red tag carries the span's OTel StatusMessage as its tooltip, cut to 1000
     characters with an ellipsis; no message, or a span that is not Error, means no tooltip;
   - a row opens /observability/traces/<its full trace id>;
+  - the trace page's Spans card is a waterfall (visual audit OBS-4, approved charts mockup): each span
+    a bar from its start, as long as it lasts, on the trace's scale (offset and width in percent of
+    last end - first start, the header's length, which the ruler's end says), indented one level per
+    span above it (parentId -> spanId, a loop bounded), red only for Error, its duration after the
+    bar and its service as the name's second line; the header's start is a {moment:…} time token;
   - the trace page lists spans in start order with offsets from the first, and draws one node per
     service with an edge wherever a span's ParentSpanId belongs to another service, top to bottom
     in compact cards (it sits in a 9-of-24 column);
@@ -346,7 +351,7 @@ def check_span_status_says_which_span_failed(c):
     expect(p, 'a row from a ClickHouse without the http column', status(TRACE_A, [{k: v for k, v in TRACE_A_SPANS[0].items() if k != 'http'}]),
            [('POST /api/a2a/krateo-system/agentiko', 'jsonSchemaType', '—', None)])
     cols = [col['title'] for col in c.get('Table', 'trace-detail-spans')['spec']['widgetData']['columns']]
-    expect(p, 'columns', cols, ['Service', 'Span', 'Start', 'Duration', 'Status'])
+    expect(p, 'columns (no Service, Start or Duration: the waterfall says them)', cols, ['Span', 'Timeline', 'Status'])
     reqs, _, _ = resolve(c, 'obs-trace-detail', {'traceId': TRACE_C}, {'spans': ch(TRACE_C_SPANS)})
     expect(p, 'the SQL reads all three HTTP status keys', [sql_of(r[1]) for r in reqs], [DETAIL_SQL.format(tid=TRACE_C)])
     return p
@@ -359,7 +364,8 @@ def check_error_tag_tooltip_is_the_status_message(c):
     """An Error span's red Status tag carries the span's StatusMessage as its tooltip (frontend
     #681's cell `tooltip`), cut to 1000 characters with the last an ellipsis. No message means no
     tooltip key at all — not an empty one — and no other cell, nor a span that is not Error, ever
-    gets one, even when its producer wrote a message."""
+    gets the message, even when its producer wrote one. The waterfall bar's own tooltip is its timing
+    ("starts at 4 ms, lasts 5.79 s", the mockup's hover), never the message."""
     p = []
 
     def view(tid, spans):
@@ -368,7 +374,10 @@ def check_error_tag_tooltip_is_the_status_message(c):
                                    f'trace-detail-spans (tooltip, {tid[:4]})')['spec']['widgetData']['dataSource']
         for r in rows:
             for cell in r:
-                if cell['valueKey'] != 'status' and 'tooltip' in cell:
+                if cell['valueKey'] == 'timeline':
+                    if not re.fullmatch(r'starts at \S+ \S+, lasts \S+ \S+', cell.get('tooltip', '')):
+                        p.append(f'the bar\'s tooltip is not its timing: {cell.get("tooltip")!r}')
+                elif cell['valueKey'] != 'status' and 'tooltip' in cell:
                     p.append(f'{cell["valueKey"]} cell has a tooltip: {cell["tooltip"]!r}')
         return [(cells(r)['span']['stringValue'], cells(r)['status']['kind'], cells(r)['status']['stringValue'],
                  cells(r)['status'].get('tooltip', 'NO TOOLTIP')) for r in rows]
@@ -519,21 +528,23 @@ def check_trace_page_lists_spans_in_start_order(c):
     expect(p, 'the SQL', [sql_of(r[1]) for r in reqs], [DETAIL_SQL.format(tid=TRACE_A)])
     ex = {'traceId': TRACE_A}
     rows = tbi.resolved_widget(c, 'Table', 'trace-detail-spans', out, ex, 'trace-detail-spans (trace A)')['spec']['widgetData']['dataSource']
-    got = [(cells(r)['service']['stringValue'], cells(r)['span']['stringValue'], cells(r)['start']['stringValue'],
-            cells(r)['duration']['stringValue']) for r in rows]
-    expect(p, 'span list', got, [
-        ('agentgateway', 'POST /api/a2a/krateo-system/agentiko', '0 ms', '5.81 s'),
-        ('agentiko', 'message/send', '4 ms', '5.79 s'),
-        ('agentgateway', 'POST /llm/v1/chat/completions', '31 ms', '2.10 s'),
-        ('agentgateway', 'POST / (x-kagent-host k8s-agent)', '2.16 s', '1.40 s'),
-        ('k8s-agent', 'message/send', '2.17 s', '1.38 s'),
-        ('agentgateway', 'POST /llm/v1/chat/completions', '3.60 s', '2.18 s')])
+    got = [(cells(r)['span']['secondaryText'], cells(r)['span']['stringValue'], cells(r)['timeline']['tooltip'],
+            cells(r)['timeline']['stringValue']) for r in rows]
+    expect(p, 'span list: service under the name; the start and the duration on the bar', got, [
+        ('agentgateway', 'POST /api/a2a/krateo-system/agentiko', 'starts at 0 ms, lasts 5.81 s', '5.81 s'),
+        ('agentiko', 'message/send', 'starts at 4 ms, lasts 5.79 s', '5.79 s'),
+        ('agentgateway', 'POST /llm/v1/chat/completions', 'starts at 31 ms, lasts 2.10 s', '2.10 s'),
+        ('agentgateway', 'POST / (x-kagent-host k8s-agent)', 'starts at 2.16 s, lasts 1.40 s', '1.40 s'),
+        ('k8s-agent', 'message/send', 'starts at 2.17 s, lasts 1.38 s', '1.38 s'),
+        ('agentgateway', 'POST /llm/v1/chat/completions', 'starts at 3.60 s, lasts 2.18 s', '2.18 s')])
     hdr = tbi.resolved_widget(c, 'PageHeader', 'trace-detail-page-header', out, ex, 'trace-detail-page-header (trace A)')['spec']['widgetData']
     expect(p, 'header title', hdr['title'], 'Trace 4f1c…a07e')
-    expect(p, 'header subtitle', hdr['subtitle'], 'admin · 2026-11-08 20:52:26.004 UTC · 5.81 s · 6 spans')
+    # OBS-4: the start is a time token the browser writes in the viewer's zone (frontend #803), not UTC.
+    expect(p, 'header subtitle', hdr['subtitle'], 'admin · {moment:2026-11-08T20:52:26.004Z} · 5.81 s · 6 spans')
+    expect(p, 'the start is a token the frontend reads', [m.group(1) for m in TIME_TOKEN_RE.finditer(hdr['subtitle'])], ['moment'])
     _, _, out_b = resolve(c, 'obs-trace-detail', {'traceId': TRACE_B}, {'spans': ch(TRACE_B_SPANS)})
     hdr = tbi.widget(c, 'PageHeader', 'trace-detail-page-header', 'subtitle', out_b, {'traceId': TRACE_B})
-    expect(p, 'root whose parent was not exported', hdr, 'cyberjoker · 2026-11-08 20:50:12.118 UTC · 1.94 s · 3 spans')
+    expect(p, 'root whose parent was not exported', hdr, 'cyberjoker · {moment:2026-11-08T20:50:12.118Z} · 1.94 s · 3 spans')
     _, _, none = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch([])})
     hdr = tbi.resolved_widget(c, 'PageHeader', 'trace-detail-page-header', none, ex, 'trace-detail-page-header (not found)')['spec']['widgetData']
     expect(p, 'not found', (hdr['tags'], hdr['subtitle']),
@@ -544,6 +555,65 @@ def check_trace_page_lists_spans_in_start_order(c):
     for label, resolved in [('not found', none), ('down', down)]:
         tbi.resolved_widget(c, 'Table', 'trace-detail-spans', resolved, ex, f'trace-detail-spans ({label})')
         tbi.resolved_widget(c, 'FlowChart', 'trace-detail-topology', resolved, ex, f'trace-detail-topology ({label})')
+    return p
+
+
+# The frontend's time-token pattern (ui/src/utils/timeTokens.ts TIME_TOKEN_RE, frontend #803).
+TIME_TOKEN_RE = re.compile(r'\{(age|ago|moment|date):(\d{4}-\d{2}-\d{2}(?:[T ][0-9:.]+(?:Z|[+-]\d{2}:?\d{2})?)?)\}', re.I)
+
+
+def check_trace_page_waterfall(c):
+    """OBS-4 (approved charts mockup, 2026-11-25): the Spans card is a waterfall. Each span is a bar
+    that starts at its start and is as long as it lasts, on the trace's scale (length = last end - first
+    start, the header's length, written at the ruler's end), indented one level per span above it
+    (parentId -> spanId), red only for an Error span."""
+    p = []
+
+    def view(tid, spans):
+        _, _, out = resolve(c, 'obs-trace-detail', {'traceId': tid}, {'spans': ch(spans)})
+        w = tbi.resolved_widget(c, 'Table', 'trace-detail-spans', out, {'traceId': tid},
+                                f'trace-detail-spans (waterfall, {tid[:4]})')['spec']['widgetData']
+        bars = [(cells(r)['span']['stringValue'], cells(r)['span'].get('indent', 0), cells(r)['timeline']['kind'],
+                 cells(r)['timeline']['offsetPercent'], cells(r)['timeline']['widthPercent'], cells(r)['timeline']['color'])
+                for r in w['dataSource']]
+        sub = tbi.widget(c, 'PageHeader', 'trace-detail-page-header', 'subtitle', out, {'traceId': tid})
+        return w['columns'], bars, sub
+
+    cols, bars, sub = view(TRACE_A, TRACE_A_SPANS)
+    expect(p, 'the mockup trace: indented under its caller, offset and width of the trace length', bars, [
+        ('POST /api/a2a/krateo-system/agentiko', 0, 'span', 0, 100, 'gray'),
+        ('message/send', 1, 'span', 0.07, 99.66, 'gray'),
+        ('POST /llm/v1/chat/completions', 2, 'span', 0.53, 36.14, 'gray'),
+        ('POST / (x-kagent-host k8s-agent)', 2, 'span', 37.18, 24.1, 'gray'),
+        ('message/send', 3, 'span', 37.35, 23.75, 'gray'),
+        ('POST /llm/v1/chat/completions', 4, 'span', 61.96, 37.52, 'gray')])
+    expect(p, 'the columns: Span, the timeline with its ruler, Status', cols, [
+        {'valueKey': 'span', 'title': 'Span'},
+        {'valueKey': 'timeline', 'title': 'Timeline', 'minWidth': 240, 'rulerStart': '0', 'rulerEnd': '5.81 s'},
+        {'valueKey': 'status', 'title': 'Status'}])
+    expect(p, "the ruler's end is the header's length", cols[1]['rulerEnd'], sub.split(' · ')[2])
+    cols, bars, _ = view(TRACE_C, TRACE_C_SPANS)
+    expect(p, '057 trace ff5a…f304: only the failing span is red; two clocks drawn as recorded', bars, [
+        ('krateo.widget.fetch', 0, 'span', 0, 54.85, 'red'),
+        ('POST /content/*', 1, 'span', 67.01, 32.99, 'gray'),
+        ('POST snowplow.krateo-system.svc.cluster.local:8081', 2, 'span', 67.23, 32.74, 'gray'),
+        ('POST /call', 3, 'span', 72.34, 27.44, 'gray')])
+    expect(p, 'its ruler', cols[1].get('rulerEnd'), '209 ms')
+    _, bars, _ = view(TRACE_B, TRACE_B_SPANS)
+    expect(p, 'a root whose parent was not exported starts at level 0', [b[:2] for b in bars],
+           [('GET /call restactions/obs-log-stream', 0), ('clickhouse query', 1), ('jq filter', 1)])
+    loop = [span(US, 'c1', 'c2', 'x', 'one', 1000), span(US + 1, 'c2', 'c1', 'x', 'two', 1000)]
+    _, bars, _ = view(TRACE_A, loop)
+    expect(p, 'parent ids that loop still render, bounded', [b[0] for b in bars], ['one', 'two'])
+    _, bars, _ = view(TRACE_A, [span(US, 'a1', '', 'x', 'instant', 0)])
+    expect(p, 'a trace of no length: one full bar', bars, [('instant', 0, 'span', 0, 100, 'gray')])
+    for spans in (TRACE_A_SPANS, TRACE_B_SPANS, TRACE_C_SPANS, TRACE_D_SPANS):
+        _, bars, _ = view(TRACE_A, spans)
+        for b in bars:
+            if not (0 <= b[3] <= 100 and 0 <= b[4] <= 100):
+                p.append(f'{b[0]}: percent outside 0-100: {b[3]}, {b[4]}')
+    cols, bars, _ = view(TRACE_A, [])
+    expect(p, 'no spans: no rows and no ruler', (bars, 'rulerEnd' in cols[1]), ([], False))
     return p
 
 
@@ -638,7 +708,7 @@ def check_hyperdx_link_only_when_configured(c, with_console):
     note = with_console.get('Markdown', 'trace-detail-note')['spec']['widgetData']['markdown']
     expect(p, 'the note, with the link', note,
            'This diagram shows which services the request passed through, not how long each took. '
-           'For timing, read the span list or open the trace in HyperDX.')
+           'For timing, read the span list.')
     return p
 
 
@@ -1024,6 +1094,7 @@ def main():
         ('each request is encoded exactly once, as snowplow dials it', lambda: check_requests_are_encoded_exactly_once(c)),
         ('a quote or SQL fragment in any input makes no request', lambda: check_injection_is_refused(c)),
         ('the trace page lists spans in start order', lambda: check_trace_page_lists_spans_in_start_order(c)),
+        ('the trace page draws its spans as a waterfall', lambda: check_trace_page_waterfall(c)),
         ('the service diagram follows ParentSpanId', lambda: check_topology_follows_parent_span_ids(c)),
         ('filter chips keep the tab and the other filters', lambda: check_filter_chips_keep_the_tab_and_the_other_filters(c)),
         ('the HyperDX link exists only when configured', lambda: check_hyperdx_link_only_when_configured(c, with_console)),

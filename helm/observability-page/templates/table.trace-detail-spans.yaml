@@ -1,7 +1,16 @@
-{{/* Every span of the trace (installer#404), in start order as obs-trace-detail returns them. */}}
-{{/* Start is the offset from the trace's first span; both it and Duration come from the */}}
-{{/* exporter's own clock (start in microseconds, duration in nanoseconds), so no column is */}}
-{{/* derived from wall time on the portal's side. */}}
+{{/* Every span of the trace (installer#404), in start order as obs-trace-detail returns them, as a */}}
+{{/* WATERFALL (approved charts mockup 2026-11-25, visual audit OBS-4): it used to be a table of */}}
+{{/* offsets and durations, which says nothing about where the time went. */}}
+{{/* */}}
+{{/* Span: the span's name, its service as the second line, indented one level per span above it */}}
+{{/* (parentId -> spanId; a span whose parent is not in the trace is a root, as the header finds it). */}}
+{{/* Timeline: a bar that starts where the span starts and is as long as it lasts, on the trace's */}}
+{{/* own scale: offset = (start - first start) / length, width = duration / length, length = last */}}
+{{/* end - first start, the same length the header shows, written at the ruler's end ("0 … 5.81 s"). */}}
+{{/* The duration is written after the bar, so there is no Duration column. Both come from the */}}
+{{/* exporter's own clock (start in microseconds, duration in nanoseconds). Only an Error span's bar */}}
+{{/* is red; every other bar is gray. Two clocks (a browser span before the server's) are drawn as */}}
+{{/* recorded. */}}
 {{/* */}}
 {{/* Status says which span failed and how: the span's HTTP status code where its producer */}}
 {{/* recorded one (obs-trace-detail reads all three keys), then "error" when the span's OTel */}}
@@ -13,7 +22,9 @@
 {{/* WHY IT FAILED, on hover and on keyboard focus: an Error span's red tag carries the span's OTel */}}
 {{/* StatusMessage (obs-trace-detail's `message`, already cut to 1000 characters) as its tooltip. */}}
 {{/* Only that tag: a span with no message gets no tooltip, and a span that is not Error gets none */}}
-{{/* even if its producer wrote one. `tooltip` needs frontend-crds >= 1.8.38 (frontend #681). */}}
+{{/* even if its producer wrote one. `tooltip` needs frontend-crds >= 1.8.38 (frontend #681); the */}}
+{{/* `span` cell kind, `offsetPercent`, `widthPercent`, `indent`, `secondaryText` and the column's */}}
+{{/* `rulerStart`/`rulerEnd` need the frontend's feat/table-span-cell. */}}
 kind: Table
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -36,19 +47,18 @@ spec:
       pageSize: 50
       hideOnSinglePage: true
     columns:
-    - valueKey: service
-      title: Service
     - valueKey: span
       title: Span
-    - valueKey: start
-      title: Start
-    - valueKey: duration
-      title: Duration
+    - valueKey: timeline
+      title: Timeline
+      minWidth: 240
     - valueKey: status
       title: Status
     dataSource: []
   widgetDataTemplate:
+  - forPath: columns
+    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | [ {valueKey:"span",title:"Span"}, ({valueKey:"timeline",title:"Timeline",minWidth:240} + (if ($s | length) == 0 then {} else (([ $s[] | .startUs ] | min) as $t0 | ([ $s[] | .startUs + (.durationNs / 1000) ] | max) as $t1 | {rulerStart:"0", rulerEnd:((($t1 - $t0) * 1000) | traceDuration)}) end)), {valueKey:"status",title:"Status"} ] }'
   - forPath: dataSource
-    expression: '${ {{ include "obs.traces.format" . }} (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | [ $s[] | (((if (.httpStatus // "") == "" then [] else [.httpStatus] end) + (if .status == "Error" then ["error"] else [] end)) | join(" · ")) as $st | [ {valueKey:"service",kind:"jsonSchemaType",type:"string",stringValue:(if .service == "" then "—" else .service end)}, {valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span}, {valueKey:"start",kind:"jsonSchemaType",type:"string",stringValue:(((.startUs - $t0) * 1000) | traceDuration)}, {valueKey:"duration",kind:"jsonSchemaType",type:"string",stringValue:(.durationNs | traceDuration)}, (if .status == "Error" then {valueKey:"status",kind:"tag",stringValue:$st,color:"red"} + (if (.message // "") != "" then {tooltip:.message} else {} end) else {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:(if $st == "" then "—" else $st end)} end) ] ] }'
+    expression: '${ {{ include "obs.traces.format" . }} def pct: (. * 100 | . * 100 | round / 100) | if . < 0 then 0 elif . > 100 then 100 else . end; (.spans // []) as $s | (([ $s[] | .startUs ] | min) // 0) as $t0 | (([ $s[] | .startUs + (.durationNs / 1000) ] | max) // 0) as $t1 | ($t1 - $t0) as $len | (reduce $s[] as $x ({}; .[$x.spanId] = $x.parentId)) as $par | [ $s[] | ([ limit(64; .spanId | recurse(($par[.] // "") | select(. != "" and $par[.] != null))) ] | length - 1) as $depth | (((if (.httpStatus // "") == "" then [] else [.httpStatus] end) + (if .status == "Error" then ["error"] else [] end)) | join(" · ")) as $st | (.durationNs | traceDuration) as $dur | [ ({valueKey:"span",kind:"jsonSchemaType",type:"string",stringValue:.span,secondaryText:(if .service == "" then "—" else .service end)} + (if $depth > 0 then {indent:$depth} else {} end)), {valueKey:"timeline",kind:"span",offsetPercent:(if $len > 0 then ((.startUs - $t0) / $len | pct) else 0 end),widthPercent:(if $len > 0 then ((.durationNs / 1000) / $len | pct) else 100 end),color:(if .status == "Error" then "red" else "gray" end),stringValue:$dur,tooltip:("starts at " + (((.startUs - $t0) * 1000) | traceDuration) + ", lasts " + $dur)}, (if .status == "Error" then {valueKey:"status",kind:"tag",stringValue:$st,color:"red"} + (if (.message // "") != "" then {tooltip:.message} else {} end) else {valueKey:"status",kind:"jsonSchemaType",type:"string",stringValue:(if $st == "" then "—" else $st end)} end) ] ] }'
   resourcesRefs:
     items: []
