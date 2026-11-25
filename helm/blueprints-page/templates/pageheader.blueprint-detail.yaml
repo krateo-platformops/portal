@@ -24,7 +24,7 @@
 {{/* THE TWO TAG TEMPLATES BECOME ONE. Both ran the same five-way branch over the same `$c`/`$ready`/ */}}
 {{/* `$unsynced` prelude — once for `label`, once for `color` — so an edit to one and not the other */}}
 {{/* produced a pill whose word and colour disagreed. Evaluated once now. Verified branch-by-branch: */}}
-{{/* Unknown/gray, Drift/violet, Healthy/green, Degraded/red, Pending/orange. */}}
+{{/* Unknown/gray, Drift/violet, Healthy/green, NotReady or Degraded/red, Pending/orange. */}}
 {{/* */}}
 {{/* DEGRADED IS READY=FALSE, NOT "ANY CONDITION FALSE". A CompositionDefinition's health is Ready */}}
 {{/* plus Synced (core-provider). Its other conditions can be False on a healthy definition: */}}
@@ -39,6 +39,10 @@
 {{/* CI-checked). So a CONVERGING Ready=False (Creating, Deleting) reads Pending, not Degraded; a */}}
 {{/* failed one (Unavailable, RemoteChartUnreachable, SchemaDefaultContradiction) reads Degraded; */}}
 {{/* Synced=False/ReconcilePaused reads Paused (gray), as a paused composition's header does. */}}
+{{/* */}}
+{{/* A FAILURE READ FROM READY=FALSE PRINTS NotReady (red), the condition's own word, as the approved */}}
+{{/* "cannot be served" board shows it above its error Alert (portal#542, mockup revision 3). A failure */}}
+{{/* read from Synced=False alone (Ready not False) is not that board's and still reads Degraded. */}}
 {{/* */}}
 {{/* keyExtras is the UNION: the Tag declared [name, namespace, status] where the others declared */}}
 {{/* [name, namespace]. Union is the safe direction — an extra key that never arrives partitions */}}
@@ -74,7 +78,7 @@ spec:
       expression: '${ "CompositionDefinition · " + (.namespace // "?") + " · created " + ((.created // "") as $ts | if ($ts | length) == 0 then "?" else ((now - ($ts | fromdateiso8601)) as $sec | if $sec < 60 then "just now" elif $sec < 3600 then ((($sec/60)|floor)|tostring) + "m ago" elif $sec < 86400 then ((($sec/3600)|floor)|tostring) + "h ago" else ((($sec/86400)|floor)|tostring) + "d ago" end) end) }'
     {{/* Was the Tag's TWO templates, fused into one branch so label and colour cannot disagree. */}}
     - forPath: tags
-      expression: '${ {{ include "portal.cdReadyDefs" . }} (.detail.status.conditions // []) as $c | [ ( if ($c | length) == 0 then {label:"Unknown", color:"gray"} else {"ready": {label:"Healthy", color:"green"}, "drift": {label:"Drift", color:"violet"}, "failed": {label:"Degraded", color:"red"}, "installing": {label:"Pending", color:"orange"}, "unobserved": {label:"Pending", color:"orange"}, "paused": {label:"Paused", color:"gray"}}[$c | cdState | .state] end ) ] }'
+      expression: '${ {{ include "portal.cdReadyDefs" . }} (.detail.status.conditions // []) as $c | [ ( if ($c | length) == 0 then {label:"Unknown", color:"gray"} else {"ready": {label:"Healthy", color:"green"}, "drift": {label:"Drift", color:"violet"}, "failed": {label:(if ([ $c[]? | objects | select(.type == "Ready") ][0].status // "") == "False" then "NotReady" else "Degraded" end), color:"red"}, "installing": {label:"Pending", color:"orange"}, "unobserved": {label:"Pending", color:"orange"}, "paused": {label:"Paused", color:"gray"}}[$c | cdState | .state] end ) ] }'
   resourcesRefs:
     items:
     - id: blueprint-detail-actions

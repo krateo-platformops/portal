@@ -15,9 +15,10 @@ Unknown, or no Ready yet) carrying one of these as Degraded instead of Pending.
 
 The pill reads cdState (helm/portal/templates/_cd-ready-reasons.tpl), which classifies the Ready
 reason by the verdict core-provider declares for it (docs/cd-ready-reasons.md). Ready=False is no
-longer Degraded by itself: Creating and Deleting are CONVERGING (Pending), and only a failed reason
+longer a failure by itself: Creating and Deleting are CONVERGING (Pending), and only a failed reason
 (Unavailable, RemoteChartUnreachable, SchemaDefaultContradiction, ValuesSchemaMissing, DerivedNameTooLong)
-reads Degraded. Synced=False/
+reads NotReady (red, the condition's word, portal#542); a failure from Synced=False alone reads
+Degraded. Synced=False/
 ReconcilePaused reads Paused. The run starts with a control: with the verdict table emptied, every
 Ready=False falls back to failed (the "any Ready=False" rule), and that must FAIL exactly the
 CONVERGING cases, or the cases are not testing the table.
@@ -67,9 +68,9 @@ CASES = [
     ('no conditions', [], 'Unknown', 'gray'),
     ('healthy', [c('Ready', 'True', 'Available'), c('Synced', 'True', 'ReconcileSuccess')], 'Healthy', 'green'),
     ('drift', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ReconcileError')], 'Drift', 'violet'),
-    ('ready false', [c('Ready', 'False', 'Unavailable'), c('Synced', 'True', 'ReconcileSuccess')], 'Degraded', 'red'),
+    ('ready false', [c('Ready', 'False', 'Unavailable'), c('Synced', 'True', 'ReconcileSuccess')], 'NotReady', 'red'),
     ('ready false, synced false', [c('Ready', 'False', 'Unavailable'), c('Synced', 'False', 'ReconcileError'),
-                                   c('ApiRefRBACComplete', 'False', 'Missing')], 'Degraded', 'red'),
+                                   c('ApiRefRBACComplete', 'False', 'Missing')], 'NotReady', 'red'),
     ('ready unknown', [c('Ready', 'Unknown', 'NotObserved')], 'Pending', 'orange'),
     ('healthy + authn not installed', [c('Ready', 'True', 'Available'), c('Synced', 'True', 'ReconcileSuccess'),
                                        c('AuthnMappingApplied', 'False', 'AuthnNotInstalled')], 'Healthy', 'green'),
@@ -85,24 +86,24 @@ CASES = [
     ('INFORMATIONAL no Ready yet + delegation unsupported', [c('AuthnDelegation', 'False', 'DelegationUnsupported')], 'Pending', 'orange'),
     # --- core-provider's verdicts (docs/cd-ready-reasons.md) ---
     ('schema default contradiction', [c('Ready', 'False', 'SchemaDefaultContradiction'),
-                                      c('Synced', 'False', 'ReconcileError')], 'Degraded', 'red'),
+                                      c('Synced', 'False', 'ReconcileError')], 'NotReady', 'red'),
     ('remote chart unreachable', [c('Ready', 'False', 'RemoteChartUnreachable'), c('Synced', 'True', 'ReconcileSuccess')],
-     'Degraded', 'red'),
+     'NotReady', 'red'),
     ('values schema missing', [c('Ready', 'False', 'ValuesSchemaMissing'), c('Synced', 'True', 'ReconcileSuccess')],
-     'Degraded', 'red'),
+     'NotReady', 'red'),
     ('derived name too long', [c('Ready', 'False', 'DerivedNameTooLong'), c('Synced', 'True', 'ReconcileSuccess')],
-     'Degraded', 'red'),
+     'NotReady', 'red'),
     ('paused', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ReconcilePaused')], 'Paused', 'gray'),
     # The management-policy reasons (core-provider cd-ready-reasons.md, provider-runtime): a create the
     # policy withholds will not happen by itself (failed); an update it withholds leaves a working
     # definition (healthy); an unparseable policy or deletion policy is a Synced=False like any other.
-    ('create withheld by policy', [c('Ready', 'False', 'CreateWithheldByPolicy'), c('Synced', 'True', 'ReconcileSuccess')], 'Degraded', 'red'),
+    ('create withheld by policy', [c('Ready', 'False', 'CreateWithheldByPolicy'), c('Synced', 'True', 'ReconcileSuccess')], 'NotReady', 'red'),
     ('update withheld by policy', [c('Ready', 'True', 'UpdateWithheldByPolicy'), c('Synced', 'True', 'ReconcileSuccess')], 'Healthy', 'green'),
     ('management policy invalid', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'ManagementPolicyInvalid')], 'Drift', 'violet'),
     ('deletion policy invalid', [c('Ready', 'True', 'Available'), c('Synced', 'False', 'DeletionPolicyInvalid')], 'Drift', 'violet'),
     ('not observed, error on Synced', [c('Ready', 'Unknown', 'NotObserved'), c('Synced', 'False', 'ReconcileError')],
      'Degraded', 'red'),
-    ('a reason this portal does not know, False', [c('Ready', 'False', 'SomethingNew2028')], 'Degraded', 'red'),
+    ('a reason this portal does not know, False', [c('Ready', 'False', 'SomethingNew2028')], 'NotReady', 'red'),
     ('CONVERGING creating', [c('Ready', 'False', 'Creating'), c('Synced', 'True', 'ReconcileSuccess')], 'Pending', 'orange'),
     ('CONVERGING deleting', [c('Ready', 'False', 'Deleting')], 'Pending', 'orange'),
 ]
@@ -263,7 +264,7 @@ def main():
     if old != converging:
         print(f'FAIL control: without the verdict table the pill failed {old}, expected exactly {converging}')
         return 1
-    print(f'[PASS] control: without core-provider\'s verdicts, the {len(converging)} converging cases read Degraded')
+    print(f'[PASS] control: without core-provider\'s verdicts, the {len(converging)} converging cases read NotReady')
     bad = failures(program, verbose=True)
     print(f'{len(CASES) - len(bad)}/{len(CASES)} blueprint pill cases ok')
 
