@@ -23,6 +23,11 @@ by version number, and "not known" with the reason when the catalog holds no ver
 (an OCI or URL install, or an unreadable catalog), never the installed version and "Up to date".
 Neither Details nor Metadata repeats the header's Created (BP-4). BLUEPRINTS_CHART=<origin/main's
 chart> is the control: those checks fail there.
+
+And the Details "Upgrades" row (portal#558): spec.upgradePolicy Manual says what it means, Automatic
+is one word, no field is no row; "{n} compositions on an older version", linked to the list of the
+kind, counts the compositions whose krateo.io/composition-version differs from the served version,
+and says nothing when none are behind or the compositions could not be listed.
 """
 import json
 import os
@@ -211,6 +216,53 @@ def latest_failures(by, prog):
     return bad
 
 
+def upgrades_failures(by, prog):
+    """portal#558: the Details "Upgrades" row, over blueprint-detail's filter and the Details items."""
+    info = expr(by[('Descriptions', 'descriptions-blueprint-detail-info')], 'items')
+    bad = []
+    manual = 'Manual · New versions wait: each composition keeps its version until it is moved to a new one.'
+
+    def comp(name, version=None):
+        meta = {'name': name, 'namespace': 'team-a', 'creationTimestamp': '2026-11-01T00:00:00Z'}
+        if version is not None:
+            meta['labels'] = {'krateo.io/composition-version': version}
+        return {'metadata': meta, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+
+    def row(policy, comps=(), **more):
+        spec = {'chart': {'url': 'oci://ghcr.io/krateo-blueprints/charts/acme-feedback', 'version': '0.2.0'}}
+        if policy is not None:
+            spec['upgradePolicy'] = policy
+        compdef = {'metadata': {'name': 'acme-feedback', 'namespace': 'krateo-system', 'uid': 'u'}, 'spec': spec,
+                   'status': {'apiVersion': 'composition.krateo.io/v0-2-0', 'resource': 'acmefeedbacks', 'kind': 'AcmeFeedback',
+                              'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        data = {'name': 'acme-feedback', 'namespace': 'krateo-system', 'compdef': compdef, 'catalog': {'entries': {}},
+                'comps': {'items': list(comps)}, **more}
+        items = jq(info, jq(prog, data))
+        labels = [i['label'] for i in items]
+        up = [i for i in items if i['label'] == 'Upgrades']
+        return labels, (up[0] if up else None)
+
+    def check(label, got, want):
+        if got != want:
+            bad.append(label)
+            print(f'FAIL upgrades, {label}: got {got!r}, want {want!r}')
+
+    labels, up = row('Manual', [comp('a', 'v0-2-0'), comp('b')])
+    check('Manual, none behind: the meaning, no link', up, {'label': 'Upgrades', 'value': manual})
+    check('the row follows Latest version', labels[:4], ['Chart', 'Installed version', 'Latest version', 'Upgrades'])
+    check('Automatic: one word', row('Automatic')[1], {'label': 'Upgrades', 'value': 'Automatic'})
+    check('Paused: its word', row('Paused')[1], {'label': 'Upgrades', 'value': 'Paused'})
+    check('no upgradePolicy (older core-provider): no row', row(None, [comp('a', 'v0-1-0')])[1], None)
+    behind = [comp('a', 'v0-1-0'), comp('b', 'v0-1-0'), comp('c', 'v0-2-0'), comp('d')]
+    check('two behind: counted, linked to the kind', row('Manual', behind)[1],
+          {'label': 'Upgrades', 'value': manual + ' · 2 compositions on an older version',
+           'href': '/compositions?kind=AcmeFeedback&status=all&scope=all'})
+    check('one behind: singular', (row('Automatic', [comp('a', 'v0-1-0')])[1] or {}).get('value'), 'Automatic · 1 composition on an older version')
+    check('compositions unreadable: nothing about them', row('Manual', behind, compsError=[{'message': 'forbidden'}])[1],
+          {'label': 'Upgrades', 'value': manual})
+    return bad
+
+
 def main():
     docs = render()
     by = {(d['kind'], d['metadata']['name']): d for d in docs}
@@ -288,6 +340,7 @@ def main():
     check('marketplace: the card follows About', m_col, ['card-marketplace-detail-about', 'card-marketplace-detail-contents'])
 
     bad.extend(latest_failures(by, prog))
+    bad.extend(upgrades_failures(by, prog))
 
     control = prog.replace('elif ((($ct.unknown // "") | tostring) != "") then', 'elif false then', 1)
     if control == prog or detail(control, {'chartVersion': '0.3.0', 'values': 'default', 'unknown': why}, version='0.3.0')['contents']['state'] == 'unknown':
