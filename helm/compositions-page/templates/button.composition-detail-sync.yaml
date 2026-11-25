@@ -1,4 +1,5 @@
-{{/* "Sync" = refresh the page's data (NOT a cluster mutation). A lightweight rest GET */}}
+{{/* "Refresh" = re-read the page's data (NOT a cluster mutation, and it does not make the */}}
+{{/* controller reconcile, so it is not called "Sync"). A lightweight rest GET */}}
 {{/* of this composition; on completion the action engine invalidates the ['widgets'] */}}
 {{/* query cache, so every detail widget refetches live cluster state. The GET target */}}
 {{/* (GVR + name/namespace) is resolved server-side from composition-detail (.gvr). */}}
@@ -16,11 +17,10 @@ spec:
     name: composition-detail
     namespace: {{ $.Values.namespace }}
   widgetData:
-    label: Sync
+    label: Refresh
     icon: fa-arrows-rotate
-    {{/* Sync is the primary action in the detail header cluster (mockup orange-primary); */}}
-    {{/* Pause/Edit stay default (bordered secondary), Delete stays danger. */}}
     {{/* Secondary since the approved redesign: "Edit values" is the one primary action. */}}
+    {{/* metadata.name stays composition-detail-sync: the actions Flex references it by name. */}}
     type: default
     size: middle
     clickActionId: sync
