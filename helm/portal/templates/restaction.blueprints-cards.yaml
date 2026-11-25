@@ -3,11 +3,10 @@
 {{/* per-blueprint self-registered Card pattern (krateo.io/portal-page=blueprints */}}
 {{/* label) — the platform no longer ships one widget CR per blueprint; ONE templated */}}
 {{/* tile is iterated over this list. Honest fields straight off each Composition */}}
-{{/* Definition: name/namespace, chart version (spec.chart.version), category (the */}}
-{{/* krateo.io/tier label: platform/observability), chart url. Feeds BOTH the */}}
-{{/* marketplace grid and the dashboard "Top blueprints" (same `.cards` contract). */}}
-{{/* UAF gates to compositiondefinitions the user may list; continueOnError so a */}}
-{{/* missing grant degrades to an empty catalog, not a broken page. */}}
+{{/* Definition: name/namespace, chart version (spec.chart.version), where it came from */}}
+{{/* (origin, below), chart url. Feeds the /blueprints grid, its origin chips and its */}}
+{{/* Ask Agentiko button. UAF gates to compositiondefinitions the user may list; */}}
+{{/* continueOnError so a missing grant degrades to an empty catalog, not a broken page. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -29,15 +28,26 @@ spec:
         namespaceFrom: .metadata.namespace
       {{/* A CARD'S STATE is cdState (_cd-ready-reasons.tpl): the CompositionDefinition's Ready reason
            classified by the verdict core-provider declares for it, CI-checked against core-provider's
-           generated table. ready green, failed and drift red (drift: still serving, last pass failed),
+           generated table. failed and drift red (drift: still serving, last pass failed),
            installing and unobserved orange (unobserved follows a composition's ObserveFailed:
-           pending, and failed once Synced=False, which is where NotObserved puts its error), paused gray. The tooltip is cdState's reason: for a
-           failure, the reason AND message core-provider wrote, which say what is broken. */}}
+           pending, and failed once Synced=False, which is where NotObserved puts its error), paused gray.
+           READY HAS NO MARK (UX audit BP-3, approved mockup): a glyph only when something is wrong, so
+           readyIcon and readyColor are "" for the ready state and the tile draws none; readyState and
+           readyReason stay for the prompt. The tooltip is cdState's reason: for a failure, the reason
+           AND message core-provider wrote, which say what is broken.
+           WHERE IT CAME FROM (origin, approved mockup BP-3): "platform" when a composition created the
+           definition (it carries krateo.io/composition-kind: the Installer for the platform's
+           components, the Portal for builder-publish), or when its status.kind is a kind that created
+           others among the definitions read (the installer's own definition); "added" otherwise
+           (installed from the Marketplace or a Builder). Computed from labels and status, never from
+           a list of names. originTag is the tile's tag: "Added", or "" (no tag) for a platform one. */}}
       filter: >
         {{ include "portal.cdReadyDefs" . }}
-        [.compdefs.items[]?
-         | ((.metadata.labels // {})["krateo.io/tier"] // "blueprint") as $cat
+        ([ .compdefs.items[]? | (.metadata.labels // {})["krateo.io/composition-kind"] // "" | select(. != "") ] | unique) as $creators
+        | [.compdefs.items[]?
          | (.status.conditions | cdState) as $st
+         | ((((.metadata.labels // {})["krateo.io/composition-kind"] // "") != "")
+            or ((.status.kind // "") as $k | $k != "" and any($creators[]; . == $k))) as $platform
          | {
              apiVersion,
              kind,
@@ -53,36 +63,38 @@ spec:
              provisions: (.status.kind // .status.managed.kind // ""),
              readyState: (if $st.state == "drift" then "failed" else $st.state end),
              readyReason: $st.reason,
-             readyIcon: {"ready": "fa-circle-check", "failed": "fa-circle-xmark", "drift": "fa-circle-xmark", "installing": "fa-clock", "paused": "fa-circle-pause", "unobserved": "fa-clock"}[$st.state],
-             readyColor: {"ready": "green", "failed": "red", "drift": "red", "installing": "orange", "paused": "gray", "unobserved": "orange"}[$st.state],
-             category: $cat,
-             tags: [ $cat ]
+             readyIcon: {"ready": "", "failed": "fa-circle-xmark", "drift": "fa-circle-xmark", "installing": "fa-clock", "paused": "fa-circle-pause", "unobserved": "fa-clock"}[$st.state],
+             readyColor: {"ready": "", "failed": "red", "drift": "red", "installing": "orange", "paused": "gray", "unobserved": "orange"}[$st.state],
+             origin: (if $platform then "platform" else "added" end),
+             originTag: (if $platform then "" else "Added" end)
            }]
-  {{/* `category` arrives via ?extras (the /blueprints?category=<k> chip navigation). Echo it as */}}
-  {{/* selectedCategory (the active-chip read-back) and filter the cards by the blueprint tier */}}
-  {{/* (platform/observability/blueprint). "all" / no param shows every blueprint. The dashboard */}}
-  {{/* "Top blueprints" reuse passes no ?category, so $sel defaults to "all" → unfiltered. */}}
+  {{/* `origin` arrives via ?extras (the /blueprints?origin=platform|added chip navigation) and keeps */}}
+  {{/* the cards of that origin; anything else, an old ?category= link included, shows every */}}
+  {{/* blueprint. `origins` are the chips (blueprints-page listy.blueprints-category-chips): All, */}}
+  {{/* Platform and Added, each with the count of cards the other filters (?q, ?projects) show, the */}}
+  {{/* active flag, and a route that keeps ?q and ?projects. */}}
   {{/* ASK AGENTIKO (blueprints-page button.blueprints-ask-agentiko): `askHref` is /blueprints with
-       the current ?category, ?q and ?projects kept and an @uri-encoded ?ask seed about the cards in
+       the current ?origin, ?q and ?projects kept and an @uri-encoded ?ask seed about the cards in
        view — how many, how many are ready, which are failing (with the reason and message
        core-provider wrote) and how many are still installing, paused or not observed (readyState). `readError` is the compdefs step's error, which
        continueOnError used to hide: a refused list looked like a platform with no blueprints. With
-       nothing read the prompt asks what the error means instead of saying there are none. The
-       dashboard's "Top blueprints" reads only `.cards` and is unchanged. */}}
+       nothing read the prompt asks what the error means instead of saying there are none. */}}
   filter: >
     def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     def qs($p): [ $p[] | select(.[1] != "") | .[0] + "=" + (.[1] | @uri) ] | join("&") | if . == "" then "" else . + "&" end;
-    ((.category) // "all") as $sel
+    ((.origin // "") | tostring | ascii_downcase | if . == "platform" or . == "added" then . else "all" end) as $sel
     | ((.q // "") | ascii_downcase) as $q
     | ((.projects // "") | split(",") | map(select(. != ""))) as $projects
+    | [["q", ((.q // "") | tostring)], ["projects", ((.projects // "") | tostring)]] as $carry
     | ((.compdefsError // null) | if . == null or . == [] or . == "" then "" else (errmsg | cap(300)) end) as $readError
     | ((.compdefs // []) | sort_by(.metadata.name // "")) as $all
     | ($all
-        | map(select(($sel == "all" or .category == $sel)
-            and ($q == "" or ((.metadata.name // "") | ascii_downcase | contains($q)) or ((.provisions // "") | ascii_downcase | contains($q)))
-            and (($projects | length) == 0 or (([.metadata.namespace] - $projects) | length == 0))))) as $cards
-    | ([ (if $sel != "all" then "category " + ($sel | tostring) else empty end),
+        | map(select(($q == "" or ((.metadata.name // "") | ascii_downcase | contains($q)) or ((.provisions // "") | ascii_downcase | contains($q)))
+            and (($projects | length) == 0 or (([.metadata.namespace] - $projects) | length == 0))))) as $others
+    | ($others | map(select($sel == "all" or .origin == $sel))) as $cards
+    | {"platform": "Platform", "added": "Added"} as $originLabel
+    | ([ (if $sel != "all" then "origin " + $originLabel[$sel] else empty end),
          (if ($projects | length) > 0 then ("namespace" + (if ($projects | length) > 1 then "s " else " " end) + ($projects | join(", "))) else empty end),
          (if $q != "" then "name or kind matching \"" + ((.q // "") | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
     | ([ $cards[] | select(.readyState == "failed") ]) as $failing
@@ -106,8 +118,13 @@ spec:
        end
        + (if $readError != "" and ($all | length) > 0 then " Part of the list could not be read (" + $readError + "), so this may not be all of them." else "" end)) as $prompt
     | {
-        selectedCategory: $sel,
+        selectedOrigin: $sel,
         cards: $cards,
+        origins: [ {key: "all", label: "All"}, {key: "platform", label: "Platform"}, {key: "added", label: "Added"} ]
+          | map(.key as $k | {label: .label,
+                count: ($others | map(select($k == "all" or .origin == $k)) | length),
+                active: ($k == $sel),
+                route: (qs([["origin", (if $k == "all" then "" else $k end)]] + $carry) | rtrimstr("&") | if . == "" then "/blueprints" else "/blueprints?" + . end)}),
         readError: $readError,
-        askHref: ("/blueprints?" + qs([["category", (if $sel == "all" then "" else ($sel | tostring) end)], ["q", ((.q // "") | tostring)], ["projects", ((.projects // "") | tostring)]]) + "ask=" + ($prompt | @uri))
+        askHref: ("/blueprints?" + qs([["origin", (if $sel == "all" then "" else $sel end)]] + $carry) + "ask=" + ($prompt | @uri))
       }
