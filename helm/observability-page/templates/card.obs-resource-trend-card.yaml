@@ -1,8 +1,8 @@
-{{/* Titled panel around the cluster resource-usage TREND line chart (R2 #15) — CPU cores + */}}
-{{/* Memory GiB over the selected ?range window (obs-resource-usage-series → obs-resource-usage */}}
-{{/* LineChart). The trend companion to the live top-pods snapshot table (obs-resource-card); the */}}
-{{/* two sit side by side in obs-resource-row. Static eyebrow header — the chart legend already */}}
-{{/* names the two series, so no computed `extra` is needed here. */}}
+{{/* Titled panel around the cluster resource-usage TREND (R2 #15): two line charts on one time */}}
+{{/* axis, CPU in cores (obs-resource-usage-cpu) above Memory in GiB (obs-resource-usage-mem), both */}}
+{{/* from obs-resource-usage-series (charts mockup, CHART-4). The trend companion to the live */}}
+{{/* top-pods snapshot (obs-resource-card). Static eyebrow header; each chart's title names its */}}
+{{/* series. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,14 +17,21 @@ spec:
     title: Resource usage trend
     titleVariant: eyebrow
     variant: outlined
-    extra: 'cluster total · over range'
+    extra: 'cluster total'
     items:
-    - resourceRefId: obs-resource-usage
+    - resourceRefId: obs-resource-usage-cpu
+    - resourceRefId: obs-resource-usage-mem
   resourcesRefs:
     items:
-    - id: obs-resource-usage
+    - id: obs-resource-usage-cpu
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: obs-resource-usage
+      name: obs-resource-usage-cpu
+      namespace: {{ $.Values.namespace }}
+      resource: linecharts
+      verb: GET
+    - id: obs-resource-usage-mem
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: obs-resource-usage-mem
       namespace: {{ $.Values.namespace }}
       resource: linecharts
       verb: GET

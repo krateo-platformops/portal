@@ -22,6 +22,11 @@ in the window or none for 5 min; unreadable or empty traces date nothing and fla
 full list's columns follow the data.
 TELEMETRY (obs-error-log-digest, obs-log-stream, obs-resource-usage): the grouped errors as cards,
 the stream as the full list, errors by service and the pods with the most memory beside them.
+RESOURCE USAGE (charts mockup, CHART-4): CPU (cores) and Memory (GiB) are two charts in one card, one
+series and one unit each; a bucket's total is the mean of the per-scrape totals, so a pod replaced
+inside the bucket is counted once (obs-resource-usage-series EXECUTED in a sqlite stand-in against a
+roll; main's query, run on the same rows, counts it twice); the window starts on a bucket boundary and
+the bucket holding now is partial. AXES: every chart on the page names its unit on the y axis.
 COMPONENTS (obs-components): Ready, Not ready, Scaled to zero; the runtime table and the declared
 pins as the full list.
 TRACES (obs-traces): spans, errors, services, users; the status chips in the list card.
@@ -40,7 +45,10 @@ import copy
 import importlib.util
 import json
 import os
+import re
+import sqlite3
 import sys
+import time
 from urllib.parse import unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -751,6 +759,139 @@ def check_unchanged_tabs(c, on):
     return f
 
 
+# ---------------------------------------------------------------------------------------------
+# Resource usage (charts mockup, CHART-4): CPU and Memory, each its own chart, each pod counted once
+# ---------------------------------------------------------------------------------------------
+
+UNIT_S = {'MINUTE': 60, 'HOUR': 3600, 'DAY': 86400}
+
+
+def gauge_sql_to_sqlite(sql, now):
+    """The ClickHouse spellings obs-resource-usage-series uses, in sqlite (TimeUnix in seconds).
+    Anything else is sent as written, so a query this cannot translate fails here rather than passing
+    on a guess."""
+    assert sql.endswith(' FORMAT JSON'), sql
+    q = sql[:-len(' FORMAT JSON')]
+    q = re.sub(r'now\(\) - INTERVAL (\d+) (MINUTE|HOUR|DAY)', lambda m: f'({now} - {int(m.group(1)) * UNIT_S[m.group(2)]})', q)
+    q = re.sub(r'now\(\)-INTERVAL (\d+) (MINUTE|HOUR|DAY)', lambda m: f'({now} - {int(m.group(1)) * UNIT_S[m.group(2)]})', q)
+    for _ in range(2):      # toStartOfInterval(x, INTERVAL n U), the inner one first
+        q = re.sub(r'toStartOfInterval\(([^()]*(?:\([^()]*\))?[^()]*), INTERVAL (\d+) (MINUTE|HOUR|DAY)\)',
+                   lambda m: f'(({m.group(1)}) / {int(m.group(2)) * UNIT_S[m.group(3)]} * {int(m.group(2)) * UNIT_S[m.group(3)]})', q)
+    q = q.replace('toStartOfMinute(TimeUnix)', '(TimeUnix / 60 * 60)')
+    q = re.sub(r'toUnixTimestamp\((\w+)\)', r'\1', q)
+    q = re.sub(r"ResourceAttributes\['([^']*)'\]", r"""json_extract(ResourceAttributes, '$."\1"')""", q)
+    q = q.replace("multiIf(MetricName='k8s.pod.cpu.usage','cpu','mem')", "CASE WHEN MetricName='k8s.pod.cpu.usage' THEN 'cpu' ELSE 'mem' END")
+    q = re.sub(r"(sum|avg)If\(v, m='(cpu|mem)'\)", r"\1(CASE WHEN m='\2' THEN v END)", q)
+    return q
+
+
+def gauge_db(points):
+    db = sqlite3.connect(':memory:')
+    db.execute('CREATE TABLE otel_metrics_gauge (TimeUnix INTEGER, MetricName TEXT, ResourceAttributes TEXT, Value REAL)')
+    db.executemany('INSERT INTO otel_metrics_gauge VALUES (?, ?, ?, ?)',
+                   [(t, m, json.dumps({'k8s.namespace.name': ns, 'k8s.pod.name': pod}), v) for t, m, ns, pod, v in points])
+    return db
+
+
+def run_usage(db, path, now):
+    cur = db.execute(gauge_sql_to_sqlite(unquote(path[len('/?query='):]), now))
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+# The 10:00 hour of the audit, shaped as kubeletstats writes it: one scrape round a minute per node, each
+# node at its own second. Node A runs `web` (1 core, 4 GiB), REPLACED at 10:30 by a new pod of the same
+# Deployment; node B runs `db` (2 cores, 8 GiB) all hour. The cluster used 3 cores and 12 GiB all hour.
+H10 = 1795600800          # an hour boundary
+GIB = 1073741824
+
+
+def roll_points():
+    pts = []
+    for minute in range(60):
+        web = 'web-7d9f-aaaa' if minute < 30 else 'web-7d9f-bbbb'
+        a, b = H10 + minute * 60 + 7, H10 + minute * 60 + 41
+        pts += [(a, 'k8s.pod.cpu.usage', 'team-a', web, 1.0), (a, 'k8s.pod.memory.working_set', 'team-a', web, 4.0 * GIB),
+                (b, 'k8s.pod.cpu.usage', 'team-a', 'db-0', 2.0), (b, 'k8s.pod.memory.working_set', 'team-a', 'db-0', 8.0 * GIB)]
+    return pts
+
+
+# The query on main before CHART-4: each pod averaged over the whole bucket, the averages summed.
+OLD_USAGE = ("/?query=SELECT toUnixTimestamp(t) AS ts, round(sumIf(v, m='cpu'), 2) AS cpu_cores, round(sumIf(v, m='mem')/1073741824, 2) AS mem_gib "
+             "FROM ( SELECT toStartOfInterval(TimeUnix, INTERVAL 1 HOUR) AS t, ResourceAttributes['k8s.pod.name'] AS pod, "
+             "multiIf(MetricName='k8s.pod.cpu.usage','cpu','mem') AS m, avg(Value) AS v FROM otel_metrics_gauge WHERE MetricName IN "
+             "('k8s.pod.cpu.usage','k8s.pod.memory.working_set') AND TimeUnix > now() - INTERVAL 24 HOUR GROUP BY t, pod, m ) GROUP BY ts ORDER BY ts FORMAT JSON")
+
+
+def check_resource_usage(c):
+    """A pod replaced inside a bucket is counted once: each bucket's total is the mean of the totals at each
+    scrape round, not the sum of each pod's average (which counted the old and the new pod). CPU and Memory
+    are two charts in one card, one series and one unit each; the window starts on a bucket boundary and the
+    bucket holding now is partial."""
+    f = []
+    ra = c.get('RESTAction', 'obs-resource-usage-series')
+    now = H10 + 3 * 3600 + 120
+    reqs, _, _ = gates.resolve(ra, {}, {'usage': ch([])})
+    path = [p for n, p, _ in reqs if n == 'usage'][0]
+    db = gauge_db(roll_points())
+    old = [r for r in run_usage(db, OLD_USAGE.replace('%', '%25'), now) if r['ts'] == H10]
+    expect(f, 'the fixture reproduces the double count on the old query (a control)', [(r['cpu_cores'], r['mem_gib']) for r in old], [(4.0, 16.0)])
+    new = [r for r in run_usage(db, path, now) if r['ts'] == H10]
+    expect(f, 'the 10:00 hour: 3 cores and 12 GiB, the replaced pod counted once', [(r['cpu_cores'], r['mem_gib']) for r in new], [(3.0, 12.0)])
+    steady = gauge_db([(H10 + m * 60 + 7, 'k8s.pod.cpu.usage', 'team-a', 'web', 1.5) for m in range(60)]
+                      + [(H10 + m * 60 + 41, 'k8s.pod.cpu.usage', 'team-b', 'web', 0.5) for m in range(60)])
+    expect(f, 'pods of one name in two namespaces are two pods', [r['cpu_cores'] for r in run_usage(steady, path, now) if r['ts'] == H10], [2.0])
+    for rng, (iv, bk) in {'1h': ('1 HOUR', '2 MINUTE'), '6h': ('6 HOUR', '15 MINUTE'), '24h': ('24 HOUR', '1 HOUR'), '7d': ('7 DAY', '6 HOUR')}.items():
+        reqs, _, out = gates.resolve(ra, {'range': rng}, {'usage': ch([])})
+        sql = unquote([p for n, p, _ in reqs if n == 'usage'][0][len('/?query='):])
+        want = f'TimeUnix >= toStartOfInterval(now() - INTERVAL {iv}, INTERVAL {bk})'
+        if want not in sql:
+            f.append(f'range={rng}: the window does not start on a bucket boundary (missing {want!r})')
+        size = {'2 MINUTE': 120, '15 MINUTE': 900, '1 HOUR': 3600, '6 HOUR': 21600}[bk]
+        cur = int(time.time()) // size * size
+        if out.get('current') not in (cur, cur + size):
+            f.append(f'range={rng}: current {out.get("current")!r}, want the bucket holding now ({cur})')
+    card = c.get('Card', 'obs-resource-trend-card')['spec']['widgetData']
+    expect(f, 'one card, CPU above Memory', (card['title'], [i['resourceRefId'] for i in card['items']]),
+           ('Resource usage trend', ['obs-resource-usage-cpu', 'obs-resource-usage-mem']))
+    cur = gates.resolve(ra, {}, {'usage': ch([])})[2].get('current')      # 24h: the hour holding now
+    if cur is None:
+        return f + ['obs-resource-usage-series names no current bucket']
+    _, _, out = gates.resolve(ra, {}, {'usage': ch([{'ts': cur - 3600, 'cpu_cores': 5.31, 'mem_gib': 18.2},
+                                                      {'ts': cur, 'cpu_cores': 5.02, 'mem_gib': 18.4}])})
+    for name, series, unit, v in (('obs-resource-usage-cpu', 'CPU', 'cores', 5.31), ('obs-resource-usage-mem', 'Memory', 'GiB', 18.2)):
+        w = wd(c, 'LineChart', name, out)
+        expect(f, f'{name}: one series, titled, its unit on the y axis, no legend',
+               (w['title'], {d['series'] for d in w['data']}, w['axis']['y']['title'], w['legend'], w['colorMap']),
+               (series, {series}, unit, False, {series: 'cyan' if series == 'CPU' else 'blue'}))
+        expect(f, f'{name}: the values, the bucket holding now partial', [(d['v'], d.get('slot')) for d in w['data']],
+               [(v, None), (5.02 if series == 'CPU' else 18.4, 'partial')])
+        expect(f, f'{name}: unsmoothed, no point per bucket', [k for k in ('shapeField', 'point', 'area') if w.get(k)], [])
+    return f
+
+
+# Every chart on the page names its unit on the y axis (the mockup's table): the slot length stays in the
+# card's corner ("per 10 min"), never on the axis.
+Y_TITLES = {
+    'obs-reconcile-throughput': 'reconciles', 'obs-resource-usage-cpu': 'cores', 'obs-resource-usage-mem': 'GiB',
+    'sp-authz-memo': 'checks', 'sp-cache-evictions': 'entries', 'sp-cache-size': 'entries', 'sp-dep-evictions': 'entries',
+    'sp-dep-marks': 'marks and records', 'sp-fallthrough': 'requests', 'sp-http-mean': 'seconds', 'sp-http-status': 'responses',
+    'sp-informer-freshness': 'seconds and GVRs', 'sp-l1-lookups': 'lookups', 'sp-log-levels': 'lines', 'sp-queue-depth': 'items',
+    'sp-refresher-outcomes': 'refreshes', 'sp-uaf-declines': 'requests',
+}
+
+
+def check_axis_units(on):
+    f = []
+    charts = {d['metadata']['name']: d for d in on.docs if d.get('kind') in ('LineChart', 'BarChart')}
+    expect(f, 'every chart on the page is in the table', sorted(charts), sorted(Y_TITLES))
+    for name, want in Y_TITLES.items():
+        if name in charts:
+            got = ((charts[name]['spec']['widgetData'].get('axis') or {}).get('y') or {}).get('title')
+            expect(f, f'{name}: the unit on the y axis', got, want)
+    return f
+
+
 # CHART-4: a legend read "snowplow_cache_diagnostic_total". Each SP chart's raw series keys (the SQL's)
 # and the name it draws each under.
 SP_SERIES = {
@@ -819,6 +960,8 @@ def main():
         ('State tiles open their state chip\'s route; totals, metrics and failed reads do not', lambda: check_state_tiles(c, on)),
         ('Reconciliation: a paused composition is neutral and never overdue', lambda: check_recon_paused(on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
+        ('Resource usage: CPU and Memory apart, a replaced pod counted once, the window aligned', lambda: check_resource_usage(c)),
+        ('Every chart names its unit on the y axis', lambda: check_axis_units(on)),
         ('SP charts draw their series under plain names', lambda: check_sp_series_names(on)),
     ]
     if crds_dir:

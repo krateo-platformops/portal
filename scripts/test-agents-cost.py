@@ -293,6 +293,8 @@ def check_side():
     expect(f, 'calls priced: both charts', side(resolve(responses([row('a')]))), ['agents-cost-trend-card', 'agents-cost-models-card'])
     expect(f, 'no call in the range: no chart', side(resolve(responses([]))), [])
     expect(f, 'no access: no chart', side(resolve(responses([row('a')], access='ERROR'))), [])
+    # CHART-4: every chart names its unit on the y axis.
+    expect(f, 'Spend over time: in USD', CH.get('BarChart', 'agents-cost-trend')['spec']['widgetData'].get('axis', {}).get('y', {}).get('title'), 'USD')
     return f
 
 

@@ -599,6 +599,7 @@ def check_token_usage_tab():
            (24, hour, 1000, 3000, 0, 'hour'))
     expect(f, 'the card: the chart, the range top right', (items('Card', 'agents-token-trend-card', out), w('Card', 'agents-token-trend-card', out)['extra']),
            (['agents-token-totals'], 'last 24 hours'))
+    expect(f, 'the unit on the y axis (CHART-4)', w('LineChart', 'agents-token-totals', out)['axis']['y'].get('title'), 'tokens')
     ex = {'range': '7d', 'group': 'all', 'q': 'x'}
     out7 = tbi.resolve(CH, 'agents-token-timeseries', {'series': {'data': []}}, ex)
     expect(f, '7d: 28 six-hour points, a day axis; nothing ran: said', (len([p for p in out7['totals'] if p['series'] == 'cached']), out7['unit'],

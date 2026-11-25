@@ -1,0 +1,50 @@
+{{/* Cluster resource-usage trend (R2 #15): Memory (working set) in GiB, over the selected ?range window, bucketed */}}
+{{/* server-side by restaction.obs-resource-usage-series (otel_metrics_gauge), one point per bucket */}}
+{{/* (`t` UNIX seconds, labelled in the viewer's zone). CPU and Memory are two charts in one card */}}
+{{/* (obs-resource-trend-card) on one time axis, each titled by its unit (charts mockup, CHART-4): */}}
+{{/* on one shared axis, cores sat flat near the bottom under the GiB. One series, so no legend; the */}}
+{{/* chart's title names it. Brand colour, never a status one. The bucket holding now is partial. */}}
+{{/* `y:` axis/scale keys are QUOTED — a bare y: map key parses as boolean true under YAML 1.1. */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: obs-resource-usage-mem
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "20"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    title: Memory
+    xField: t
+    yField: v
+    colorField: series
+    slotField: slot
+    colorMap:
+      Memory: blue
+    legend: false
+    height: 150
+    xTimeUnit: hour
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+        title: GiB
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ (.current // null) as $cur | [ (.series // [])[] | { t: (.ts|tonumber), series: "Memory", v: (.mem_gib|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
+  apiRef:
+    name: obs-resource-usage-series
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
