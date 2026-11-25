@@ -79,9 +79,12 @@ spec:
     {{/* >= 2.13.130 says which version its status describes (status.observedGeneration). While that is */}}
     {{/* below metadata.generation, a change was applied and not processed yet: the pill stays (still */}}
     {{/* true of what runs) and a quiet note says it is about to change. No observedGeneration (an older */}}
-    {{/* core-provider), equal, or ahead: no note. */}}
+    {{/* core-provider), equal, or ahead: no note. core-provider advances it on every verdict about the */}}
+    {{/* current spec, a failing one included, so a failure on the new spec shows as the pill; it stays */}}
+    {{/* behind while the update applies, is paused or withheld, or errors before a verdict. Ignored */}}
+    {{/* while the definition is being deleted. */}}
     - forPath: note
-      expression: '${ (.detail.metadata.generation // null) as $g | (.detail.status.observedGeneration // null) as $o | if ($g | type) == "number" and ($o | type) == "number" and $o < $g then { text: "about the previous version · updating", tooltip: ("This state was reported for version " + ($o | tostring) + " of the definition; version " + ($g | tostring) + " was applied and has not been processed yet.") } else { text: "" } end }'
+      expression: '${ (.detail.metadata.generation // null) as $g | (.detail.status.observedGeneration // null) as $o | if ($g | type) == "number" and ($o | type) == "number" and $o < $g and ((.detail.metadata.deletionTimestamp // "") == "") then { text: "about the previous version · updating", tooltip: ("This state is from version " + ($o | tostring) + " of the definition; version " + ($g | tostring) + " has not been evaluated yet: it may still be applying, be paused, or be failing before a verdict.") } else { text: "" } end }'
   resourcesRefs:
     items:
     - id: blueprint-detail-actions

@@ -144,8 +144,10 @@ def note_program():
     return expr.strip().removeprefix('${').removesuffix('}').strip()
 
 
-def note(program, generation, observed):
+def note(program, generation, observed, deleting=False):
     meta = {} if generation is None else {'generation': generation}
+    if deleting:
+        meta['deletionTimestamp'] = '2026-11-25T10:00:00Z'
     status = {} if observed is None else {'observedGeneration': observed}
     proc = subprocess.run([JQ, '-c', program], input=json.dumps({'detail': {'metadata': meta, 'status': status}}),
                           capture_output=True, text=True, check=True)
@@ -158,9 +160,12 @@ def note_failures():
     behind = note(program, 4, 3)
     if behind['text'] != 'about the previous version · updating' or 'version 3' not in behind['tooltip'] or 'version 4' not in behind['tooltip']:
         bad.append(f'behind: {behind}')
-    for name, g, o in (('caught up', 4, 4), ('no observedGeneration (older core-provider)', 4, None), ('no generation', None, 2)):
-        if note(program, g, o) != {'text': ''}:
-            bad.append(f'{name}: {note(program, g, o)}')
+    if 'not been evaluated yet' not in behind['tooltip']:
+        bad.append(f'tooltip wording: {behind}')
+    for name, g, o, deleting in (('caught up', 4, 4, False), ('no observedGeneration (older core-provider)', 4, None, False),
+                                 ('no generation', None, 2, False), ('being deleted', 4, 3, True)):
+        if note(program, g, o, deleting) != {'text': ''}:
+            bad.append(f'{name}: {note(program, g, o, deleting)}')
     # Control: a note on any observedGeneration would show on a caught-up definition.
     if note(program.replace('$o < $g', '$o <= $g'), 4, 4) == {'text': ''}:
         bad.append('control: the comparison does not decide the note')
