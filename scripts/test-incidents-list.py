@@ -343,8 +343,17 @@ def check_figures_and_charts():
     for hours, minutes in ((12, 120), (72, 40), (480, 360)):
         at = (NOW - datetime.timedelta(hours=hours)).replace(microsecond=0).timestamp()
         by_week.setdefault(int(at // 604800) * 604800, []).append(minutes)
-    want = [{'t': t, 'v': round(sum(ms) / len(ms))} for t, ms in sorted(by_week.items())]
-    expect(f, 'per week: the median of each week with something resolved, in minutes', out['ttrWeekly'], want)
+    # CHART-3: the weekly medians in the largest unit that keeps the longest readable. Here the
+    # longest is 6 h: hours. Under 2 h, minutes; from 3 days, days.
+    want = [{'t': t, 'v': round(sum(ms) / len(ms) / 60 * 10) / 10} for t, ms in sorted(by_week.items())]
+    expect(f, 'per week: the median of each week with something resolved, in hours', (out['ttrWeekly'], out['ttrUnit']), (want, 'hours'))
+    expect(f, 'the chart names the unit on its axis', widget_data('LineChart', 'incidents-ttr', out)['axis']['y']['title'], 'hours')
+    quick = resolve(responses(incidents={'items': [TIMED[6]]}, alerts={'items': [alert('a', 'A', 'OK')]}), {'range': '30d'})
+    expect(f, 'under 2 h: minutes', (quick['ttrWeekly'][0]['v'], quick['ttrUnit']), (40, 'minutes'))
+    slow = incident('s1', 'Resolved', ago(24 * 30), alert='a', cause='c', resolved=ago(24))
+    long_ = resolve(responses(incidents={'items': [slow]}, alerts={'items': [alert('a', 'A', 'OK')]}), {'range': '30d'})
+    expect(f, 'from 3 days: days', (long_['ttrWeekly'][0]['v'], long_['ttrUnit'], widget_data('LineChart', 'incidents-ttr', long_)['axis']['y']['title']),
+           (29.0, 'days', 'days'))
     expect(f, 'the TTR card shows the median', widget_data('Card', 'incidents-ttr-card', out)['extra'], '1 h 20 min')
     expect(f, 'by state: Open first, a slice per state with incidents',
            widget_data('PieChart', 'incidents-by-state', out)['data'],
