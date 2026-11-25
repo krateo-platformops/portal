@@ -66,6 +66,24 @@ BROKEN = {'total': 9, 'healthyCount': 7, 'failedCount': 1, 'driftCount': 1, 'pen
 CONVERGING = {'total': 4, 'healthyCount': 2, 'failedCount': 0, 'driftCount': 0, 'pendingCount': 1, 'convergingCount': 1, 'unreadCount': 1, 'converged': False,
               'resources': [res('Deployment', 'api', 'converging', 'Progressing'), res('Job', 'migrate', 'pending', 'Pending')]}
 EMPTY = {'total': 0, 'healthyCount': 0, 'resources': []}
+# Visual audit CMP-2: paused, both children deleted. It read "0 of 2 resources ready, the rest still
+# converging", "2 converging", both "Pending", under an amber gauge.
+PAUSED_MISSING = {'total': 2, 'healthyCount': 0, 'failedCount': 0, 'driftCount': 0, 'pendingCount': 0, 'convergingCount': 0,
+                  'notFoundCount': 2, 'unreadCount': 0, 'converged': False, 'convergencePercent': 0,
+                  'composition': {'state': 'paused', 'stateLabel': 'Paused', 'pausedSince': '4 Nov 10:10 UTC', 'readyReason': 'ReconcilePaused'},
+                  'resources': [res('ConfigMap', 'acme-feedback-oas', 'notFound', 'NotFound', '/resources/krateo-system/core/v1/configmaps/acme-feedback-oas'),
+                                res('RestDefinition', 'acme-feedback-form', 'notFound', 'NotFound')]}
+PAUSED_OK = dict(HEALTHY, composition={'state': 'paused', 'pausedSince': '', 'readyReason': 'ReconcilePaused'})
+PAUSED_PENDING = dict(CONVERGING, unreadCount=0, composition={'state': 'paused', 'pausedSince': '4 Nov 10:10 UTC'})
+# Visual audit CMP-7: nothing can assess it (Ready=Unknown, ZeroEvidence); its one child has no readiness.
+UNKNOWN = {'total': 1, 'healthyCount': 0, 'failedCount': 0, 'driftCount': 0, 'pendingCount': 0, 'convergingCount': 0, 'noReadinessCount': 1,
+           'unreadCount': 0, 'converged': False, 'convergencePercent': 0,
+           'composition': {'state': 'unknown', 'readyReason': 'ZeroEvidence'}, 'resources': [res('Bundle', 'krateo-internal-ca', 'noReadiness', 'NoReadyCondition')]}
+# Visual audit CMP-6: 5 of 59 children can be judged; the other 54 publish no readiness. It read
+# "All 59 resources match" and "59 healthy".
+UNJUDGED = {'total': 59, 'healthyCount': 5, 'failedCount': 0, 'driftCount': 0, 'pendingCount': 0, 'convergingCount': 0, 'noReadinessCount': 54,
+            'unreadCount': 0, 'converged': False, 'convergencePercent': 8, 'composition': {'state': 'healthy'}, 'resources': []}
+MISSING = dict(PAUSED_MISSING, composition={'state': 'failed'})
 
 
 def main():
@@ -73,6 +91,8 @@ def main():
     verdict = program(docs, 'Paragraph', 'composition-detail-status-verdict', 'text')
     facts = program(docs, 'Paragraph', 'composition-detail-status-facts', 'text')
     problems = program(docs, 'Listy', 'list-composition-detail-problems', 'dataSource')
+    rail = program(docs, 'Listy', 'list-composition-detail-rail', 'dataSource')
+    rail_map = next(d for d in docs if d.get('kind') == 'Listy' and d['metadata']['name'] == 'list-composition-detail-rail')['spec']['widgetData']['itemTemplate']['bar']['color']['map']
     bad = 0
 
     def check(what, got, want):
@@ -88,6 +108,23 @@ def main():
     check('facts broken', run(facts, BROKEN), '7 healthy · 1 failed · 1 drifted from the values')
     check('facts converging', run(facts, CONVERGING), '2 healthy · 2 converging · 1 not readable with your access')
     check('problems healthy (none)', run(problems, HEALTHY), [])
+
+    check('verdict paused, its children missing (CMP-2)', run(verdict, PAUSED_MISSING), 'Paused since 4 Nov 10:10 UTC; 2 of 2 resources are missing')
+    check('facts paused, missing: missing, never converging', run(facts, PAUSED_MISSING), '0 healthy · 2 missing')
+    check('verdict paused, all there', run(verdict, PAUSED_OK), 'Paused; all 3 resources match the desired state')
+    check('verdict paused, some unread: nothing is "still converging"', run(verdict, PAUSED_PENDING), 'Paused since 4 Nov 10:10 UTC; 2 of 4 resources ready')
+    check('facts paused: pending, not converging', run(facts, PAUSED_PENDING), '2 healthy · 2 pending')
+    check('verdict missing, not paused', run(verdict, MISSING), '2 of 2 resources are missing')
+    check('verdict unknown health (CMP-7)', run(verdict, UNKNOWN), 'Health Unknown (ZeroEvidence); 0 of 1 resources healthy; 1 has no readiness to check')
+    check('verdict: no readiness is neither healthy nor converging (CMP-6)', run(verdict, UNJUDGED), '5 of 59 resources healthy; 54 have no readiness to check')
+    check('facts: no readiness named', run(facts, UNJUDGED), '5 healthy · 54 with no readiness to check')
+    check('problems: missing first, each with a reason', [(p['name'], p['stateLabel'], p['why']) for p in run(problems, PAUSED_MISSING)],
+          [('acme-feedback-oas', 'NotFound', 'Not in the cluster'), ('acme-feedback-form', 'NotFound', 'Not in the cluster')])
+    gauge = lambda d: (lambda r: (r['railState'], rail_map.get(r['railState'])))(run(rail, d)[0])
+    check('gauge paused: gray, not the amber of progress', gauge(PAUSED_MISSING), ('paused', 'gray'))
+    check('gauge unknown health: gray', gauge(UNKNOWN), ('unknown', 'gray'))
+    check('gauge missing, not paused: a failure', gauge(MISSING), ('failed', 'red'))
+    check('gauge converging: unchanged', gauge(CONVERGING), ('pending', 'orange'))
     got = run(problems, BROKEN)
     check('problems broken: failed first, then drifted, nothing healthy', [(p['kind'], p['name'], p['state']) for p in got],
           [('Deployment', 'api', 'failed'), ('ConfigMap', 'env', 'drift')])
