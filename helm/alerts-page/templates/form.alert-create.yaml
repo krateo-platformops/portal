@@ -37,6 +37,18 @@ spec:
     {{/* into initialValues, never rendered/validated). draftActionId only ENABLES the button. */}}
     draftActionId: save-draft
     schema: {}
+    {{/* A metric Alert's metricRef.name is one of the Metrics in the namespace the Alert is created */}}
+    {{/* in (portal#228): alert-provider resolves it there and refuses a name that is no Metric, so */}}
+    {{/* the list is closed. It loads when Namespace has a value and follows it when it changes. An */}}
+    {{/* alert-provider CRD with no metricRef has no such field, and the Form skips the entry. */}}
+    dependencies:
+      - name: metricRef.name
+        dependsOn:
+          name: __alert_namespace__
+        resourceRefId: alert-metrics
+        extra:
+          key: namespace
+        closed: true
     buttonConfig:
       primary:
         label: Create alert
@@ -86,7 +98,15 @@ spec:
       expression: '${ .initialValues }'
   resourcesRefs:
     {{/* The create POST target is built from the discovered GVR in resourcesRefsTemplate below. */}}
-    items: []
+    {{/* alert-metrics: the options source of metricRef.name (the `dependencies` entry above); */}}
+    {{/* snowplow resolves its path and whether this caller may GET it. */}}
+    items:
+      - id: alert-metrics
+        apiVersion: templates.krateo.io/v1
+        resource: restactions
+        name: form-options-alert-metrics
+        namespace: {{ $.Values.namespace }}
+        verb: GET
   resourcesRefsTemplate:
     - template:
         id: create-alert

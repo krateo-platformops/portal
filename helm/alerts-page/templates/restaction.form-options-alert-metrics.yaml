@@ -1,0 +1,39 @@
+{{/* The OPTIONS source for an Alert's metricRef.name on the create form (portal#228): the Metrics */}}
+{{/* (metrics.observability.krateo.io) in the namespace the Alert is being created in. A metric */}}
+{{/* Alert references a Metric by name, resolved in the Alert's OWN namespace, and alert-provider */}}
+{{/* refuses a reference to one that does not exist (phase: Invalid) — so the field offers exactly */}}
+{{/* the Metrics that namespace holds, and form.alert-create keeps it closed. */}}
+{{/* */}}
+{{/* Called by the Form's `dependencies` entry with `extras: { namespace: <the Namespace field> }`: */}}
+{{/* no namespace, no call (the gate lint-ra-paths enforces), and the value is @uri-escaped, so a */}}
+{{/* typed value stays one path segment (lint-form-options). Dialled AS THE CALLER: the options are */}}
+{{/* the Metrics this person may list there. */}}
+{{/* */}}
+{{/* Each option: value = the Metric's name (what metricRef.name takes), label = the metric as it */}}
+{{/* is emitted (spec.metricName), description = how it is collected and what it measures. */}}
+{{/* No continueOnError: a 403 reads as "could not be loaded", never as "this namespace has none". */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: form-options-alert-metrics
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    krateo.io/form-options: "true"
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: metrics
+      dependsOn:
+        name: ""
+        iterator: '[ { namespace: ((.namespace // "") | tostring) } | select(.namespace != "") ]'
+      path: ${ "/apis/observability.krateo.io/v1alpha1/namespaces/" + (.namespace | @uri) + "/metrics" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      filter: >-
+        [ .metrics.items[]? | select((.metadata.name // "") != "")
+          | ([ .spec.type, .spec.unit, .spec.collectedBy, .spec.description ]
+             | map(select(type == "string" and . != "")) | join(" · ")) as $d
+          | { value: .metadata.name, label: (.spec.metricName // .metadata.name) }
+            + (if $d == "" then {} else { description: $d } end) ]
+  filter: '[(.metrics // [])[]]'

@@ -233,8 +233,46 @@ def check_create_form_offers_services():
     return f
 
 
+def check_create_form_offers_metrics():
+    """A metric Alert's metricRef.name offers the Metrics of the namespace the Alert is created in,
+    closed (alert-provider refuses a name that is no Metric there), and follows the Namespace field
+    (portal#228)."""
+    f = []
+    form = CH.get('Form', 'alert-create')['spec']
+    deps = form['widgetData'].get('dependencies') or []
+    expect(f, 'metricRef.name depends on the Namespace field, closed', deps, [
+        {'name': 'metricRef.name', 'dependsOn': {'name': '__alert_namespace__'}, 'resourceRefId': 'alert-metrics',
+         'extra': {'key': 'namespace'}, 'closed': True}])
+    refs = {r['id']: r for r in form['resourcesRefs']['items']}
+    ref = refs.get('alert-metrics') or {}
+    expect(f, 'the options ref is a GET of the options RESTAction',
+           (ref.get('resource'), ref.get('verb'), ref.get('name'), ref.get('namespace')),
+           ('restactions', 'GET', 'form-options-alert-metrics', 'krateo-alerts'))
+    ra = CH.get('RESTAction', 'form-options-alert-metrics')
+    step = ra['spec']['api'][0]
+    path = lambda ex: [tbi.jq(step['path'].strip()[2:-1], item) for item in tbi.jq(step['dependsOn']['iterator'], ex)]
+    expect(f, 'no namespace: no call', path({}), [])
+    expect(f, 'the namespace picked', path({'namespace': 'team-a'}),
+           ['/apis/observability.krateo.io/v1alpha1/namespaces/team-a/metrics'])
+    expect(f, 'a typed value stays one segment', path({'namespace': 'a/../b'}),
+           ['/apis/observability.krateo.io/v1alpha1/namespaces/a%2F..%2Fb/metrics'])
+    metrics = {'items': [
+        {'metadata': {'name': 'k8s-container-ready'},
+         'spec': {'metricName': 'k8s.container.ready', 'type': 'gauge', 'collectedBy': 'k8sclusterreceiver',
+                  'description': 'Whether a container is ready.'}},
+        {'metadata': {'name': 'bare'}, 'spec': {'metricName': 'bare.metric'}},
+        {'metadata': {}, 'spec': {'metricName': 'nameless'}}]}
+    options = tbi.jq(ra['spec']['filter'], {'metrics': tbi.jq(step['filter'], {'metrics': metrics})})
+    expect(f, 'one option per Metric: its name stored, the emitted name shown', options, [
+        {'value': 'k8s-container-ready', 'label': 'k8s.container.ready',
+         'description': 'gauge · k8sclusterreceiver · Whether a container is ready.'},
+        {'value': 'bare', 'label': 'bare.metric'}])
+    expect(f, 'no Metric: an empty list, not a failure', tbi.jq(ra['spec']['filter'], {}), [])
+    return f
+
+
 CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill,
-          check_create_form_offers_services]
+          check_create_form_offers_services, check_create_form_offers_metrics]
 
 
 def main():
