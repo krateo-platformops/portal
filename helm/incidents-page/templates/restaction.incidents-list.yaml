@@ -22,7 +22,10 @@
      OUTPUT.
        rows      the incidents in the picked state (resolved, closed: in the range), newest first: title, cause, state, target (the
                  composition the analysis read, else the first object it read), category (the root
-                 cause's), fixReady (an Open incident whose fix can be applied);
+                 cause's), fixReady (an Open incident whose fix can be applied), triggeredAt (when it
+                 opened, always set: spec.triggeredAt, else its creation), ordinal (its place among
+                 its alert's incidents, "24th", as its own page numbers it) and fromAlert (the card
+                 footer's " · 24th from this alert");
        counts    per state, the chips' and the donut's: the live states over every incident,
                  Resolved and Closed in the range, as their lists are; all over every incident;
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
@@ -63,7 +66,7 @@ spec:
       continueOnError: true
       errorKey: alertsError
   filter: |
-    def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
+    {{- include "portal.incidentOrdinalDefs" . | nindent 4 }}
     # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list, each element a
     # message string or the apiserver's Status object, so the text is read from either.
     def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
@@ -104,11 +107,15 @@ spec:
     | (.alertsError != null) as $alertsFailed
     | ($alerts | map({ key: (.metadata.name // ""), value: ((.spec.displayName // "") | dispname) }) | from_entries) as $alertBy
     | now as $now
+    # Each incident's place among its alert's incidents, counted over every incident read (not only
+    # the state on screen), by the rule incident-detail's ordinalLabel uses (portal.incidentOrdinalDefs).
+    | ($items | incidentPlaces) as $places
     | ($items | map(
         (.status.state // "Analyzing") as $state
-        | alertlabel as $alert
+        | incidentAlert as $alert
         | ($alertBy[$alert] // "") as $dn
-        | (.spec.triggeredAt // .metadata.creationTimestamp // "") as $at
+        | incidentWhen as $at
+        | ($places[.metadata.name // ""] // null) as $place
         | (.status.rootCause.statement // "") as $rc
         | (.status.analyzedResources // []) as $analyzed
         | (([ $analyzed[] | select((.gvr // "") | contains("composition")) ] | first) // $analyzed[0] // null) as $t
@@ -131,6 +138,11 @@ spec:
             stateKey: ($state | ascii_downcase),
             age: (.metadata.creationTimestamp // .spec.triggeredAt // ""),
             triggeredAt: $at,
+            # "24th": this incident's place among its alert's incidents, the number its own page gives
+            # it; "" for an incident with no alert. fromAlert is the card footer's tail, " · 24th from
+            # this alert", "" with no place, so the footer never reads " ·  from this alert".
+            ordinal: (if $place == null then "" else ($place | nth) end),
+            fromAlert: (if $place == null then "" else " · " + ($place | nth) + " from this alert" end),
             sevColor: ({ Open: "var(--red-color)", Verifying: "var(--orange-color)", Resolved: "var(--green-color)" }[$state] // "var(--gray-color)"),
             alert: $alert,
             # The root cause's category (config, capacity, image, network, dependency, permission,

@@ -26,8 +26,14 @@ THE DASHBOARD (mockup A4):
     (chips, then the cards, or ?view=table the table, or a line when there is nothing to list or the
     read failed) on two thirds, the charts on one third, the "Firing, not investigated" card only
     while there are such alerts or their read failed;
-  - a card says the state (its colour), the category, the cause and the object the analysis read,
-    and a wrench marks an Open incident whose fix can be applied;
+  - a card says the state (its colour), the category, the cause, and in its footer when it opened
+    (a Listy time token over triggeredAt, the browser's) and which of its alert's incidents it is
+    ("24th from this alert"); the object the analysis read is the table's Target, not the card's;
+    a wrench marks an Open incident whose fix can be applied;
+  - THE NUMBER IS THE INCIDENT PAGE'S: each row's ordinal is its place among its alert's incidents,
+    by time then name, counted over every incident whatever the state on screen, and incident-detail's
+    ordinalLabel gives every incident the same number (one rule, portal.incidentOrdinalDefs); an
+    incident with no alert has none, and its footer says only when it opened;
   - an alert's display name loses a decorative emoji but keeps its punctuation (an em dash), with
     whitespace runs collapsed: it is the card title and the table's Incident.
 THE PROMPT. incidents-list builds the header button's `askHref`: /incidents with every param and the
@@ -462,6 +468,10 @@ def check_cards_and_table():
     tpl = cards['itemTemplate']
     expect(f, 'a card per incident, opening it', (tpl['rowVariant'], tpl['navigateTo'], tpl['secondaryText'], tpl['description']),
            ('card', '/incidents/{namespace}/{name}', '{state}', '{cause}'))
+    # INC-3: the footer is when it opened and its number; the target is the table's alone.
+    expect(f, 'the footer: opened (a time token, with a fallback path) and the number',
+           tpl['subSecondaryText'], 'Opened {ago:{triggeredAt|age}}{fromAlert}')
+    expect(f, 'the card names no target', any('target' in str(v) for v in tpl.values()), False)
     rows = {r['name']: r for r in cards['dataSource']}
     expect(f, 'the open ones, newest first', list(rows), ['o1', 'o2', 'o3'])
     expect(f, 'target: the composition the analysis read, else the first object',
@@ -614,8 +624,50 @@ def check_tile_routes():
     return f
 
 
+def ordinal_label(inc, items):
+    """incident-detail's ordinalLabel for `inc`, over the same namespace list."""
+    ra = CH.get('RESTAction', 'incident-detail')
+    data = {'name': inc['metadata']['name'], 'namespace': 'krateo-system', 'incident': inc,
+            'incidents': {'items': items}, 'incidentApplies': {'items': []}}
+    return tbi.jq(ra['spec']['filter'], data)['ordinalLabel']
+
+
+def check_ordinal():
+    """INC-3: "24th from this alert" on the card, the number the incident's own page gives it."""
+    f = []
+    cert = [incident(f'cert-{i:02d}', 'Open' if i % 3 else 'Resolved', ago(200 - i * 5), alert='cert',
+                     cause=f'cause {i}', resolved=None if i % 3 else ago(1)) for i in range(1, 25)]
+    # Two of one alert at the same second: by name, as on the incident page.
+    tie = [incident('tie-b', 'Open', '2026-11-20T10:00:00Z', alert='tie'), incident('tie-a', 'Open', '2026-11-20T10:00:00Z', alert='tie')]
+    lone = incident('lone', 'Open', ago(3), cause='no alert names it')
+    items = cert + tie + [lone]
+    out = resolve(responses(incidents={'items': items}), {'status': 'all'})
+    rows = {r['name']: r for r in out['rows']}
+    expect(f, 'the newest of 24: 24th', (rows['cert-24']['ordinal'], rows['cert-24']['fromAlert']), ('24th', ' · 24th from this alert'))
+    expect(f, 'suffixes', [rows[f'cert-{i:02d}']['ordinal'] for i in (1, 2, 3, 11, 12, 13, 21, 22, 23)],
+           ['1st', '2nd', '3rd', '11th', '12th', '13th', '21st', '22nd', '23rd'])
+    expect(f, 'a tie: by name', (rows['tie-a']['ordinal'], rows['tie-b']['ordinal']), ('1st', '2nd'))
+    expect(f, 'no alert: no number, and the footer says only when it opened',
+           (rows['lone']['ordinal'], rows['lone']['fromAlert'], rows['lone']['triggeredAt'] != ''), ('', '', True))
+    # Counted over every incident, not the state on screen: the Resolved ones still come before.
+    open_rows = {r['name']: r['ordinal'] for r in resolve(responses(incidents={'items': items}), {})['rows']}
+    expect(f, 'Open on screen: the place among all of the alert\'s incidents', open_rows.get('cert-23'), '23rd')
+    # One rule: the incident page numbers every incident the same.
+    for inc in [cert[0], cert[10], cert[23], tie[0], tie[1], lone]:
+        n = inc['metadata']['name']
+        want = '' if rows[n]['ordinal'] == '' else ('First incident from this alert' if rows[n]['ordinal'] == '1st'
+                                                   else f'{rows[n]["ordinal"]} incident from this alert')
+        expect(f, f'{n}: the incident page gives the same number', ordinal_label(inc, items), want)
+    w = widget_data('Listy', 'incidents-cards', out, {'status': 'all'})
+    first = next(r for r in w['dataSource'] if r['name'] == 'cert-24')
+    expect(f, 'the footer, as the browser gets it before the token is written',
+           w['itemTemplate']['subSecondaryText'].replace('{triggeredAt|age}', first['triggeredAt']).replace('{fromAlert}', first['fromAlert']),
+           'Opened {ago:' + first['triggeredAt'] + '} · 24th from this alert')
+    return f
+
+
 CHECKS = [check_default_is_open, check_no_model_analysis, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_closed_in_range, check_tile_routes, check_routes,
-          check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
+          check_search, check_layout, check_cards_and_table, check_ordinal, check_awaiting, check_display_names, check_filter_keys]
 
 
 def main():

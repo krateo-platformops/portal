@@ -1,7 +1,16 @@
 {{/* One card per incident in the picked state, newest first: the alert's title, the state as a
-     coloured tag, the root cause's category, the root cause, and the object the analysis read
-     (the composition when it read one). A wrench top right marks an Open incident whose fix can
-     be applied (on its page). The whole card opens the incident. */}}
+     coloured tag, the root cause's category, the root cause, and a footer saying when it opened and
+     which of its alert's incidents it is ("Opened 52 minutes ago · 24th from this alert", audit
+     INC-3): several cards often share one title, and the age and the number tell them apart. The
+     object the analysis read is the Full list's Target column, not the card's. A wrench top right
+     marks an Open incident whose fix can be applied (on its page). The whole card opens the
+     incident.
+
+     The footer's time is a Listy time token, `{ago:{path}}`, written by the browser in the viewer's
+     zone with the full date on hover (frontend fix/listy-time-tokens, on #803): an age computed
+     here would freeze in snowplow's cache. A token whose path resolves empty shows literally, so the
+     path carries a fallback (triggeredAt, else age, the creation time) and incidents-list always
+     sets triggeredAt. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -28,7 +37,7 @@ spec:
       primaryText: '{title}'
       secondaryText: '{state}'
       subPrimaryText: '{category}'
-      subSecondaryText: '{target}'
+      subSecondaryText: 'Opened {ago:{triggeredAt|age}}{fromAlert}'
       description: '{cause}'
       cardCta: Open incident
       navigateTo: '/incidents/{namespace}/{name}'

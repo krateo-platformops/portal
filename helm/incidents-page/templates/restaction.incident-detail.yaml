@@ -49,6 +49,7 @@ spec:
   {{/* Literal `|` block: the filter carries `#` comments, which a folded block would join into */}}
   {{/* one line and so comment out the rest of the program. */}}
   filter: |
+    {{- include "portal.incidentOrdinalDefs" . | nindent 4 }}
     # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
     def epoch: (if type == "string" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
     # An absolute time, never one relative to now: the page is cached until the incident changes, and
@@ -61,8 +62,6 @@ spec:
     # dropped the em dash of "Krateo — composition reconcile errors" (leaving two spaces) and every
     # accented letter. Then whitespace runs become one space, trimmed. Same regex on jq and gojq.
     def dispname: gsub("[\\p{So}\\x{1F3FB}-\\x{1F3FF}\\x{200D}\\x{FE0F}]"; "") | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "");
-    def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
-    def when: (.spec.triggeredAt // .metadata.creationTimestamp // "");
     def isnum: (type == "number");
     # A result's outcome in words; exit is absent for a timeout, a pod that never ran, and a hand-run apply.
     def outcome: (.script // "") as $sc | (.exit // null) as $x
@@ -72,9 +71,6 @@ spec:
         elif $x == 1 then "still holds"
         else "unknown" end;
     def fence: (if test("```") then "````" else "```" end);
-    # 1 → "1st", 12 → "12th", 23 → "23rd".
-    def ordinal: (. % 100) as $h | (. % 10) as $u
-      | tostring + (if $h >= 11 and $h <= 13 then "th" elif $u == 1 then "st" elif $u == 2 then "nd" elif $u == 3 then "rd" else "th" end);
     # A source ref naming one object as <gvr>/<namespace>/<name> (the RCA prompt's format; namespace
     # empty for a cluster-scoped object) → {gvr, namespace, name}; anything else → null. A leading
     # "k8s:", a "core/" group and a cluster-scoped object written without the empty namespace are
@@ -103,7 +99,7 @@ spec:
     | (($r | length) > 0) as $exists
     | ($r.spec // {}) as $sp
     | ($r.status // {}) as $st
-    | ($r | alertlabel) as $alertName
+    | ($r | incidentAlert) as $alertName
     | ($sp.alertRef.namespace // $ns) as $alertNs
     | ((.alert // {}) | if type == "object" and ((.metadata.name // "") != "") and (.metadata.name == $alertName) then . else null end) as $alert
     | ($st.state // "Analyzing") as $state
@@ -150,8 +146,9 @@ spec:
     | ((if $alert then ($alert.spec.displayName // "") else "" end) | dispname) as $alertDisplay
     | (if $alertDisplay != "" then $alertDisplay elif ($rc.statement // "") != "" then $rc.statement elif $alertName != "" then $alertName else $n end) as $title
     | ((.incidents.items) // [] | map(. + { metadata: (.metadata + { namespace: (.metadata.namespace // $ns) }) })) as $all
-    | ([ $all[] | select(alertlabel == $alertName and $alertName != "") ] | sort_by([when, .metadata.name])) as $siblings
-    | (($siblings | map(.metadata.name) | index($n)) // null) as $ordinal
+    # This incident's place among its alert's incidents (portal.incidentOrdinalDefs, the rule the
+    # /incidents cards number by too), null when it has no alert.
+    | (($all | incidentPlaces)[$n] // null) as $place
     | ($sp.applied // false) as $appliedPending
     # spec.reanalysis: a request for a new analysis, until alert-provider consumes it.
     | (($sp.reanalysis // null) != null) as $reanalysisPending
@@ -257,16 +254,16 @@ spec:
        | join("\n\n")
        + (if ($runs | length) > 10 then "\n\n_The 10 most recent runs; the table lists all of them._" else "" end)) as $runsMd
     | ([ $all[] | select(.metadata.name != $n) ]) as $others
-    | ( ([ $others[] | select($alertName != "" and alertlabel == $alertName) ] | sort_by(when) | reverse | map(. + { _why: "same alert" }))
+    | ( ([ $others[] | select($alertName != "" and incidentAlert == $alertName) ] | sort_by(incidentWhen) | reverse | map(. + { _why: "same alert" }))
       + (if ($rc.category // "") != "" then
-          ([ $others[] | select(alertlabel != $alertName and (.status.rootCause.category // "") == $rc.category) ] | sort_by(when) | reverse | map(. + { _why: ("same category · " + $rc.category) }))
+          ([ $others[] | select(incidentAlert != $alertName and (.status.rootCause.category // "") == $rc.category) ] | sort_by(incidentWhen) | reverse | map(. + { _why: ("same category · " + $rc.category) }))
         else [] end)
       | .[0:6]
       | map({ name: .metadata.name, namespace: .metadata.namespace,
-              title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement else alertlabel end),
+              title: (if (.status.rootCause.statement // "") != "" then .status.rootCause.statement else incidentAlert end),
               state: (.status.state // "Analyzing"),
               reason: ._why,
-              when: when }) ) as $similar
+              when: incidentWhen }) ) as $similar
     # WHOSE FIX IT IS: status.rootCause.owner (incident-provider 0.10.0), one Summary row. Absent
     # means not assessed (an older CRD, or an analysis from before it), and then there is no row.
     # `unknown` is assessed and undecided, and never leads to a proposal. A value outside the enum is
@@ -345,7 +342,7 @@ spec:
         alertStateColor: (if $alert == null then "gray" else ({ OK: "green", ALERT: "red", PENDING: "orange" }[$alert.status.state // "PENDING"] // "gray") end),
         alertOkFor: (if $alert != null and ($alert.status.state // "") == "OK" and ($alert.status.okSince // "") != "" then ("since " + ($alert.status.okSince | stamp)) else "" end),
         # Only earlier incidents count, so the number never changes once the page is cached.
-        ordinalLabel: (if $ordinal == null then "" elif $ordinal == 0 then "First incident from this alert" else ((($ordinal + 1) | ordinal) + " incident from this alert") end),
+        ordinalLabel: (if $place == null then "" elif $place == 1 then "First incident from this alert" else (($place | nth) + " incident from this alert") end),
         diagnoseHref: ("/incidents/" + $ns + "/" + $n + "?ask="
           + (("Diagnose this incident (\"" + $n + "\" in namespace \"" + $ns
              + "\"). Explain what it contains, what happened, the most likely root cause,"
@@ -369,7 +366,7 @@ spec:
           (((($staleCond.message // "") | rtrimstr(".")) | if . == "" then "Apply targets an apiVersion or resource this cluster does not serve" else . end)
            + ". A new analysis has been requested automatically.") else "" end),
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
-        metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
+        metaItems: ([ (if ($r | incidentWhen) != "" then { label: "Started", value: ($r | incidentWhen | stamp) } else empty end),
                       # On an Open incident the header's progress line already says "Analyzed at" this
                       # same time (headerProgress), so the row does not say it twice.
                       (if ($st.completedAt // "") != "" and ($noAnalysis | not) and $state != "Open" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
