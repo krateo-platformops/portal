@@ -199,6 +199,11 @@ def check_reasoning(chart):
     expect(f, 'card title', w['incident-why-card']['title'], 'Reasoning')
     expect(f, 'tabs', [(t['label'], t['resourceRefId']) for t in w['incident-why-tabs']['items']],
            [('Reasoning trace', 'incident-trace'), ('Evidence · 8', 'incident-evidence'), ('Gaps & assumptions', 'incident-gaps')])
+    # Every trace step is a finished part of the analysis: none is the current one, so antd draws no
+    # step "active" (an active step's "Evidence N" line took another colour, UX audit INC-6).
+    trace = w['incident-trace']
+    expect(f, 'trace: every step finished, none current',
+           ([i['status'] for i in trace['items']], trace['current'] >= len(trace['items'])), (['finish'] * 4, True))
     expect(f, 'gaps as two lists', w['incident-gaps']['markdown'],
            '**Could not see**\n\n- Logs between 11:05Z and 13:00Z are absent.\n\n'
            '**Assumed**\n\n- The composition controller may recreate the Alert.')
@@ -288,6 +293,15 @@ def check_how_to_fix(chart):
     for word in ('controller runs', 'sandbox', 'exit **', 'exit 1 ·', 'Undoes apply. Run it'):
         if any(word in m for m in md):
             f.append(f'a step still explains itself: {word!r}')
+    # The marks (UX audit INC-6). The precondition runs only while Open, where "still holds" (exit 1)
+    # is the answer that says the fix is still needed: a finished step, never a red one.
+    expect(f, 'Open, precondition still holds: finished, apply is the step at hand',
+           [s['status'] for s in out['fixStepsForWidget']], ['finish', 'process', 'wait', 'wait'])
+    out, _ = page(incident(state='Verifying', lastChecks={'precondition': {'exit': 1, 'since': '2026-11-12T13:26:49Z'},
+                                                         'apply': {'exit': 0, 'since': '2026-11-12T13:30:00Z'}}),
+                  'verifying', alert_obj=alert(), chart=chart)
+    expect(f, 'Verifying: the precondition\'s last "still holds" (from while Open) is no error; verify is the running check',
+           [s['status'] for s in out['fixStepsForWidget']][:3], ['finish', 'finish', 'process'])
     # A step with no script says so.
     out, w = page(incident(howToFix=dict(fix, verify='')), 'no verify', alert_obj=alert(), chart=chart)
     expect(f, 'no script: said', w['incident-rem-step-md-2']['markdown'], '**Last run:** never\n\n_No verify script._')
