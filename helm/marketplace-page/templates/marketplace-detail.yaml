@@ -53,16 +53,17 @@ spec:
   {{/* version are what this page shows and Configure opens (UX audit MKT-2). */}}
   {{/* LATEST is the newest version by version number (withLiveVer), the order the blueprint page */}}
   {{/* picks its "Latest version" by (restaction.blueprint-detail), so the two pages cannot disagree */}}
-  {{/* over an index that is not newest-first (UX audit BP-2). CATEGORY is the chart's */}}
-  {{/* krateo.io/category, title-cased, as its Marketplace card shows it (restaction.blueprints-catalog), */}}
-  {{/* or "" — never its first keyword ("krateo") or a made-up "uncategorized" (MKT-5). A name the */}}
+  {{/* over an index that is not newest-first (UX audit BP-2). CATEGORY is the one rule its Marketplace */}}
+  {{/* card and the category chips use (portal.marketplaceCategoryDefs, _category.tpl): the chart's */}}
+  {{/* krateo.io/category, else the first keyword the fixed table lists, else "" and no row — never its */}}
+  {{/* first keyword as such ("krateo") or a made-up "uncategorized" (MKT-5). A name the */}}
   {{/* catalog does not hold says so in the description and has no About rows: it showed "Category */}}
   {{/* uncategorized, Installed yes" for a platform component that only shares the name (MKT-3). */}}
   filter: >
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     {{- include "portal.marketplaceInstalledDefs" . | nindent 4 }}
-    def titlecase: if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end;
+    {{- include "portal.marketplaceCategoryDefs" . | nindent 4 }}
     withLive
     | ((.name // "") | tostring) as $n
     | ( ((.catalog // {}).entries[$n]) // ((.operators // {}).entries[$n]) // [] | [ .[] | objects ] | sort_by(.version // "" | withLiveVer) | reverse ) as $vers
@@ -70,7 +71,7 @@ spec:
     | ( $vers[0] // {} ) as $latest
     | ( [ $vers[] | .version | select(. != null and . != "") ] | unique ) as $availableVersions
     | ( ($latest.annotations // {}) ) as $ann
-    | ( ($ann["krateo.io/category"] // "") | tostring | ascii_downcase | titlecase ) as $cat
+    | ( $latest | marketplaceCategory | marketplaceCategoryLabel ) as $cat
     | {
         name: $n,
         found: ($vers | length > 0),

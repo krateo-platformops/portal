@@ -462,6 +462,39 @@ check('one rule, every card agrees with its page',
 check('an operator\'s page finds it in the operators index', (detail_of('cert-manager', [])['found'], detail_of('cert-manager', [])['version']), (True, '1.0.0'))
 check('the rule is one definition, included by both', all('def installedOf(' in p for p in (cat_prog, detail_prog)), True)
 
+# --- ONE RULE for a chart's category (portal.marketplaceCategoryDefs, UX audit MKT-4/MKT-5) ------
+# The krateo.io/category annotation when it is one of the eight, else the first of the chart's own
+# keywords the fixed table lists (whole tokens), else none. The tile's tag, the chips and the detail
+# page's Category row all read it (Diego, 2026-11-25: the derived category shows everywhere).
+def entry(name, keywords=None, category=None, version='1.0.0'):
+    e = {'name': name, 'version': version, 'urls': [f'{BASE}/{name}-{version}.tgz'], 'keywords': keywords or []}
+    if category is not None:
+        e['annotations'] = {'krateo.io/category': category}
+    return [e]
+CAT_INDEX = {'entries': {
+    'aws-rds-stack': entry('aws-rds-stack', ['aws', 'rds'], 'Database'),           # annotation, any case
+    'rds-chart': entry('rds-chart', ['aws', 'ack', 'kubernetes', 'rds']),        # keyword rds, after three unlisted
+    'acm-chart': entry('acm-chart', ['acm', 'iam']),                             # the FIRST listed keyword wins
+    'autoscaling-chart': entry('autoscaling-chart', ['kubernetes', 'autoscaling']),
+    'agentgateway': entry('agentgateway', ['agentgateway', 'gateway']),          # whole token, not its own name
+    'kube-thing': entry('kube-thing', ['kubernetes', 'ec2-like']),               # substrings only: none
+    'odd-annotation': entry('odd-annotation', ['S3'], 'krateo'),                 # not one of the eight: keyword, any case
+    'acme-feedback': entry('acme-feedback')}}                                     # nothing: none
+CAT_OPS = {'entries': {'cert-manager': [{'name': 'cert-manager', 'version': '1.0.0', 'urls': ['https://charts.example/operators/cm.tgz'],
+                                         'keywords': ['cert-manager', 'security']}]}}
+WANT_CAT = {'aws-rds-stack': 'Database', 'rds-chart': 'Database', 'acm-chart': 'Security', 'autoscaling-chart': 'Compute',
+            'agentgateway': 'Network', 'kube-thing': '', 'odd-annotation': 'Storage', 'acme-feedback': '', 'cert-manager': 'Security'}
+cat_cards = {c['name']: c for c in jq(cat_prog, {'catalog': CAT_INDEX, 'operators': CAT_OPS, 'compdefs': []})['cards']}
+check('category rule: each tile\'s tag', {n: c.get('category') for n, c in cat_cards.items()}, WANT_CAT)
+check('category rule: the key beside the word', {n: c.get('categoryKey') for n, c in cat_cards.items()}, {n: v.lower() for n, v in WANT_CAT.items()})
+cat_details = {n: jq(detail_prog, {'name': n, 'catalog': CAT_INDEX, 'operators': CAT_OPS, 'compdefs': []}) for n in WANT_CAT}
+check('category rule: the detail page says what the tile says', {n: d['category'] for n, d in cat_details.items()}, WANT_CAT)
+about = expr_of(named(mpage, 'Descriptions', 'descriptions-marketplace-detail-about'), 'items')
+check('category rule: the Category row, derived or annotated, and no row for none',
+      {n: [i['value'] for i in jq(about, d) if i['label'] == 'Category'] for n, d in cat_details.items()},
+      {n: ([v] if v else []) for n, v in WANT_CAT.items()})
+check('category rule: one definition, included by both', all('def marketplaceCategory:' in p for p in (cat_prog, detail_prog)), True)
+
 for f in failures:
     print(f'FAIL  {f}')
 print(f'{"FAILED" if failures else "ok"}: Ask Agentiko on compositions, blueprints and marketplace'

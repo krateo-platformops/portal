@@ -59,6 +59,7 @@ spec:
   filter: |
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.marketplaceInstalledDefs" . | nindent 4 }}
+    {{- include "portal.marketplaceCategoryDefs" . | nindent 4 }}
     def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
       | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
     def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
@@ -104,8 +105,6 @@ spec:
     def iconFor($kws; $cat; $fallback):
       ( first( kwIcon[] | select( . as $pair | any($kws[]; contains($pair[0])) ) | .[1] ) )
       // (catIcon[$cat]) // $fallback;
-    # Title-case a lower-case category token for the on-card pill (compute -> Compute).
-    def titlecase: if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end;
     # INSTALLED: portal.marketplaceInstalledDefs (_installed.tpl), the ONE rule this grid and the
     # chart's detail page share: chart identity, the helm repo + chart for a helm-repo install and
     # the chart name for an OCI one (same name counts, UX audit MKT-2), never the CD's own name.
@@ -142,11 +141,12 @@ spec:
               source: .source,
               typeLabel: (if .source == "operator" then "Operator" else "Blueprint" end),
               typeColor: (if .source == "operator" then "magenta" else "cyan" end),
-              # CATEGORY pill (the mockup's per-tile defining signal) — the REAL
-              # `krateo.io/category` annotation (compute/network/database/...), title-cased for
-              # display. Empty when the chart carries no category (e.g. operators) -> the card
-              # renders no pill (never invented). Type stays on the icon tint (typeColor).
-              category: (((.annotations // {})["krateo.io/category"] // "") | ascii_downcase | titlecase),
+              # CATEGORY (portal.marketplaceCategoryDefs, _category.tpl, the rule the detail page
+              # shares): the krateo.io/category annotation, else the first keyword the fixed table
+              # lists, else "" -> the card renders no tag (never "uncategorized"). `category` is the
+              # printed word (Database), `categoryKey` the key (database).
+              categoryKey: marketplaceCategory,
+              category: (marketplaceCategory | marketplaceCategoryLabel),
               # Per-card icon: keyword service-family -> category annotation -> source glyph.
               # Presentational, driven entirely by the card's own real helm data.
               icon: iconFor(
