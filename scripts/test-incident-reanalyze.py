@@ -15,6 +15,8 @@ what a reader would see:
   - a precondition or verify whose last run gave no verdict shows what the run printed
     (status.lastChecks.<script>.output); the apply step never does;
   - the Flagged note offers the re-run;
+  - an incident no model analyses (its alert is analysed by a person, or no analysis agent is
+    installed) is information, never a failed analysis: no Re-run and no "Analyzed";
   - a Resolved or Closed incident names what ended it (status.resolution.by): the verify script, a
     person, or an automated close (alert-gone: its Alert was deleted; analysis-failed: the analysis
     failed), and a value the page does not know yet reads as itself, never as "a person".
@@ -46,7 +48,7 @@ expect, apply_overrides, ref_template = tpr.expect, tpr.apply_overrides, tpr.ref
 WIDGETS = (('Flex', 'incident-detail-actions'), ('Button', 'incident-detail-reanalyze'),
            ('Form', 'incident-reanalyze-form'),
            ('Markdown', 'incident-rem-step-md-0'), ('Markdown', 'incident-rem-step-md-1'),
-           ('Markdown', 'incident-rem-step-md-2'), ('Alert', 'incident-no-agent'))
+           ('Markdown', 'incident-rem-step-md-2'), ('Alert', 'incident-no-analysis'))
 
 # As krateo-057 carries it (sre-probe-failing-20261011-224948): verify exits 2 on a jq parse error.
 JQ_ERROR = ('jq: error: Invalid escape at line 1, column 4 (while parsing \'"\\x"\') at <top-level>, line 1:\n'
@@ -121,14 +123,55 @@ def check_no_analysis_agent(chart):
     out, w = resolve(chart, no_agent('na-1'), 'no agent')
     expect(f, 'no Re-run', (out['canReanalyze'], 'incident-detail-reanalyze' in actions(w)), (False, False))
     expect(f, 'its own notice, in alert-provider\'s words; no failure and no empty-report sentence',
-           (out['sections']['noAgent'], out['noAgentText'], out['sections']['error'], out['sections']['prose']), (True, msg, False, False))
-    expect(f, 'the notice is information', w['incident-no-agent']['type'], 'info')
+           (out['sections']['noAnalysis'], out['noAnalysisText'], out['sections']['error'], out['sections']['prose']), (True, msg, False, False))
+    expect(f, 'the notice is information, titled as such', (w['incident-no-analysis']['type'], w['incident-no-analysis']['title']),
+           ('info', 'No analysis on this platform'))
+    expect(f, 'completedAt is not an analysis: no "Analyzed"', [i['label'] for i in out['metaItems']], ['Started'])
     out, _ = resolve(chart, no_agent('na-2', error='old failure'), 'no agent, error')
-    expect(f, 'the condition wins over a leftover status.error', (out['sections']['noAgent'], out['sections']['error']), (True, False))
+    expect(f, 'the condition wins over a leftover status.error', (out['sections']['noAnalysis'], out['sections']['error']), (True, False))
     out, _ = resolve(chart, no_agent('na-3', status='False'), 'agent arrived')
-    expect(f, 'False: an agent is there, Re-run is offered', (out['sections']['noAgent'], out['canReanalyze']), (False, True))
+    expect(f, 'False: an agent is there, Re-run is offered', (out['sections']['noAnalysis'], out['canReanalyze']), (False, True))
     out, _ = resolve(chart, no_agent('na-4', state='Closed'), 'closed')
-    expect(f, 'a closed incident keeps what it had: not read there', out['sections']['noAgent'], False)
+    expect(f, 'a closed incident keeps what it had: not read there', out['sections']['noAnalysis'], False)
+    return f
+
+
+# alert-provider's HumanOnly, which it writes into status.error of every incident of an alert labelled
+# observability.krateo.io/analysis=human (internal/incident/writer.go).
+HUMAN_ONLY = 'This alert is analysed by a person: no model reads what it matched.'
+
+
+def check_analysed_by_a_person(chart):
+    """An alert labelled observability.krateo.io/analysis=human (copied to its incidents) is analysed by a
+    person by design: alert-provider opens its incident Open, with completedAt and HumanOnly in
+    status.error, and drops any reanalysis request. Nothing failed, nothing was analysed, nothing would
+    answer a Re-run (krateo-057: sre-incident-checks-unknown-20261114-171427 read "The analysis failed")."""
+    f = []
+
+    def person(name, state='Open'):
+        inc = incident(name, state=state)
+        inc['metadata']['labels']['observability.krateo.io/analysis'] = 'human'
+        inc['status'] = {'state': state, 'error': HUMAN_ONLY, 'completedAt': '2026-11-14T17:14:27Z'}
+        return inc
+
+    out, w = resolve(chart, person('hp-1'), 'by a person')
+    expect(f, 'no failure banner and no empty-report sentence', (out['sections']['error'], out['sections']['prose']), (False, False))
+    expect(f, 'a notice, information, in the page\'s words',
+           (out['sections']['noAnalysis'], w['incident-no-analysis']['type'], w['incident-no-analysis']['title'], w['incident-no-analysis']['description']),
+           (True, 'info', 'Analyzed by a person',
+            'This alert is analyzed by a person: no model reads what it matched, so no analysis or fix is proposed here.'))
+    expect(f, 'no Re-run: alert-provider drops the request', (out['canReanalyze'], 'incident-detail-reanalyze' in actions(w)), (False, False))
+    expect(f, 'no "Analyzed" anywhere', ([i['label'] for i in out['metaItems']], out['headerProgress']), (['Started'], None))
+    expect(f, 'Close is still offered', out['canClose'], True)
+    out, w = resolve(chart, person('hp-2', state='Closed'), 'by a person, closed')
+    expect(f, 'closed: still no failure, still said (a label does not change)',
+           (out['sections']['error'], out['sections']['noAnalysis']), (False, True))
+    plain = incident('hp-3')
+    plain['metadata']['labels']['observability.krateo.io/analysis'] = 'model'
+    plain['status'].update({'error': 'the model timed out'})
+    del plain['status']['howToFix'], plain['status']['rootCause']
+    out, _ = resolve(chart, plain, 'another label value')
+    expect(f, 'any other label value: a failure is still one', (out['sections']['error'], out['sections']['noAnalysis']), (True, False))
     return f
 
 
@@ -158,7 +201,10 @@ def check_drawer_form_patches_spec_reanalysis(chart):
 def check_meta_items_show_the_reanalysis(chart):
     f = []
     out, _ = resolve(chart, incident('m-1'), 'none')
-    expect(f, 'no reanalysis: no item', [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
+    expect(f, 'no reanalysis: no item; Open, "Analyzed" is the header\'s alone', [i['label'] for i in out['metaItems']], ['Started'])
+    out, _ = resolve(chart, incident('m-1v', state='Verifying'), 'verifying')
+    expect(f, 'Verifying: the header says something else, so the row says when it was analyzed',
+           [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
     out, _ = resolve(chart, incident('m-2', spec_reanalysis={'feedback': 'x'}), 'pending')
     expect(f, 'a waiting request', out['metaItems'][-1], {'label': 'Re-analysis', 'value': 'requested, waiting to start'})
     out, _ = resolve(chart, incident('m-3', reanalysis={'at': '2026-10-21T10:00:00Z', 'count': 2,
@@ -194,7 +240,7 @@ def check_meta_items_name_what_ended_it(chart):
         expect(f, f'resolution.by={by!r}', out['metaItems'][-1], {'label': label, 'value': value})
     inc = incident('r-open')
     out, _ = resolve(chart, inc, 'no resolution')
-    expect(f, 'no resolution: no item', [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
+    expect(f, 'no resolution: no item', [i['label'] for i in out['metaItems']], ['Started'])
     return f
 
 
@@ -226,6 +272,7 @@ def check_flagged_note_offers_the_rerun(chart):
 
 CHECKS = [
     check_no_analysis_agent,
+    check_analysed_by_a_person,
     check_shown_for_open_and_verifying_only,
     check_drawer_form_patches_spec_reanalysis,
     check_meta_items_show_the_reanalysis,
