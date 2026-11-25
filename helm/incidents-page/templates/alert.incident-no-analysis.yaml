@@ -1,0 +1,31 @@
+{{/* An incident no model analyses, which is not a failure, so it is information, not an error: */}}
+{{/*   - its alert is analysed by a person (label observability.krateo.io/analysis=human, which */}}
+{{/*     alert-provider copies to the incident): "Analyzed by a person"; */}}
+{{/*   - no analysis agent is installed (AnalysisUnavailable=True/NoAnalysisAgent, alert-provider */}}
+{{/*     >= 0.2.88): "No analysis on this platform", in alert-provider's own words. */}}
+{{/* incident-detail decides which (noAnalysisTitle, noAnalysisText). Re-run is not offered: */}}
+{{/* nothing would answer it. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-no-analysis
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: No analysis on this platform
+    type: info
+    showIcon: true
+    description: ''
+  widgetDataTemplate:
+  - forPath: title
+    expression: '${ .noAnalysisTitle // "No analysis on this platform" }'
+  - forPath: description
+    expression: '${ .noAnalysisText // "" }'
+  resourcesRefs:
+    items: []

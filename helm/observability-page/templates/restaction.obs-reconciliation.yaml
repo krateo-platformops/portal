@@ -17,11 +17,14 @@
      the caller needs no cluster grant (lint-caller-cluster-reads.py, #261). ClickHouse is reached
      through clickhouse-endpoint; the page namespace is admins-only (OTEL-11).
 
-     THE STATE is compositions-list's railState, read the same way (portal.readyReasonDefs, copied
-     into this chart): paused, failed (NotReady), degraded, healthy (Ready), drift, unreadable
+     THE STATE is the one every page reads (portal.compositionStateDefs over
+     portal.readyReasonDefs, both copied into this chart): paused, failed (NotReady), degraded, healthy (Ready), drift, unreadable
      (Children unreadable), unknown, pending. `attention` is failed, degraded, unreadable, drift and paused,
      as on /compositions. OVERDUE (tracing only): no reconcile span in the trace window, or the last
-     one over 5 min ago — a healthy composition reconciles every couple of minutes.
+     one over 5 min ago — a healthy composition reconciles every couple of minutes. A paused
+     composition is never overdue: Krateo is not reconciling it on purpose (visual audit CMP-9). In
+     the by-kind and by-namespace bars it is named apart ("1 paused"), neutral, not one that needs
+     attention.
 
      THE PARAMS (request extras).
        projects  the shell scope: compositions in those namespaces only;
@@ -138,19 +141,9 @@ spec:
     def pad2: tostring | if length < 2 then "0" + . else . end;
     def short($t): ($t | gmtime) as $g
       | ($g[2] | tostring) + " " + (["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][$g[1]]) + ", " + ($g[3] | pad2) + ":" + ($g[4] | floor | pad2);
-    # compositions-list's railState, condition for condition.
-    def railState: (.conditions // []) as $c
-      | (any($c[]?; .type == "Ready" and .status == "True")) as $ready
-      | (any($c[]?; .type == "Ready" and .status == "False" and (.reason | isConvergingFalse | not))
-         or (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason != "ZeroEvidence" and .reason != "ChildrenForbidden")
-             and any($c[]?; .type == "Synced" and .status == "False"))) as $notready
-      | (any($c[]?; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused"))) as $paused
-      | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
-      | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden")) as $unreadable
-      | (any($c[]?; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence")) as $silent
-      | if $paused then "paused" elif $notready then "failed" elif $ready and (.wh == false) then "degraded"
-        elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift"
-        elif $unreadable then "unreadable" elif $silent then "unknown" else "pending" end;
+    # THE STATE: the one every page reads (portal.compositionStateDefs, copied into this chart).
+    {{- include "portal.compositionStateDefs" . | nindent 4 }}
+    def railState: compositionVerdict.state;
     # What is wrong, in the controller's words: the first Ready, Synced or workload verdict that is
     # not True (or a pause), its message, else its type=status · reason.
     def why: (((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end))
@@ -201,7 +194,7 @@ spec:
         | { name, ns: (.ns // ""), kind: (.kind // ""), state: $st, stateLabel: $names[$st],
             attention: ($st | IN("failed", "degraded", "unreadable", "drift", "paused")),
             never: $never, last: $l, ageSec: $age,
-            overdue: ($never or (($age // 0) > $overdueAfter)),
+            overdue: ($st != "paused" and ($never or (($age // 0) > $overdueAfter))),
             p95: (($t // {}).p95), n: (($t // {}).n // 0),
             created: $ts,
             createdText: (if $created != null then "created " + ago($now - $created) + " ago" else "—" end),
@@ -237,9 +230,9 @@ spec:
     | ([ "all", "attention" ] + (if $telemetry == "ok" then [ "overdue" ] else [] end)
        + ($order | map(select(. as $s | ($counts[$s] // 0) > 0 or $sel == $s)))) as $chipKeys
     | def bars($field; $top):
-        (group_by(.[$field]) | map({ name: .[0][$field], count: length, attention: (map(select(.attention)) | length) }) | sort_by(-.count, .name) | .[0:$top]) as $g
+        (group_by(.[$field]) | map({ name: .[0][$field], count: length, attention: (map(select(.attention and .state != "paused")) | length), paused: (map(select(.state == "paused")) | length) }) | sort_by(-.count, .name) | .[0:$top]) as $g
         | ($g | .[0].count // 1) as $max
-        | [ $g[] | . as $r | { name, count: ((.count | tostring) + (if .attention > 0 then " · " + (.attention | tostring) + " need attention" else "" end)),
+        | [ $g[] | . as $r | { name, count: ((.count | tostring) + (if .attention > 0 then " · " + (.attention | tostring) + " need attention" else "" end) + (if .paused > 0 then " · " + (.paused | tostring) + " paused" else "" end)),
                      percent: (.count * 100 / $max | floor), tone: (if .attention > 0 then "bad" else "ok" end),
                      route: ($in | obsHref({ q: $r.name, status: "", view: (if $tableView then "table" else "" end) }; "Reconciliation")) } ];
       (if $telemetry == "unavailable" then "The reconcile traces could not be read, so last-reconcile times can't be shown right now. The compositions themselves are not affected."
