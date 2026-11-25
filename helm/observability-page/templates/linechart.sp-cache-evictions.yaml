@@ -1,5 +1,7 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
 {{/* Evictions per bucket by route. `delete` is the dependency-tracker path. */}}
+{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
+     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,9 +17,9 @@ spec:
     yField: v
     colorField: series
     colorMap:
-      "evict_ttl_total": orange
-      "evict_lru_total": gold
-      "evict_delete_total": cyan
+      "Expired (TTL)": orange
+      "Evicted (LRU)": gold
+      "Deleted": cyan
     shapeField: smooth
     area: false
     legend: true
@@ -38,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.stat|tostring), v: (.d|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"evict_ttl_total": "Expired (TTL)", "evict_lru_total": "Evicted (LRU)", "evict_delete_total": "Deleted"}[$k] // $k), v: (.d|tonumber) } ] }'
   apiRef:
     name: sp-cache-evictions
     namespace: {{ $.Values.namespace }}

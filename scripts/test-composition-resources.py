@@ -75,13 +75,13 @@ def conds(*triples):
 
 # One managed child, fetched, with these conditions. The shapes mirror what the upstream stages
 # project: `found[]` carries the managed entry, `resources` the fetched object.
-def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps'):
-    grp, rns = ('apiextensions.k8s.io', '') if kind == 'customresourcedefinitions' else ('core', 'ns')
+def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps', grp=None, phase=''):
+    grp, rns = ('apiextensions.k8s.io', '') if kind == 'customresourcedefinitions' else (grp or 'core', 'ns')
     return {
         'found': [{'_cn': 'comp', '_cns': 'ns', '_rns': rns, '_name': 'c', '_kind': kind,
                    '_grp': grp, '_ver': 'v1', '_cluster': rns == '', '_getpath': getpath,
                    '_wh': True, '_whMsg': ''}],
-        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions}],
+        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions, 'phase': phase}],
         'name': 'comp', 'namespace': 'ns',
     }
 
@@ -122,6 +122,20 @@ CASES = [
     # Conditions, but none that says ready for a kind with no readiness model: honest, not pending.
     ('no Ready/Available among conditions',
      conds(('Complete', 'True', ''),), 'noReadiness', 'NoReadyCondition'),
+]
+
+# EXISTING IS NOT BEING HEALTHY (portal#230): with no conditions, only a kind whose existence is
+# its state is healthy by presence. (label, kind, group, phase, state, stateLabel, healthPercent)
+PRESENCE_CASES = [
+    ('a ConfigMap with no conditions', 'configmaps', 'core', '', 'healthy', 'Healthy', 100),
+    ('a RoleBinding with no conditions', 'rolebindings', 'rbac.authorization.k8s.io', '', 'healthy', 'Healthy', 100),
+    ('a Failed MongoDBCommunity (no conditions, status.phase)', 'mongodbcommunity', 'mongodbcommunity.mongodb.com', 'Failed', 'noReadiness', 'Failed', 50),
+    ('a custom resource with no conditions and no phase', 'widgets', 'example.io', '', 'noReadiness', 'NoReadyCondition', 50),
+    ('a Bound PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Bound', 'healthy', 'Bound', 100),
+    ('an Active Namespace', 'namespaces', 'core', 'Active', 'healthy', 'Healthy', 100),
+    ('a Terminating Namespace', 'namespaces', 'core', 'Terminating', 'converging', 'Terminating', 50),
+    ('a Pending PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Pending', 'converging', 'Pending', 50),
+    ('a Lost PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Lost', 'failed', 'Lost', 20),
 ]
 
 # A CRD child: readiness is Established/NamesAccepted, never Ready (krateo-057 authn-crd showed
@@ -166,9 +180,18 @@ for label, conditions, want_state, want_label, kind, getpath in ALL:
     # must not land in an existing one silently, which is how Ready=Unknown became "pending".
     buckets = ['healthyCount', 'driftCount', 'failedCount', 'pendingCount',
                'notObservedCount', 'readyNotSetCount', 'unknownCount',
-               'terminalCount', 'convergingCount', 'noReadinessCount']
+               'terminalCount', 'convergingCount', 'noReadinessCount', 'notFoundCount']
     summed = sum(out.get(b, 0) for b in buckets)
     check(f'{label}: counts sum to total', summed, out['total'])
+
+for label, kind, grp, phase, want_state, want_label, want_pct in PRESENCE_CASES:
+    out = jq(prog, payload([], getpath=f'/apis/{grp}/v1/namespaces/ns/{kind}/c', kind=kind, grp=grp, phase=phase))
+    row = out['resources'][0]
+    check(f'{label}: state, label, percent', (row['state'], row['stateLabel'], row['healthPercent']), (want_state, want_label, want_pct))
+# The composition whose child failed this way no longer reads 100% match.
+out = jq(prog, payload([], getpath='/apis/mongodbcommunity.mongodb.com/v1/namespaces/ns/mongodbcommunity/c',
+                       kind='mongodbcommunity', grp='mongodbcommunity.mongodb.com', phase='Failed'))
+check('a failed conditionless custom resource: not healthy, not converged', (out['healthyCount'], out['converged']), (0, False))
 
 # A state the chain can emit but nothing counts would pass every case above and still be wrong, so
 # the set of emitted states is compared against the colour map rather than enumerated by hand.
@@ -179,6 +202,9 @@ for _, conditions, _, _, kind, getpath in ALL:
 # through inputs these fixtures do not build; they are in the map and in the chain, so they are
 # listed here rather than silently excluded.
 emitted |= {'unread', 'pending'}
+# `notFound` (managed, not fetched, and the apiserver said NotFound) is built by the NOT THERE cases
+# below; it is listed here so the maps are checked against it.
+emitted |= {'notFound'}
 
 relations = named(docs, 'list-composition-detail-relations')
 colour_map = relations['spec']['widgetData']['itemTemplate']['color']['map']
@@ -303,6 +329,101 @@ rows_out = jq(expr.strip().removeprefix('${').removesuffix('}'), {'resources': [
     {'kind': 'Deployment', 'name': 'snowplow', 'ns': 'krateo-system', 'state': 'healthy', 'stateLabel': 'Healthy', 'navHref': '/x'}]})
 check('each resolved row carries its health', [(r['name'], r['health']) for r in rows_out],
       [('hyperdx-admin-creds', 'excluded'), ('snowplow', 'ready')])
+
+# ---------------------------------------------------------------------------------------------
+# NOT THERE (visual audit CMP-2). A paused composition's two children had been deleted; the page read
+# them "Pending" and the verdict "the rest still converging". A child is NotFound exactly when the
+# resources stage's errors (resErr, a list) hold the apiserver's NotFound for it: snowplow records a
+# definite NotFound as a 404 Status whose message is `<plural>[.<group>] "<name>" not found`, any
+# other failure as text. Anything else unfetched stays Pending, as before.
+def unfetched(kind, grp, name='c', getpath=None, res_err=None, apiresources=None, conds_=None):
+    path = getpath or (f'/api/v1/namespaces/ns/{kind}/{name}' if grp == 'core' else f'/apis/{grp}/v1alpha1/namespaces/ns/{kind}/{name}')
+    d = {'found': [{'_cn': 'comp', '_cns': 'ns', '_rns': 'ns', '_name': name, '_kind': kind, '_grp': grp,
+                    '_ver': 'v1' if grp == 'core' else 'v1alpha1', '_getpath': path, '_wh': None, '_whMsg': '',
+                    '_conds': conds_ or []}],
+         'resources': [], 'name': 'comp', 'namespace': 'ns'}
+    if res_err is not None:
+        d['resErr'] = res_err
+    if apiresources is not None:
+        d['apiresources'] = apiresources
+    return d
+
+
+def one(d):
+    out = jq(prog, d)
+    r = out['resources'][0]
+    return out, (r['kind'], r['state'], r['stateLabel'], r['healthPercent'])
+
+
+NF = {'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'reason': 'NotFound', 'code': 404}
+out, got = one(unfetched('configmaps', 'core', 'acme-feedback-oas',
+                         res_err=[dict(NF, message='configmaps "acme-feedback-oas" not found')]))
+check('NotFound (a definite 404 Status): the row says so, no health', got, ('ConfigMap', 'notFound', 'NotFound', 0))
+check('NotFound: counted apart, not pending, and the counts still partition',
+      (out.get('notFoundCount'), out['pendingCount'], out['healthyCount'], out['total']), (1, 0, 0, 1))
+_, got = one(unfetched('restdefinitions', 'ogen.krateo.io', 'acme-feedback-form',
+                       res_err=['restdefinitions.ogen.krateo.io "acme-feedback-form" not found']))
+check('NotFound as text (a client-go StatusError): the same', got[1:3], ('notFound', 'NotFound'))
+_, got = one(unfetched('configmaps', 'core', 'c', res_err=[{'kind': 'Status', 'code': 403, 'reason': 'Forbidden',
+                                                         'message': 'configmaps "c" is forbidden'}]))
+check('refused, not missing: still Pending', got[1:3], ('pending', 'Pending'))
+_, got = one(unfetched('configmaps', 'core', 'c'))
+check('no error recorded at all: still Pending', got[1:3], ('pending', 'Pending'))
+_, got = one(unfetched('roles', 'rbac.authorization.k8s.io', 'shared',
+                       res_err=['clusterroles.rbac.authorization.k8s.io "shared" not found']))
+check('another kind\'s NotFound (clusterroles ends with roles) does not match', got[1:3], ('pending', 'Pending'))
+_, got = one(unfetched('configmaps', 'core', 'c', res_err=[dict(NF, message='configmaps "c2" not found')]))
+check('another name\'s NotFound does not match', got[1:3], ('pending', 'Pending'))
+
+# THE KIND AS SERVED (visual audit REL-2): a child that was not fetched read "Restdefinition", made up
+# from its plural; the served kind is RestDefinition, which discovery (the apiresources stage) names.
+DISC = [[{'group': 'ogen.krateo.io', 'kind': 'RestDefinition', 'plural': 'restdefinitions'}]]
+_, got = one(unfetched('restdefinitions', 'ogen.krateo.io', apiresources=DISC))
+check('an unfetched child: the kind discovery serves', got[0], 'RestDefinition')
+_, got = one(unfetched('restdefinitions', 'ogen.krateo.io'))
+check('discovery unread: the plural as recorded, never a made-up kind', got[0], 'restdefinitions')
+stage = next((st for st in named(docs, 'composition-resources')['spec']['api'] if st['name'] == 'apiresources'),
+             {'dependsOn': {'iterator': '[]'}, 'filter': '[]'})
+it = jq(stage['dependsOn']['iterator'], {'name': 'comp', 'namespace': 'ns', 'found': [
+    {'_cn': 'comp', '_cns': 'ns', '_grp': 'ogen.krateo.io', '_ver': 'v1alpha1', '_gvpath': '/apis/ogen.krateo.io/v1alpha1'},
+    {'_cn': 'comp', '_cns': 'ns', '_grp': 'ogen.krateo.io', '_ver': 'v1alpha1', '_gvpath': '/apis/ogen.krateo.io/v1alpha1'},
+    {'_cn': 'comp', '_cns': 'ns', '_grp': 'core', '_ver': 'v1', '_gvpath': ''},
+    {'_cn': 'other', '_cns': 'ns', '_grp': 'apps', '_ver': 'v1', '_gvpath': '/apis/apps/v1'}]})
+check('discovery: one call per group/version of THIS composition\'s children, core left to the map',
+      it, [{'g': 'ogen.krateo.io', 'v': 'v1alpha1', 'ns': '', 'pl': '', 'nm': ''}])
+check('discovery: nothing to look up without the composition', jq(stage['dependsOn']['iterator'], {'name': 'comp', 'namespace': 'ns', 'found': []}), [])
+check('discovery filter: plural -> kind, subresources dropped',
+      jq(stage['filter'], {'apiresources': {'groupVersion': 'ogen.krateo.io/v1alpha1', 'resources': [
+          {'name': 'restdefinitions', 'kind': 'RestDefinition'}, {'name': 'restdefinitions/status', 'kind': 'RestDefinition'}]}}),
+      [{'group': 'ogen.krateo.io', 'kind': 'RestDefinition', 'plural': 'restdefinitions'}])
+
+# A CLUSTER-SCOPED CHILD the static list does not name (visual audit CMP-7: internal-ca-bundle's
+# trust-manager Bundle). core-provider records namespace "" for it and a path without /namespaces/;
+# the composition's namespace used to be spliced in, so the GET 404'd and the row read Pending.
+found_new = jq(found_prog, {'found': {'items': [{'metadata': {'name': 'ca', 'namespace': 'krateo-system'}, 'status': {'managed': [
+    {'apiVersion': 'trust.cert-manager.io/v1alpha1', 'resource': 'bundles', 'name': 'krateo-internal-ca', 'namespace': '',
+     'path': '/apis/trust.cert-manager.io/v1alpha1/bundles/krateo-internal-ca'},
+    {'apiVersion': 'v1', 'resource': 'configmaps', 'name': 'cm', 'namespace': 'team-a', 'path': '/api/v1/configmaps/cm'}]}}]},
+    'extras': {'name': 'ca', 'namespace': 'krateo-system'}})
+check('found: a cluster-scoped child is fetched where core-provider recorded it; a namespaced one in its own namespace',
+      [(r['_name'], r['_getpath'], r['_rns'], r.get('_gvpath')) for r in found_new],
+      [('krateo-internal-ca', '/apis/trust.cert-manager.io/v1alpha1/bundles/krateo-internal-ca', '', '/apis/trust.cert-manager.io/v1alpha1'),
+       ('cm', '/api/v1/namespaces/team-a/configmaps/cm', 'team-a', '')])
+
+# THE COMPOSITION'S OWN STATE rides on the rows (its Ready and Synced), for the verdict.
+PAUSED = [{'type': 'Ready', 'status': 'True', 'reason': 'ReconcilePaused', 'lastTransitionTime': '2026-11-04T10:10:00Z'},
+          {'type': 'Synced', 'status': 'False', 'reason': 'ReconcilePaused', 'lastTransitionTime': '2026-11-04T10:10:05Z'}]
+out, _ = one(unfetched('configmaps', 'core', conds_=PAUSED))
+check('the composition: Paused, since its pause', out.get('composition'), {'state': 'paused', 'stateLabel': 'Paused',
+      'pausedSince': '4 Nov 10:10 UTC', 'readyReason': 'ReconcilePaused', 'readyMessage': ''})
+out, _ = one(unfetched('configmaps', 'core', conds_=[{'type': 'Ready', 'status': 'Unknown', 'reason': 'ZeroEvidence',
+                                                       'message': 'Composition health is unknown: no child reports readiness'}]))
+check('the composition: Unknown (ZeroEvidence), its message', (out.get('composition', {}).get('state'), out.get('composition', {}).get('readyMessage')),
+      ('unknown', 'no child reports readiness'))
+found_paused = jq(found_prog, {'found': {'items': [{'metadata': {'name': 'p', 'namespace': 'ns'}, 'status': {
+    'conditions': PAUSED + [{'type': 'Healthy', 'status': 'True'}], 'managed': [{'path': '/api/v1/namespaces/ns/configmaps/x'}]}}]},
+    'extras': {'name': 'p', 'namespace': 'ns'}})
+check('found: the composition\'s Ready and Synced ride on its rows, nothing else', [c['type'] for c in found_paused[0].get('_conds', [])], ['Ready', 'Synced'])
 
 # --pinned: the relations widget must validate against the frontend-crds the installer PINS. The
 # `health` field exists from frontend 1.8.46; a portal that emits it before that CRD is live has its
