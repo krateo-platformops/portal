@@ -35,7 +35,10 @@
                  label, a count where it has one, active, and the route that keeps the other params;
        byState   the donut: one slice per state that has incidents;
        trend     opened and resolved per hour (24h) or per day (7d, 30d), one point per bucket;
-       ttrWeekly the median time to resolve of each of the last 8 weeks, in minutes;
+       ttrWeekly the median time to resolve of each of the last 8 weeks, in `ttrUnit`;
+       ttrUnit   the unit the weekly medians are in, the largest that keeps the longest one readable:
+                 minutes under 2 h, hours under 3 days, else days (visual audit CHART-3: a chart in
+                 minutes ran to 40,000 under a "20 h 49 min" figure);
        awaiting  firing Alerts (state ALERT, not paused) with no open incident, each with an
                  /incidents?ask= Autopilot deep-link and `why`, off alert-provider's OpensIncidents
                  condition: a metric or value Alert never opens one, a counting Alert has not
@@ -195,7 +198,10 @@ spec:
     | (((($now / 604800) | floor) - 7) * 604800) as $w0
     | ([ range(0; 8) as $i | ($w0 + $i * 604800) as $t
          | ([ $ttr[] | select(.at >= $t and .at < $t + 604800) | .m ] | median) as $m
-         | select($m != null) | { t: $t, v: ($m | round) } ]) as $ttrWeekly
+         | select($m != null) | { t: $t, m: $m } ]) as $ttrWeeks
+    | (([ $ttrWeeks[] | .m ] | max) // 0) as $ttrMax
+    | (if $ttrMax < 120 then { unit: "minutes", per: 1 } elif $ttrMax < 4320 then { unit: "hours", per: 60 } else { unit: "days", per: 1440 } end) as $ttrU
+    | ([ $ttrWeeks[] | { t, v: (if $ttrU.per == 1 then (.m | round) else ((.m / $ttrU.per * 10 | round) / 10) end) } ]) as $ttrWeekly
     | ([ $allRows[] | select(.stateKey != "resolved" and .stateKey != "closed") | .alert ] | unique) as $openAlerts
     | ([ $alerts[]
          | select((.status.state // "") == "ALERT")
@@ -292,6 +298,7 @@ spec:
         trend: $trend,
         trendUnit: $b.unit,
         ttrWeekly: $ttrWeekly,
+        ttrUnit: $ttrU.unit,
         ttrMedian: (if $ttrMedian == null then "" else ($ttrMedian | durlabel) end),
         projects: $projects,
         awaiting: $awaiting,
