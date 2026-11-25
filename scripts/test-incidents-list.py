@@ -354,6 +354,24 @@ def check_figures_and_charts():
     return f
 
 
+def check_no_model_analysis():
+    """An incident no model analyses is not a failed analysis. An alert labelled
+    observability.krateo.io/analysis=human (copied to its incidents) is analysed by a person, by
+    design, and alert-provider writes its reason into status.error: the cause says who analyses it,
+    in every state (a label does not change). Any other label value leaves a failure a failure."""
+    f = []
+    human_only = 'This alert is analysed by a person: no model reads what it matched.'
+    rows = []
+    for name, state, label in (('h1', 'Open', 'human'), ('h2', 'Closed', 'human'), ('m1', 'Open', 'model')):
+        inc = incident(name, state, ago(2), alert='a', error=human_only if label == 'human' else 'model timed out')
+        inc['metadata']['labels']['observability.krateo.io/analysis'] = label
+        rows.append(inc)
+    out = resolve(responses(incidents={'items': rows}, alerts={'items': [alert('a', 'A', 'OK')]}), {'status': 'all'})
+    expect(f, 'analysed by a person, open or closed; another label value still failed',
+           {r['name']: r['cause'] for r in out['rows']}, {'h1': 'analyzed by a person', 'h2': 'analyzed by a person', 'm1': 'analysis failed'})
+    return f
+
+
 def check_routes():
     f = []
     ex = {'projects': 'team-a', 'status': 'resolved', 'range': '30d', 'view': 'table'}
@@ -596,7 +614,7 @@ def check_tile_routes():
     return f
 
 
-CHECKS = [check_default_is_open, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_closed_in_range, check_tile_routes, check_routes,
+CHECKS = [check_default_is_open, check_no_model_analysis, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_closed_in_range, check_tile_routes, check_routes,
           check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 

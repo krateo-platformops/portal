@@ -118,7 +118,11 @@ spec:
             # A namespaced list omits .metadata.namespace per item; these incidents are in the namespace just listed.
             namespace: "{{ $.Release.Namespace }}",
             title: (if $dn != "" then $dn elif $alert != "" then $alert elif $rc != "" then $rc else (.metadata.name // "") end),
+            # An incident no model analyses is not a failed analysis: its alert is analysed by a person
+            # (label observability.krateo.io/analysis=human; alert-provider still writes its reason into
+            # status.error), or no analysis agent is installed.
             cause: (if $rc != "" then $rc
+                    elif ((.metadata.labels // {})["observability.krateo.io/analysis"] // "") == "human" then "analyzed by a person"
                     elif ($state == "Open" or $state == "Verifying") and ([ (.status.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ] | length) > 0 then "no analysis agent"
                     elif (.status.error // "") != "" then "analysis failed"
                     elif $state == "Analyzing" then "analyzing"
