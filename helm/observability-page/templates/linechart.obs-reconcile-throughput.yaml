@@ -4,8 +4,13 @@
 {{- if (.Values.observability | default dict).reconcileTracing }}
 {{/* Live reconcile throughput — the composition-dynamic-controller's `reconcile` trace spans, */}}
 {{/* bucketed 10-min, straight from ClickHouse (otel_traces) via restaction.obs-reconcile-metrics. */}}
-{{/* Data is ALREADY bucketed server-side (ClickHouse), so this chart just maps series -> {t,v}; */}}
 {{/* `t` is UNIX epoch seconds (the widget localizes the axis label to the browser TZ). */}}
+{{/* EVERY SLOT of the window is drawn (charts mockup, CHART-1): the query returns a row only for a */}}
+{{/* slot that stored spans, so the template walks window.from..window.current and writes a slot */}}
+{{/* with no row, or with no spans, as {v: null, slot: "missing"} (a break in the line over a */}}
+{{/* "No data" band, never a zero); 0 reconciles among spans is a measured zero. The slot that */}}
+{{/* holds now is slot: "partial" (a dashed end, "so far"). A failed read draws nothing. */}}
+{{/* Unsmoothed and without a point per slot: 145 slots at 24h are a line, not dots. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -21,14 +26,12 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       reconciles: cyan
-    shapeField: smooth
-    area: true
     legend: false
     height: 160
     xTimeUnit: hour
-    point: true
     scale:
       "y":
         zero: true
@@ -40,10 +43,11 @@ spec:
         tickCount: 6
       "y":
         tickCount: 4
+        title: reconciles
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.series // [])[] | { t: (.ts|tonumber), series: "reconciles", v: (.reconciles|tonumber) } ] }'
+    expression: '${ (.window // {}) as $w | (reduce (.series // [])[] as $r ({}; .[($r.ts | tonumber | tostring)] = $r)) as $at | if (.failed // false) or (($w.step // 0) <= 0) then [] else [ range($w.from; $w.current + 1; $w.step) as $t | $at[$t | tostring] as $r | if $r == null or (($r.spans // 0) | tonumber) == 0 then { t: $t, series: "reconciles", v: null, slot: "missing" } else { t: $t, series: "reconciles", v: ($r.reconciles | tonumber) } + (if $t == $w.current then { slot: "partial" } else {} end) end ] end }'
   apiRef:
     name: obs-reconcile-metrics
     namespace: {{ $.Values.namespace }}

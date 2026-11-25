@@ -14,10 +14,10 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "ERROR": red
       "WARN": orange
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -37,7 +37,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.level|tostring), v: (.n|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: (.level|tostring), v: (.n|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-log-levels
     namespace: {{ $.Values.namespace }}

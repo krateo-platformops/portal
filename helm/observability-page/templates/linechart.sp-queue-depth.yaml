@@ -16,10 +16,10 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "Refresher queue": cyan
       "Prewarm pending": teal
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -39,7 +39,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.series|tostring) as $k | {"snowplow_refresher_queue_depth": "Refresher queue", "snowplow_prewarm_engine_pending_depth": "Prewarm pending"}[$k] // $k), v: (.v|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: ((.series|tostring) as $k | {"snowplow_refresher_queue_depth": "Refresher queue", "snowplow_prewarm_engine_pending_depth": "Prewarm pending"}[$k] // $k), v: (.v|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-queue-depth
     namespace: {{ $.Values.namespace }}

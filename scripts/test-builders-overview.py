@@ -296,6 +296,20 @@ def check_search_and_charts():
            {'Failed': 'red', 'Ready to publish': 'gold', 'Draft': 'gray', 'Change request open': 'blue', 'Merged': 'gray', 'Closed': 'gray'})
     cards = {r['name']: r['color'] for r in rows(overview('portal', {'state': 'all'}))}
     expect(f, 'one state, one colour: card and slice', (cards['team-costs'], cards['finops-weekly']), ('gold', 'gray'))
+    # CHART-1/CHART-3: the bucket that holds now is still filling (partial); time to merge has every bucket
+    # of the trend, a bucket with no merge as no data (null, missing), never left out or drawn as 0.
+    trend_w = tbi.widget(CH, 'LineChart', 'portal-builder-trend', 'data', out, {})
+    last = max(p['t'] for p in trend_w)
+    expect(f, 'the trend: the newest bucket partial, the others whole', ({p['t'] for p in trend_w if p.get('slot') == 'partial'},
+           len([p for p in trend_w if 'slot' in p])), ({last}, 2))
+    ttm_w = tbi.widget(CH, 'LineChart', 'portal-builder-ttm', 'data', out, {})
+    merged = {p['t'] for p in out['ttm']}
+    expect(f, 'time to merge: every bucket, no merge = no data', ([p['t'] for p in ttm_w], [p['v'] for p in ttm_w if p['t'] in merged],
+           {(p['v'], p.get('slot')) for p in ttm_w if p['t'] not in merged and p['t'] != last}),
+           (sorted({p['t'] for p in trend}), [4.0], {(None, 'missing')}))
+    for name in ('portal-builder-trend', 'portal-builder-ttm'):
+        spec = CH.get('LineChart', name)['spec']['widgetData']
+        expect(f, f'{name}: unsmoothed, with a slot field', (spec.get('shapeField'), spec.get('area'), spec.get('slotField')), (None, None, 'slot'))
     narrowed = overview('portal', {'q': 'calendar'})
     expect(f, 'the search narrows the trend and time to merge',
            (sum(p['v'] for p in narrowed['trend']), narrowed['ttm'], narrowed['ttmText']), (1, [], 'no merge in the last 30 days'))

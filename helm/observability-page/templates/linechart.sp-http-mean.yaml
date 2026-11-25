@@ -14,9 +14,9 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "/call": cyan
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -36,7 +36,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.route|tostring), v: (.mean_s|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: (.route|tostring), v: (.mean_s|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-http-mean
     namespace: {{ $.Values.namespace }}

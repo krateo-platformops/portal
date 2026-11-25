@@ -18,11 +18,11 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "input": cyan
       "cached": gold
       "output": green
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -44,7 +44,7 @@ spec:
   - forPath: xTimeUnit
     expression: '${ .unit // "hour" }'
   - forPath: data
-    expression: '${ [ (.totals // [])[] | { t: (.t|tonumber), series: (.series|tostring), v: (.d|tonumber) } ] }'
+    expression: '${ ([ (.totals // [])[] | (.t|tonumber) ] | max) as $cur | [ (.totals // [])[] | { t: (.t|tonumber), series: (.series|tostring), v: (.d|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: agents-token-timeseries
     namespace: {{ $.Values.namespace }}

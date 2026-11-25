@@ -16,11 +16,11 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "Memo hits": green
       "Memo misses": orange
       "Uncached denials": red
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -40,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.series|tostring) as $k | {"snowplow_authz_memo_hits": "Memo hits", "snowplow_authz_memo_misses": "Memo misses", "snowplow_authz_memo_deny_uncached_total": "Uncached denials"}[$k] // $k), v: (.d|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: ((.series|tostring) as $k | {"snowplow_authz_memo_hits": "Memo hits", "snowplow_authz_memo_misses": "Memo misses", "snowplow_authz_memo_deny_uncached_total": "Uncached denials"}[$k] // $k), v: (.d|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-authz-memo
     namespace: {{ $.Values.namespace }}

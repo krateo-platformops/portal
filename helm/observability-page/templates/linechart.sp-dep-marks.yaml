@@ -16,10 +16,10 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "Dirty marks": cyan
       "Dep records": teal
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -39,7 +39,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"dirty_mark_total": "Dirty marks", "records": "Dep records"}[$k] // $k), v: (.v|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"dirty_mark_total": "Dirty marks", "records": "Dep records"}[$k] // $k), v: (.v|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-dep-marks
     namespace: {{ $.Values.namespace }}

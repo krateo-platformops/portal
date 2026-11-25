@@ -1,6 +1,12 @@
 {{/* Live reconcile metrics from ClickHouse (clickstack otel_traces + otel_metrics_sum). The */}}
 {{/* composition-dynamic-controller emits a 'reconcile' span per reconciliation; step `recon` */}}
-{{/* GETs a 10-min-bucketed throughput + p95/avg latency series over the selected window. Span */}}
+{{/* GETs the reconciles per 10-minute slot over the selected window, and beside them `spans`, */}}
+{{/* every span the collector stored in the slot from any service: 0 reconciles among spans is a */}}
+{{/* measured zero, no spans at all is a slot with no data (the collector or ClickHouse stored */}}
+{{/* nothing), which the chart draws as "No data" rather than as a zero (charts mockup, CHART-1). */}}
+{{/* The window starts on a slot boundary, toStartOfInterval(now() - range, 10 minutes), so the */}}
+{{/* first slot is a whole one; `window` names its slots for the chart: from (the first), step, */}}
+{{/* and current (the slot that holds now, still filling). Span */}}
 {{/* StatusCode is ALWAYS Unset, so success/failure can't come from traces — step `fail` */}}
 {{/* instead reads the platform's own reconcile counters (provider_runtime.reconcile.{failure, */}}
 {{/* success}) over the same window → a REAL failure count + error rate. Each counter is ONE series */}}
@@ -9,7 +15,8 @@
 {{/* grouped by MetricName only, i.e. across every core-provider process in the window: on */}}
 {{/* krateo-057 over 24h, seven processes (one per roll), the old query read 160869 successes (the */}}
 {{/* first pod's lifetime counter minus the last one's start) where the processes made 52081. */}}
-{{/* Exposes {series[], current, failures, successes}. External-fetch endpointRef, FORMAT JSON. */}}
+{{/* Exposes {series[], current, failures, successes, failed, window}. External-fetch endpointRef, */}}
+{{/* FORMAT JSON. */}}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
@@ -23,7 +30,7 @@ spec:
       endpointRef:
         name: clickhouse-endpoint
         namespace: {{ .Release.Namespace }}
-      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20toUnixTimestamp%28toStartOfInterval%28Timestamp%2C%20INTERVAL%2010%20MINUTE%29%29%20AS%20ts%2C%20count%28%29%20AS%20reconciles%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C1%29%20AS%20p95_ms%2C%20round%28avg%28Duration%29%2F1e6%2C1%29%20AS%20avg_ms%20FROM%20otel_traces%20WHERE%20ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20ts%20ORDER%20BY%20ts%20FORMAT%20JSON" }'
+      path: '${ (.range // "24h") as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="24h" then "24%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20toUnixTimestamp%28toStartOfInterval%28Timestamp%2C%20INTERVAL%2010%20MINUTE%29%29%20AS%20ts%2C%20countIf%28ServiceName%3D%27composition-dynamic-controller%27%20AND%20SpanName%3D%27reconcile%27%29%20AS%20reconciles%2C%20count%28%29%20AS%20spans%20FROM%20otel_traces%20WHERE%20Timestamp%20%3E%3D%20toStartOfInterval%28now%28%29%20-%20INTERVAL%20" + $iv + "%2C%20INTERVAL%2010%20MINUTE%29%20GROUP%20BY%20ts%20ORDER%20BY%20ts%20FORMAT%20JSON" }'
       verb: GET
       headers:
         - 'Accept: application/json'
@@ -39,10 +46,17 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: failError
-  {{/* recon => {data:[{ts,reconciles,p95_ms,avg_ms}]}; fail => {data:[{m,v}]} with m the */}}
-  {{/* counter name. failures/successes are the max-min deltas (reset-safe: single series). */}}
+  {{/* recon => {data:[{ts,reconciles,spans}]}, a row only for a slot with spans; fail => */}}
+  {{/* {data:[{m,v}]} with m the counter name. failures/successes are the max-min deltas */}}
+  {{/* (reset-safe: single series). window: the range's 10-minute slots, epoch-aligned as */}}
+  {{/* toStartOfInterval aligns them, from the first (the query's start) to the current one. */}}
   filter: >
-    { series: ((.recon.data) // []),
+    ({ "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800 }[(.range // "24h") | tostring] // 86400) as $len
+    | 600 as $step
+    | (now | floor) as $now
+    | { series: ((.recon.data) // []),
       current: (((.recon.data) // []) | last // {}),
       failures: ( [ (.fail.data // [])[] | select(.m | endswith("failure")) | (.v|tonumber) ] | add // 0 ),
-      successes: ( [ (.fail.data // [])[] | select(.m | endswith("success")) | (.v|tonumber) ] | add // 0 ) }
+      successes: ( [ (.fail.data // [])[] | select(.m | endswith("success")) | (.v|tonumber) ] | add // 0 ),
+      failed: ((.reconError // null) != null),
+      window: { from: ((($now - $len) / $step | floor) * $step), step: $step, current: (($now / $step | floor) * $step) } }

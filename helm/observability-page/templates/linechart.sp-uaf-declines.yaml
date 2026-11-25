@@ -16,11 +16,11 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "RESTAction Put declined": orange
       "Widget Put declined": gold
       "Full-list bypass": cyan
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -40,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.series|tostring) as $k | {"snowplow_restactions_uaf_put_declined_total": "RESTAction Put declined", "snowplow_widgets_uaf_put_declined_total": "Widget Put declined", "snowplow_ra_full_list_uaf_bypass_total": "Full-list bypass"}[$k] // $k), v: (.d|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: ((.series|tostring) as $k | {"snowplow_restactions_uaf_put_declined_total": "RESTAction Put declined", "snowplow_widgets_uaf_put_declined_total": "Widget Put declined", "snowplow_ra_full_list_uaf_bypass_total": "Full-list bypass"}[$k] // $k), v: (.d|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-uaf-declines
     namespace: {{ $.Values.namespace }}

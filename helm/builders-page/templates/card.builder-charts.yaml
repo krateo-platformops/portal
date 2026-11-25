@@ -92,10 +92,10 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       Published: blue
       Merged: green
-    shapeField: smooth
     legend: true
     height: 180
     xTimeUnit: day
@@ -113,7 +113,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ .trend // [] }'
+    expression: '${ ([ (.trend // [])[] | .t ] | max) as $cur | [ (.trend // [])[] | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   resourcesRefs:
     items: []
 ---
@@ -129,9 +129,10 @@ spec:
   widgetData:
     xField: t
     yField: v
-    {{- /* One series, drawn as /incidents draws Time to resolve: an area with its points. */}}
-    shapeField: smooth
-    area: true
+    {{- /* One series, drawn as /incidents draws Time to resolve: a line with its points, every */}}
+    {{- /* bucket of the trend present; a bucket with no merge has no median, so no data (charts */}}
+    {{- /* mockup, CHART-3), and the current bucket is still filling. */}}
+    slotField: slot
     point: true
     legend: false
     height: 160
@@ -151,7 +152,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ .ttm // [] }'
+    expression: '${ ([ (.trend // [])[] | .t ] | unique) as $slots | ($slots | max) as $cur | (reduce (.ttm // [])[] as $r ({}; .[$r.t | tostring] = $r)) as $at | [ $slots[] as $t | ($at[$t | tostring] // null) as $r | if $r == null then { t: $t, series: "Days to merge", v: null, slot: "missing" } else $r + (if $t == $cur then { slot: "partial" } else {} end) end ] }'
   resourcesRefs:
     items: []
 ---

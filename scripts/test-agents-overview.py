@@ -606,6 +606,10 @@ def check_token_usage_tab():
            (28, 'day', 'day', ['agents-token-none'], 'No LLM call went through the gateway in the last 7 days.'))
     expect(f, 'a range only the Token usage tab offers: the card says 24 hours', [tbi.resolve(CH, 'agents-token-timeseries', {'series': {'data': []}}, {'range': r})['rangeLabel'] for r in ('12h', '3d', 'custom')],
            ['last 24 hours'] * 3)
+    # CHART-1: the bucket that holds now is still filling, so it is marked partial ("so far"), and only it.
+    drawn = w('LineChart', 'agents-token-totals', out)
+    expect(f, 'the current hour is partial, every other hour whole', ({p['t'] for p in drawn['data'] if p.get('slot') == 'partial'},
+           len([p for p in drawn['data'] if 'slot' in p]), drawn.get('slotField'), drawn.get('shapeField')), ({hour}, 3, 'slot', None))
     bad = tbi.resolve(CH, 'agents-token-timeseries', {'series': 'ERROR'}, {})
     expect(f, 'a failed read: the reason, as a warning', (w('Paragraph', 'agents-token-none', bad)['type'], items('Card', 'agents-token-trend-card', bad)),
            ('warning', ['agents-token-none']))

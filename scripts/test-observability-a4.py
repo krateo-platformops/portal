@@ -30,8 +30,10 @@ Components Ready, Not ready, Scaled to zero; Traces Errors) routes exactly as it
 other param kept; totals, metrics (every Telemetry figure) and failed reads route "" (plain tiles).
 
 SLOs and the snowplow SLI tabs keep their own layout (charts and cards only): test-obs-slo.py.
-No trend is bucketed here: the line charts on these tabs (reconcile throughput, resource usage) are
-bucketed by ClickHouse and guarded by their own tests.
+TIME SLOTS (charts mockup, CHART-1): Reconcile throughput draws every 10-minute slot of the window,
+from a slot boundary: a slot with no spans at all is no data (null, `missing`), 0 reconciles among
+spans a measured zero, the slot holding now `partial`; a failed read draws nothing. Every SP chart
+marks the bucket holding now `partial`, and only it. The buckets themselves are ClickHouse's.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it.
 Usage: test-observability-a4.py [--crds DIR]. Exit code = failed checks.
@@ -41,6 +43,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 from urllib.parse import unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -791,6 +794,112 @@ def check_sp_series_names(on):
     return f
 
 
+# ---------------------------------------------------------------------------------------------
+# Time slots (charts mockup, CHART-1): no data, a measured zero, and the slot still filling
+# ---------------------------------------------------------------------------------------------
+
+RANGE_S = {'1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800}
+
+
+CH_DOWN = {'__status__': {'code': 500, 'message': 'Code: 241. DB::Exception: Memory limit exceeded'}}
+
+
+def recon_metrics(on, rng, series, failed=False):
+    ra = on.get('RESTAction', 'obs-reconcile-metrics')
+    responses = {'recon': CH_DOWN if failed else ch(series), 'fail': ch([])}
+    reqs, _, out = gates.resolve(ra, {'range': rng}, responses)
+    return reqs, out
+
+
+def check_reconcile_slots(on):
+    """Reconcile throughput draws EVERY 10-minute slot of the window: a slot with no spans at all is no
+    data (v null, slot missing, a break over a "No data" band), 0 reconciles among spans is a measured
+    zero, and the slot that holds now is partial ("so far"). The window starts on a slot boundary, so the
+    first slot is whole. Unsmoothed, no point per slot, a unit on the y axis."""
+    f = []
+    cond = "ServiceName='composition-dynamic-controller' AND SpanName='reconcile'"
+    for rng, iv in WINDOWS.items():
+        reqs, out = recon_metrics(on, rng, [])
+        sql = unquote([p for n, p, _ in reqs if n == 'recon'][0][len('/?query='):])
+        for label, want in (('reconciles counted among every span', f'countIf({cond}) AS reconciles'),
+                            ('every span the slot stored', 'count() AS spans'),
+                            ('from a slot boundary', f'WHERE Timestamp >= toStartOfInterval(now() - INTERVAL {iv}, INTERVAL 10 MINUTE)'),
+                            ('per 10-minute slot', 'toUnixTimestamp(toStartOfInterval(Timestamp, INTERVAL 10 MINUTE)) AS ts')):
+            if want not in sql:
+                f.append(f'range={rng}: {label} (missing {want!r} in {sql!r})')
+        if 'SpanName' in sql.split(' WHERE ')[-1]:
+            f.append(f'range={rng}: the WHERE keeps only reconcile spans, so an empty slot reads as a zero')
+        now = int(time.time())
+        w = out.get('window') or {}
+        cur = now // 600 * 600
+        if w.get('current') not in (cur, cur + 600):
+            f.append(f'range={rng}: window.current {w.get("current")!r}, want the slot holding now ({cur})')
+            continue
+        expect(f, f'range={rng}: the window, slot-aligned', (w.get('step'), w.get('from')),
+               (600, (w['current'] + (now - cur) - RANGE_S[rng]) // 600 * 600))
+    # 24h, as ClickHouse answers (UInt64 quoted): slots 3..5 hold no span at all, slot 7 holds spans but
+    # no reconcile, the current slot is still filling.
+    _, out = recon_metrics(on, '24h', [])
+    w = out.get('window')
+    if not w:
+        return f + ['obs-reconcile-metrics names no window of slots for the chart']
+    slots = list(range(w['from'], w['current'] + 1, 600))
+    rows = [{'ts': t, 'reconciles': '0' if i == 7 else str(900 + i % 7), 'spans': '41' if i == 7 else str(5000 + i)}
+            for i, t in enumerate(slots) if i not in (3, 4, 5)]
+    _, out = recon_metrics(on, '24h', rows)
+    out['window'] = w
+    data = wd(on, 'LineChart', 'obs-reconcile-throughput', out)['data']
+    expect(f, 'every slot of the window, in order', [d['t'] for d in data], slots)
+    expect(f, '145 slots over 24 hours', len(slots), 145)
+    expect(f, 'no spans at all: no data, never a zero', [(d['v'], d.get('slot')) for d in data[3:6]], [(None, 'missing')] * 3)
+    expect(f, 'reconciles 0 among spans: a measured zero', (data[7]['v'], 'slot' in data[7]), (0, False))
+    expect(f, 'the slot that holds now: partial', (data[-1].get('slot'), data[-1]['v']), ('partial', 900 + (len(slots) - 1) % 7))
+    expect(f, 'every other slot: whole', [d.get('slot') for i, d in enumerate(data) if i not in (3, 4, 5, len(slots) - 1)],
+           [None] * (len(slots) - 4))
+    expect(f, 'one series, named', {d['series'] for d in data}, {'reconciles'})
+    expect(f, 'a current slot with no span yet: no data', wd(on, 'LineChart', 'obs-reconcile-throughput', dict(out, series=rows[:-1]))['data'][-1],
+           {'t': w['current'], 'series': 'reconciles', 'v': None, 'slot': 'missing'})
+    _, failed = recon_metrics(on, '24h', rows, failed=True)
+    expect(f, 'the read failing is said', failed.get('failed'), True)
+    expect(f, 'a failed read draws nothing (not a window of "No data")', wd(on, 'LineChart', 'obs-reconcile-throughput', failed)['data'], [])
+    spec = on.get('LineChart', 'obs-reconcile-throughput')['spec']['widgetData']
+    expect(f, 'unsmoothed, no point per slot, no area', [k for k in ('shapeField', 'point', 'area') if spec.get(k)], [])
+    expect(f, 'the slot field', spec.get('slotField'), 'slot')
+    expect(f, 'the unit on the y axis', spec['axis']['y'].get('title'), 'reconciles')
+    return f
+
+
+SP_BUCKET = {'1h': 120, '6h': 900, '24h': 3600, '7d': 21600, 'x': 3600}
+
+
+def check_sp_current_slot(on):
+    """Every SP chart marks the bucket that holds now partial (it is still filling, so it dips), and only
+    it; each is unsmoothed and names its slot field."""
+    f = []
+    charts = dict(SP_SERIES, **{'sp-http-mean': ('route', {'/call': '/call'}), 'sp-http-status': ('code', {'200': '200'}),
+                                'sp-log-levels': ('level', {'ERROR': 'ERROR'})})
+    every = sorted(d['metadata']['name'] for d in on.docs if d.get('kind') == 'LineChart' and d['metadata']['name'].startswith('sp-'))
+    expect(f, 'every SP line chart is checked', sorted(charts), every)
+    for chart, (field, names) in charts.items():
+        spec = on.get('LineChart', chart)['spec']['widgetData']
+        expect(f, f'{chart}: unsmoothed', spec.get('shapeField'), None)
+        expect(f, f'{chart}: the slot field', spec.get('slotField'), 'slot')
+        ra = on.get('RESTAction', chart)
+        for rng, bk in SP_BUCKET.items():
+            _, _, out = gates.resolve(ra, {'range': rng}, {st['name']: ch([]) for st in ra['spec']['api']})
+            cur = int(time.time()) // bk * bk
+            if out.get('current') not in (cur, cur + bk):
+                f.append(f'{chart} range={rng}: current {out.get("current")!r}, want the bucket holding now ({cur})')
+                continue
+            cur = out['current']
+            raw = next(iter(names))
+            rows = [{'t': str(t), field: raw, 'd': str(n), 'v': str(n), 'n': str(n), 'mean_s': str(n)}
+                    for t, n in ((cur - 2 * bk, 3), (cur - bk, 2), (cur, 1))]
+            data = wd(on, 'LineChart', chart, dict(out, rows=rows))['data']
+            expect(f, f'{chart} range={rng}: only the bucket holding now is partial', [d.get('slot') for d in data], [None, None, 'partial'])
+    return f
+
+
 def check_authored(c, on):
     for chart, label in ((c, 'default'), (on, 'every flag')):
         for d in chart.docs:
@@ -820,6 +929,8 @@ def main():
         ('Reconciliation: a paused composition is neutral and never overdue', lambda: check_recon_paused(on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
         ('SP charts draw their series under plain names', lambda: check_sp_series_names(on)),
+        ('Reconcile throughput: every slot, no data apart from zero, the slot still filling', lambda: check_reconcile_slots(on)),
+        ('SP charts: the bucket holding now is partial, unsmoothed', lambda: check_sp_current_slot(on)),
     ]
     if crds_dir:
         checks.append(('(authored widgets queued for validation)', lambda: check_authored(c, on)))

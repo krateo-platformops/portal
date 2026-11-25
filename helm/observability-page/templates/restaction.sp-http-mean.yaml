@@ -29,6 +29,9 @@ spec:
         - 'Accept: application/json'
       continueOnError: true
       errorKey: qError
+  {{/* current: the bucket that holds now (toStartOfInterval aligns buckets to the epoch, the */}}
+  {{/* same width the path picks), which the chart marks slot: "partial", still filling. */}}
   filter: >
-    { rows: ((.q.data) // []), failed: ((.qError // null) != null) }
+    { rows: ((.q.data) // []), failed: ((.qError // null) != null),
+      current: (({ "1h": 120, "6h": 900, "24h": 3600, "7d": 21600 }[(.range // "24h") | tostring] // 3600) as $bk | ((now / $bk | floor) * $bk)) }
 {{- end }}

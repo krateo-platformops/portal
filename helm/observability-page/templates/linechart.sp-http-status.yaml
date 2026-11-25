@@ -14,13 +14,13 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "200": green
       "400": orange
       "401": gold
       "404": magenta
       "500": red
-    shapeField: smooth
     area: false
     legend: true
     height: 160
@@ -40,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.code|tostring), v: (.d|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: (.code|tostring), v: (.d|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-http-status
     namespace: {{ $.Values.namespace }}

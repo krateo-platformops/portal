@@ -16,11 +16,11 @@ spec:
     xField: t
     yField: v
     colorField: series
+    slotField: slot
     colorMap:
       "Hit": green
       "Miss": orange
       "Seed hit": cyan
-    shapeField: smooth
     area: false
     legend: true
     height: 180
@@ -40,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.outcome|tostring) as $k | {"hit": "Hit", "miss": "Miss", "seed_hit": "Seed hit"}[$k] // $k), v: (.d|tonumber) } ] }'
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | { t: (.t|tonumber), series: ((.outcome|tostring) as $k | {"hit": "Hit", "miss": "Miss", "seed_hit": "Seed hit"}[$k] // $k), v: (.d|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
   apiRef:
     name: sp-l1-lookups
     namespace: {{ $.Values.namespace }}
