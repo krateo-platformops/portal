@@ -1,16 +1,18 @@
 {{/*
   portal.cdReadyDefs — a blueprint's state, from its CompositionDefinition's Ready and Synced.
 
-  THE VERDICTS ARE core-provider's, not the portal's: core-provider generates the complete, closed list
-  of a CompositionDefinition's condition reasons (docs/cd-ready-reasons.md, core-provider#557) and marks
-  each Ready reason with how a parent composition's rollup reads it (`parent verdict`). cdReadyVerdict
-  maps every Ready reason in that table to its verdict, in one word (`unevaluated (rolls up as
-  healthy)` is "unevaluated"). cdSyncedPaused lists the Synced reasons that mean the definition is
-  paused on purpose (krateo.io/paused), which leaves Ready as it was. cd-ready-reasons.yaml at the repo
-  root records the table this was written against, and scripts/test-cd-ready-reasons.py fails when
-  core-provider's table no longer matches it (a reason added, removed or reclassified), or when these
-  defs no longer match its rows. Keyed by reason alone: a reason two writers both write (Creating,
-  Deleting) carries the same status and verdict from each, and the test fails the day it does not.
+  THE VERDICTS ARE core-provider's, not the portal's: core-provider publishes the complete, closed
+  list of a CompositionDefinition's condition reasons as JSON generated from its code
+  (docs/cd-ready-reasons.json, core-provider#667), each Ready reason with how a parent composition's
+  rollup reads it (`verdict`: healthy, converging, failed or unevaluated). cdReadyVerdict maps every
+  Ready reason in it to that verdict, and is GENERATED: run scripts/gen-reason-defs.py, which writes it
+  from the JSON at the core-provider ref it pins (CORE_PROVIDER_REF) into this file and its copy; never
+  edit it by hand. cdSyncedPaused, the portal's, lists the Synced reasons that mean the definition is
+  paused on purpose (krateo.io/paused), which leaves Ready as it was. The generator's --check (the
+  ready-reasons workflow) fails when this file is not what it would write, and
+  scripts/test-cd-ready-reasons.py checks both defs against the JSON on its own. Keyed by reason
+  alone: a reason two writers both write (Creating, Deleting) is one entry in the JSON, and the
+  generator refuses a Ready reason that carries two verdicts.
 
   cdState: input a CompositionDefinition's status.conditions (array or null); output {state, reason}.
   The first state that applies:
@@ -25,7 +27,7 @@
     ready       Ready=True.
     installing  a converging Ready reason (Creating, Deleting), or no Ready condition yet.
     unobserved  the unevaluated verdict (NotObserved: the runtime could not observe the definition).
-                Shown as pending, as a composition's ObserveFailed is (ready-reasons.yaml, #439).
+                Shown as pending, as a composition's ObserveFailed is (#439).
                 NotObserved puts its error on Synced, so with Synced=False it is failed above.
   A Ready reason the table does not list (a cluster on a newer core-provider than this portal) is read
   by its status: False is failed, True healthy, anything else unevaluated. It never reads as converging.
