@@ -149,6 +149,8 @@ spec:
     {{- include "portal.migratedValuesDefs" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
     {{- include "portal.compositionStateDefs" . | nindent 4 }}
+    {{- include "portal.cdReadyDefs" . | nindent 4 }}
+    {{- include "portal.reasonActionsDefs" . | nindent 4 }}
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
     # A probe that was skipped or failed keeps the control (see the stages above).
     def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
@@ -220,6 +222,13 @@ spec:
         # A follower's line links its owner (core-provider 2.13.126 status.owner); "" otherwise.
         inputsHref: (([ ($d.status.conditions // [])[]? | objects | select(.type == "ValuesSchemaAuthored") ] | first) as $valuesSchemaCond
           | inferredInputsHref($valuesSchemaCond; ($d.status.owner // null))),
+        # The error Alert under the header (alert.blueprint-detail-definition-failed, portal#542): Ready
+        # False with a reason core-provider declares failed, as {title, action, reason, message}
+        # (cdReadyFailedAlert, _reason-actions.tpl), which is null for Ready absent, not False, without
+        # a reason or converging, so the page mounts nothing. Not while paused: the header reads Paused
+        # (cdState), and the Ready a pause left is not this pass's.
+        definitionAlert: (($d.status.conditions // []) as $conds
+          | if ($conds | cdState | .state) != "paused" then ($conds | cdReadyFailedAlert) else null end),
         may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
         detail: $d,
         compositions: $comps,

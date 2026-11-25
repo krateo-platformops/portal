@@ -850,8 +850,11 @@ jobs:
 
       # The blueprint header's pill reads Degraded from Ready=False only: a CompositionDefinition's
       # other conditions (AuthnMappingApplied, ControllerActive, ...) can be False on a healthy one.
-      # Runs the chart's own jq, with a control that the old "any False" rule fails the test.
-      - name: Blueprint header pill, over the chart's own jq
+      # Runs the chart's own jq, with a control that the old "any False" rule fails the test. Under the
+      # header, the one red Alert for a failed Ready reason (portal#542): its title, core-provider's
+      # action, the reason and the message under Details; nothing for Ready=True, a converging or a
+      # reasonless Ready=False, or a paused definition. Controls drop the titles, the guard and the gate.
+      - name: Blueprint header pill and error Alert, over the chart's own jq
         run: |
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml

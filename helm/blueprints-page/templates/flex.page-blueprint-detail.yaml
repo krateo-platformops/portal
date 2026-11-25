@@ -9,6 +9,8 @@
 {{/* byte-identical to before (exception-only). Every widget reads the shared blueprint-detail */}}
 {{/* RA (installed CompositionDefinition + helm index versions, resolved from ?extras); the */}}
 {{/* impact card reads the upgrade-impact RA (helm-render-service /diff). */}}
+{{/* Between the header and the grid, ONLY while the definition cannot be served (Ready False with a */}}
+{{/* failed reason, blueprint-detail's definitionAlert): the red Alert for that reason (portal#542). */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -32,6 +34,7 @@ spec:
     gap: middle
     allowedResources:
       - pageheaders
+      - alerts
       - rows
       - cards
     items:
@@ -43,7 +46,9 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "blueprint-detail-page-header" }, { resourceRefId: "blueprint-detail-grid" } ]
+        ${ [ { resourceRefId: "blueprint-detail-page-header" } ]
+        + (if (.definitionAlert // null) != null then [ { resourceRefId: "alert-blueprint-detail-definition-failed" } ] else [] end)
+        + [ { resourceRefId: "blueprint-detail-grid" } ]
         + (if (((.to // "") != "") and ((.to // "") != (.currentVersion // ""))) then [ { resourceRefId: "card-blueprint-detail-impact" } ] else [] end) }
   resourcesRefs:
     items:
@@ -52,6 +57,12 @@ spec:
         name: blueprint-detail-page-header
         namespace: {{ $.Values.namespace }}
         resource: pageheaders
+        verb: GET
+      - id: alert-blueprint-detail-definition-failed
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: alert-blueprint-detail-definition-failed
+        namespace: {{ $.Values.namespace }}
+        resource: alerts
         verb: GET
       - id: blueprint-detail-grid
         apiVersion: widgets.templates.krateo.io/v1beta1

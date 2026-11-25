@@ -22,6 +22,20 @@ ReconcilePaused reads Paused. The run starts with a control: with the verdict ta
 Ready=False falls back to failed (the "any Ready=False" rule), and that must FAIL exactly the
 CONVERGING cases, or the cases are not testing the table.
 
+UNDER THE HEADER, THE ERROR ALERT (portal#542; mockup revision 3, "cannot be served"). When the
+pill reads that failure from Ready=False, the page mounts exactly ONE red Alert, for that reason:
+blueprint-detail's definitionAlert (cdReadyFailedAlert, _reason-actions.tpl) gives its title (the
+portal's, CD_FAILED_TITLES in scripts/gen-reason-defs.py), its body (core-provider's action), its tag
+(the reason) and its Details (the condition's message). This runs blueprint-detail's filter, the
+page Flex's items and the Alert's templates as they ship, over: DerivedNameTooLong (the approved
+action and the message under Details), every failed reason (its own title and a non-empty action), a
+reason the JSON does not list (the generic title, never empty), and the cases that mount nothing:
+Ready=True, a converging Ready=False, Ready=False with no reason (a core-provider older than the
+reason: the absence rule), no conditions, Ready Unknown with Synced=False, and a paused definition.
+Three controls: with the titles emptied the failed cases must lose their Alert, without the
+"listed but not failed" guard the converging cases must gain one, and without the paused gate the
+paused case must gain one.
+
 THE STRINGS ARE THE VALUES core-provider EMITS (its condition types and reasons, as core-provider
 listed them for this change). A misspelt type would pass silently, because an unknown type is simply
 ignored by the new rule.
@@ -37,7 +51,7 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-CHART = os.path.join(REPO, 'helm', 'blueprints-page')
+CHART = os.environ.get('BLUEPRINTS_CHART') or os.path.join(REPO, 'helm', 'blueprints-page')
 JQ = os.environ.get('JQ', 'jq')
 
 VERDICTS = re.compile(r'def cdReadyVerdict: \{[^}]*\};')
@@ -112,8 +126,8 @@ def render():
         return [d for d in yaml.safe_load_all(proc.stdout) if isinstance(d, dict)]
 
 
-def tags_program():
-    header = next(d for d in render() if d.get('metadata', {}).get('name') == 'blueprint-detail-page-header')
+def tags_program(docs):
+    header = next(d for d in docs if d.get('metadata', {}).get('name') == 'blueprint-detail-page-header')
     expr = next(t['expression'] for t in header['spec']['widgetDataTemplate'] if t['forPath'] == 'tags')
     return expr.strip().removeprefix('${').removesuffix('}').strip()
 
@@ -138,8 +152,108 @@ def failures(program, verbose):
     return bad
 
 
+# ---- the error Alert -------------------------------------------------------------------------------
+
+ALERT = 'alert-blueprint-detail-definition-failed'
+HEADER, GRID = 'blueprint-detail-page-header', 'blueprint-detail-grid'
+GENERIC = "This blueprint can't be offered"
+TITLES = re.compile(r'def cdReadyFailedTitles: \{[^}]*\};')
+PAUSED_GATE = 'if ($conds | cdState | .state) != "paused" then'
+GUARD = ' or ((cdReasonActions.Ready.False[$why] // null) != null and (cdReadyFailedTitles[$why] // null) == null)'
+DERIVED_MESSAGE = ('derived names do not fit: controller Deployment name '
+                   '"data-platform-observability-stack-v10-20-30-controller" is 66 characters, over the 63 allowed')
+FAILED = ['Unavailable', 'RemoteChartUnreachable', 'SchemaDefaultContradiction', 'ValuesSchemaMissing',
+          'DerivedNameTooLong', 'CreateWithheldByPolicy']
+
+
+def cm(type_, status, reason='', message=''):
+    return {'type': type_, 'status': status, 'reason': reason, 'message': message}
+
+
+# (name, conditions, the Alert drawn or None for no Alert). A drawn Alert is {title, description, tag, details}.
+ALERT_CASES = [
+    ('derived name too long', [cm('Ready', 'False', 'DerivedNameTooLong', DERIVED_MESSAGE), cm('Synced', 'True', 'ReconcileSuccess')],
+     {'title': "This blueprint can't be offered: a name derived from it is too long",
+      'description': "Shorten the chart's name or its version, then publish it again.",
+      'tag': 'DerivedNameTooLong', 'details': DERIVED_MESSAGE}),
+    ('a failed reason the JSON does not list', [cm('Ready', 'False', 'SomethingNew2028', 'the new reason says why')],
+     {'title': GENERIC, 'description': '', 'tag': 'SomethingNew2028', 'details': 'the new reason says why'}),
+    ('NONE ready', [cm('Ready', 'True', 'Available'), cm('Synced', 'True', 'ReconcileSuccess')], None),
+    ('NONE update withheld (Ready=True)', [cm('Ready', 'True', 'UpdateWithheldByPolicy')], None),
+    ('NONE CONVERGING creating', [cm('Ready', 'False', 'Creating', 'waiting for the CRD')], None),
+    ('NONE CONVERGING deleting', [cm('Ready', 'False', 'Deleting')], None),
+    ('NONE Ready=False without a reason (absence rule)', [cm('Ready', 'False', '', 'something')], None),
+    ('NONE no conditions', [], None),
+    ('NONE Ready unknown, Synced failed', [cm('Ready', 'Unknown', 'NotObserved'), cm('Synced', 'False', 'ReconcileError', 'boom')], None),
+    ('NONE paused', [cm('Ready', 'False', 'DerivedNameTooLong', DERIVED_MESSAGE), cm('Synced', 'False', 'ReconcilePaused')], None),
+] + [(f'failed {r}', [cm('Ready', 'False', r, f'{r} message')], 'own') for r in FAILED if r != 'DerivedNameTooLong']
+
+
+def jq(program, data):
+    proc = subprocess.run([JQ, '-c', program], input=json.dumps(data), capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise AssertionError(f'jq failed: {proc.stderr.strip()[:400]}')
+    return json.loads(proc.stdout)
+
+
+def template(doc, for_path):
+    e = next(t['expression'] for t in doc['spec']['widgetDataTemplate'] if t['forPath'] == for_path).strip()
+    return e.removeprefix('${').removesuffix('}').strip()
+
+
+def drawn_page(docs, filter_program, conditions):
+    """(the page's item ids, the Alert as drawn or None)."""
+    by = {d['metadata']['name']: d for d in docs if d.get('metadata', {}).get('name')}
+    compdef = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+               'metadata': {'name': 'data-platform-observability-stack', 'namespace': 'krateo-system',
+                            'creationTimestamp': '2026-11-23T00:00:00Z'},
+               'spec': {'chart': {'repo': 'data-platform-observability-stack', 'version': '10.20.30'}},
+               'status': {'conditions': conditions}}
+    out = jq(filter_program, {'name': compdef['metadata']['name'], 'namespace': 'krateo-system', 'compdef': compdef,
+                              'catalog': {'entries': {}}, 'comps': {'items': []}})
+    ids = [i['resourceRefId'] for i in jq(template(by['page-blueprint-detail'], 'items'), out)]
+    if ALERT not in ids:
+        return ids, None
+    alert = by[ALERT]
+    drawn = {t['forPath']: jq(t['expression'].strip()[2:-1], out) for t in alert['spec']['widgetDataTemplate']}
+    return ids, {**alert['spec']['widgetData'], **drawn}
+
+
+def alert_failures(docs, filter_program, verbose):
+    bad = []
+    titles = set()
+    for name, conditions, want in ALERT_CASES:
+        ids, got = drawn_page(docs, filter_program, conditions)
+        problem = None
+        if want is None:
+            if got is not None or ids.count(ALERT):
+                problem = f'an Alert is mounted: {got}'
+        elif got is None:
+            problem = 'no Alert'
+        elif ids.count(ALERT) != 1 or ids.index(ALERT) != ids.index(HEADER) + 1 or ids.index(GRID) != ids.index(ALERT) + 1:
+            problem = f'the Alert is not mounted once, between the header and the grid: {ids}'
+        elif (got.get('type'), got.get('showIcon')) != ('error', True):
+            problem = f'not a red Alert: type {got.get("type")!r}'
+        elif want == 'own':
+            reason = conditions[0]['reason']
+            if (not got['title'].startswith(GENERIC + ': ') or got['title'] in titles or not got['description']
+                    or got['tag'] != reason or got['details'] != f'{reason} message'):
+                problem = f'not its own title, a non-empty action, its tag and its message: {got}'
+            titles.add(got['title'])
+        else:
+            have = {k: got.get(k) for k in want}
+            if have != want:
+                problem = f'got {have}, want {want}'
+        if problem:
+            bad.append(name)
+            if verbose:
+                print(f'FAIL alert, {name}: {problem}')
+    return bad
+
+
 def main():
-    program = tags_program()
+    docs = render()
+    program = tags_program(docs)
     if len(VERDICTS.findall(program)) != 1:
         print('FAIL the pill does not read cdState\'s verdict table exactly once')
         return 1
@@ -152,7 +266,33 @@ def main():
     print(f'[PASS] control: without core-provider\'s verdicts, the {len(converging)} converging cases read Degraded')
     bad = failures(program, verbose=True)
     print(f'{len(CASES) - len(bad)}/{len(CASES)} blueprint pill cases ok')
-    return min(len(bad), 125)
+
+    ra = next(d for d in docs if d.get('kind') == 'RESTAction' and d['metadata']['name'] == 'blueprint-detail')
+    filter_program = ra['spec']['filter']
+    if len(TITLES.findall(filter_program)) != 1 or filter_program.count(GUARD) != 1 or filter_program.count(PAUSED_GATE) != 1:
+        print('FAIL blueprint-detail does not read cdReadyFailedAlert\'s titles, its guard and the paused gate exactly once')
+        return 1
+    # Controls: without titles the failed reasons the JSON lists read "not failed", so every Alert of a
+    # listed failed reason must go; without the guard a converging Ready=False gets the generic Alert.
+    want_lost = [n for n, _, w in ALERT_CASES if w is not None and n != 'a failed reason the JSON does not list']
+    lost = alert_failures(docs, TITLES.sub('def cdReadyFailedTitles: {};', filter_program), verbose=False)
+    if lost != want_lost:
+        print(f'FAIL control: without the titles the Alert cases failed {lost}, expected exactly {want_lost}')
+        return 1
+    want_gained = [n for n, *_ in ALERT_CASES if n.startswith('NONE CONVERGING')]
+    gained = alert_failures(docs, filter_program.replace(GUARD, ''), verbose=False)
+    if gained != want_gained:
+        print(f'FAIL control: without the guard the Alert cases failed {gained}, expected exactly {want_gained}')
+        return 1
+    gained = alert_failures(docs, filter_program.replace(PAUSED_GATE, 'if true then'), verbose=False)
+    if gained != ['NONE paused']:
+        print(f'FAIL control: without the paused gate the Alert cases failed {gained}, expected exactly [\'NONE paused\']')
+        return 1
+    print(f'[PASS] controls: without the titles {len(want_lost)} failed reasons lose their Alert; without the guard '
+          f'{len(want_gained)} converging reasons gain one; without the paused gate the paused one gains one')
+    alert_bad = alert_failures(docs, filter_program, verbose=True)
+    print(f'{len(ALERT_CASES) - len(alert_bad)}/{len(ALERT_CASES)} blueprint error Alert cases ok')
+    return min(len(bad) + len(alert_bad), 125)
 
 
 if __name__ == '__main__':
