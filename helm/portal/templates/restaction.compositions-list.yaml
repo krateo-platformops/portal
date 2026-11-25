@@ -139,9 +139,8 @@ spec:
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     def nn($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
     {{- include "portal.compositionStateDefs" . | nindent 4 }}
-    def attention: if .state == "failed" then 0 elif .state == "degraded" then 1 elif .state == "unreadable" then 2 elif .railState == "drift" then 3 elif .state == "paused" then 4 else null end;
-    def why: if .state == "failed" then "failed" elif .state == "degraded" then "degraded" elif .state == "unreadable" then "children unreadable" elif .state == "paused" then "reconcile paused" else "drifted" end;
-    def unhealthy: [ .[] | select(attention != null) ] | sort_by(attention, .kind, .name) | .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | (.kind // "") + "/" + (.name // "") + " · " + (.ns // "") + " — " + why)) | join(" ");
+    def why: if .state == "failed" then "failed" elif .state == "degraded" then "degraded" elif .state == "unreadable" then "children unreadable" else "drifted" end;
+    def unhealthy($order): [ .[] | select(.railState | compositionNeedsAttention) ] | sort_by((.railState as $r | $order | index($r)), .kind, .name) | .[0:8] | to_entries | map(((.key + 1) | tostring) + ". " + (.value | (.kind // "") + "/" + (.name // "") + " · " + (.ns // "") + " — " + why)) | join(" ");
     (first([.crdsError, .allCompositionsError][] | select(. != null and . != [] and . != "") | errmsg) // "" | cap(300)) as $readError
     | (((.projects // "") | split(",") | map(select(. != ""))) as $projSel
      | ((.project // .namespace) // "") as $proj
@@ -150,8 +149,8 @@ spec:
     | ["projects", "scope", "status", "kind", "q", "view"] as $keys
     {{/* THE STATE IS THE PAGE'S FILTER (the /incidents dashboard's layout, mockup A4). ?status= takes
          one state or several (healthy, failed, degraded, drift, pending, unreadable, unknown, paused, any
-         case), `attention` (NotReady, Degraded, Children unreadable, Drift, Paused) or `all`; absent,
-         it is `attention`. Kind and search stay as narrowing params, for the links that carry them
+         case), `attention` (NotReady, Degraded, Children unreadable, Drift: compositionNeedsAttention, never
+         Paused) or `all`; absent, it is `attention`. Kind and search stay as narrowing params, for the links that carry them
          (Observability's by-kind rows, the by-kind chart here), each a removable chip. */}}
     | ($in | fx_filters(["kind"])) as $flt0
     | ((.status // "") | tostring | ascii_downcase | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")) | unique) as $rawSel
@@ -171,12 +170,12 @@ spec:
     | (($all | length) - $na) as $assessable
     | ($all | map(select(.assessable and .state == "pending")) | length) as $pending
     {{/* One state per composition, its railState, in triage order: the chips, the donut and the cards
-         follow it. `attention` is every state a person should look at. No # comments in this
+         follow it. `attention` is every state a person should look at (compositionNeedsAttention: a
+         paused composition is not one, it keeps its own chip). No # comments in this
          filter: it is a folded block, which would join them to the code that follows. */}}
     | ["failed", "degraded", "unreadable", "drift", "paused", "unknown", "pending", "healthy"] as $order
     | { healthy: "Ready", paused: "Paused", degraded: "Degraded", drift: "Drift", failed: "NotReady", unreadable: "Children unreadable", unknown: "Unknown", pending: "Pending", attention: "Needs attention", all: "All" } as $stateNames
-    | def isAttention: (.railState | IN("failed", "degraded", "unreadable", "drift", "paused"));
-      def inState($sel): . as $c | ($sel | length) == 0 or any($sel[]; . == $c.railState or (. == "attention" and ($c | isAttention)));
+    | def inState($sel): . as $c | ($sel | length) == 0 or any($sel[]; . == $c.railState or (. == "attention" and ($c.railState | compositionNeedsAttention)));
       def condAt($t): ((.conditions // []) | map(select(.type == $t)) | .[0].lastTransitionTime // "");
       def stateAt: if .railState == "drift" then condAt("Synced") elif .railState == "degraded" then "" else condAt("Ready") end;
       def utcstamp:
@@ -198,7 +197,7 @@ spec:
     | ($base | map(select(inState($statusSel)))) as $filtered
     | [ fx_facet($scopedF; $flt; "kind"; "Kind"; {}) ] as $facets
     | ($order | map({ key: ., value: (. as $s | $base | map(select(.railState == $s)) | length) }) | from_entries
-       + { attention: ($base | map(select(isAttention)) | length), all: ($base | length) }) as $stateCounts
+       + { attention: ($base | map(select(.railState | compositionNeedsAttention)) | length), all: ($base | length) }) as $stateCounts
     | ([ $facets[] | select((.active | length) > 0) | .label + ": " + ([ .values[] | select(.active) | .label ] | join(", ")) ] | join("; ")) as $facetDesc
     | ([ (if $status == "all" then empty else "State: " + ([ $statusSel[] | $stateNames[.] // . ] | join(", ")) end),
          (if $facetDesc != "" then $facetDesc else empty end),
@@ -213,7 +212,7 @@ spec:
          + (if ($all | length) > 0 then "; " + nn($all | length; "other composition is"; "other compositions are") + " outside it. Tell me whether that is expected, and whether anything in my other compositions needs attention."
             else ". Explain how a composition is created on this platform from an installed blueprint." end)
        else
-         ($filtered | unhealthy) as $bad
+         ($filtered | unhealthy($order)) as $bad
          | "Review my compositions" + (if $view != "" then " (" + $view + ")" else "" end) + ": "
            + ($filtered | length | tostring) + " in view — "
            + ($filtered | map(select(.railState == "healthy")) | length | tostring) + " healthy, "
@@ -224,7 +223,7 @@ spec:
            + ($filtered | map(select(.state == "pending")) | length | tostring) + " pending, "
            + ($filtered | map(select(.state == "unreadable")) | length | tostring) + " with unreadable children."
            + (if $bad != "" then " The ones that need attention are: " + $bad + ". For each, explain what is wrong from its conditions and managed resources, and what to fix first."
-              else " None of them is failed, degraded, drifted, paused or unreadable. Check their conditions and managed resources and tell me whether anything still needs attention." end)
+              else " None of them is failed, degraded, drifted or unreadable. Check their conditions and managed resources and tell me whether anything still needs attention." end)
        end + (if ($all | length) > 0 then $partial else "" end)) as $askPrompt
     | ($readError != "" and ($all | length) == 0) as $failed
     | ([ $filtered[] | . + { order: (.railState as $r | ($order | index($r)) // 9) } ] | sort_by(.order, .kind, .name)) as $sorted
@@ -232,9 +231,9 @@ spec:
     | ([ $facets[] as $fc | $fc.values[] | select(.active)
          | { label: ($fc.label + ": " + .label), href: fx_href("/compositions"; fx_without($p; $fc.key; .value)), removable: true } ]
        + (if $q != "" then [ { label: ("Search: " + ((.q // "") | tostring | cap(40))), href: fx_href("/compositions"; fx_set($p; "q"; "")), removable: true } ] else [] end)) as $narrow
-    | ([ $base[] | select(isAttention) | . + { since: (stateAt | if . == "" then null else epoch end) } ]
+    | ([ $base[] | select(.railState | compositionNeedsAttention) | . + { since: (stateAt | if . == "" then null else epoch end) } ]
        | map(. + { age: (if .since == null then null else (($now - .since) / 60) end) })) as $attn
-    | (([ $base | group_by(.kind)[] | { kind: .[0].kind, count: length, attention: (map(select(isAttention and .railState != "paused")) | length), paused: (map(select(.railState == "paused")) | length) } ] | sort_by(-.count, .kind)) as $kinds
+    | (([ $base | group_by(.kind)[] | { kind: .[0].kind, count: length, attention: (map(select(.railState | compositionNeedsAttention)) | length), paused: (map(select(.railState == "paused")) | length) } ] | sort_by(-.count, .kind)) as $kinds
        | ($kinds | .[0].count // 1) as $max
        | [ $kinds[0:8][] | { name: .kind,
                              count: ((.count | tostring) + (if .attention > 0 then " · " + (.attention | tostring) + " need attention" else "" end) + (if .paused > 0 then " · " + (.paused | tostring) + " paused" else "" end)),

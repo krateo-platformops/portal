@@ -19,12 +19,12 @@
 
      THE STATE is the one every page reads (portal.compositionStateDefs over
      portal.readyReasonDefs, both copied into this chart): paused, failed (NotReady), degraded, healthy (Ready), drift, unreadable
-     (Children unreadable), unknown, pending. `attention` is failed, degraded, unreadable, drift and paused,
-     as on /compositions. OVERDUE (tracing only): no reconcile span in the trace window, or the last
-     one over 5 min ago — a healthy composition reconciles every couple of minutes. A paused
-     composition is never overdue: Krateo is not reconciling it on purpose (visual audit CMP-9). In
-     the by-kind and by-namespace bars it is named apart ("1 paused"), neutral, not one that needs
-     attention.
+     (Children unreadable), unknown, pending. `attention` is failed, degraded, unreadable and drift
+     (compositionNeedsAttention, the same set as /compositions): a paused composition is never one.
+     OVERDUE (tracing only): no reconcile span in the trace window, or the last one over 5 min ago —
+     a healthy composition reconciles every couple of minutes. A paused composition is never overdue:
+     Krateo is not reconciling it on purpose (visual audit CMP-9). In the by-kind and by-namespace
+     bars it is named apart ("1 paused"), neutral.
 
      THE PARAMS (request extras).
        projects  the shell scope: compositions in those namespaces only;
@@ -192,7 +192,7 @@ spec:
         | ($telemetry == "ok" and $l == null) as $never
         | (if $l != null then ([$now - $l, 0] | max) else null end) as $age
         | { name, ns: (.ns // ""), kind: (.kind // ""), state: $st, stateLabel: $names[$st],
-            attention: ($st | IN("failed", "degraded", "unreadable", "drift", "paused")),
+            attention: ($st | compositionNeedsAttention),
             never: $never, last: $l, ageSec: $age,
             overdue: ($st != "paused" and ($never or (($age // 0) > $overdueAfter))),
             p95: (($t // {}).p95), n: (($t // {}).n // 0),
@@ -212,13 +212,13 @@ spec:
     | def reconciled: if $telemetry != "ok" then "created " + (.created | .[0:10])
                       elif .never then "no reconcile in the trace window"
                       else "reconciled " + ago(.ageSec) + " ago" + (if .p95 != null and .n > 0 then " · p95 " + (.p95 | durationLabel) else "" end) end;
-      ([ $order[] | . as $s | select(($counts[$s] // 0) > 0 and ($s | IN("failed", "degraded", "unreadable", "drift", "paused"))) | ($counts[$s] | tostring) + " " + $names[$s] ] | join(" · ")) as $attnText
+      ([ $order[] | . as $s | select(($counts[$s] // 0) > 0 and ($s | compositionNeedsAttention)) | ($counts[$s] | tostring) + " " + $names[$s] ] | join(" · ")) as $attnText
     | ($base | map(select(.never)) | length) as $neverN
     # The route a state chip opens, and the figure that counts the same state.
     | def stateRoute($k): $in | obsHref({ status: (if $k == "all" then "" else $k end), q: $qRaw }; "Reconciliation");
       ([ { title: "Compositions", value: $counts.all, caption: nn($base | map(.kind) | unique | length; "kind"; "kinds"), tone: "total", route: "" },
          { title: "Healthy", value: $counts.healthy, caption: "Ready and in sync", tone: "healthy", route: stateRoute("healthy") },
-         { title: "Needs attention", value: $counts.attention, caption: (if $attnText == "" then "nothing NotReady, drifted or paused" else $attnText end), tone: "attention", route: stateRoute("attention") },
+         { title: "Needs attention", value: $counts.attention, caption: (if $attnText == "" then "nothing NotReady, degraded, drifted or unreadable" else $attnText end), tone: "attention", route: stateRoute("attention") },
          { title: "Pending", value: $counts.pending, caption: "converging, no verdict yet", tone: "pending", route: stateRoute("pending") } ]
        + (if ($tracing | not) then []
           elif $telemetry == "ok" then [ { title: "Reconcile overdue", value: $counts.overdue,
@@ -230,7 +230,7 @@ spec:
     | ([ "all", "attention" ] + (if $telemetry == "ok" then [ "overdue" ] else [] end)
        + ($order | map(select(. as $s | ($counts[$s] // 0) > 0 or $sel == $s)))) as $chipKeys
     | def bars($field; $top):
-        (group_by(.[$field]) | map({ name: .[0][$field], count: length, attention: (map(select(.attention and .state != "paused")) | length), paused: (map(select(.state == "paused")) | length) }) | sort_by(-.count, .name) | .[0:$top]) as $g
+        (group_by(.[$field]) | map({ name: .[0][$field], count: length, attention: (map(select(.attention)) | length), paused: (map(select(.state == "paused")) | length) }) | sort_by(-.count, .name) | .[0:$top]) as $g
         | ($g | .[0].count // 1) as $max
         | [ $g[] | . as $r | { name, count: ((.count | tostring) + (if .attention > 0 then " · " + (.attention | tostring) + " need attention" else "" end) + (if .paused > 0 then " · " + (.paused | tostring) + " paused" else "" end)),
                      percent: (.count * 100 / $max | floor), tone: (if .attention > 0 then "bad" else "ok" end),

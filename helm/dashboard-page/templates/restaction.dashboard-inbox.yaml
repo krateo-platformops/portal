@@ -20,7 +20,7 @@
 
      THE FILTER is ?source= (portal.facets): which pages' items are in view. Each base item is one
      thing that needs someone (an open incident, a firing alert, an agent the gateway cannot reach,
-     a tool server not Accepted, a proposal waiting for a decision, a composition not Ready, paused or
+     a tool server not Accepted, a proposal waiting for a decision, a composition not Ready or
      drifted, a failed read), tagged with its source. The source facet counts those items and shows
      only when two or more sources have any (decision Q2: over the unfiltered set). ?projects (the
      shell's scope) narrows the compositions and blueprints to its namespaces, as compositions-list
@@ -28,7 +28,12 @@
 
      NOT READY leaves out Ready=Unknown/ZeroEvidence: the children publish no readiness the
      controller can read, which is permanent and nobody's defect (compositions-list's `assessable`).
-     A paused composition reports Ready=True on purpose, so it is "paused", not "not Ready".
+     A composition's class is its state, the one every page reads (portal.compositionStateDefs,
+     copied into this chart). What needs someone is what needs attention there
+     (compositionNeedsAttention: NotReady, Degraded, Children unreadable, Drift) and what is not
+     Ready yet (Pending). A paused composition is neither (Diego, 2026-11-25): it reports Ready=True
+     on purpose, it is never Ready (portal #530) and never needs attention, so it is counted apart
+     and named among what is fine.
 
      DATA, NOT PRESENTATION. This returns numbers, names, hrefs and the facet; the widgets word and
      order it. `askHref` is the one sentence built here, because Ask Agentiko's prompt is data the
@@ -184,6 +189,7 @@ spec:
     {{- include "portal.facets" . | nindent 4 }}
     {{- include "portal.agentsGateway" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
+    {{- include "portal.compositionStateDefs" . | nindent 4 }}
     # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list whose entries are
     # the apiserver's Status object or a bare message. "" means the read worked.
     def errText($e):
@@ -195,19 +201,8 @@ spec:
              | map(select(. != "")) | unique | join("; ") )
       end;
     def cut($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
-    # A composition's class, from its conditions (compositions-list's railState, read the same way).
-    def cclass:
-      (.conditions // []) as $c
-      | (any($c[]; .type == "Ready" and .status == "True")) as $ready
-      | if any($c[]; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused")) then "paused"
-        elif any($c[]; .type == "Ready" and .status == "False" and (.reason | isConvergingFalse | not)) then "failed"
-        elif any($c[]; (.type == "Ready" and .status == "Unknown" and .reason != "ZeroEvidence" and .reason != "ChildrenForbidden")) and any($c[]; .type == "Synced" and .status == "False") then "failed"
-        elif $ready and (.wh == false) then "degraded"
-        elif $ready and any($c[]; .type == "Synced" and .status == "False") then "drift"
-        elif $ready then "ready"
-        elif any($c[]; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence") then "notAssessable"
-        elif any($c[]; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden") then "unreadable"
-        else "pending" end;
+    # A composition's class: its state, the one every page reads (portal.compositionStateDefs).
+    def cclass: compositionVerdict.state;
     def readyReason: ([ (.conditions // [])[] | select(.type == "Ready") ] | .[0].reason) // "";
     (now | todate | .[0:10]) as $today
     | ((.projects // "") | tostring) as $projects
@@ -267,16 +262,18 @@ spec:
     # ── compositions and blueprints ────────────────────────────────────────────────────────────
     | ([ (.allCompositions // [])[] | select(type == "object") | select(inScope) | . + {class: cclass} ]) as $comps
     | ([ (.definitions // [])[] | select(type == "object") | select(inScope) ]) as $defs
-    | ([ $comps[] | select(.class == "failed" or .class == "degraded" or .class == "unreadable" or .class == "pending") ]) as $notReady
+    # WHAT NEEDS SOMEONE: needs attention (the shared set, never paused) or is not Ready yet.
+    | ([ $comps[] | select((.class | compositionNeedsAttention) or .class == "pending") ]) as $needs
+    | ([ $needs[] | select(.class != "drift") ]) as $notReady
+    | ([ $needs[] | select(.class == "drift") ]) as $drift
     | ([ $comps[] | select(.class == "paused") ]) as $paused
-    | ([ $comps[] | select(.class == "drift") ]) as $drift
     | { total: ($comps | length),
-        ready: ([ $comps[] | select(.class == "ready" or .class == "paused" or .class == "drift") ] | length),
+        ready: ([ $comps[] | select(.class == "healthy" or .class == "drift") ] | length),
         notReady: ($notReady | length),
         paused: ($paused | length),
         drift: ($drift | length),
-        notAssessable: ([ $comps[] | select(.class == "notAssessable") ] | length),
-        problems: [ ($notReady + $paused + $drift)[] | {name, namespace: .ns, kind, class, reason: readyReason} ],
+        notAssessable: ([ $comps[] | select(.class == "unknown") ] | length),
+        problems: [ ($notReady + $drift)[] | {name, namespace: .ns, kind, class, reason: readyReason} ],
         blueprints: (if errText(.definitionsError) != "" then null else ($defs | length) end),
         blueprintsReady: (if errText(.definitionsError) != "" then null else ([ $defs[] | select(.ready == "True") ] | length) end) } as $cmp
     # ── the sources, gated ─────────────────────────────────────────────────────────────────────
@@ -292,7 +289,7 @@ spec:
           items: $rev.waiting, href: page("/reviews"; "") },
         { key: "compositions", label: "Compositions", on: (.gateCompositions == true),
           err: ([ errText(.crdsError), errText(.allCompositionsError) ] | map(select(. != "")) | join("; ")),
-          items: ($cmp.notReady + $cmp.paused + $cmp.drift), href: page("/compositions"; "") } ] as $all
+          items: ($cmp.notReady + $cmp.drift), href: page("/compositions"; "") } ] as $all
     | [ $all[] | select(.on) | . + {failed: (.err != "")} ] as $src
     # ── the facet ──────────────────────────────────────────────────────────────────────────────
     | [ $src[] | . as $s | range(0; (if $s.failed then 1 else $s.items end)) | {f: {source: $s.key}} ] as $base
@@ -327,7 +324,6 @@ spec:
         else
           (if $s.items == 0 then "no composition needing attention (" + ($cmp.ready | tostring) + " of " + ($cmp.total | tostring) + " Ready)"
            else ([ (if $cmp.notReady > 0 then ($cmp.notReady | tostring) + " not Ready" else empty end),
-                   (if $cmp.paused > 0 then ($cmp.paused | tostring) + " paused" else empty end),
                    (if $cmp.drift > 0 then ($cmp.drift | tostring) + " drifted" else empty end) ] | join(", "))
                 + " composition" + (if $s.items == 1 then "" else "s" end) + " (" + names([ $cmp.problems[] | .name ]) + ")" end)
         end;
