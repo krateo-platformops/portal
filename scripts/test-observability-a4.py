@@ -751,6 +751,46 @@ def check_unchanged_tabs(c, on):
     return f
 
 
+# CHART-4: a legend read "snowplow_cache_diagnostic_total". Each SP chart's raw series keys (the SQL's)
+# and the name it draws each under.
+SP_SERIES = {
+    'sp-authz-memo': ('series', {'snowplow_authz_memo_hits': 'Memo hits', 'snowplow_authz_memo_misses': 'Memo misses',
+                                 'snowplow_authz_memo_deny_uncached_total': 'Uncached denials'}),
+    'sp-cache-evictions': ('stat', {'evict_ttl_total': 'Expired (TTL)', 'evict_lru_total': 'Evicted (LRU)', 'evict_delete_total': 'Deleted'}),
+    'sp-cache-size': ('stat', {'entries': 'Entries', 'resident_entries': 'Resident entries'}),
+    'sp-dep-evictions': ('stat', {'evict_delete_total': 'On delete', 'evict_self_gone_total': 'Object gone (404)',
+                                  'self_notfound_evict_total': 'Refresher 404'}),
+    'sp-dep-marks': ('stat', {'dirty_mark_total': 'Dirty marks', 'records': 'Dep records'}),
+    'sp-fallthrough': ('series', {'snowplow_apiserver_fallthrough_total': 'Fell through to the apiserver',
+                                  'snowplow_cache_diagnostic_total': 'Diagnostic hits'}),
+    'sp-informer-freshness': ('stat', {'max_event_age_seconds': 'Oldest event age (s)', 'gvrs_stale_over_hour': 'GVRs stale over 1 h'}),
+    'sp-l1-lookups': ('outcome', {'hit': 'Hit', 'miss': 'Miss', 'seed_hit': 'Seed hit'}),
+    'sp-queue-depth': ('series', {'snowplow_refresher_queue_depth': 'Refresher queue', 'snowplow_prewarm_engine_pending_depth': 'Prewarm pending'}),
+    'sp-refresher-outcomes': ('stat', {'completed': 'Completed', 'failed': 'Failed', 'dropped': 'Dropped', 'retried': 'Retried',
+                                       'skipped_stage_error': 'Skipped (stage error)'}),
+    'sp-uaf-declines': ('series', {'snowplow_restactions_uaf_put_declined_total': 'RESTAction Put declined',
+                                   'snowplow_widgets_uaf_put_declined_total': 'Widget Put declined',
+                                   'snowplow_ra_full_list_uaf_bypass_total': 'Full-list bypass'}),
+}
+
+
+def check_sp_series_names(on):
+    """Every SP line chart draws its series under a plain name, in the colour its map gives it, and the
+    SQL still selects each raw key the map names; a key the map does not know is drawn as itself."""
+    f = []
+    for chart, (field, names) in SP_SERIES.items():
+        cmap = on.get('LineChart', chart)['spec']['widgetData']['colorMap']
+        rows = [{'t': '1700000000', field: raw, 'd': '1', 'v': '1'} for raw in names] + [{'t': '1700000000', field: 'new_key', 'd': '1', 'v': '1'}]
+        drawn = [d['series'] for d in wd(on, 'LineChart', chart, {'rows': rows})['data']]
+        expect(f, f'{chart}: the series, named', drawn, list(names.values()) + ['new_key'])
+        expect(f, f'{chart}: each name has its colour', sorted(cmap), sorted(names.values()))
+        sql = unquote(on.get('RESTAction', chart)['spec']['api'][0]['path'])
+        for raw in names:
+            if raw not in sql and raw not in {'hit', 'miss', 'seed_hit', 'completed', 'failed', 'dropped', 'retried'}:
+                f.append(f'{chart}: the SQL no longer names {raw}')
+    return f
+
+
 def check_authored(c, on):
     for chart, label in ((c, 'default'), (on, 'every flag')):
         for d in chart.docs:
@@ -779,6 +819,7 @@ def main():
         ('State tiles open their state chip\'s route; totals, metrics and failed reads do not', lambda: check_state_tiles(c, on)),
         ('Reconciliation: a paused composition is neutral and never overdue', lambda: check_recon_paused(on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
+        ('SP charts draw their series under plain names', lambda: check_sp_series_names(on)),
     ]
     if crds_dir:
         checks.append(('(authored widgets queued for validation)', lambda: check_authored(c, on)))
