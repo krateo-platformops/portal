@@ -623,6 +623,23 @@ def check_traces(c):
 # State tiles: a figure that counts a state opens the list filtered to it
 # ---------------------------------------------------------------------------------------------
 
+def check_recon_paused(on):
+    """A paused composition (visual audit CMP-9): Paused, as on /compositions; never overdue, since
+    Krateo is not reconciling it on purpose; named apart in the bars ("1 paused"), neutral."""
+    f = []
+    paused = comp('Portal', 'krateo-system', 'held', '2026-09-01T10:00:00Z',
+                  [cond('Ready', 'True', 'ReconcilePaused'), cond('Synced', 'False', 'ReconcilePaused')])
+    lists = {FW: LISTS[FW], PT: {'items': LISTS[PT]['items'] + [paused]}}
+    _, _, out = recon_out(on, lists=lists)
+    row = next(r for r in out['table'] if r['name'] == 'held')
+    expect(f, 'Paused, and not overdue although it has no reconcile in the window', (row['state'], row['overdue']), ('Paused', False))
+    expect(f, 'the overdue count leaves it out', out['counts']['overdue'], 2)
+    kinds = wd(on, 'Listy', 'obs-by-kind-list', out)['dataSource']
+    expect(f, 'by kind: named apart, neutral', [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] == 'Portal'],
+           [('Portal', '2 · 1 paused', 'ok')])
+    return f
+
+
 def check_state_tiles(c, on):
     """A state tile's route is its state chip's, the other page params kept (q, view, range); a total,
     a metric and a failed read have route "" (a plain tile); every figures Listy wires navigateTo."""
@@ -710,6 +727,7 @@ def main():
         ('Components: figures, chips, cards, the full list, the side, the search', lambda: check_components(c)),
         ('Traces: figures, status chips, cards, the full list, the side, the search', lambda: check_traces(c)),
         ('State tiles open their state chip\'s route; totals, metrics and failed reads do not', lambda: check_state_tiles(c, on)),
+        ('Reconciliation: a paused composition is neutral and never overdue', lambda: check_recon_paused(on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
     ]
     if crds_dir:
