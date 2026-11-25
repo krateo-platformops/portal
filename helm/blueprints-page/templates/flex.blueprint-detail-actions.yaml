@@ -1,11 +1,13 @@
 {{/* Header action row for the blueprint detail page — Create (primary, instantiate) + */}}
-{{/* Deploy to fleet (W3-1: fan out one CompositionDefinition per selected spoke, via drawer) */}}
-{{/* + Delete (danger, uninstall), side by side. The version update is a separate Form lower */}}
-{{/* on the page. "Ask Agentiko →" sits immediately left of Create: filled like every agent entry */}}
-{{/* point (A4), it does not take the container's one primary (P6). */}}
-{{/* Deploy to fleet and Uninstall are mounted only for a caller allowed to make their request */}}
-{{/* (blueprint-detail's `may`, SelfSubjectAccessReview): a tenant sees Marketplace, Ask Agentiko */}}
-{{/* and Create. resourcesRefs stay static; an unmounted child is never fetched. */}}
+{{/* Deploy to fleet (W3-1: fan out one CompositionDefinition per selected spoke, via drawer), */}}
+{{/* then the "⋯" menu (blueprint-detail-more) holding Uninstall, so it never sits beside Create */}}
+{{/* (UX audit BP-4). The version update is a separate Form lower on the page. "Ask Agentiko →" */}}
+{{/* sits immediately left of Create: filled like every agent entry point (A4), it does not take */}}
+{{/* the container's one primary (P6). */}}
+{{/* Deploy to fleet is mounted only for a caller allowed to make its request (blueprint-detail's */}}
+{{/* `may`, SelfSubjectAccessReview); Uninstall's rule lives on the menu, which renders nothing when */}}
+{{/* it holds nothing: a tenant sees Marketplace, Ask Agentiko and Create. resourcesRefs stay static; */}}
+{{/* an unmounted child is never fetched. */}}
 kind: Flex
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -22,6 +24,7 @@ spec:
   widgetData:
     allowedResources:
       - buttons
+      - dropdowns
     vertical: false
     gap: small
     items:
@@ -29,14 +32,13 @@ spec:
       - resourceRefId: blueprint-detail-fleet
       - resourceRefId: blueprint-detail-ask-agentiko
       - resourceRefId: blueprint-detail-create
-      - resourceRefId: blueprint-detail-delete
+      - resourceRefId: blueprint-detail-more
   widgetDataTemplate:
     - forPath: items
       expression: >-
         ${ [ { resourceRefId: "blueprint-detail-marketplace" } ]
         + (if (.may.fleet != false) then [ { resourceRefId: "blueprint-detail-fleet" } ] else [] end)
-        + [ { resourceRefId: "blueprint-detail-ask-agentiko" }, { resourceRefId: "blueprint-detail-create" } ]
-        + (if (.may.uninstall != false) then [ { resourceRefId: "blueprint-detail-delete" } ] else [] end) }
+        + [ { resourceRefId: "blueprint-detail-ask-agentiko" }, { resourceRefId: "blueprint-detail-create" }, { resourceRefId: "blueprint-detail-more" } ] }
   resourcesRefs:
     items:
       - id: blueprint-detail-marketplace
@@ -63,9 +65,9 @@ spec:
         namespace: {{ $.Values.namespace }}
         resource: buttons
         verb: GET
-      - id: blueprint-detail-delete
+      - id: blueprint-detail-more
         apiVersion: widgets.templates.krateo.io/v1beta1
-        name: blueprint-detail-delete
+        name: blueprint-detail-more
         namespace: {{ $.Values.namespace }}
-        resource: buttons
+        resource: dropdowns
         verb: GET

@@ -5,6 +5,13 @@
 {{/* modal; RBAC via the user token. On success the engine redirects to /blueprints. Target GVR */}}
 {{/* resolved server-side (.gvr) — no hardcode. A DELETE removes the object directly (no */}}
 {{/* controller needed), effective on any cluster. */}}
+{{/* */}}
+{{/* It lives under the header's "⋯" menu (dropdown.blueprint-detail-more, UX audit BP-4). The confirm */}}
+{{/* modal says the page's words through the rest action's `confirmation` (blueprint-detail's */}}
+{{/* `confirmation`): "Uninstall <name>?", what it removes, and, when compositions were created from */}}
+{{/* it, an amber Alert listing them with their state; the engine's own facts and YAML fold under */}}
+{{/* "What will be sent". NEEDS the frontend release that reads `confirmation` */}}
+{{/* (feat/rest-action-confirmation; blueprints-page's krateo.io/requires-frontend-crd floor). */}}
 kind: Button
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -37,6 +44,9 @@ spec:
           onSuccessNavigateTo: /blueprints
           loading:
             display: true
+  widgetDataTemplate:
+    - forPath: actions.rest[0].confirmation
+      expression: '${ .confirmation }'
   resourcesRefs:
     items: []
   resourcesRefsTemplate:

@@ -247,6 +247,22 @@ spec:
         # A follower's line links its owner (core-provider 2.13.126 status.owner); "" otherwise.
         inputsHref: (([ ($d.status.conditions // [])[]? | objects | select(.type == "ValuesSchemaAuthored") ] | first) as $valuesSchemaCond
           | inferredInputsHref($valuesSchemaCond; ($d.status.owner // null))),
+        # Uninstall's confirmation (UX audit BP-4, approved mockup), the rest action's `confirmation`
+        # (button.blueprint-detail-delete): the blueprint's name, what it removes, and the compositions
+        # created from it, each with the state every page prints and a link to it, in an amber Alert.
+        # With none, no Alert. When they could not be listed the Alert says so: a failed read is not
+        # "none were created". It says nothing about what happens to those compositions when the
+        # definition goes (not verified). At most ten are listed; the message gives the full count.
+        confirmation: ({
+            title: ("Uninstall " + $bpName + "?"),
+            message: ("This removes the blueprint " + $bpName + " from the Platform."),
+            okLabel: "Uninstall"
+          } + (if $compsError != "" then { alert: { type: "warning", message: "The compositions created from it could not be listed." } }
+               elif ($comps | length) == 0 then {}
+               else { alert: { type: "warning",
+                               message: (($comps | length | tostring) + (if ($comps | length) == 1 then " composition was" else " compositions were" end) + " created from it."
+                                         + (if ($comps | length) > 10 then " The ten most recent are listed." else "" end)),
+                               items: [ $comps[0:10][] | { label: (.name + " · " + .namespace), href: .navHref, tag: .readyLabel } ] } } end)),
         may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
         detail: $d,
         compositions: $comps,

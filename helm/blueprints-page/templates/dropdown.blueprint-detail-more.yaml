@@ -1,0 +1,37 @@
+{{/* UX audit BP-4 (approved mockup, 2026-11-25): Uninstall moves under one "⋯" menu at the end of the
+     header's actions, so it never sits next to Create, as composition-detail-more holds a composition's
+     Pause and Delete. The item is the same Button widget as before, with its own confirmation (now the
+     page's words: blueprint-detail's `confirmation`) and permission behaviour. `may.uninstall` decides
+     whether it is mounted (it was the actions Flex's rule): a caller whose DELETE the authorizer refuses
+     gets an empty menu, and a Dropdown left with nothing renders nothing. Needs frontend-crds >= 1.8.54
+     (Dropdown). */}}
+kind: Dropdown
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: blueprint-detail-more
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    allowedResources:
+      - buttons
+    ariaLabel: More actions
+    placement: bottomRight
+    items:
+      - resourceRefId: blueprint-detail-delete
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ if (.may.uninstall != false) then [ { resourceRefId: "blueprint-detail-delete" } ] else [] end }'
+  resourcesRefs:
+    items:
+      - id: blueprint-detail-delete
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-delete
+        namespace: {{ $.Values.namespace }}
+        resource: buttons
+        verb: GET

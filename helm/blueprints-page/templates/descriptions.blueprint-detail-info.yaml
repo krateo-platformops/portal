@@ -1,4 +1,4 @@
-{{/* Blueprint info rows (chart / installed version / latest version / status / synced), */}}
+{{/* Blueprint info rows (chart / installed version / latest version, and Inputs / Values check when set), */}}
 {{/* shaped server-side by the blueprint-detail RA. Hosted inside card-blueprint-detail-info (the */}}
 {{/* Flex allowedResources enum has no `descriptions`, so it must be nested in a Card). */}}
 kind: Descriptions
@@ -19,13 +19,12 @@ spec:
     bordered: true
     size: small
     items: []
-  {{/* Ready/Synced arrive as raw condition strings ("True"/"False"/"Unknown") — mapped to human */}}
-  {{/* words here (never leak a bare boolean into prose UI). No Created row: the page header says */}}
+  {{/* No Ready or Synced row: the header's pill already reads both (UX audit BP-4). No Created row: the page header says */}}
   {{/* "created 49d ago" already, and this row and the Metadata card's said it twice more, past ~60 */}}
   {{/* days as a date beside the header's age (UX audit BP-4). "Latest version" is latestLabel, which */}}
   {{/* says "not known: …" and why when the catalog holds no version of this chart. */}}
   widgetDataTemplate:
     - forPath: items
-      expression: '${ [ { label: "Chart", value: (.chart // "") }, { label: "Installed version", value: (.currentVersion // "") }, { label: "Latest version", value: (.latestLabel // .latestVersion // "") } ] + (if ((.inputs // "") | tostring) != "" then [ { label: "Inputs", value: (.inputs | tostring) } + (if ((.inputsHref // "") | tostring) != "" then { href: (.inputsHref | tostring) } else {} end) ] else [] end) + (if ((.migratedValues.line // "") | tostring) != "" then [ { label: "Values check", value: (.migratedValues.line | tostring) } ] else [] end) + [ { label: "Ready", value: (.ready // "Unknown") }, { label: "Synced", value: (.synced // "Unknown") } ] }'
+      expression: '${ [ { label: "Chart", value: (.chart // "") }, { label: "Installed version", value: (.currentVersion // "") }, { label: "Latest version", value: (.latestLabel // .latestVersion // "") } ] + (if ((.inputs // "") | tostring) != "" then [ { label: "Inputs", value: (.inputs | tostring) } + (if ((.inputsHref // "") | tostring) != "" then { href: (.inputsHref | tostring) } else {} end) ] else [] end) + (if ((.migratedValues.line // "") | tostring) != "" then [ { label: "Values check", value: (.migratedValues.line | tostring) } ] else [] end) }'
   resourcesRefs:
     items: []
