@@ -199,6 +199,16 @@ def check_charts():
            [(r['name'], r['why'], r['href']) for r in w('Listy', 'compositions-longest', out)['dataSource']],
            [('cache', 'Drift · 3 d 12 h', '/compositions/team-a/cache'), ('acme', 'Paused · 2 d', '/compositions/team-a/acme'),
             ('orders', 'NotReady · 6 h', '/compositions/team-a/orders')])
+    expect(f, 'by kind: a paused composition is named apart, neutral, and is not one that needs attention (CMP-9)',
+           [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] in ('AcmeFeedback', 'Redis')],
+           [('Redis', '2 · 2 need attention', 'bad'), ('AcmeFeedback', '1 · 1 paused', 'ok')])
+    longest = w('Listy', 'compositions-longest', out)
+    lmap = longest['itemTemplate']['color'].get('map', {})
+    cmap = w('Listy', 'compositions-cards', out)['itemTemplate']['color']['map']
+    expect(f, 'needing attention longest: each dot is its state\'s card colour, paused gray, never red (CMP-9)',
+           [(r['name'], lmap.get(r.get('tone'), longest['itemTemplate']['color'].get('default'))) for r in longest['dataSource']],
+           [('cache', cmap['drift']), ('acme', 'gray'), ('orders', cmap['failed'])])
+    expect(f, 'the dot\'s colour comes from the row', longest['itemTemplate']['color']['value'], '{tone}')
     expect(f, 'the side shows it while there are any', items(w('Flex', 'compositions-side', out)),
            ['compositions-by-state-card', 'compositions-by-kind-card', 'compositions-longest-card'])
     out = resolve(ex, [c for c in WORK if c['name'] != 'cache' and c['name'] != 'acme' and c['name'] != 'orders'])

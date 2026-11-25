@@ -97,13 +97,15 @@ def check_week(c):
     _, out = resolve(c, {'range': '7d'})
     av = {a['key']: a for a in out['availability']}
     expect(p, 'API availability', (av['snowplow']['value'], av['snowplow']['below']), ('99.9845 %', False))
-    expect(p, 'API detail starts with the counts', av['snowplow']['detail'].split(' · ')[0], '114 failed of 736,961 calls')
+    # OBS-5: the figure says whether it meets its target, then the counts.
+    expect(p, 'API detail: the verdict, then the counts', av['snowplow']['detail'].split(' · ')[0:2], ['Meets the 99.9 % target', '114 failed of 736,961 calls'])
+    expect(p, 'the window, in range mode, governs every card', out['window']['label'].startswith('WINDOW · last 7 days · '), True)
     expect(p, 'UI availability', av['krateo-frontend']['value'], '100 %')
     expect(p, 'UI detail carries the widget fetches', av['krateo-frontend']['detail'].endswith('widget fetches: 0 failed of 59,835'), True)
     expect(p, 'the API window spans two layouts', out['layoutChanged'], True)
     rows = {r['objective']: r for r in out['latency']}
     expect(p, 'API row', (rows['API · every snowplow request']['state'], rows['API · every snowplow request']['n']), ('layoutChanged', 736961))
-    expect(p, 'form.submit has samples in one layout only', (rows['UI · submit a form']['state'], rows['UI · submit a form']['p95'], rows['UI · submit a form']['n']), ('met', '(100 ms, 250 ms]', 62))
+    expect(p, 'form.submit has samples in one layout only', (rows['UI · submit a form']['state'], rows['UI · submit a form']['p95'], rows['UI · submit a form']['n']), ('met', 'between 100 ms and 250 ms', 62))
     expect(p, 'page.publish has none', (rows['UI · publish a page']['state'], rows['UI · publish a page']['n']), ('noSamples', 0))
     expect(p, 'the note names the window', '7-day figures' in out['note'], True)
     return p
@@ -113,7 +115,7 @@ def check_one_layout(c):
     p = []
     _, out = resolve(c, {'range': '24h'}, dict(WEEK, apiLat=fx('stmt2-1layout')))
     api = out['latency'][0]
-    expect(p, 'one layout: a percentile', (out['layoutChanged'], api['state'], api['p95'], api['n']), (False, 'met', '(100 ms, 250 ms]', 1614))
+    expect(p, 'one layout: a percentile', (out['layoutChanged'], api['state'], api['p95'], api['n']), (False, 'met', 'between 100 ms and 250 ms', 1614))
     return p
 
 
@@ -122,11 +124,12 @@ def check_rules(c):
     bounds = [25, 50, 100, 250, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000]
     row = lambda lo, up, ok, n=10: {'bounds_ms': bounds, 'n': n, 'p95_lower_ms': lo, 'p95_upper_ms': up, 'p95_within_target': ok}
     for label, r, want in [
-        ('overflow is "> last bound"', row(10000, 'inf', 0), ('above', '> 10.0 s')),
-        ('a whole interval above the target', row(500, 750, 0), ('above', '(500 ms, 750 ms]')),
-        ('an interval that straddles the target', row(250, 1000, 0), ('atTarget', '(250 ms, 1.0 s]')),
-        ('upper equal to the target is met (le)', row(250, 500, 1), ('met', '(250 ms, 500 ms]')),
-        ('64-bit counts may arrive quoted', dict(row(0, 25, 1), n='307317'), ('met', '(0 ms, 25 ms]')),
+        # OBS-5: the interval in words, not "(2.5 s, 5.0 s]".
+        ('overflow is "above the last bound"', row(10000, 'inf', 0), ('above', 'above 10.0 s')),
+        ('a whole interval above the target', row(500, 750, 0), ('above', 'between 500 ms and 750 ms')),
+        ('an interval that straddles the target', row(250, 1000, 0), ('atTarget', 'between 250 ms and 1.0 s')),
+        ('upper equal to the target is met (le)', row(250, 500, 1), ('met', 'between 250 ms and 500 ms')),
+        ('64-bit counts may arrive quoted', dict(row(0, 25, 1), n='307317'), ('met', 'between 0 ms and 25 ms')),
     ]:
         _, out = resolve(c, {}, dict(WEEK, apiLat=ch([r])))
         expect(p, label, (out['latency'][0]['state'], out['latency'][0]['p95']), want)
@@ -136,6 +139,8 @@ def check_rules(c):
     expect(p, 'a class with no row at all is no samples too', av['krateo-frontend']['value'], '—')
     _, out = resolve(c, {}, dict(WEEK, avail=ch([{'sli_service': 'snowplow', 'calls': 10000, 'sli_errors': 20, 'availability': 0.998}])))
     expect(p, 'below 99.9 % is flagged', [a['below'] for a in out['availability'] if a['key'] == 'snowplow'], [True])
+    expect(p, 'below 99.9 % says it misses the target', [a['detail'].split(' · ')[0] for a in out['availability'] if a['key'] == 'snowplow'],
+           ['Below the 99.9 % target'])
     _, out = resolve(c, {}, {k: v for k, v in WEEK.items() if k not in ('avail', 'apiLat')})
     expect(p, 'an unreadable statement says so', ([a['detail'] for a in out['availability']][0], out['latency'][0]['p95']),
            ('Couldn’t read this from ClickHouse.', 'Couldn’t read this from ClickHouse.'))
@@ -156,6 +161,10 @@ def check_30d(c):
     expect(p, 'an overspent budget says so, in red', (a['krateo-frontend']['budget'], a['krateo-frontend']['budgetColor'], a['krateo-frontend']['below']),
            ('Error budget spent: availability below 99.9 % over 30 days.', 'red', True))
     expect(p, 'the note names the days with data', '2 of them have data so far' in out['note'], True)
+    # OBS-5: "WINDOW · LAST 24 HOURS" sat above the 30-day availability; in 30-day mode it is the latency's.
+    expect(p, '30d mode: the range window is the latency\'s', out['window']['label'].startswith('LATENCY WINDOW · last 7 days · '), True)
+    expect(p, '30d mode: the verdict over 30 days', (a['snowplow']['detail'].split(' · ')[0], a['krateo-frontend']['detail'].split(' · ')[0]),
+           ('Meets the 99.9 % target', 'Below the 99.9 % target'))
     # A full month: the bar appears.
     full = fx('30d-1-two-classes')
     full['data'] = [dict(r, days_with_data=30) for r in full['data']]

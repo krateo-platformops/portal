@@ -17,7 +17,9 @@
 
      RULES THE SQL FILE STATES, applied here, not re-derived:
      - a percentile is the bucket interval (lower, upper] that holds the rank, never a point in it;
-       each bound reads as every duration in the portal does (durationLabel: "750 ms", "1.0 s");
+       each bound reads as every duration in the portal does (durationLabel: "750 ms", "1.0 s"), and
+       the interval in words ("between 2.5 s and 5.0 s", "above 10.0 s" for the overflow bucket), not
+       in interval notation (visual audit OBS-5);
      - a statement that returns more than one row for an SLI (one per bucket layout) has NO
        percentile for that window: "layout changed";
      - no row, or a NULL availability / share / burn, is "no samples", never 0 or 100 %.
@@ -134,13 +136,16 @@ spec:
     def commas: tostring | (if test("^[0-9]+$") then (explode | reverse | [recurse(if length > 3 then .[3:] else empty end) | .[0:3]] | map(reverse | implode) | reverse | join(",")) else . end);
     def pct: (. * 1000000 | round) / 10000 | tostring;
     def when: strftime("%d %b %H:%M") | ltrimstr("0");
+    # The availability against its target, said (visual audit OBS-5: 99.9385 % stood beside the 99.9 %
+    # target with no met or missed mark). Below is `$a < 0.999`, as `below` (the orange figure) reads it.
+    def verdict($a): if $a < 0.999 then "Below the 99.9 % target · " else "Meets the 99.9 % target · " end;
     # One SLI's latency from the rows a statement returned for it: 0 rows no samples, >1 a layout change.
     def latency($rows; $target):
       if ($rows | length) == 0 then {state: "noSamples", p95: "No samples in this window", n: 0}
       elif ($rows | length) > 1 then {state: "layoutChanged", p95: "Bucket layout changed: no percentile", n: ([$rows[] | .n | num // 0] | add)}
       else $rows[0] as $x | ($x.p95_lower_ms | num) as $lo | ($x.p95_upper_ms) as $up
         | {n: ($x.n | num // 0),
-           p95: (if $up == "inf" then "> " + (($x.bounds_ms // []) | last | durationLabel) else "(" + ($lo | durationLabel) + ", " + ($up | durationLabel) + "]" end),
+           p95: (if $up == "inf" then "above " + (($x.bounds_ms // []) | last | durationLabel) else "between " + ($lo | durationLabel) + " and " + ($up | durationLabel) end),
            state: (if (($x.p95_within_target | num) == 1) then "met" elif ($lo != null and $lo >= $target) then "above" else "atTarget" end)}
       end;
     (.range // "24h") as $r
@@ -170,7 +175,7 @@ spec:
                     else "Error budget left " + (($left * 1000 | round) / 10 | tostring) + " %" end),
            detail: (if $mode == "error" then "Couldn’t read this from ClickHouse."
                     elif $a == null then "No " + $c.unit + " in the last 30 days."
-                    else (($row.sli_errors | num // 0) | commas) + " failed of " + (($row.calls | num // 0) | commas) + " " + $c.unit
+                    else verdict($a) + (($row.sli_errors | num // 0) | commas) + " failed of " + (($row.calls | num // 0) | commas) + " " + $c.unit
                          + (if $burn1h[$c.key] != null then " · last hour burning " + (($burn1h[$c.key] * 10 | round) / 10 | tostring) + "× the budget rate"
                                 + (if $burn1h[$c.key] > 14.4 then ", above the 14.4× line the alerts page on" else "" end) else "" end)
                     end),
@@ -183,7 +188,7 @@ spec:
            below: ($a != null and $a < 0.999),
            detail: (if failed("availError") then "Couldn’t read this from ClickHouse."
                     elif $a == null then "No " + $c.unit + " in this window."
-                    else (($row.sli_errors | num // 0) | commas) + " failed of " + (($row.calls | num // 0) | commas) + " " + $c.unit
+                    else verdict($a) + (($row.sli_errors | num // 0) | commas) + " failed of " + (($row.calls | num // 0) | commas) + " " + $c.unit
                          + (if $burn[$c.key] != null then " · " + $adj + " burn " + (($burn[$c.key] * 100 | round) / 100 | tostring) + "×" else "" end)
                          + (if $c.key == "krateo-frontend" and (($f.fetches | num) // 0) > 0 then " · widget fetches: " + (($f.failed | num // 0) | commas) + " failed of " + (($f.fetches | num) | commas) else "" end)
                     end)} ] as $availRange
@@ -193,7 +198,7 @@ spec:
         {key: "krateo.form.submit", label: "UI · submit a form"}, {key: "krateo.page.publish", label: "UI · publish a page"} ] as $ui
     | (.uiLat // []) as $uiRows
     | {
-        window: {range: $r, label: ("WINDOW · " + $span + " · " + (($t - $s) | when) + " → " + ($t | when) + " UTC")},
+        window: {range: $r, label: ((if $mode == "range" then "WINDOW · " else "LATENCY WINDOW · " end) + $span + " · " + (($t - $s) | when) + " → " + ($t | when) + " UTC")},
         mode: $mode,
         availTitle: (if $mode == "range" then "Availability · target ≥ 99.9 %" else "Availability · target ≥ 99.9 % over 30 days" end),
         note: (if $mode == "range" then ("Availability is judged over 30 days. Until the daily rollup is enabled the longest window is 7 days, so these are " + $adj + " figures and the error budget is not shown yet.")
