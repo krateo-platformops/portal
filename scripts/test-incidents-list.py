@@ -26,8 +26,9 @@ THE DASHBOARD (mockup A4):
     (chips, then the cards, or ?view=table the table, or a line when there is nothing to list or the
     read failed) on two thirds, the charts on one third, the "Firing, not investigated" card only
     while there are such alerts or their read failed;
-  - a card says the state (its colour), the category, the cause and the object the analysis read,
-    and a wrench marks an Open incident whose fix can be applied;
+  - a card says the state (its colour, and its tile's mark: a triangle while Open, a check once
+    Resolved, never the triangle on a settled incident), the category, the cause and the object
+    the analysis read, and a wrench marks an Open incident whose fix can be applied;
   - an alert's display name loses a decorative emoji but keeps its punctuation (an em dash), with
     whitespace runs collapsed: it is the card title and the table's Incident.
 THE PROMPT. incidents-list builds the header button's `askHref`: /incidents with every param and the
@@ -471,6 +472,14 @@ def check_cards_and_table():
            [rows[n]['fixIcon'] for n in ('o1', 'o2', 'o3')], ['fa-wrench', '', 'fa-wrench'])
     ver = widget_data('Listy', 'incidents-cards', timed({'status': 'verifying'}), {'status': 'verifying'})['dataSource']
     expect(f, 'no wrench once it is not Open', [r['fixIcon'] for r in ver], [''])
+    # INC-7: the tile's mark is the state's, so a Resolved card shows no warning triangle.
+    expect(f, 'the tile mark is the row\'s', tpl['icon'], '{stateIcon}')
+    every = widget_data('Listy', 'incidents-cards', resolve(responses(), {'status': 'all'}), {'status': 'all'})['dataSource']
+    expect(f, 'a mark per state', sorted({(r['state'], r['stateIcon']) for r in every}),
+           [('Analyzing', 'fa-magnifying-glass'), ('Open', 'fa-triangle-exclamation'), ('Resolved', 'fa-circle-check'),
+            ('Verifying', 'fa-hourglass-half')])
+    closed = resolve(responses(incidents={'items': [incident('c1', 'Closed', ago(30), alert='disk', resolved=ago(2))]}), {'status': 'closed'})
+    expect(f, 'a Closed card: the cross', [r['stateIcon'] for r in closed['rows']], ['fa-circle-xmark'])
     table = widget_data('Table', 'incidents-table', out, {'view': 'table'})
     expect(f, 'the table: every column', [c['valueKey'] for c in table['columns']], ['sev', 'title', 'cause', 'category', 'target', 'state', 'age'])
     first = {c['valueKey']: c.get('stringValue') for c in table['dataSource'][0]}

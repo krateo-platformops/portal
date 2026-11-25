@@ -1390,6 +1390,10 @@ def strict(schema):
         if schema.get('x-kubernetes-int-or-string'):
             schema.pop('type', None)
             schema['anyOf'] = [{'type': 'integer'}, {'type': 'string'}]
+        # `nullable: true` admits null, as the apiserver reads it (PageHeader `progress` is sent as
+        # null when nothing is in progress). JSON Schema has no keyword for it, so null joins the type.
+        if schema.get('nullable') is True and isinstance(schema.get('type'), str):
+            schema['type'] = [schema['type'], 'null']
         return schema
     if isinstance(schema, list):
         return [strict(x) for x in schema]
