@@ -7,9 +7,12 @@
                opens on what needs someone. Read case-insensitively; a value that is no state
                matches nothing, and its chip set is still drawn so the reader can pick another.
                resolved lists only the incidents RESOLVED IN THE RANGE (resolvedin below), so the
-               Resolved figure, its chip's count and the rows are one number;
-       range   24h, 7d (absent) or 30d: the window of the Resolved and Time to resolve figures, of
-               the Resolved chip and list, and of the opened-vs-resolved chart;
+               Resolved figure, its chip's count and the rows are one number; closed, likewise,
+               only the incidents CLOSED IN THE RANGE (closedin). The live states (open,
+               analyzing, verifying) are what is so now, whenever it began; all is every incident;
+       range   24h, 7d (absent) or 30d: the window of the two states an incident ends in (the
+               Resolved and Time to resolve figures, the Resolved and Closed chips, lists and donut
+               slices) and of the opened-vs-resolved chart;
        view    `table`: the full table instead of the cards;
        q       the search: an incident whose title, cause, target, alert, category or name contains
                it (case-insensitive) is kept, every other one is left out of the whole page (the
@@ -17,11 +20,11 @@
                incidents and are not searched.
 
      OUTPUT.
-       rows      the incidents in the picked state (resolved: in the range), newest first: title, cause, state, target (the
+       rows      the incidents in the picked state (resolved, closed: in the range), newest first: title, cause, state, target (the
                  composition the analysis read, else the first object it read), category (the root
                  cause's), fixReady (an Open incident whose fix can be applied);
-       counts    per state, over every incident (the donut, the figures; the chips but Resolved's,
-                 which counts the incidents resolved in the range, as its figure and list do);
+       counts    per state, the chips' and the donut's: the live states over every incident,
+                 Resolved and Closed in the range, as their lists are; all over every incident;
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
                  to resolve in the range; a failed read is "—", never 0. Each tile's tone is the
                  state it counts (the time to resolve is resolved's), so it wears the colour the
@@ -138,7 +141,9 @@ spec:
             # no check runs any more. The state stays Verifying, so the caption must not say one is.
             noVerdict: ($state == "Verifying" and ([ (.status.conditions // [])[]? | select(.type == "ChecksUnknown" and .status == "True") ] | length) > 0),
             fixReady: ($state == "Open" and ((($fix.applyAction // null) | type) == "object" or ($fix.apply // "") != "")),
-            resolvedAt: (if $state == "Resolved" then (.status.resolution.at // "") else "" end)
+            resolvedAt: (if $state == "Resolved" then (.status.resolution.at // "") else "" end),
+            # When a person or the controller closed it (status.resolution.at, as for Resolved).
+            closedAt: (if $state == "Closed" then (.status.resolution.at // "") else "" end)
           }
       ) | sort_by(.triggeredAt) | reverse) as $allRows
     | ($allRows | map(select($q == "" or ([ .title, .cause, .target, .alert, .category, .name ] | map(tostring | ascii_downcase) | any(contains($q)))))) as $rows
@@ -147,14 +152,19 @@ spec:
     | def resolvedin: .stateKey == "resolved"
         and ((.resolvedAt | epoch) as $a | (.triggeredAt | epoch) as $f
              | $a != null and $f != null and $a >= $f and $a >= $now - $window);
+      # CLOSED IN THE RANGE, the same rule for the other state an incident ends in: Closed, with a
+      # readable resolution.at within the window. One closed with none is in no range.
+      def closedin: .stateKey == "closed" and ((.closedAt | epoch) as $a | $a != null and $a >= $now - $window);
+      # A row in state $k as its chip counts and lists it: the two ending states in the range.
+      def instate($k): if $k == "resolved" then resolvedin elif $k == "closed" then closedin else .stateKey == $k end;
       ([ $rows[] | select(resolvedin) ]) as $resolvedIn
-    | ($rows | map(select($sel == "all" or (.stateKey == $sel and ($sel != "resolved" or resolvedin))))) as $shown
+    | ($rows | map(select($sel == "all" or instate($sel)))) as $shown
     | ((.incidentsError // null) | errtext) as $err
     # A FAILED READ IS NOT A QUIET PLATFORM. `continueOnError` plus `// []` turns a refused or
     # failed Incident list into zero rows. The page says so, and the Agentiko prompt must not claim
     # a quiet platform, so the failure is carried out.
     | ($err != "") as $failed
-    | ($states | map(. as $k | { key: $k, value: ([ $rows[] | select(.stateKey == $k) ] | length) }) | from_entries
+    | ($states | map(. as $k | { key: $k, value: ([ $rows[] | select(instate($k)) ] | length) }) | from_entries
        + { all: ($rows | length) }) as $counts
     # TIME TO RESOLVE: triggered to resolved, in minutes, for each Resolved incident that says when.
     | ([ $rows[] | select(.resolvedAt != "")
@@ -224,7 +234,7 @@ spec:
          { key: "open", noun: "open incidents", active: true },
          { key: "verifying", noun: "incidents being verified", active: true },
          { key: "resolved", noun: ("incidents resolved in " + $rangeText), active: false },
-         { key: "closed", noun: "closed incidents", active: false } ]
+         { key: "closed", noun: ("incidents closed in " + $rangeText), active: false } ]
        | map(select(.key == $sel)) | first) as $st
     # THE PROMPT IS ABOUT THE STATE ON SCREEN, and the link keeps every param.
     | (if $failed then
@@ -247,9 +257,9 @@ spec:
        elif $st == null then
          "No incident is in the state \"" + ($sel | cap(40)) + "\"; my " + n($rows | length; "incident is"; "incidents are")
          + " in other states, with " + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
-       elif ($shown | length) == 0 and $sel == "resolved" then
-         "No incident was resolved in " + $rangeText + "; my " + n($rows | length; "incident is"; "incidents are")
-         + " in other states or resolved before that, with " + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
+       elif ($shown | length) == 0 and ($sel == "resolved" or $sel == "closed") then
+         "No incident was " + $sel + " in " + $rangeText + "; my " + n($rows | length; "incident is"; "incidents are")
+         + " in other states or " + $sel + " before that, with " + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
        elif ($shown | length) == 0 then
          "I have no " + $st.noun + "; my " + n($rows | length; "incident is"; "incidents are") + " in other states, with "
          + $awaitingText + ". Tell me whether anything here needs attention — grounded in the evidence on this page."
@@ -274,7 +284,7 @@ spec:
         counts: $counts,
         stats: $stats,
         chips: ([ ($states[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
-                | map({ label, count: (if .key == "resolved" then ($resolvedIn | length) else ($counts[.key] // 0) end), active: (.key == $sel), route: href(.key; $range; $tableView) })),
+                | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
                      { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
