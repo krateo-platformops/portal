@@ -1,0 +1,27 @@
+{{/* The Marketplace order (UX audit MKT-4, approved mockup 2026-11-25): a Select beside the search, */}}
+{{/* replacing the "Name (A–Z) | Recently updated" chip row. Its options are blueprints-catalog's */}}
+{{/* `.sorts`, the only two orders the helm index supports (it has no downloads or popularity field). */}}
+{{/* queryParam writes ?sort=; with none the catalog orders by name, which the placeholder says. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: marketplace-sort
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [category, keyword, q, source, sort]
+  apiRef:
+    name: blueprints-catalog
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: sort
+    queryParam: sort
+    placeholder: Name (A–Z)
+    size: middle
+    options: []
+  widgetDataTemplate:
+    - forPath: options
+      expression: '${ [ (.sorts // [])[] | {value, label} ] }'
+  resourcesRefs:
+    items: []

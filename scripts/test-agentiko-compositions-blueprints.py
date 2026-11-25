@@ -364,11 +364,14 @@ href, prompt = ask(run_cat(source='blueprint', category='database', q='red is', 
 check('marketplace: filtered -> keeps every facet', (href.split('?')[0], sorted(href.split('?')[1].split('&'))),
       ('/marketplace', ['category=database', 'q=red is', 'sort=recent', 'source=blueprint']))
 check('marketplace: filtered -> the view', prompt.split(';')[0:3],
-      ['Help me choose from the Marketplace: this view (blueprints only', ' keyword database', ' matching "red is") shows 0 of the catalog\'s 4 charts (0 blueprints, 0 operators)'])
+      ['Help me choose from the Marketplace: this view (blueprints only', ' category Database', ' matching "red is") shows 0 of the catalog\'s 4 charts (0 blueprints, 0 operators)'])
 _, prompt = ask(run_cat(source='blueprint', category='database')['askHref'])
 check('marketplace: filtered -> counts what is shown', prompt.split(' What should')[0],
-      "Help me choose from the Marketplace: this view (blueprints only; keyword database) shows 1 of the catalog's 4 charts "
+      "Help me choose from the Marketplace: this view (blueprints only; category Database) shows 1 of the catalog's 4 charts "
       "(1 blueprints, 0 operators); 1 is installed here, and 1 of those is not at the catalog's latest version (redis 1.1.0 → 1.2.0).")
+href, prompt = ask(run_cat(keyword='queue')['askHref'])
+check('marketplace: a keyword -> kept, and said', (href, prompt.split(' shows')[0]),
+      ('/marketplace?keyword=queue', 'Help me choose from the Marketplace: this view (keyword queue)'))
 _, prompt = ask(run_cat(catalog=None, operators=None, catalogError=[{'message': 'dial tcp: i/o timeout'}],
                         operatorsError='503 Service Unavailable')['askHref'])
 check('marketplace: index unreadable -> asks about it, never "offers 0 charts"', prompt,
@@ -494,6 +497,88 @@ check('category rule: the Category row, derived or annotated, and no row for non
       {n: [i['value'] for i in jq(about, d) if i['label'] == 'Category'] for n, d in cat_details.items()},
       {n: ([v] if v else []) for n, v in WANT_CAT.items()})
 check('category rule: one definition, included by both', all('def marketplaceCategory:' in p for p in (cat_prog, detail_prog)), True)
+
+# --- THE FILTERS (UX audit MKT-4, approved mockup 2026-11-25) --------------------------------------
+# Type chips and category chips with counts, the keywords as one Select whose options merge the
+# keywords that pick the same charts, the order as a Select; each count is what the choice shows
+# under the OTHER filters; an old ?category=<keyword> link still filters by that keyword.
+FX = {'entries': {
+    'aws-rds': entry('aws-rds', ['aws', 'ack', 'rds']),
+    'aws-vpc': entry('aws-vpc', ['aws', 'ack', 'vpc']),
+    'aws-s3': entry('aws-s3', ['aws', 'ack', 's3']),
+    'aws-ec2': entry('aws-ec2', ['aws', 'ack', 'ec2']),
+    'aws-iam': entry('aws-iam', ['aws', 'ack', 'iam']),
+    'aws-dns': entry('aws-dns', ['aws', 'dns']),
+    'pg': entry('pg', ['postgresql'], 'database'),
+    'plain': entry('plain', ['krateo'])}}
+FX_OPS = {'entries': {'rds-op': [{'name': 'rds-op', 'version': '1.0.0', 'urls': ['https://charts.example/operators/rds-op.tgz'], 'keywords': ['rds']}]}}
+def fx(**extras):
+    return jq(cat_prog, dict({'catalog': FX, 'operators': FX_OPS, 'compdefs': []}, **extras))
+def chips(out, key):
+    return [(c['label'], c.get('count'), c.get('active')) for c in out.get(key, [])]
+def qs_of(route):
+    path, _, q = route.partition('?')
+    return path, sorted(q.split('&')) if q else []
+def filters_checks():
+    global out
+    out = fx()
+    check('filters: type chips count every card', chips(out, 'sources'), [('All', 9, True), ('Blueprints', 8, False), ('Operators', 1, False)])
+    check('filters: category chips by catalog count, "Any category" first, none for a chart with none',
+          chips(out, 'categoryFacets'), [('Any category', None, True), ('Database', 3, False), ('Network', 2, False),
+                                         ('Compute', 1, False), ('Security', 1, False), ('Storage', 1, False)])
+    check('filters: aws (6) and ack (5) pick different charts, so two options',
+          [(o['value'], o['label'], o['count']) for o in out.get('keywordOptions', [])], [('aws', 'aws', 6), ('ack', 'ack', 5)])
+    merged = fx(catalog={'entries': {k: v for k, v in FX['entries'].items() if k != 'aws-dns'}})
+    check('filters: keywords that pick the same charts are one option', [(o['value'], o['label'], o['count']) for o in merged.get('keywordOptions', [])],
+          [('aws', 'aws · ack', 5)])
+    out = fx(category='database', source='blueprint')
+    check('filters: ?category=database&source=blueprint -> the blueprints of that category', sorted(c['name'] for c in out['cards']), ['aws-rds', 'pg'])
+    check('filters: a type chip counts under the category, not under its own type', chips(out, 'sources'),
+          [('All', 3, False), ('Blueprints', 2, True), ('Operators', 1, False)])
+    check('filters: a category chip counts under the type, not under its own category',
+          chips(out, 'categoryFacets')[:3], [('Any category', None, False), ('Database', 2, True), ('Network', 2, False)])
+    check('filters: a category with no card in view is left out', [c[0] for c in chips(fx(source='operator'), 'categoryFacets')], ['Any category', 'Database'])
+    check('filters: a category chip route keeps the other filters and sets its own',
+          qs_of(next(c['route'] for c in out['categoryFacets'] if c['label'] == 'Network')), ('/marketplace', ['category=network', 'source=blueprint']))
+    check('filters: "Any category" drops the category only', qs_of(out['categoryFacets'][0]['route']), ('/marketplace', ['source=blueprint']))
+    check('filters: a type chip keeps the category', qs_of(out['sources'][2]['route']), ('/marketplace', ['category=database', 'source=operator']))
+    out = fx(keyword='ack', q='ACK s3')
+    check('filters: ?keyword= and ?q= together', [c['name'] for c in out['cards']], ['aws-s3'])
+    check('filters: routes keep keyword and the @uri-encoded q', qs_of(out['sources'][1]['route']), ('/marketplace', ['keyword=ack', 'q=ACK%20s3', 'source=blueprint']))
+    check('filters: a keyword option counts under the other filters, not its own', [(o['value'], o['count']) for o in out.get('keywordOptions', [])], [('aws', 1), ('ack', 1)])
+    old = fx(category='ack')
+    check('filters: an old ?category=<keyword> link filters by that keyword', (len(old['cards']), old['selectedKeyword'], old['selectedCategory']), (5, 'ack', 'all'))
+    check('filters: and its links say keyword=', qs_of(old['sources'][1]['route']), ('/marketplace', ['keyword=ack', 'source=blueprint']))
+    check('filters: ?category= in any case', fx(category='Database')['selectedCategory'], 'database')
+    check('filters: ?keyword= wins over an old ?category=<keyword>', fx(category='rds', keyword='ack')['selectedKeyword'], 'ack')
+    check('filters: an option with no card in view is left out, the selected one kept',
+          [(o['value'], o['count']) for o in fx(keyword='ack', source='operator').get('keywordOptions', [])], [('ack', 0)])
+    check('filters: no category at all -> no category row', fx(catalog={'entries': {'plain': FX['entries']['plain']}}, operators=None)['categoryFacets'], [])
+    check('filters: the orders the index supports', fx()['sorts'], [{'value': 'name', 'label': 'Name (A–Z)'}, {'value': 'recent', 'label': 'Recently updated'}])
+    check('filters: the old keyword chips are gone', 'categories' in fx(), False)
+    # The widgets: the search line (search 18 + order 6), then one line of chips and the Keyword select.
+    page_items = items_of(named(mpage, 'Flex', 'page-marketplace'))
+    check('filters: page order', page_items, ['marketplace-page-header', 'marketplace-filters-row', 'marketplace-facets', 'marketplace-grid'])
+    row = named(mpage, 'Row', 'marketplace-filters-row')['spec']['widgetData']['items']
+    check('filters: the search line', [(i['resourceRefId'], i['size']) for i in row], [('marketplace-search-wrap', 18), ('marketplace-sort', 6)])
+    check('filters: the filter line', items_of(named(mpage, 'Flex', 'marketplace-facets')), ['marketplace-source-toggle', 'marketplace-category-chips', 'marketplace-keyword'])
+    kw_sel, sort_sel = named(mpage, 'Select', 'marketplace-keyword'), named(mpage, 'Select', 'marketplace-sort')
+    check('filters: Keyword writes ?keyword=, Order ?sort=', (kw_sel['spec']['widgetData']['queryParam'], sort_sel['spec']['widgetData']['queryParam']), ('keyword', 'sort'))
+    check('filters: Keyword options carry the count', jq(expr_of(kw_sel, 'options'), fx()), [{'value': 'aws', 'label': 'aws', 'count': 6}, {'value': 'ack', 'label': 'ack', 'count': 5}])
+    check('filters: Order options', jq(expr_of(sort_sel, 'options'), fx()), fx()['sorts'])
+    check('filters: the category chips read categoryFacets', jq(expr_of(named(mpage, 'Listy', 'marketplace-category-chips'), 'dataSource'), out), out['categoryFacets'])
+    check('filters: every widget over the catalog partitions by every filter',
+          {d['metadata']['name']: sorted(set(d['spec']['keyExtras']) - {'spotlight'}) for d in mpage
+           if d.get('kind') != 'RESTAction' and (d.get('spec', {}).get('apiRef') or {}).get('name') == 'blueprints-catalog'},
+          {n: ['category', 'keyword', 'q', 'sort', 'source'] for n in ('marketplace-grid', 'marketplace-category-chips', 'marketplace-source-toggle',
+                                                                     'marketplace-keyword', 'marketplace-sort', 'marketplace-page-header', 'marketplace-ask-agentiko')})
+
+
+# Run as one unit: on code without the filters a missing key is one failure, not a traceback.
+try:
+    filters_checks()
+except (KeyError, TypeError, StopIteration, AssertionError) as exc:
+    failures.append(f'filters: the catalog\'s output lacks what the filters read ({type(exc).__name__}: {exc})')
 
 for f in failures:
     print(f'FAIL  {f}')

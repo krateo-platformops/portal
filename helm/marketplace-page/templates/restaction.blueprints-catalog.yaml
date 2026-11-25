@@ -3,11 +3,12 @@
 {{/* /charts/operators/index.yaml (~18 Kubernetes operators). Every entry is stamped with */}}
 {{/* `source: blueprint|operator` so the grid can tell them apart (badge + tinted icon) and */}}
 {{/* a type toggle can filter them. Honest fields straight off each index: name/description/ */}}
-{{/* version/url. Categories are NOT a curated annotation any more — each card's `tags` are */}}
-{{/* its raw helm `keywords` (multi-tag: a card lives under EVERY one of its keywords), and */}}
-{{/* the `categories` array (distinct keyword + count, the popular ones) drives the chips */}}
-{{/* data-driven. `?category=<kw>` keeps a card if <kw> is in its keywords; `?source=<src>` */}}
-{{/* filters by type; `?q=` matches name/description/keywords. */}}
+{{/* version/url. THE FILTERS (UX audit MKT-4, approved mockup 2026-11-25): `?source=` the type */}}
+{{/* (blueprint|operator), `?category=` one of the eight categories (portal.marketplaceCategoryDefs, */}}
+{{/* _category.tpl: the annotation, else the keyword table), `?keyword=` one keyword (an old */}}
+{{/* `?category=<keyword>` link is read as it), `?q=` name/description/keywords, `?sort=` the order. */}}
+{{/* `.sources` and `.categoryFacets` feed the chips and `.keywordOptions` / `.sorts` the two */}}
+{{/* Selects, each count being what that choice shows under the other filters. */}}
 {{/* */}}
 {{/* REQUIRES snowplow >= 1.4.0: the external `endpointRef` GET returns text/yaml, which */}}
 {{/* snowplow converts YAML->JSON (external_fetch.go) before the jq filter runs. */}}
@@ -60,8 +61,12 @@ spec:
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.marketplaceInstalledDefs" . | nindent 4 }}
     {{- include "portal.marketplaceCategoryDefs" . | nindent 4 }}
-    def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
+    # A /marketplace link with these params, each value @uri-encoded, the empty ones left out.
+    def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + (.value | tostring | @uri)) ] | join("&")) as $s
       | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
+    def linkWith($p; $k; $v): qstr($p + {($k): $v});
+    # A card (with its facet booleans, .pass) passes every facet but $f: what a chip of facet $f counts.
+    def passBut($f): .pass | del(.[$f]) | all(.[]; .);
     def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
     def failed: . != null and . != [] and . != "";
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
@@ -111,7 +116,15 @@ spec:
     # withLive first: the live index's newly published blueprints join the catalog (_catalog.tpl).
     withLive
     | (.compdefs // []) as $cds
-    | ((.category) // "all") as $sel
+    # ?category= is one of the eight categories (portal.marketplaceCategoryDefs), any case.
+    # ?keyword= is one keyword, exact. AN OLD LINK — ?category=<keyword>, as Ask Agentiko and
+    # global search wrote them before the categories — keeps working: a ?category= that is not one
+    # of the eight is read as the keyword, unless ?keyword= is set too.
+    | (((.category) // "") | tostring) as $catRaw
+    | ($catRaw | ascii_downcase) as $catLow
+    | (if any(marketplaceCategories[]; . == $catLow) then $catLow else "all" end) as $sel
+    | (((.keyword) // "") | tostring
+       | if . != "" then . elif $sel == "all" and $catRaw != "" and $catLow != "all" then $catRaw else "" end) as $kw
     | ((.source) // "all") as $src
     | ((.q) // "") as $q
     | ((.spotlight) // "") as $spot
@@ -184,17 +197,22 @@ spec:
                            else ("marketplace/" + .name + "/install") end)
             }
         ] ) as $cards
-    # The cards matching the ACTIVE facets (source + category + free-text) — computed once so
-    # BOTH the head-stat count and the rendered grid stay in sync (the head-stat reflects what
-    # is actually shown, never a fabricated total).
-    | ( [ $cards[] | select(
-            ($src == "all" or .source == $src)
-            and ($sel == "all" or ((.keywords | index($sel)) != null))
-            and ($ql == ""
-                 or (.name | ascii_downcase | contains($ql))
-                 or (.description | ascii_downcase | contains($ql))
-                 or ((.keywords | join(" ")) | ascii_downcase | contains($ql)))
-        ) ] ) as $shown
+    # The facets a card passes, one boolean each, so a facet's counts can leave out its own
+    # selection: a chip counts the cards it would show with the OTHER filters as they are.
+    | ( [ $cards[] | . + { pass: {
+            source: ($src == "all" or .source == $src),
+            category: ($sel == "all" or .categoryKey == $sel),
+            keyword: ($kw == "" or ((.keywords | index($kw)) != null)),
+            q: ($ql == ""
+                or (.name | ascii_downcase | contains($ql))
+                or (.description | ascii_downcase | contains($ql))
+                or ((.keywords | join(" ")) | ascii_downcase | contains($ql))) } } ] ) as $faceted
+    # The cards matching EVERY active facet — computed once so BOTH the head-stat count and the
+    # rendered grid stay in sync (the head-stat reflects what is shown, never a fabricated total).
+    | ( [ $faceted[] | select(.pass | all(.[]; .)) | del(.pass) ] ) as $shown
+    # Every link keeps the other params (linkWith: this page's params with one replaced).
+    | {category: (if $sel == "all" then "" else $sel end), keyword: $kw, source: (if $src == "all" then "" else $src end),
+       q: $q, sort: (if $sort == "name" then "" else $sort end)} as $params
     # Head-stat noun: reflects the active source facet so the eyebrow reads honestly
     # ("blueprints" / "operators" / "charts" when the catalog is mixed).
     | (if $src == "blueprint" then "blueprints"
@@ -211,7 +229,8 @@ spec:
          (if (.operatorsError | failed) then "the operators index could not be read (" + (.operatorsError | errmsg | cap(200)) + ")" else empty end) ]) as $indexErrors
     | (if (.compdefsError | failed) then (.compdefsError | errmsg | cap(200)) else "" end) as $installError
     | ([ (if $src != "all" then (if $src == "operator" then "operators only" else "blueprints only" end) else empty end),
-         (if $sel != "all" then "keyword " + ($sel | tostring) else empty end),
+         (if $sel != "all" then "category " + ($sel | marketplaceCategoryLabel) else empty end),
+         (if $kw != "" then "keyword " + ($kw | cap(60)) else empty end),
          (if $q != "" then "matching \"" + ($q | tostring | cap(60)) + "\"" else empty end) ] | join("; ")) as $view
     | ([ $shown[] | select(.installed) ]) as $inst
     | ([ $inst[] | select(.installedVersion != .version) ] | sort_by(.name)) as $stale
@@ -229,9 +248,9 @@ spec:
          + " What should I install or upgrade for this platform, and why?"
        end) as $prompt
     | {
-        askHref: (qstr({category: (if $sel == "all" then "" else ($sel | @uri) end), source: (if $src == "all" then "" else $src end), q: ($q | @uri), sort: (if $sort == "name" then "" else $sort end)})
-                  | . + (if test("\\?") then "&" else "?" end) + "ask=" + ($prompt | @uri)),
+        askHref: (qstr($params) | . + (if test("\\?") then "&" else "?" end) + "ask=" + ($prompt | @uri)),
         selectedCategory: $sel,
+        selectedKeyword: $kw,
         selectedSource: $src,
         selectedSort: $sort,
         # Head-stat: real catalog cardinality. `total` = every card fetched from both indexes
@@ -239,37 +258,47 @@ spec:
         total: ($cards | length),
         count: ($shown | length),
         countLabel: $countLabel,
-        # A facet with one value filters nothing: with no popular keyword (and none selected) the
-        # row would be a lone "All" chip repeating the source toggle's "All" above it (P3), so it
-        # is empty and the Listy hides it.
-        categories: (
-          ( [ $cards[] | .keywords[] ] | group_by(.)
-            | map({key: .[0], label: .[0], count: length, active: (.[0] == $sel),
-                   route: qstr({category: .[0], source: (if $src == "all" then "" else $src end), q: $q, sort: (if $sort == "name" then "" else $sort end)})})
-            | map(select(.count >= 5)) | sort_by(.count) | reverse ) as $popular
-          | if ($popular | length) == 0 and $sel == "all" then []
-            else
-              [ {key: "all", label: "All", count: ($cards | length), active: ($sel == "all"),
-                 route: qstr({category: "", source: (if $src == "all" then "" else $src end), q: $q, sort: (if $sort == "name" then "" else $sort end)})} ]
-              + $popular
-            end
-        ),
-        sources: [
-          {key: "all", label: "All", active: ($src == "all"),
-           route: qstr({source: "", category: (if $sel == "all" then "" else $sel end), q: $q, sort: (if $sort == "name" then "" else $sort end)})},
-          {key: "blueprint", label: "Blueprints", active: ($src == "blueprint"),
-           route: qstr({source: "blueprint", category: (if $sel == "all" then "" else $sel end), q: $q, sort: (if $sort == "name" then "" else $sort end)})},
-          {key: "operator", label: "Operators", active: ($src == "operator"),
-           route: qstr({source: "operator", category: (if $sel == "all" then "" else $sel end), q: $q, sort: (if $sort == "name" then "" else $sort end)})}
-        ],
-        # Sort facet — ONLY the orders the helm index data supports (name, created). Each
-        # chip's route preserves the active source/category/q filter so sort composes.
-        sorts: [
-          {key: "name", label: "Name (A–Z)", active: ($sort == "name"),
-           route: qstr({sort: "", source: (if $src == "all" then "" else $src end), category: (if $sel == "all" then "" else $sel end), q: $q})},
-          {key: "recent", label: "Recently updated", active: ($sort == "recent"),
-           route: qstr({sort: "recent", source: (if $src == "all" then "" else $src end), category: (if $sel == "all" then "" else $sel end), q: $q})}
-        ],
+        # TYPE chips (marketplace-source-toggle): All, Blueprints, Operators, each with the cards it
+        # shows under the other filters.
+        sources: ( [ $faceted[] | select(passBut("source")) ] as $base
+          | [ {key: "all", label: "All", count: ($base | length)},
+              {key: "blueprint", label: "Blueprints", count: ([ $base[] | select(.source == "blueprint") ] | length)},
+              {key: "operator", label: "Operators", count: ([ $base[] | select(.source == "operator") ] | length)} ]
+          | map(. + {active: (.key == $src), route: linkWith($params; "source"; (if .key == "all" then "" else .key end))}) ),
+        # CATEGORY chips (marketplace-category-chips): "Any category", then each category a card
+        # has, with the cards it shows under the other filters. Ordered by how many charts of the
+        # whole catalog carry it, so a chip does not move when another filter changes its count; one
+        # with no card in view is left out unless it is the selected one. A card with no category is
+        # under "Any category" only (search and Keyword find it). With no category to offer, a lone
+        # "Any category" filters nothing, so the row is empty and the Listy hides it.
+        categoryFacets: ( [ $faceted[] | select(passBut("category")) ] as $base
+          | ( [ $cards[] | .categoryKey | select(. != "") ] | group_by(.) | map({key: .[0], total: length}) | sort_by(-.total, .key)
+              | map(.key as $k | {key: $k, label: ($k | marketplaceCategoryLabel), count: ([ $base[] | select(.categoryKey == $k) ] | length),
+                                  active: ($k == $sel), route: linkWith($params; "category"; $k)})
+              | map(select(.count > 0 or .active)) ) as $chips
+          | if ($chips | length) == 0 then []
+            else [ {key: "all", label: "Any category", active: ($sel == "all"), route: linkWith($params; "category"; "")} ] + $chips end ),
+        # KEYWORD select (marketplace-keyword): the keywords on 5 or more charts of the catalog, ONE
+        # option per distinct set of charts — keywords that pick the same charts (azure and
+        # azure-service-operator) are one option, its label joining their names in the order the
+        # charts list them and its value the first. Ordered by charts in the catalog; `count` is
+        # what the option shows under the other filters, and an option with none is left out unless
+        # it is the selected keyword.
+        keywordOptions: ( [ $faceted[] | select(passBut("keyword")) ] as $base
+          | ( [ range(0; $cards | length) as $i | $cards[$i] as $c | range(0; $c.keywords | length) as $j
+                | {kw: ($c.keywords[$j] | tostring), at: [$i, $j], chart: $c.name} ]
+              | group_by(.kw) | map({kw: .[0].kw, at: (map(.at) | min), charts: (map(.chart) | unique)})
+              | map(select((.charts | length) >= 5))
+              | group_by(.charts) | map(sort_by(.at) | {names: map(.kw), total: (.[0].charts | length), at: .[0].at}) ) as $groups
+          | [ $groups | sort_by(-.total, .at)[]
+              | .names as $names
+              | {value: $names[0], label: ($names | join(" · ")),
+                 count: ([ $base[] | select((.keywords | index($names[0])) != null) ] | length),
+                 selected: any($names[]; . == $kw)}
+              | select(.count > 0 or .selected) | del(.selected) ] ),
+        # ORDER select (marketplace-sort) — ONLY the orders the helm index data supports (name,
+        # created): {value, label} for the Select, which writes ?sort= itself.
+        sorts: [ {value: "name", label: "Name (A–Z)"}, {value: "recent", label: "Recently updated"} ],
         cards: (
           # Base order per ?sort=: name A->Z (default) or created desc (most recent first).
           ( if $sort == "recent" then ($shown | sort_by(.created) | reverse)

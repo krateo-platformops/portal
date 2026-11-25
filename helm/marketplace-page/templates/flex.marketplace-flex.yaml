@@ -1,5 +1,6 @@
-{{/* Marketplace page container — stacks the facet bar above the tile grid. The */}}
-{{/* /marketplace route points here; the facet chips and the grid compose via URL extras. */}}
+{{/* Marketplace page container — the header, the search line (search + order), the filter line */}}
+{{/* (type and category chips, Keyword select) and the tile grid. The /marketplace route points */}}
+{{/* here; the filters and the grid compose via URL extras. */}}
 apiVersion: widgets.templates.krateo.io/v1beta1
 kind: Flex
 metadata:
@@ -21,9 +22,11 @@ spec:
       - pageheaders
       - listies
       - rows
+      - flexes
     items:
       - resourceRefId: marketplace-page-header
       - resourceRefId: marketplace-filters-row
+      - resourceRefId: marketplace-facets
       - resourceRefId: marketplace-grid
   resourcesRefs:
     items:
@@ -33,14 +36,18 @@ spec:
         namespace: {{ $.Values.namespace }}
         resource: pageheaders
         verb: GET
-      {{/* #86 (fedepini): was marketplace-category-group directly; now the marketplace-filters-row */}}
-      {{/* Row — search LEFT (span 6), the 3-line filters block RIGHT (span 18). A Row (not Flex) so */}}
-      {{/* the search width is deterministic and can't collapse under flex-shrink. */}}
+      {{/* The search line: a Row (not a Flex) so the search width is deterministic (#86). */}}
       - id: marketplace-filters-row
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: marketplace-filters-row
         namespace: {{ $.Values.namespace }}
         resource: rows
+        verb: GET
+      - id: marketplace-facets
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-facets
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
         verb: GET
       - id: marketplace-grid
         apiVersion: widgets.templates.krateo.io/v1beta1

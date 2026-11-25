@@ -1,9 +1,9 @@
-{{/* Marketplace category facet — a DATA-DRIVEN row of navigable chip pills, one per keyword the */}}
-{{/* catalog actually carries. The blueprints-catalog RA emits `.categories` (the popular keywords */}}
-{{/* with count + an `active` flag + a combinable `route`); this Listy renders each as a `chip` */}}
-{{/* rowVariant pill. Replaces the old hardcoded krateo.io/category Button chips — the facet now */}}
-{{/* mirrors the live catalog. Each chip navigates to its `route` (which preserves the current */}}
-{{/* source/q filter); the active chip renders solid orange. */}}
+{{/* Marketplace category chips (UX audit MKT-4, approved mockup 2026-11-25): "Any category", then the */}}
+{{/* categories the catalog's charts have — eight today — each with the cards it shows under the other */}}
+{{/* filters. blueprints-catalog emits `.categoryFacets` ({label, count, active, route}); a card's */}}
+{{/* category is the one rule its tile tag and its page use (portal.marketplaceCategoryDefs). The ~77 */}}
+{{/* keyword chips this row used to hold are the Keyword select now (select.marketplace-keyword). Each */}}
+{{/* chip navigates to its `route` (?category=, keeping the other filters); the active one is solid. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -12,14 +12,14 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. `sort` is */}}
-  {{/* included because each chip's `route` now carries the active ?sort= (so sort composes). */}}
-  keyExtras: [category, q, source, sort]
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — every filter, as each */}}
+  {{/* chip's count and route carry them. */}}
+  keyExtras: [category, keyword, q, source, sort]
   apiRef:
     name: blueprints-catalog
     namespace: {{ $.Values.namespace }}
   widgetData:
-    {{/* The RA emits no categories when the catalog carries no popular keyword: render nothing. */}}
+    {{/* The RA emits no chips when no chart has a category (and none is selected): render nothing. */}}
     hideWhenEmpty: true
     itemTemplate:
       rowVariant: chip
@@ -28,6 +28,6 @@ spec:
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ .categories }'
+      expression: '${ .categoryFacets }'
   resourcesRefs:
     items: []

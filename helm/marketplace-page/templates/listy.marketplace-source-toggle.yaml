@@ -1,7 +1,6 @@
-{{/* Marketplace type toggle — Blueprints | Operators | All. A 3-chip data-driven row from the */}}
-{{/* catalog RA's `.sources`; each chip's `route` preserves the current category/q filter so type */}}
-{{/* and category compose. The active source renders solid orange. Pairs with the per-tile type */}}
-{{/* badge (Blueprint cyan / Operator magenta) so the blueprint-vs-operator split reads everywhere. */}}
+{{/* Marketplace type chips — All | Blueprints | Operators, each with the cards it shows under the */}}
+{{/* other filters (UX audit MKT-4). A 3-chip data-driven row from the catalog RA's `.sources`; each */}}
+{{/* chip's `route` keeps the other filters so they compose. The active source renders solid. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -10,9 +9,9 @@ metadata:
   annotations:
     "krateo.io/verbose": "true"
 spec:
-  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. `sort` is */}}
-  {{/* included because each chip's `route` now carries the active ?sort= (so sort composes). */}}
-  keyExtras: [category, q, source, sort]
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell — every filter, as */}}
+  {{/* each chip's count and route carry them. */}}
+  keyExtras: [category, keyword, q, source, sort]
   apiRef:
     name: blueprints-catalog
     namespace: {{ $.Values.namespace }}

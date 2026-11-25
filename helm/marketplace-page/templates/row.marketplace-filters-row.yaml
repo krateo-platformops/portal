@@ -1,11 +1,9 @@
-{{/* #86 (fedepini): the Marketplace facet "global-container" as a Row (NOT a Flex) so the two slots */}}
-{{/* get DETERMINISTIC 24-grid widths. A plain Flex could not bound the search — the wide 40-chip */}}
-{{/* category block squeezed it to flex-shrink min (~99px) or forced a wrap onto its own line. A Row */}}
-{{/* uses antd Col spans (percentage widths, no shrink), so (item ORDER = column order, left→right): */}}
-{{/* category-group LEFT  = size 18 (≈ 75%, category chips wrap INSIDE the column) */}}
-{{/* search-wrap    RIGHT = size 6  (≈ 25%) */}}
-{{/* alignment: middle vertically centres the (short) search against the full-height 3-line block. */}}
-{{/* fedepini follow-up (comment 5142807677): sides swapped — filters block LEFT, search bar RIGHT. */}}
+{{/* The Marketplace search line (UX audit MKT-4, approved mockup 2026-11-25): the search opens the */}}
+{{/* filters at full width with the order beside it, and the chips and the Keyword select follow on */}}
+{{/* their own line (flex.marketplace-facets). A Row (NOT a Flex) so the two slots get deterministic */}}
+{{/* 24-grid widths (#86, fedepini: a Flex let the search collapse under flex-shrink): */}}
+{{/* search-wrap      LEFT  = size 18 (≈ 75%) */}}
+{{/* marketplace-sort RIGHT = size 6  (≈ 25%) */}}
 kind: Row
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,11 +15,12 @@ spec:
   widgetData:
     allowedResources:
     - flexes
+    - selects
     alignment: middle
     items:
-    - resourceRefId: marketplace-category-group
-      size: 18
     - resourceRefId: marketplace-search-wrap
+      size: 18
+    - resourceRefId: marketplace-sort
       size: 6
   resourcesRefs:
     items:
@@ -31,9 +30,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET
-    - id: marketplace-category-group
+    - id: marketplace-sort
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: marketplace-category-group
+      name: marketplace-sort
       namespace: {{ $.Values.namespace }}
-      resource: flexes
+      resource: selects
       verb: GET

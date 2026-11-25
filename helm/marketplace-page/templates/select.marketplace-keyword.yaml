@@ -1,0 +1,31 @@
+{{/* The Marketplace Keyword select (UX audit MKT-4, approved mockup 2026-11-25): the ~77 keyword chips */}}
+{{/* became one Select. Its options are blueprints-catalog's `.keywordOptions` — the keywords on 5 or */}}
+{{/* more charts, one option per distinct set of charts (azure and azure-service-operator are one, */}}
+{{/* "azure · azure-service-operator"), each with the count it shows under the other filters, which the */}}
+{{/* Select prints beside the label. queryParam writes ?keyword= (the catalog keeps the cards carrying */}}
+{{/* it); clearing it removes the param. `name` is required by the Select CRD and unused with queryParam. */}}
+kind: Select
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: marketplace-keyword
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* The extras keys that partition this widget's cache cell: the counts follow every filter. */}}
+  keyExtras: [category, keyword, q, source, sort]
+  apiRef:
+    name: blueprints-catalog
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    name: keyword
+    queryParam: keyword
+    placeholder: Keyword
+    allowClear: true
+    size: middle
+    options: []
+  widgetDataTemplate:
+    - forPath: options
+      expression: '${ [ (.keywordOptions // [])[] | {value, label, count} ] }'
+  resourcesRefs:
+    items: []

@@ -1,0 +1,44 @@
+{{/* Marketplace filter line (UX audit MKT-4, approved mockup 2026-11-25), under the search line: the */}}
+{{/* type chips (All, Blueprints, Operators), the category chips ("Any category" and the eight, each */}}
+{{/* with its count) and the Keyword select, one wrapping row. The chips are Listy(chip) widgets over */}}
+{{/* blueprints-catalog's `.sources` and `.categoryFacets`, the select reads `.keywordOptions`. It */}}
+{{/* replaces the three stacked rows (type, ~77 keyword chips, order) that pushed the first cards */}}
+{{/* about 300 px under the header; the order is a Select beside the search now (marketplace-filters-row). */}}
+apiVersion: widgets.templates.krateo.io/v1beta1
+kind: Flex
+metadata:
+  name: marketplace-facets
+  namespace: {{ $.Values.namespace }}
+spec:
+  widgetData:
+    vertical: false
+    wrap: true
+    align: center
+    gap: middle
+    allowedResources:
+      - listies
+      - selects
+    items:
+      - resourceRefId: marketplace-source-toggle
+      - resourceRefId: marketplace-category-chips
+      - resourceRefId: marketplace-keyword
+  resourcesRefs:
+    items:
+      - id: marketplace-source-toggle
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-source-toggle
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET
+      - id: marketplace-category-chips
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-category-chips
+        namespace: {{ $.Values.namespace }}
+        resource: listies
+        verb: GET
+      - id: marketplace-keyword
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: marketplace-keyword
+        namespace: {{ $.Values.namespace }}
+        resource: selects
+        verb: GET
