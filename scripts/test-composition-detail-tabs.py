@@ -40,6 +40,9 @@ def render():
 def main():
     docs = render()
     bad = 0
+    for p in check_events_empty(docs):
+        bad += 1
+        print(f'FAIL {p}')
 
     def check(what, got, want):
         nonlocal bad
@@ -70,6 +73,24 @@ def main():
 
     print(f'composition detail tabs: {bad} failure(s)')
     return 1 if bad else 0
+
+
+def check_events_empty(docs):
+    """Visual audit ACT-1: the Activity tab's empty feed said "No streamed events for this composition
+    — check kubectl events -n <ns>", sending the reader out of the portal. It says what is so."""
+    import json
+    lst = docs[('Listy', 'list-composition-detail-events')]
+    expr = next(t['expression'] for t in lst['spec']['widgetDataTemplate'] if t['forPath'] == 'dataSource')
+    prog = expr.strip().removeprefix('${').removesuffix('}').strip()
+    out = subprocess.run([os.environ.get('JQ', 'jq'), '-c', prog], capture_output=True, text=True, check=True,
+                         input=json.dumps({'list': [], 'compositionId': '3f1c2a9e-0000-4000-8000-000000000001', 'namespace': 'krateo-system'}))
+    rows = json.loads(out.stdout)
+    problems = []
+    if [r['title'] for r in rows] != ['No events recorded for this composition']:
+        problems.append(f'empty feed: got {[r["title"] for r in rows]!r}, want [\'No events recorded for this composition\']')
+    if any('kubectl' in r['title'] for r in rows):
+        problems.append('empty feed: it still sends the reader to kubectl')
+    return problems
 
 
 if __name__ == '__main__':
