@@ -33,7 +33,9 @@
      (compositionNeedsAttention: NotReady, Degraded, Children unreadable, Drift) and what is not
      Ready yet (Pending). A paused composition is neither (Diego, 2026-11-25): it reports Ready=True
      on purpose, it is never Ready (portal #530) and never needs attention, so it is counted apart
-     and named among what is fine.
+     and named among what is fine. READY is the shared state healthy only: a drifting composition
+     reports Ready=True but is not Ready (Diego, 2026-11-25); it is in Needs you (it needs
+     attention) and the calm line names it apart.
 
      DATA, NOT PRESENTATION. This returns numbers, names, hrefs and the facet; the widgets word and
      order it. `askHref` is the one sentence built here, because Ask Agentiko's prompt is data the
@@ -268,7 +270,7 @@ spec:
     | ([ $needs[] | select(.class == "drift") ]) as $drift
     | ([ $comps[] | select(.class == "paused") ]) as $paused
     | { total: ($comps | length),
-        ready: ([ $comps[] | select(.class == "healthy" or .class == "drift") ] | length),
+        ready: ([ $comps[] | select(.class == "healthy") ] | length),
         notReady: ($notReady | length),
         paused: ($paused | length),
         drift: ($drift | length),

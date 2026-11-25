@@ -449,6 +449,27 @@ def _():
           (2, '2 compositions not Ready', 'broken, creating', '2 not Ready'))
 
 
+# --- 2c. a drifting composition is not Ready (Diego, 2026-11-25) ----------------------------------
+def drifting(name):
+    item = unknown(name, 'Available', 'True')
+    item['status']['conditions'][1].update(status='False', reason='ReconcileError')
+    return item
+
+
+@case('a drifting composition is not Ready')
+def _():
+    out = inbox(raw=dict(QUIET_RAW, allCompositions={'items': QUIET_RAW['allCompositions']['items'] + [drifting('drifted')]}))
+    got = page(out)
+    c = out['compositions']
+    check('drift: not counted Ready, counted drifting, not not Ready', (c['ready'], c['drift'], c['notReady']), (79, 1, 0))
+    check('drift: the calm line names it apart from the Ready ones', got['quiet'],
+          'The rest is fine: 79 compositions Ready · 1 drifting · 2 alerts OK · 2 blueprints Ready · 2 of 2 agents registered at the gateway · '
+          'no open incident · no proposal waiting for a decision.')
+    card = next(x for x in got['cards'] if x['subSecondaryText'] == 'Compositions')
+    check('drift: it is in Needs you, the shared attention set', (card['primaryText'], card['subPrimaryText']), ('1 composition drifted', 'drifted'))
+    check('drift: the prompt names it drifted', '; 1 drifted composition (drifted).' in got['ask'][1], True)
+
+
 # --- 3. each source absent (its page is not the caller's) -------------------------------------------
 @case('a source whose page is not the caller\'s is absent')
 def _():
