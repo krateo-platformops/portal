@@ -46,7 +46,7 @@ expect, apply_overrides, ref_template = tpr.expect, tpr.apply_overrides, tpr.ref
 WIDGETS = (('Flex', 'incident-detail-actions'), ('Button', 'incident-detail-reanalyze'),
            ('Form', 'incident-reanalyze-form'),
            ('Markdown', 'incident-rem-step-md-0'), ('Markdown', 'incident-rem-step-md-1'),
-           ('Markdown', 'incident-rem-step-md-2'))
+           ('Markdown', 'incident-rem-step-md-2'), ('Alert', 'incident-no-agent'))
 
 # As krateo-057 carries it (sre-probe-failing-20261011-224948): verify exits 2 on a jq parse error.
 JQ_ERROR = ('jq: error: Invalid escape at line 1, column 4 (while parsing \'"\\x"\') at <top-level>, line 1:\n'
@@ -99,6 +99,36 @@ def check_shown_for_open_and_verifying_only(chart):
     out, w = resolve(chart, incident('ord-1'), 'order')
     expect(f, 'beside Diagnose, before Close', actions(w)[:3],
            ['incident-detail-diagnose', 'incident-detail-reanalyze', 'incident-detail-close'])
+    return f
+
+
+def check_no_analysis_agent(chart):
+    """alert-provider >= 0.2.88: AnalysisUnavailable=True/NoAnalysisAgent on an open incident. Nothing
+    failed and nothing would answer a Re-run, so the page says so as information and offers none."""
+    f = []
+    msg = 'No analysis agent is installed here: a person looks into this incident.'
+
+    def no_agent(name, state='Open', status='True', error=None):
+        inc = incident(name, state=state)
+        inc['status'] = {'state': state, 'completedAt': '2026-10-11T22:59:00Z',
+                         'conditions': [{'type': 'AnalysisUnavailable', 'status': status,
+                                         'reason': 'NoAnalysisAgent' if status == 'True' else 'AnalysisAgentAvailable', 'message': msg},
+                                        {'type': 'Ready', 'status': 'True'}]}
+        if error:
+            inc['status']['error'] = error
+        return inc
+
+    out, w = resolve(chart, no_agent('na-1'), 'no agent')
+    expect(f, 'no Re-run', (out['canReanalyze'], 'incident-detail-reanalyze' in actions(w)), (False, False))
+    expect(f, 'its own notice, in alert-provider\'s words; no failure and no empty-report sentence',
+           (out['sections']['noAgent'], out['noAgentText'], out['sections']['error'], out['sections']['prose']), (True, msg, False, False))
+    expect(f, 'the notice is information', w['incident-no-agent']['type'], 'info')
+    out, _ = resolve(chart, no_agent('na-2', error='old failure'), 'no agent, error')
+    expect(f, 'the condition wins over a leftover status.error', (out['sections']['noAgent'], out['sections']['error']), (True, False))
+    out, _ = resolve(chart, no_agent('na-3', status='False'), 'agent arrived')
+    expect(f, 'False: an agent is there, Re-run is offered', (out['sections']['noAgent'], out['canReanalyze']), (False, True))
+    out, _ = resolve(chart, no_agent('na-4', state='Closed'), 'closed')
+    expect(f, 'a closed incident keeps what it had: not read there', out['sections']['noAgent'], False)
     return f
 
 
@@ -195,6 +225,7 @@ def check_flagged_note_offers_the_rerun(chart):
 
 
 CHECKS = [
+    check_no_analysis_agent,
     check_shown_for_open_and_verifying_only,
     check_drawer_form_patches_spec_reanalysis,
     check_meta_items_show_the_reanalysis,

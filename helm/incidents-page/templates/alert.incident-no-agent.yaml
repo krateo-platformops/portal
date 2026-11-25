@@ -1,0 +1,25 @@
+{{/* No analysis agent is installed (AnalysisUnavailable=True/NoAnalysisAgent, alert-provider >= 0.2.88): */}}
+{{/* nothing failed, so it is information, not an error, in alert-provider's own words; Re-run is not */}}
+{{/* offered, since nothing would answer it. */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: incident-no-agent
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: incident-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: No analysis on this platform
+    type: info
+    showIcon: true
+    description: ''
+  widgetDataTemplate:
+  - forPath: description
+    expression: '${ .noAgentText // "" }'
+  resourcesRefs:
+    items: []
