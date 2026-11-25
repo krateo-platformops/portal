@@ -16,6 +16,11 @@ THE RULES IT HOLDS THE CHARTS TO:
     is "not at the catalog's latest version" (a string inequality).
   * A detail page's link is "" when the object was not read, and its Button then falls back to the
     list — never a 404.
+
+And the Marketplace tile's installed state and its action (UX audit MKT-2, Diego: "same name
+counts"): a CD installed from oci://…/<name> is an install of catalog chart <name>, as is a
+helm-repo CD from the card's repo; such a card offers Configure (its blueprint page), every other
+Install, through the grid's {actionLabel} row action and its "/${actionPath}" route.
 """
 import json
 import os
@@ -360,6 +365,33 @@ dbtn = named(mpage, 'Button', 'marketplace-detail-ask-agentiko')
 button_check('marketplace detail button', dbtn, d, 'askHref', '/marketplace')
 check('marketplace detail actions: Ask, then Install', items_of(named(mpage, 'Flex', 'marketplace-detail-actions')),
       ['marketplace-detail-ask-agentiko', 'marketplace-detail-action'])
+
+# --- the Marketplace tile: installed, and the action it offers (UX audit MKT-2) --------------------
+OCI = [{'name': 'kafka-events', 'ns': 'krateo-system', 'version': '3.0.0', 'repo': '', 'url': 'oci://ghcr.io/krateo-blueprints/charts/kafka'},
+       # Another chart, whose name only starts with "kafka": not an install of kafka.
+       {'name': 'kafka-ui', 'ns': 'krateo-system', 'version': '1.0.0', 'repo': '', 'url': 'oci://ghcr.io/krateo-blueprints/charts/kafka-ui:1.0.0'}]
+cards = {c['name']: c for c in run_cat(compdefs=INSTALLED + OCI)['cards']}
+def tile(name):
+    c = cards[name]
+    return tuple(c.get(k) for k in ('installed', 'installedNs', 'installedName', 'actionLabel', 'actionIcon', 'actionPath'))
+check('tile, helm-repo install -> Configure', tile('redis'), (True, 'team-alpha', 'redis', 'Configure', 'fa-sliders', 'blueprints/team-alpha/redis'))
+check('tile, OCI install of the same chart name -> installed, Configure its own CD',
+      tile('kafka'), (True, 'krateo-system', 'kafka-events', 'Configure', 'fa-sliders', 'blueprints/krateo-system/kafka-events'))
+check('tile, OCI install of the same chart name -> the badge', (cards['kafka']['installedIcon'], cards['kafka']['installedTooltip']),
+      ('fa-circle-check', 'Installed · v3.0.0'))
+check('tile, not installed -> Install', tile('cert-manager'), (False, '', '', 'Install', 'fa-download', 'marketplace/cert-manager/install'))
+tagged = {c['name']: c for c in run_cat(compdefs=[dict(OCI[0], url='oci://ghcr.io/krateo-blueprints/charts/kafka:3.0.0')])['cards']}
+check('tile, OCI url with a tag -> its chart name', tagged['kafka']['installed'], True)
+other = {c['name']: c for c in run_cat(compdefs=[OCI[1]])['cards']}
+check('tile, an OCI chart of another name -> not installed', (other['kafka']['installed'], other['kafka'].get('actionLabel')), (False, 'Install'))
+grid = named(mpage, 'Listy', 'marketplace-grid')['spec']
+check('grid, the card action reads the row', [(a['actionId'], a['label'], a.get('icon')) for a in grid['widgetData']['itemTemplate']['rowActions']][0],
+      ('install', '{actionLabel}', '{actionIcon}'))
+check('grid, the route is the row\'s (a leading "${" would be jq over the widget)',
+      [a['path'] for a in grid['widgetData']['actions']['navigate'] if a['id'] == 'install'], ['/${actionPath}'])
+row = jq(expr_of(named(mpage, 'Listy', 'marketplace-grid'), 'dataSource'), {'cards': [cards['kafka']]})[0]
+check('grid, the row carries the action fields', (row.get('actionLabel'), row.get('actionIcon'), row.get('actionPath')),
+      ('Configure', 'fa-sliders', 'blueprints/krateo-system/kafka-events'))
 
 for f in failures:
     print(f'FAIL  {f}')
