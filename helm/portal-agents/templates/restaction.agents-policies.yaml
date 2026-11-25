@@ -100,6 +100,7 @@ spec:
     continueOnError: true
     errorKey: routesError
   filter: |
+    {{ include "portal.tileDefs" . }}
     . as $in
     | ( (.policiesError // null) == null ) as $policiesOK
     | ( (.routesError // null) == null ) as $routesOK
@@ -351,4 +352,7 @@ spec:
                        { title: "Not attached", value: ($groups.notattached | length), tone: "warn", route: href("notattached"),
                          caption: "no targetRef or selector: enforces nothing" } ]
                      | map(if $policiesOK then . + { value: (.value | tostring) }
-                           else { title, value: "", caption: "could not be read", tone: "unread", route: "" } end) ) }
+                           else { title, value: "", caption: "could not be read", tone: "unread", route: "" } end)
+                     # Colour marks an exception (portal.tileDefs): Not healthy and Not attached in
+                     # their colour and highlighted above 0 only; Policies and Healthy are neutral.
+                     | map(tilePaint({ bad: "red", warn: "orange" }; {})) ) }

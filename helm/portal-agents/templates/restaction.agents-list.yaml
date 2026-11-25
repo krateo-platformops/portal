@@ -70,6 +70,9 @@
 {{/*   stats       the five figures: Agents, Ready and registered, Needs attention, Gateway gaps, Tool */}}
 {{/*               servers NotAccepted; each tile's tone is the state it counts (all, ok, bad; */}}
 {{/*               `unchecked` for a gateway not checked, `unread` for a failed read), zero or not; */}}
+{{/*               `color` and `highlight` (portal.tileDefs): the three bad tiles red and */}}
+{{/*               highlighted above 0 only, unchecked and unread orange and highlighted, the */}}
+{{/*               rest and a 0 "" and false; */}}
 {{/*               `route` opens the Overview filtered to the state a tile counts, keeping every other */}}
 {{/*               param: Ready and registered ?group=ready, Needs attention the attention chip's */}}
 {{/*               route, Gateway gaps ?status=notregistered, Tool servers NotAccepted */}}
@@ -147,6 +150,7 @@ spec:
     continueOnError: true
     errorKey: policiesError
   filter: |
+    {{ include "portal.tileDefs" . }}
     # snowplow writes a swallowed step error to its errorKey as an ACCUMULATING SLICE
     # (accumulateErrorKey, internal/resolvers/restactions/api/resolve.go:189), each entry being the
     # apiserver Status decoded to a map or a bare message string. Flatten all three shapes; "" means
@@ -468,7 +472,11 @@ spec:
                      caption: ("of " + (($s.servers // 0) | tostring) + " · " + n($s.toolsDiscovered // 0; "tool"; "tools") + " discovered") } ]
                  | map(if (.needs == "agents" and $agFailed) or (.needs == "servers" and $srvFailed) or (.needs == "both" and ($agFailed or $srvFailed))
                        then { title, value: "", caption: "could not be read", tone: "unread", route: "" }
-                       else { title, value: (.value | tostring), caption, tone, route } end) ),
+                       else { title, value: (.value | tostring), caption, tone, route } end)
+                 # Colour marks an exception (portal.tileDefs): Needs attention, Gateway gaps and
+                 # Tool servers NotAccepted red and highlighted above 0 only; a gateway not checked
+                 # is orange and highlighted; Agents and Ready are neutral.
+                 | map(tilePaint({ bad: "red" }; { unchecked: "orange" })) ),
         # THE CHARTS (agents-side): the health donut over everything in view, the agents by pattern,
         # the agents by resolved model. The token trend reads agents-token-timeseries itself.
         byHealth: (if $agFailed then [] else

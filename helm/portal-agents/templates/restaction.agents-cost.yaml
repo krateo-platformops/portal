@@ -132,6 +132,7 @@ spec:
        stage, so .gw and .ag are each one response object (or absent when the stage did not run). */}}
   filter: |
     {{- include "agentsCost.defs" . | nindent 4 }}
+    {{- include "portal.tileDefs" . | nindent 4 }}
     # A group whose every call is unpriced has no spend to show, not a spend of $0.
     def known($priced): $priced and ((.calls // 0) == 0 or (.unpriced // 0) < .calls);
     def found($q): $q == "" or ((. // "") | tostring | ascii_downcase | contains($q));
@@ -268,7 +269,10 @@ spec:
                   (if $access and $q != "" and ([ $agentRows[], $userRows[], $groupRows[] | select(.name | found($q)) ] | length) == 0 then
                      ("No agent, user or group matches \"" + $q + "\".")
                    else empty end) ] | join(" ") ),
-      stats: (
+      # Colour marks an exception (portal.tileDefs): Not priced, shown only when a call is unpriced,
+      # is orange and highlighted; Spend, Per call, Cached input, Incident comparison and a range
+      # not shared or no longer kept are neutral.
+      stats: ((
         if ($access | not) then
           [ "Spend", "Per call", "Cached input", "Incident comparison" ] | map({title: ., value: "", caption: "not shared with you", tone: "hidden"})
         elif $span <= 0 then
@@ -290,7 +294,7 @@ spec:
                [ { title: "Not priced", value: (($tot.unpriced | commas) + (if $tot.unpriced == 1 then " call" else " calls" end)),
                    caption: (if $catOk then (($unpricedModels | join(", ")) + " not on the price list") else "the price list could not be read" end), tone: "warn" } ]
              else [] end)
-        end ),
+        end) | map(tilePaint({}; { warn: "orange" }))),
       series: (if $priced then $series else [] end),
       byModel: (if $priced then $byModel else [] end),
       agents: [ $agentRows | sort_by(-.usd, .name)[] | select(.name | found($q))
