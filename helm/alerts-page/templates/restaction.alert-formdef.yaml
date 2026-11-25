@@ -6,7 +6,8 @@
 {{/* the CRD and the form grows it, no chart change). */}}
 {{/* 2. GET the namespaces the USER can `create alerts` in (snowplow userAccessFilter / SSAR) — */}}
 {{/* offered as the Namespace field enum, same #66 tenant pattern as blueprint-formdef. */}}
-{{/* Returns { schemaSpec, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }: */}}
+{{/* 3. GET the services with telemetry in the last hour (ClickHouse) — offered on `where`. */}}
+{{/* Returns { suggestions, schemaSpec, propertiesToHide, initialValues, apiVersion, kind, resource, namespace }: */}}
 {{/* schemaSpec = the CRD spec schema with two reserved-key identity fields prepended */}}
 {{/* (__alert_name__ → metadata.name, __alert_namespace__ → metadata.namespace, a create-permitted */}}
 {{/* ns picker); apiVersion/kind/resource = the static GVR for the create POST target. Consumed by */}}
@@ -44,6 +45,24 @@ spec:
         resourcesFrom: '["alerts"]'
         namespaceFrom: .metadata.name
       filter: "[.namespaces.items[] | .metadata.name]"
+    {{/* The services the platform collects telemetry from, offered on `where` (portal#228): an */}}
+    {{/* author picks a predicate over a ServiceName that is actually populated instead of typing */}}
+    {{/* one from memory. Every ServiceName with a log line or a span in the last hour, with both */}}
+    {{/* counts, from the same clickhouse-endpoint the Observability pages read (the release */}}
+    {{/* namespace). A static query: no request value reaches the path. continueOnError, so */}}
+    {{/* ClickHouse down or unreadable leaves `where` a plain text field, never a broken form. */}}
+    {{/* The time filters are the tables' partition keys (otel_logs TimestampTime, otel_traces */}}
+    {{/* Timestamp), so an hour reads an hour; LIMIT bounds the list. */}}
+    - name: services
+      endpointRef:
+        name: clickhouse-endpoint
+        namespace: {{ .Release.Namespace }}
+      path: "/?query=SELECT%20ServiceName%20AS%20svc%2C%20sum%28l%29%20AS%20logs%2C%20sum%28t%29%20AS%20spans%20FROM%20%28SELECT%20ServiceName%2C%20count%28%29%20AS%20l%2C%200%20AS%20t%20FROM%20otel_logs%20WHERE%20TimestampTime%20%3E%20now%28%29%20-%20INTERVAL%201%20HOUR%20GROUP%20BY%20ServiceName%20UNION%20ALL%20SELECT%20ServiceName%2C%200%20AS%20l%2C%20count%28%29%20AS%20t%20FROM%20otel_traces%20WHERE%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%201%20HOUR%20GROUP%20BY%20ServiceName%29%20GROUP%20BY%20svc%20ORDER%20BY%20svc%20LIMIT%20500%20FORMAT%20JSON"
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: servicesError
   {{/* The returned schemaSpec is the CRD's spec schema with two RESERVED-KEY identity fields */}}
   {{/* PREPENDED: __alert_name__ (the Alert's metadata.name) + __alert_namespace__ (metadata.namespace, */}}
   {{/* a picker over create-permitted namespaces). Underscore-fenced so they never collide with a spec */}}
@@ -58,7 +77,22 @@ spec:
     # rendered/validated — same mechanism as blueprint-create. .username is the snowplow-injected
     # JWT principal (identityContext: [username] on the form); absent → "anon".
     | (((.username // "anon") | gsub("[^a-zA-Z0-9_.-]"; "-")) + "__alert-create") as $draftKey
+    # `where` is ClickHouse SQL over the rows of `source` (logs or traces; both carry ServiceName),
+    # so each suggestion is a whole predicate. A name a SQL string literal cannot hold as it is
+    # (a quote, a backslash, a space) is left out rather than offered broken. ClickHouse FORMAT JSON
+    # quotes 64-bit counts. An empty catalogue is no entry: the field stays a plain input.
+    | ([ ((.services.data) // [])[]
+         | (.svc // "") as $svc
+         | select($svc | test("^[A-Za-z0-9._/:-]+$"))
+         | ((.logs // 0) | tonumber? // 0) as $logs
+         | ((.spans // 0) | tonumber? // 0) as $spans
+         | { value: ("ServiceName = '" + $svc + "'"),
+             description: ([ (if $logs > 0 then ($logs | tostring) + (if $logs == 1 then " log line" else " log lines" end) else empty end),
+                             (if $spans > 0 then ($spans | tostring) + (if $spans == 1 then " span" else " spans" end) else empty end) ]
+                           | join(" · ") | . + " in the last hour"),
+             group: "Services with telemetry in the last hour" } ]) as $whereOptions
     | {
+        suggestions: (if ($whereOptions | length) > 0 then [ { name: "where", options: $whereOptions } ] else [] end),
         schemaSpec: (($spec // { type: "object", properties: {} })
           | .properties = ({
               __alert_name__:      { type: "string", title: "Name", description: "Name for the new Alert (metadata.name)." },

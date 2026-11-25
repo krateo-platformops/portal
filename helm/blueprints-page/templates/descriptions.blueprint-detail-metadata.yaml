@@ -1,4 +1,5 @@
-{{/* CompositionDefinition metadata (namespace / uid / created + labels) as label/value rows. */}}
+{{/* CompositionDefinition metadata (namespace / uid + labels) as label/value rows. No Created: the */}}
+{{/* page header says it (UX audit BP-4, "Created three times"). */}}
 {{/* Shaped server-side by the blueprint-detail RA (.detail.metadata). Mirrors */}}
 {{/* descriptions-composition-detail-metadata. */}}
 kind: Descriptions
@@ -23,6 +24,6 @@ spec:
   {{/* items have no `format: relative` → derived server-side via `now`; date fallback past ~60d). */}}
   widgetDataTemplate:
     - forPath: items
-      expression: '${ def rel: (fromdateiso8601? // null) as $t | if $t == null then . else (now - $t) as $dt | (if $dt < 60 then "just now" elif $dt < 3600 then ((($dt/60)|floor|tostring) + "m ago") elif $dt < 86400 then ((($dt/3600)|floor|tostring) + "h ago") elif $dt < 5184000 then ((($dt/86400)|floor|tostring) + "d ago") else .[0:10] end) end; [ { label: "Namespace", value: (.detail.metadata.namespace // "") }, { label: "UID", value: (.detail.metadata.uid // "") }, { label: "Created", value: ((.detail.metadata.creationTimestamp // "") | rel) } ] + ((.detail.metadata.labels // {}) | to_entries | map({ label: ("label/" + .key), value: .value })) }'
+      expression: '${ [ { label: "Namespace", value: (.detail.metadata.namespace // "") }, { label: "UID", value: (.detail.metadata.uid // "") } ] + ((.detail.metadata.labels // {}) | to_entries | map({ label: ("label/" + .key), value: .value })) }'
   resourcesRefs:
     items: []
