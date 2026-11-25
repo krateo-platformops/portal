@@ -291,6 +291,42 @@ check('blueprint detail button: not found -> the list', jq(expr_of(dbtn, 'action
 acts = items_of(named(bpage, 'Flex', 'blueprint-detail-actions'))
 check('blueprint detail actions: Ask immediately left of Create', acts[acts.index('blueprint-detail-create') - 1], 'blueprint-detail-ask-agentiko')
 
+# Running compositions (visual audit BP-1, STATE-1): each row prints the state the Compositions list
+# prints for the same object, from the same conditions, and its colour is that state's. A paused
+# composition reports the Ready=True it had before the pause; it read green "Ready" here.
+def bp_comp(name, conds, wh=None):
+    st = {'conditions': [{'type': t, 'status': v, 'reason': r} for t, v, r in conds]}
+    if wh is not None:
+        st['workloadHealthy'] = wh
+    return {'kind': 'WebApp', 'apiVersion': 'composition.krateo.io/v1-4-2',
+            'metadata': {'name': name, 'namespace': 'team-alpha', 'creationTimestamp': '2026-11-01T00:00:00Z', 'uid': name}, 'status': st}
+
+
+STATES = [bp_comp('paused', [('Ready', 'True', 'ReconcilePaused'), ('Synced', 'False', 'ReconcilePaused')]),
+          bp_comp('ready', [('Ready', 'True', 'Available'), ('Synced', 'True', 'ReconcileSuccess')]),
+          bp_comp('drift', [('Ready', 'True', 'Available'), ('Synced', 'False', 'ReconcileError')]),
+          bp_comp('down', [('Ready', 'False', 'Unavailable'), ('Synced', 'True', 'ReconcileSuccess')]),
+          bp_comp('creating', [('Ready', 'False', 'Creating')]),
+          bp_comp('silent', [('Ready', 'Unknown', 'ZeroEvidence'), ('Synced', 'True', 'ReconcileSuccess')]),
+          bp_comp('locked', [('Ready', 'Unknown', 'ChildrenForbidden')]),
+          bp_comp('sick', [('Ready', 'True', 'Available'), ('Synced', 'True', 'ReconcileSuccess')], wh=False)]
+rows = {r['name']: r for r in jq(detail_prog, {'name': 'web-app', 'namespace': 'krateo-system', 'compdef': CD, 'catalog': CATALOG,
+                                               'comps': {'items': STATES}})['compositions']}
+listed = jq(named(portal, 'RESTAction', 'compositions-list')['spec']['filter'],
+            {'status': 'all', 'allCompositions': jq(named(portal, 'RESTAction', 'compositions-list')['spec']['api'][1]['filter'],
+                                                    {'allCompositions': {'items': STATES}})})
+cards = {r['name']: r for r in listed['rows']}
+check('blueprint detail: the fixture reaches both pages', (len(rows), sorted(cards) == sorted(rows)), (8, True))
+check('blueprint detail: a running composition reads as on /compositions (label)',
+      {n: rows[n]['readyLabel'] for n in rows}, {n: cards[n]['stateLabel'] for n in rows})
+check('blueprint detail: the paused one is Paused and gray, not Ready',
+      (rows['paused']['readyLabel'], rows['paused']['readyColor']), ('Paused', 'paused'))
+bplist = named(bpage, 'Listy', 'blueprint-detail-compositions')['spec']['widgetData']['itemTemplate']['color']
+cardmap = named(cpage, 'Listy', 'compositions-cards')['spec']['widgetData']['itemTemplate']['color']['map']
+check('blueprint detail: every state has a colour, the cards\' one (pending keeps this page\'s orange)',
+      {r['readyColor']: bplist['map'].get(r['readyColor']) for r in rows.values()},
+      {r['readyColor']: (cardmap.get(r['readyColor']) if r['readyColor'] != 'pending' else 'orange') for r in rows.values()})
+
 # --- /marketplace and /marketplace/{name} ----------------------------------------------------------
 mpage = render('marketplace-page')
 cat_prog = named(mpage, 'RESTAction', 'blueprints-catalog')['spec']['filter']
