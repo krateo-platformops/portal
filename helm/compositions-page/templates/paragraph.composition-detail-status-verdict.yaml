@@ -1,7 +1,14 @@
 {{/* COMPOSITION DETAIL REDESIGN, step 1 (approved mockup "Composition detail, challenged", decision:
      the Status card leads, incidents inside it). The card's first line: ONE verdict sentence over the
      composition's managed resources, from the same composition-resources figures the bar beside it
-     reads, so the two can never disagree. */}}
+     reads, so the two can never disagree.
+     It names only what is so (visual audit CMP-2, CMP-6, CMP-7):
+       - a PAUSED composition leads with "Paused since <when>": Krateo is not changing it, so nothing is
+         "still converging";
+       - one nothing can assess (Ready=Unknown, ZeroEvidence) leads with "Health Unknown (ZeroEvidence)";
+       - missing resources (the apiserver's NotFound) are missing, never converging;
+       - a resource with no readiness to check is said to have none, never counted as converging or
+         healthy ("5 of 59 resources healthy; 54 have no readiness to check"). */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -20,11 +27,27 @@ spec:
   widgetDataTemplate:
     - forPath: text
       expression: >-
-        ${ ((.failedCount // 0) + (.driftCount // 0)) as $bad
+        ${ def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
+        (.composition // {}) as $c
         | (.total // 0) as $total
-        | if $total == 0 then "This composition manages no resources it can read yet"
-          elif $bad > 0 then (($bad | tostring) + " of " + ($total | tostring) + " resources need attention")
-          elif (.converged // false) then ("All " + ($total | tostring) + " resources match the desired state")
-          else ((.healthyCount // 0 | tostring) + " of " + ($total | tostring) + " resources ready, the rest still converging") end }
+        | (.healthyCount // 0) as $healthy
+        | (.notFoundCount // 0) as $missing
+        | ((.failedCount // 0) + (.terminalCount // 0) + (.driftCount // 0)) as $bad
+        | ((.pendingCount // 0) + (.convergingCount // 0)) as $moving
+        | ((.noReadinessCount // 0) + (.unknownCount // 0) + (.notObservedCount // 0) + (.readyNotSetCount // 0)) as $unjudged
+        | ($c.state == "paused") as $paused
+        | (if $missing > 0 then (($missing | tostring) + " of " + n($total; "resource is"; "resources are") + " missing")
+           elif $bad > 0 then (($bad | tostring) + " of " + ($total | tostring) + " resources need attention")
+           elif (.converged // false) then ("All " + ($total | tostring) + " resources match the desired state")
+           elif $moving > 0 and ($paused | not) then (($healthy | tostring) + " of " + ($total | tostring) + " resources ready, "
+             + (if $unjudged > 0 then ($moving | tostring) + " still converging, " + n($unjudged; "has"; "have") + " no readiness to check" else "the rest still converging" end))
+           elif $unjudged > 0 then (($healthy | tostring) + " of " + ($total | tostring) + " resources healthy; " + n($unjudged; "has"; "have") + " no readiness to check")
+           else (($healthy | tostring) + " of " + ($total | tostring) + " resources ready") end) as $body
+        | (if $paused then ("Paused" + (if ($c.pausedSince // "") != "" then " since " + $c.pausedSince else "" end))
+           elif $c.state == "unknown" then ("Health Unknown" + (if ($c.readyReason // "") != "" then " (" + $c.readyReason + ")" else "" end))
+           else "" end) as $lead
+        | if $total == 0 then (if $lead != "" then $lead + "; it manages no resources it can read yet" else "This composition manages no resources it can read yet" end)
+          elif $lead != "" then $lead + "; " + ($body | if startswith("All ") then "all " + .[4:] else . end)
+          else $body end }
   resourcesRefs:
     items: []

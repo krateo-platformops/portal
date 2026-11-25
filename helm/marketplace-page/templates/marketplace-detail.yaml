@@ -45,23 +45,33 @@ spec:
   {{/* route — `.entries[null]` and `$instVer[null]` raise "expected a string for object key but got: */}}
   {{/* null" and every widget on it fails (~670/h on krateo-057). An absent name is found: false. */}}
   {{/* An entry with no name (never a real CompositionDefinition) is dropped, not keyed as null. */}}
+  {{/* LATEST is the newest version by version number (withLiveVer), the order the blueprint page */}}
+  {{/* picks its "Latest version" by (restaction.blueprint-detail), so the two pages cannot disagree */}}
+  {{/* over an index that is not newest-first (UX audit BP-2). CATEGORY is the chart's */}}
+  {{/* krateo.io/category, title-cased, as its Marketplace card shows it (restaction.blueprints-catalog), */}}
+  {{/* or "" — never its first keyword ("krateo") or a made-up "uncategorized" (MKT-5). A name the */}}
+  {{/* catalog does not hold says so in the description and has no About rows: it showed "Category */}}
+  {{/* uncategorized, Installed yes" for a platform component that only shares the name (MKT-3). */}}
   filter: >
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
+    def titlecase: if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end;
     withLive
     | ((.name // "") | tostring) as $n
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .version} ] | from_entries ) as $instVer
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .namespace} ] | from_entries ) as $instNs
     | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .} ] | from_entries ) as $instCd
-    | ( ((.catalog // {}).entries[$n]) // [] ) as $vers
+    | ( ((.catalog // {}).entries[$n]) // [] | [ .[] | objects ] | sort_by(.version // "" | withLiveVer) | reverse ) as $vers
     | ( $vers[0] // {} ) as $latest
     | ( [ $vers[] | .version | select(. != null and . != "") ] | unique ) as $availableVersions
     | ( ($latest.annotations // {}) ) as $ann
-    | ( $ann["krateo.io/category"] // ($latest.keywords[0]) // "uncategorized" ) as $cat
+    | ( ($ann["krateo.io/category"] // "") | tostring | ascii_downcase | titlecase ) as $cat
     | {
         name: $n,
         found: ($vers | length > 0),
-        description: ($latest.description // ""),
+        description: (if ($vers | length) > 0 then ($latest.description // "")
+                      else ($n + " is not in the Marketplace catalog."
+                            + (if $instVer[$n] != null then " A blueprint with this name is installed in " + ($instNs[$n] // "{{ $.Release.Namespace }}") + ": Configure opens it." else "" end)) end),
         category: $cat,
         maturity: ($ann["krateo.io/maturity"] // ""),
         version: ($latest.version // ""),
@@ -89,7 +99,7 @@ spec:
         askHref: (if ($vers | length) > 0 then
           ("/marketplace/" + $n + "?ask="
            + (("Tell me about the \"" + $n + "\" chart in the Marketplace ("
-               + ([ ($latest.version // "" | if . == "" then empty else "v" + . end), $cat,
+               + ([ ($latest.version // "" | if . == "" then empty else "v" + . end), (if $cat != "" then $cat else empty end),
                     (if ($ann["krateo.io/maturity"] // "") != "" then $ann["krateo.io/maturity"] else empty end) ] | join(", "))
                + "; " + (if ((.compdefsError // null) | . != null and . != [] and . != "") then "whether it is installed here could not be read"
                          elif $instVer[$n] != null then "installed here" + ($instVer[$n] // "" | if . == "" then "" else " at v" + . end)
@@ -334,7 +344,10 @@ spec:
   resourcesRefs:
     items: []
 ---
-{{/* Chart metadata rows from the index entry. */}}
+{{/* Chart metadata rows from the index entry. No "Published" row: the header says "published 49d */}}
+{{/* ago" from the same `created`, and the row printed it again as a raw RFC 3339 timestamp (UX */}}
+{{/* audit MKT-5). No rows at all for a name the catalog does not hold (MKT-3): the description */}}
+{{/* says so, and "Installed yes" there named another chart that only shares the name. */}}
 kind: Descriptions
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -355,7 +368,7 @@ spec:
     items: []
   widgetDataTemplate:
     - forPath: items
-      expression: '${ [ { label: "Latest version", value: (.version // "") }, { label: "App version", value: (.appVersion // "") }, { label: "Category", value: (.category // "") }, { label: "Maturity", value: (.maturity // "") }, { label: "Krateo supported", value: (.krateoSupportedVersion // "") }, { label: "Type", value: (.type // "") }, { label: "Published", value: (.created // "") }, { label: "Digest", value: ((.digest // "")[0:19]) }, { label: "Installed", value: (if .installed then ("yes" + (.installedVersion // "" | if . == "" then "" else " · v" + . end)) else "no" end) } ] | map(select(.value != "" and .value != null)) }'
+      expression: '${ if .found == false then [] else [ { label: "Latest version", value: (.version // "") }, { label: "App version", value: (.appVersion // "") }, { label: "Category", value: (.category // "") }, { label: "Maturity", value: (.maturity // "") }, { label: "Krateo supported", value: (.krateoSupportedVersion // "") }, { label: "Type", value: (.type // "") }, { label: "Digest", value: ((.digest // "")[0:19]) }, { label: "Installed", value: (if .installed then ("yes" + (.installedVersion // "" | if . == "" then "" else " · v" + . end)) else "no" end) } ] | map(select(.value != "" and .value != null)) end }'
   resourcesRefs:
     items: []
 ---
