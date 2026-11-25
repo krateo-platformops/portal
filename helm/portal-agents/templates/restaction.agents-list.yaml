@@ -208,7 +208,9 @@ spec:
           | ([ (.status.conditions // [])[] | select(.type == "Accepted") ][0] // {}) as $c
           | { name: (.metadata.name // ""), namespace: (.metadata.namespace // ""), item: "server",
               accepted: ($c.status == "True"), reason: ($c.reason // ""), message: (($c.message // "") | tostring | .[0:240]),
-              description: ((.spec.description // "") | tostring | .[0:160]),
+              # Whole: the card clamps it to two lines (UX audit TXT-1). A cut at 160 characters
+              # ended it mid-word with room left on the card.
+              description: ((.spec.description // "") | tostring),
               tools: ((.status.discoveredTools // []) | length), owner: shipper,
               f: { kind: "server", status: (if $c.status == "True" then "accepted" else "notaccepted" end),
                    owner: (shipper | gsub(","; "")), q: qmatch((.metadata.name // "") + " " + ((.spec.description // "") | tostring)) } } ] ) as $serverItems
@@ -235,6 +237,10 @@ spec:
             routeName:   ( $a.metadata.name // "" ),
             routeNs:     ( $a.metadata.namespace // "{{ .Release.Namespace }}" ),
             role:        ( ($a.spec.description // "") | if (. | length) > 120 then (.[0:120] + "…") else . end ),
+            # The card's body, whole: the card clamps it to two lines, so it ends where the card
+            # does, not mid-word at 120 characters with room left ("orchestrates specialist s…",
+            # UX audit TXT-1). `role`, cut, stays the Full list's column.
+            description: ( ($a.spec.description // "") | tostring ),
             modelConfig: $mc,
             # Three distinct states, never collapsed into one dash: the ModelConfig read FAILED;
             # it succeeded but this agent's config was not among the ones we can read (deleted, or
@@ -413,10 +419,13 @@ spec:
           else { tag: (if $gatewayKnown then "Registered" else "Ready" end), tone: "ok" } end ) as $s
         | { title: .name, tag: $s.tag, tone: $s.tone,
             kind: ((if .orchestrator then "Orchestrator" else "Specialist" end) + (if .bench then " · bench" else "" end)),
-            body: (if (.role // "") == "" then "No description." else .role end),
-            foot: (if (.gateway // "") != "" then "Gateway: " + .gateway + " · owner " + .shipper
-                   elif (.statusLabel // "") == "" and .orchestrator then n(.delegates; "delegate"; "delegates") + " · " + n(.tools; "tool"; "tools") + " on " + n(.servers; "server"; "servers")
-                   else "owner " + .shipper end),
+            body: (if (.description // "") == "" then "No description." else .description end),
+            # "owner <x>" only when it says something: an agent shipped by the composition of its
+            # own name read "owner authn-agent" on authn-agent (UX audit AGT-5).
+            foot: ((if .shipper == .name then "" else "owner " + .shipper end) as $own
+                   | if (.gateway // "") != "" then "Gateway: " + .gateway + (if $own != "" then " · " + $own else "" end)
+                     elif (.statusLabel // "") == "" and .orchestrator then n(.delegates; "delegate"; "delegates") + " · " + n(.tools; "tool"; "tools") + " on " + n(.servers; "server"; "servers")
+                     else $own end),
             cta: "Open agent", href: ("/agents/" + .routeNs + "/" + .routeName), icon: "fa-robot" };
       # A tool server has no page (the Tool servers tab is its list), so its card is inert.
       def servercard:
@@ -424,7 +433,7 @@ spec:
           kind: "Tool server",
           body: (if .accepted then (if (.description // "") != "" then .description else n(.tools; "tool"; "tools") + " discovered" end)
                  elif .message != "" then .message else "Accepted is not True, and no message was given." end),
-          foot: ("RemoteMCPServer · " + (if .accepted then n(.tools; "tool"; "tools") + " · owner " + .owner
+          foot: ("RemoteMCPServer · " + (if .accepted then n(.tools; "tool"; "tools") + (if .owner == .name then "" else " · owner " + .owner end)
                                          else "reason " + (if .reason != "" then .reason else "none given" end) end)),
           cta: "", href: "", icon: "fa-server" };
       ( [ $members[] | select(.item == "agent") ] ) as $memberAgents
