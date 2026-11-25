@@ -138,6 +138,38 @@ def failures(program, verbose):
     return bad
 
 
+def note_program():
+    header = next(d for d in render() if d.get('metadata', {}).get('name') == 'blueprint-detail-page-header')
+    expr = next(t['expression'] for t in header['spec']['widgetDataTemplate'] if t['forPath'] == 'note')
+    return expr.strip().removeprefix('${').removesuffix('}').strip()
+
+
+def note(program, generation, observed):
+    meta = {} if generation is None else {'generation': generation}
+    status = {} if observed is None else {'observedGeneration': observed}
+    proc = subprocess.run([JQ, '-c', program], input=json.dumps({'detail': {'metadata': meta, 'status': status}}),
+                          capture_output=True, text=True, check=True)
+    return json.loads(proc.stdout)
+
+
+def note_failures():
+    """The older-spec note (core-provider >= 2.13.130): only while the status describes an older version."""
+    program, bad = note_program(), []
+    behind = note(program, 4, 3)
+    if behind['text'] != 'about the previous version · updating' or 'version 3' not in behind['tooltip'] or 'version 4' not in behind['tooltip']:
+        bad.append(f'behind: {behind}')
+    for name, g, o in (('caught up', 4, 4), ('no observedGeneration (older core-provider)', 4, None), ('no generation', None, 2)):
+        if note(program, g, o) != {'text': ''}:
+            bad.append(f'{name}: {note(program, g, o)}')
+    # Control: a note on any observedGeneration would show on a caught-up definition.
+    if note(program.replace('$o < $g', '$o <= $g'), 4, 4) == {'text': ''}:
+        bad.append('control: the comparison does not decide the note')
+    for b in bad:
+        print(f'FAIL older-spec note: {b}')
+    print(f'[{"FAIL" if bad else "PASS"}] older-spec note: only while the status describes an older version')
+    return len(bad)
+
+
 def main():
     program = tags_program()
     if len(VERDICTS.findall(program)) != 1:
@@ -152,7 +184,7 @@ def main():
     print(f'[PASS] control: without core-provider\'s verdicts, the {len(converging)} converging cases read Degraded')
     bad = failures(program, verbose=True)
     print(f'{len(CASES) - len(bad)}/{len(CASES)} blueprint pill cases ok')
-    return min(len(bad), 125)
+    return min(len(bad) + note_failures(), 125)
 
 
 if __name__ == '__main__':

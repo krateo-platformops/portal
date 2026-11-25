@@ -75,6 +75,13 @@ spec:
     {{/* Was the Tag's TWO templates, fused into one branch so label and colour cannot disagree. */}}
     - forPath: tags
       expression: '${ {{ include "portal.cdReadyDefs" . }} (.detail.status.conditions // []) as $c | [ ( if ($c | length) == 0 then {label:"Unknown", color:"gray"} else {"ready": {label:"Healthy", color:"green"}, "drift": {label:"Drift", color:"violet"}, "failed": {label:"Degraded", color:"red"}, "installing": {label:"Pending", color:"orange"}, "unobserved": {label:"Pending", color:"orange"}, "paused": {label:"Paused", color:"gray"}}[$c | cdState | .state] end ) ] }'
+    {{/* THE STATE IS ABOUT AN OLDER SPEC (approved mockup "Older Spec Note", 2026-11-25): core-provider */}}
+    {{/* >= 2.13.130 says which version its status describes (status.observedGeneration). While that is */}}
+    {{/* below metadata.generation, a change was applied and not processed yet: the pill stays (still */}}
+    {{/* true of what runs) and a quiet note says it is about to change. No observedGeneration (an older */}}
+    {{/* core-provider), equal, or ahead: no note. */}}
+    - forPath: note
+      expression: '${ (.detail.metadata.generation // null) as $g | (.detail.status.observedGeneration // null) as $o | if ($g | type) == "number" and ($o | type) == "number" and $o < $g then { text: "about the previous version · updating", tooltip: ("This state was reported for version " + ($o | tostring) + " of the definition; version " + ($g | tostring) + " was applied and has not been processed yet.") } else { text: "" } end }'
   resourcesRefs:
     items:
     - id: blueprint-detail-actions
