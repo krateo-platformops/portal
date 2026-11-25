@@ -347,7 +347,7 @@ button_check('marketplace button', mbtn, out, 'askHref', '/marketplace')
 check('marketplace button: keyExtras = the header\'s', mbtn['spec']['keyExtras'], named(mpage, 'PageHeader', 'marketplace-page-header')['spec']['keyExtras'])
 check('marketplace header: the button alone', items_of(named(mpage, 'PageHeader', 'marketplace-page-header')), ['marketplace-ask-agentiko'])
 
-d = jq(detail_prog, {'name': 'redis', 'catalog': INDEX, 'compdefs': [{'name': 'redis', 'version': '1.1.0', 'namespace': 'team-alpha'}]})
+d = jq(detail_prog, {'name': 'redis', 'catalog': INDEX, 'compdefs': [{'name': 'redis', 'ns': 'team-alpha', 'version': '1.1.0', 'repo': 'redis', 'url': BASE}]})
 href, prompt = ask(d['askHref'])
 check('marketplace detail: -> self page', href, '/marketplace/redis')
 check('marketplace detail: installed -> the prompt', prompt,
@@ -392,6 +392,39 @@ check('grid, the route is the row\'s (a leading "${" would be jq over the widget
 row = jq(expr_of(named(mpage, 'Listy', 'marketplace-grid'), 'dataSource'), {'cards': [cards['kafka']]})[0]
 check('grid, the row carries the action fields', (row.get('actionLabel'), row.get('actionIcon'), row.get('actionPath')),
       ('Configure', 'fa-sliders', 'blueprints/krateo-system/kafka-events'))
+
+# --- ONE RULE for the tile and the detail page (portal.marketplaceInstalledDefs) ------------------
+# Chart identity, never the CD's own name: the two cases where the tile (repo + chart) and the page
+# (CD name) used to disagree now agree, and so does every card over one set of CDs.
+def detail_of(name, cds):
+    return jq(detail_prog, {'name': name, 'catalog': INDEX, 'operators': OPS, 'compdefs': cds})
+def tile_of(name, cds):
+    return {c['name']: c for c in run_cat(compdefs=cds)['cards']}[name]
+detail_action = expr_of(named(mpage, 'Button', 'marketplace-detail-action'), 'actions')
+# 1. Installed through the Install form under another name: both installed, both open that CD.
+custom = [{'name': 'my-redis', 'ns': 'team-alpha', 'version': '1.2.0', 'repo': 'redis', 'url': BASE}]
+t, d = tile_of('redis', custom), detail_of('redis', custom)
+check('one rule, custom name: tile installed, Configure my-redis', (t['installed'], t.get('actionPath')), (True, 'blueprints/team-alpha/my-redis'))
+check('one rule, custom name: page installed', (d['installed'], d['installedNamespace'], d.get('installedName'), d['installedVersion']),
+      (True, 'team-alpha', 'my-redis', '1.2.0'))
+check('one rule, custom name: page Configure opens my-redis', jq(detail_action, d)['navigate'][0]['path'], '/blueprints/team-alpha/my-redis')
+# 2. A CD named like the chart, installed from a repo that is not the catalog's: neither installed.
+foreign = [{'name': 'kafka', 'ns': 'team-alpha', 'version': '3.0.0', 'repo': 'kafka', 'url': 'https://other.example/charts'}]
+t, d = tile_of('kafka', foreign), detail_of('kafka', foreign)
+check('one rule, same-named CD from a foreign repo: tile not installed', (t['installed'], t.get('actionLabel')), (False, 'Install'))
+check('one rule, same-named CD from a foreign repo: page not installed', d['installed'], False)
+check('one rule, same-named CD from a foreign repo: page offers Install', jq(detail_action, d)['navigate'][0]['path'], '/marketplace/kafka/install')
+# 3. An OCI install of the chart's name (acme-feedback's case): both installed.
+oci = [{'name': 'kafka-events', 'ns': 'krateo-system', 'version': '3.0.0', 'repo': '', 'url': 'oci://ghcr.io/krateo-blueprints/charts/kafka@sha256:abc'}]
+check('one rule, OCI install: tile and page installed', (tile_of('kafka', oci)['installed'], detail_of('kafka', oci).get('installedName')), (True, 'kafka-events'))
+# 4. Over one set of CDs, every card and its page agree.
+mixed = INSTALLED + custom + foreign + oci + [{'name': 'cert-manager', 'ns': 'x', 'version': '1.0.0', 'repo': 'cert-manager', 'url': 'https://charts.example/operators'}]
+tiles = {c['name']: c for c in run_cat(compdefs=mixed)['cards']}
+check('one rule, every card agrees with its page',
+      {n: (c['installed'], c['installedName']) for n, c in tiles.items()},
+      {n: (detail_of(n, mixed)['installed'], detail_of(n, mixed).get('installedName') if detail_of(n, mixed)['installed'] else '') for n in tiles})
+check('an operator\'s page finds it in the operators index', (detail_of('cert-manager', [])['found'], detail_of('cert-manager', [])['version']), (True, '1.0.0'))
+check('the rule is one definition, included by both', all('def installedOf(' in p for p in (cat_prog, detail_prog)), True)
 
 for f in failures:
     print(f'FAIL  {f}')

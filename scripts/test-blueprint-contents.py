@@ -97,8 +97,10 @@ def marketplace_failures(mdocs):
         return dict({'name': 'acme-feedback', 'version': version, 'created': '2026-10-06T04:35:04.158732159Z',
                      'urls': [f'https://krateo-blueprints.github.io/charts/blueprints/acme-feedback-{version}.tgz']}, **more)
 
-    def cd(version, name='acme-feedback'):
-        return {'name': name, 'version': version, 'namespace': 'krateo-system', 'status': {'contents': SAMPLE}}
+    def cd(version, name='acme-feedback', url='https://krateo-blueprints.github.io/charts/blueprints', repo=None):
+        # As marketplace-detail's compdefs step projects a CD: installed means chart identity (_installed.tpl).
+        return {'name': name, 'ns': 'krateo-system', 'version': version, 'repo': name if repo is None else repo, 'url': url,
+                'status': {'contents': SAMPLE}}
 
     def page(name, entries, compdefs):
         out = jq(mprog, {'name': name, 'catalog': {'entries': {'acme-feedback': entries}}, 'compdefs': compdefs})
@@ -121,7 +123,7 @@ def marketplace_failures(mdocs):
     out, rows = page('acme-feedback', [entry('0.1.1', keywords=['krateo'], annotations={'krateo.io/category': 'compute'})], [])
     check('category: the annotation, as the card shows it', rows.get('Category'), 'Compute')
     # A name the catalog does not hold, a platform component of that name installed (MKT-3).
-    out, rows = page('observability-page', [entry('0.1.1')], [cd('1.8.163', name='observability-page')])
+    out, rows = page('observability-page', [entry('0.1.1')], [cd('1.8.163', name='observability-page', url='oci://ghcr.io/krateo-platformops/charts/observability-page', repo='')])
     check('not in the catalog: said', jq(desc, out),
           'observability-page is not in the Marketplace catalog. A blueprint with this name is installed in krateo-system: Configure opens it.')
     check('not in the catalog: no About rows', rows, {})
@@ -209,8 +211,8 @@ def main():
     base = {'name': 'core-provider', 'catalog': {'entries': {'core-provider': [{'version': '0.0.0-envtest', 'name': 'core-provider'}]}}}
     m_not = jq(mprog, dict(base, compdefs=[]))['contents']
     check('marketplace, not installed', (m_not['state'], m_not['title'], m_not['extra']), ('notInstalled', 'Known once installed.', 'not installed'))
-    m_in = jq(mprog, dict(base, compdefs=[{'name': 'core-provider', 'version': '0.0.0-envtest', 'namespace': 'krateo-system',
-                                           'status': {'contents': SAMPLE}}]))['contents']
+    m_in = jq(mprog, dict(base, compdefs=[{'name': 'core-provider', 'version': '0.0.0-envtest', 'ns': 'krateo-system', 'repo': '',
+                                           'url': 'oci://ghcr.io/krateo-platformops/charts/core-provider', 'status': {'contents': SAMPLE}}]))['contents']
     check('marketplace, installed: the blueprint page\'s list', (m_in['state'], m_in['extra'], m_in['foot']),
           ('known', '11 kinds', 'At default values · chart 0.0.0-envtest · 23 resources of 11 kinds'))
     m_err = jq(mprog, dict(base, compdefs=[], compdefsError=[{'message': 'forbidden'}]))['contents']

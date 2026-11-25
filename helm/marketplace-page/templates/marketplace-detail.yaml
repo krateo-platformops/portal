@@ -29,6 +29,9 @@ spec:
   api:
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{- include "portal.catalogLiveStep" $ | nindent 4 }}
+    {{/* The operators index too, as the grid and the install form read it: an operator's tile opens */}}
+    {{/* this page, which without it said the operator "is not in the Marketplace catalog". */}}
+    {{- include "portal.catalogStep" (dict "ctx" $ "name" "operators" "index" "operators") | nindent 4 }}
     - name: compdefs
       path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
       verb: GET
@@ -39,12 +42,15 @@ spec:
         group: core.krateo.io
         resource: compositiondefinitions
         namespaceFrom: .metadata.namespace
-      {{/* `status` is kept for "What it creates" (status.contents), read the same way on the blueprint page. */}}
-      filter: '[.compdefs.items[]? | {name: .metadata.name, version: (.spec.chart.version // ""), namespace: .metadata.namespace, status: {contents: (.status.contents // null)}}]'
+      {{/* `status` is kept for "What it creates" (status.contents), read the same way on the blueprint page; */}}
+      {{/* repo and url for chart identity (portal.marketplaceInstalledDefs), projected as the grid projects them. */}}
+      filter: '[.compdefs.items[]? | {name: .metadata.name, ns: .metadata.namespace, version: (.spec.chart.version // ""), repo: (.spec.chart.repo // ""), url: (.spec.chart.url // ""), status: {contents: (.status.contents // null)}}]'
   {{/* NULL-SAFE. With no ?extras.name — the background prewarm resolves this RESTAction with no */}}
-  {{/* route — `.entries[null]` and `$instVer[null]` raise "expected a string for object key but got: */}}
-  {{/* null" and every widget on it fails (~670/h on krateo-057). An absent name is found: false. */}}
-  {{/* An entry with no name (never a real CompositionDefinition) is dropped, not keyed as null. */}}
+  {{/* route — `.entries[null]` raised "expected a string for object key but got: null" and every */}}
+  {{/* widget on it failed (~670/h on krateo-057). An absent name is found: false. */}}
+  {{/* INSTALLED is chart identity, the rule the grid's tile uses (portal.marketplaceInstalledDefs, */}}
+  {{/* _installed.tpl), not the CompositionDefinition's name: the matched CD's namespace, name and */}}
+  {{/* version are what this page shows and Configure opens (UX audit MKT-2). */}}
   {{/* LATEST is the newest version by version number (withLiveVer), the order the blueprint page */}}
   {{/* picks its "Latest version" by (restaction.blueprint-detail), so the two pages cannot disagree */}}
   {{/* over an index that is not newest-first (UX audit BP-2). CATEGORY is the chart's */}}
@@ -55,13 +61,12 @@ spec:
   filter: >
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
+    {{- include "portal.marketplaceInstalledDefs" . | nindent 4 }}
     def titlecase: if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end;
     withLive
     | ((.name // "") | tostring) as $n
-    | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .version} ] | from_entries ) as $instVer
-    | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .namespace} ] | from_entries ) as $instNs
-    | ( [ (.compdefs // [])[] | select((.name // "") != "") | {key: .name, value: .} ] | from_entries ) as $instCd
-    | ( ((.catalog // {}).entries[$n]) // [] | [ .[] | objects ] | sort_by(.version // "" | withLiveVer) | reverse ) as $vers
+    | ( ((.catalog // {}).entries[$n]) // ((.operators // {}).entries[$n]) // [] | [ .[] | objects ] | sort_by(.version // "" | withLiveVer) | reverse ) as $vers
+    | (if $n == "" then null else installedOf($n; $vers; (.compdefs // [])) end) as $inst
     | ( $vers[0] // {} ) as $latest
     | ( [ $vers[] | .version | select(. != null and . != "") ] | unique ) as $availableVersions
     | ( ($latest.annotations // {}) ) as $ann
@@ -71,7 +76,7 @@ spec:
         found: ($vers | length > 0),
         description: (if ($vers | length) > 0 then ($latest.description // "")
                       else ($n + " is not in the Marketplace catalog."
-                            + (if $instVer[$n] != null then " A blueprint with this name is installed in " + ($instNs[$n] // "{{ $.Release.Namespace }}") + ": Configure opens it." else "" end)) end),
+                            + (if $inst != null then " A blueprint with this name is installed in " + ($inst.ns // "{{ $.Release.Namespace }}") + ": Configure opens it." else "" end)) end),
         category: $cat,
         maturity: ($ann["krateo.io/maturity"] // ""),
         version: ($latest.version // ""),
@@ -89,22 +94,23 @@ spec:
         chartUrl: ($latest.urls[0] // ""),
         created: ($latest.created // ""),
         digest: ($latest.digest // ""),
-        installed: ($instVer[$n] != null),
-        installedVersion: ($instVer[$n] // ""),
-        installedNamespace: ($instNs[$n] // "{{ $.Release.Namespace }}"),
+        installed: ($inst != null),
+        installedVersion: ($inst.version // ""),
+        installedNamespace: ($inst.ns // "{{ $.Release.Namespace }}"),
+        installedName: ($inst.name // ""),
         contents: (if ((.compdefsError // null) | . != null and . != [] and . != "")
                    then { state: "none", extra: "—", kinds: [], stale: false, foot: "", title: "Not known here.",
                           body: "Whether this blueprint is installed on this cluster could not be read, so neither could what it creates." }
-                   else (($instCd[$n] // null) | blueprintContents($instVer[$n] // "")) end),
+                   else ($inst | blueprintContents($inst.version // "")) end),
         askHref: (if ($vers | length) > 0 then
           ("/marketplace/" + $n + "?ask="
            + (("Tell me about the \"" + $n + "\" chart in the Marketplace ("
                + ([ ($latest.version // "" | if . == "" then empty else "v" + . end), (if $cat != "" then $cat else empty end),
                     (if ($ann["krateo.io/maturity"] // "") != "" then $ann["krateo.io/maturity"] else empty end) ] | join(", "))
                + "; " + (if ((.compdefsError // null) | . != null and . != [] and . != "") then "whether it is installed here could not be read"
-                         elif $instVer[$n] != null then "installed here" + ($instVer[$n] // "" | if . == "" then "" else " at v" + . end)
+                         elif $inst != null then "installed here" + ($inst.version // "" | if . == "" then "" else " at v" + . end)
                          else "not installed here" end) + "): what it provisions, "
-               + (if $instVer[$n] != null then "what it has created in my namespace" else "what installing it would create in my namespace" end)
+               + (if $inst != null then "what it has created in my namespace" else "what installing it would create in my namespace" end)
                + ", and whether it fits this platform.") | @uri))
           else "" end)
       }
@@ -215,7 +221,7 @@ spec:
     - forPath: icon
       expression: '${ if .installed then "fa-sliders" else "fa-download" end }'
     - forPath: actions
-      expression: '${ if .installed then { navigate: [ { id: "act", type: "navigate", path: ("/blueprints/" + (.installedNamespace) + "/" + (.name)) } ] } else { navigate: [ { id: "act", type: "navigate", path: ("/marketplace/" + (.name) + "/install") } ] } end }'
+      expression: '${ if .installed then { navigate: [ { id: "act", type: "navigate", path: ("/blueprints/" + (.installedNamespace) + "/" + (if (.installedName // "") != "" then .installedName else .name end)) } ] } else { navigate: [ { id: "act", type: "navigate", path: ("/marketplace/" + (.name) + "/install") } ] } end }'
   resourcesRefs:
     items: []
 ---

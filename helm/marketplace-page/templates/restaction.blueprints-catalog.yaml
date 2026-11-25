@@ -13,9 +13,9 @@
 {{/* snowplow converts YAML->JSON (external_fetch.go) before the jq filter runs. */}}
 {{/* */}}
 {{/* A compdefs api-step LISTs installed CompositionDefinitions and the filter LEFT-JOINs them onto */}}
-{{/* the catalog by the helm-repo identity "<repoBaseUrl>|<chartName>" (a helm-repo CD carries */}}
-{{/* spec.chart.repo = chart NAME + spec.chart.url = repo BASE URL), and an OCI CD by its chart */}}
-{{/* name, the last segment of oci://…/<name> (same name counts, UX audit MKT-2) → `installed` + */}}
+{{/* the catalog by chart identity (portal.marketplaceInstalledDefs, _installed.tpl, the rule the */}}
+{{/* detail page shares): a helm-repo CD by its repo + chart, an OCI CD by the chart name, the last */}}
+{{/* segment of oci://…/<name> (same name counts, UX audit MKT-2) → `installed` + */}}
 {{/* `installedVersion` + `installedNs`/`installedName` (detail link) + the card's primary action */}}
 {{/* (`actionLabel`/`actionIcon`/`actionPath`: Configure when installed, else Install). */}}
 {{/* `continueOnError` everywhere: a missing index or a UAF-denied compdef list degrades to an */}}
@@ -58,6 +58,7 @@ spec:
   {{/* scalar would join a comment line onto the following code line (commenting the code out). */}}
   filter: |
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
+    {{- include "portal.marketplaceInstalledDefs" . | nindent 4 }}
     def qstr($p): ([ $p | to_entries[] | select(.value != null and .value != "") | (.key + "=" + .value) ] | join("&")) as $s
       | (if $s == "" then "/marketplace" else "/marketplace?" + $s end);
     def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
@@ -105,29 +106,12 @@ spec:
       // (catIcon[$cat]) // $fallback;
     # Title-case a lower-case category token for the on-card pill (compute -> Compute).
     def titlecase: if . == "" then "" else (.[0:1] | ascii_upcase) + .[1:] end;
-    # INSTALLED index — the honest catalog<->cluster join. Keyed by "<repoBaseUrl>|<chartName>"
-    # and built ONLY from helm-repo CDs (non-empty spec.chart.repo). A helm-repo CD carries
-    # spec.chart.repo = the chart NAME and spec.chart.url = the helm-repo BASE URL, so the key
-    # matches a catalog entry's own (repoBase | name). OCI/platform-component CDs have EMPTY .repo
-    # and are excluded entirely, so a same-named platform component (e.g. an OCI `kagent`) can NEVER
-    # false-light a catalog tile through that join.
-    # SAME CHART NAME COUNTS for an OCI install (Diego, 2026-11-25, UX audit MKT-2): a CD installed
-    # from oci://<registry>/<path>/<name> is an install of catalog chart <name>. A krateo-blueprints
-    # chart is published both to its registry and to the index (acme-feedback: installed from
-    # oci://ghcr.io/krateo-blueprints/charts/acme-feedback, listed in the index), and the tile said
-    # "Install" while its detail page said "Configure". The chart name is the URL's last path
-    # segment, a :tag or @digest dropped; with several, the first by namespace and name.
+    # INSTALLED: portal.marketplaceInstalledDefs (_installed.tpl), the ONE rule this grid and the
+    # chart's detail page share: chart identity, the helm repo + chart for a helm-repo install and
+    # the chart name for an OCI one (same name counts, UX audit MKT-2), never the CD's own name.
     # withLive first: the live index's newly published blueprints join the catalog (_catalog.tpl).
     withLive
-    | ( [ (.compdefs // [])[] | select((.repo // "") != "")
-        | { key: ((.url // "") + "|" + (.repo // "")),
-            value: {ns: .ns, name: .name, version: .version} } ]
-      | from_entries ) as $instByRepo
-    | ( [ (.compdefs // [])[] | select((.repo // "") == "" and ((.url // "") | startswith("oci://")))
-        | { chart: ((.url // "") | sub("@[^/]*$"; "") | sub("/+$"; "") | split("/") | last | sub(":[^:]*$"; "")),
-            value: {ns: .ns, name: .name, version: .version} } ]
-      | sort_by(.value.ns, .value.name) | group_by(.chart)
-      | map({ key: .[0].chart, value: .[0].value }) | from_entries ) as $instOciByName
+    | (.compdefs // []) as $cds
     | ((.category) // "all") as $sel
     | ((.source) // "all") as $src
     | ((.q) // "") as $q
@@ -140,16 +124,16 @@ spec:
     | (((.sort) // "name") | if . == "recent" then "recent" else "name" end) as $sort
     | ($q | ascii_downcase) as $ql
     | (
-        [ (((.catalog // {}).entries) // {}) | to_entries[] | (.value[0] + {source: "blueprint"}) ]
-        + [ (((.operators // {}).entries) // {}) | to_entries[] | (.value[0] + {source: "operator"}) ]
+        [ (((.catalog // {}).entries) // {}) | to_entries[] | (.value[0] + {source: "blueprint", versions: .value}) ]
+        + [ (((.operators // {}).entries) // {}) | to_entries[] | (.value[0] + {source: "operator", versions: .value}) ]
       ) as $raw
     | ( [ $raw[]
           # helm-repo base URL for THIS card (its own tarball URL with the filename stripped; for a
-          # card withLive added, the channel's base it carries as repoBase) and
-          # the installed-join key "<repoBase>|<chartName>". Looked up in $instByRepo (helm-repo CDs
-          # only); a hit means a CompositionDefinition installed FROM this exact repo+chart exists.
+          # card withLive added, the channel's base it carries as repoBase): the install form's repo.
           | (.repoBase // ((.urls[0] // "") | sub("/[^/]+$"; ""))) as $repoBase
-          | ($instByRepo[$repoBase + "|" + .name] // $instOciByName[.name]) as $match
+          # The CompositionDefinition this chart is installed as, or null (installedOf, _installed.tpl),
+          # over every version's base, so an install from an older version's base counts.
+          | installedOf(.name; .versions; $cds) as $match
           | {
               name: .name,
               description: (.description // ""),
