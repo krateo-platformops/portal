@@ -609,6 +609,8 @@ def check_run_detail(chart):
     expect(f, 'tokens', facts['Tokens'], '7535 in · 8433 out · 15968 total')
     expect(f, 'no model name row', 'Model' in facts, False)
     w = resolve_widgets(chart, 'review-run', out, ex, 'run-completed')
+    # RUN-1 (UX audit, 2026-11-25): horizontal, "Succeeded" broke one letter per line.
+    expect(f, 'steps run down the page', w['review-run-steps-list'].get('orientation'), 'vertical')
     expect(f, 'completed page items', [i['resourceRefId'] for i in w['page-review-run']['items']],
            ['review-run-header', 'review-run-summary', 'review-run-steps', 'review-run-body', 'review-run-queries', 'review-run-facts'])
 
