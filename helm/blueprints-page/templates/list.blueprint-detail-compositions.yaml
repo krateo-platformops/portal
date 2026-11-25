@@ -1,7 +1,9 @@
 {{/* The compositions CREATED FROM this blueprint — one row per running instance of the */}}
 {{/* CD's generated kind (JOINed server-side by blueprint-detail via status.apiVersion + */}}
-{{/* status.resource). Each row = a health dot (the instance's OWN Ready condition) + name */}}
-{{/* + namespace (mono) + a Ready/Failed/Pending Tag. Rows navigate to the composition's */}}
+{{/* status.resource). Each row = a health dot + name + namespace (mono) + a Tag with the */}}
+{{/* composition's state, the one every page prints (portal.compositionStateDefs: Ready, */}}
+{{/* NotReady, Degraded, Drift, Children unreadable, Paused, Unknown, Pending). Paused and */}}
+{{/* Unknown are gray, as on /compositions (visual audit BP-1). Rows navigate to the composition's */}}
 {{/* detail page (/compositions/{namespace}/{name}) — the correlation the IA assessment */}}
 {{/* flagged as missing (blueprint → its running compositions). An empty set (a blueprint */}}
 {{/* nobody has instantiated yet) renders the honest antd empty state. */}}
@@ -28,9 +30,14 @@ spec:
       color:
         value: '{readyColor}'
         map:
-          Healthy: green
-          Down: red
-          Pending: orange
+          healthy: green
+          failed: red
+          degraded: red
+          unreadable: orange
+          drift: orange
+          pending: orange
+          paused: gray
+          unknown: gray
         default: gray
       primaryText: '{name}'
       subPrimaryText: '{namespace}'
