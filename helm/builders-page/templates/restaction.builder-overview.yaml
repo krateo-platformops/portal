@@ -240,8 +240,9 @@ spec:
     | ([ $merges[] | select(.m >= $start) | .d ] | median) as $ttmAll
     # THE FIGURES. A figure counting one state links to that state's chip; one counting several,
     # all of which need attention, to Needs attention; any other, to All. Its colour and whether it
-    # stands out (frontend#791 highlight) are decided here: a zero is never red, orange or gold, and
-    # only a non-zero figure of a state that needs attention stands out.
+    # stands out (frontend 1.8.93 highlight) are decided here, as on every other page: colour marks
+    # an exception only, so only a non-zero figure of a state that needs attention is coloured and
+    # stands out; the rest are neutral ink, a zero included. Cards and slices keep the state colours.
     | ([ $rows[] | select(.bucket == "review") | .ts | select(. != null) ] | min) as $oldestReview
     | ([ $sent[] | .mts | select(. != null and . >= $since) ] | length) as $mergedIn
     | def caption($c):
@@ -276,7 +277,7 @@ spec:
                              else href("all"; $range; $listView) end) }
                    + (if $unread then { value: "", caption: "could not be read", color: $colors.unread, highlight: true }
                       else { value: ($v | tostring), caption: caption(.caption),
-                             color: (if $v == 0 and $alarming then "gray" else $colors[.tone] end),
+                             color: (if $v > 0 and $alarming then $colors[.tone] else "" end),
                              highlight: ($v > 0 and $alarming) } end) ],
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($counts[$k] // 0) > 0 or $k == $state))
