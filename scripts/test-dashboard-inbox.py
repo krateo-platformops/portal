@@ -470,6 +470,27 @@ def _():
     check('drift: the prompt names it drifted', '; 1 drifted composition (drifted).' in got['ask'][1], True)
 
 
+# --- 2d. the not Ready tile's colour, computed by dashboard-inbox (Diego, 2026-11-25) --------------
+@case('the not Ready tile is red for a failure, orange for converging')
+def _():
+    base = QUIET_RAW['allCompositions']['items']
+    def tile(extra):
+        out = inbox(raw=dict(QUIET_RAW, allCompositions={'items': base + extra}))
+        return out['compositions'].get('notReadyTone'), page(out)['strip'][2]
+    check('none not Ready: no colour', tile([]), ('', ('Compositions not Ready', '0', 'of 81', None)))
+    check('only converging (Creating, Deleting): orange', tile([unknown('creating', 'Creating', 'False'), unknown('deleting', 'Deleting', 'False')]),
+          ('warn', ('Compositions not Ready', '2', 'of 83', 'orange')))
+    check('one failed among converging: red', tile([unknown('creating', 'Creating', 'False'), unknown('broken', 'ApplyFailed', 'False')]),
+          ('bad', ('Compositions not Ready', '2', 'of 83', 'red')))
+    check('Children unreadable: red', tile([unknown('locked', 'ChildrenForbidden')])[0], 'bad')
+    degraded = unknown('web', 'Available', 'True')
+    degraded['status']['workloadHealthy'] = False
+    check('Degraded: red', tile([degraded])[0], 'bad')
+    check('drift alone is not not Ready: no colour', tile([drifting('drifted')]), ('', ('Compositions not Ready', '0', 'of 82', None)))
+    check('a paused one: no colour', tile([i for i in COMPS057 if i['metadata']['name'] == 'acme-feedback-controller']),
+          ('', ('Compositions not Ready', '0', 'of 82', None)))
+
+
 # --- 3. each source absent (its page is not the caller's) -------------------------------------------
 @case('a source whose page is not the caller\'s is absent')
 def _():

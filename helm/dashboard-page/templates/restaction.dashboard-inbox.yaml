@@ -36,6 +36,10 @@
      and named among what is fine. READY is the shared state healthy only: a drifting composition
      reports Ready=True but is not Ready (Diego, 2026-11-25); it is in Needs you (it needs
      attention) and the calm line names it apart.
+     THE NOT READY TILE'S COLOUR is computed here (`notReadyTone`): "bad" (red) when one counted
+     composition has failed (NotReady, Degraded, Children unreadable: compositionNeedsAttention, as
+     not Ready leaves drift out), "warn" (orange) when every counted one is converging (Pending), and
+     "" at zero.
 
      DATA, NOT PRESENTATION. This returns numbers, names, hrefs and the facet; the widgets word and
      order it. `askHref` is the one sentence built here, because Ask Agentiko's prompt is data the
@@ -272,6 +276,7 @@ spec:
     | { total: ($comps | length),
         ready: ([ $comps[] | select(.class == "healthy") ] | length),
         notReady: ($notReady | length),
+        notReadyTone: (if ($notReady | length) == 0 then "" elif any($notReady[]; .class | compositionNeedsAttention) then "bad" else "warn" end),
         paused: ($paused | length),
         drift: ($drift | length),
         notAssessable: ([ $comps[] | select(.class == "unknown") ] | length),
