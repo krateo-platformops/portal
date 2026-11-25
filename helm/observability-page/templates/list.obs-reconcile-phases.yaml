@@ -2,11 +2,13 @@
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* "Where reconcile time goes" — the mean latency of each reconcile SUB-PHASE (queue wait / */}}
+{{/* "Reconcile time" (card.obs-phases-card) — the mean latency of each step timed around a reconcile (queue wait / */}}
 {{/* get object / RBAC generate / RBAC apply), from otel_metrics_histogram Sum/Count deltas via */}}
 {{/* obs-reconcile-perf. One bar each, length = share of the SLOWEST phase (normalised to the */}}
 {{/* max, NOT summed — the phases overlap, so a stacked "= total" bar would be dishonest). The */}}
 {{/* label is the real windowed mean, as duration.label writes it. Surfaces that RBAC generation dominates reconcile cost. */}}
+{{/* Each label says what its mean is of: the queue wait and the Get happen before the reconcile span */}}
+{{/* starts; RBAC generate and apply are timed per call. None is a share of the reconcile's average. */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -35,7 +37,7 @@ spec:
     dataSource: []
   widgetDataTemplate:
     - forPath: dataSource
-      expression: '${ {{ include "duration.label" . }} ((.phases // []) | map({ ms: (.mean_ms|tonumber), label: ( .metric | if endswith("queue.wait.duration_seconds") then "Queue wait" elif endswith("get.duration_seconds") then "Get object" elif endswith("rbac_generation_duration_seconds") then "RBAC generate" elif endswith("rbac_apply_duration_seconds") then "RBAC apply" else . end) })) as $ph | ($ph | map(.ms) | max) as $mx | ( $ph | sort_by(-.ms) | map({ label: .label, msLabel: (.ms | durationLabel), percent: (if ($mx // 0) > 0 then (.ms * 100 / $mx | floor) else 0 end) }) ) }'
+      expression: '${ {{ include "duration.label" . }} ((.phases // []) | map({ ms: (.mean_ms|tonumber), label: ( .metric | if endswith("queue.wait.duration_seconds") then "Queue wait · before start" elif endswith("get.duration_seconds") then "Get object · before start" elif endswith("rbac_generation_duration_seconds") then "RBAC generate · per call" elif endswith("rbac_apply_duration_seconds") then "RBAC apply · per call" else . end) })) as $ph | ($ph | map(.ms) | max) as $mx | ( $ph | sort_by(-.ms) | map({ label: .label, msLabel: (.ms | durationLabel), percent: (if ($mx // 0) > 0 then (.ms * 100 / $mx | floor) else 0 end) }) ) }'
   resourcesRefs:
     items: []
 {{- end }}

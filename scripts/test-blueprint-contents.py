@@ -16,6 +16,13 @@ they ship, over:
   empty     rendered, creates nothing: said in words
   none      no status.contents (an older core-provider): "Contents not available."
 A control: dropping the unknown branch must fail the unknown case.
+
+And the blueprint page's LATEST VERSION (UX audit BP-2), over the same filter and the Details card:
+the catalog as the Marketplace reads it (the ConfigMap catalog with the live index merged in), newest
+by version number, and "not known" with the reason when the catalog holds no version of the chart
+(an OCI or URL install, or an unreadable catalog), never the installed version and "Up to date".
+Neither Details nor Metadata repeats the header's Created (BP-4). BLUEPRINTS_CHART=<origin/main's
+chart> is the control: those checks fail there.
 """
 import json
 import os
@@ -142,6 +149,68 @@ def detail(prog, contents, version='0.0.0-envtest'):
     return jq(prog, data)
 
 
+def latest_failures(by, prog):
+    """BP-2 / BP-4: the latest version the blueprint page states, and its Details and Metadata rows."""
+    extra = expr(by[('Card', 'card-blueprint-detail-info')], 'extra')
+    info = expr(by[('Descriptions', 'descriptions-blueprint-detail-info')], 'items')
+    meta = expr(by[('Descriptions', 'descriptions-blueprint-detail-metadata')], 'items')
+    bad = []
+
+    def entry(name, version, owned=False):
+        e = {'name': name, 'version': version, 'urls': [f'https://krateo-blueprints.github.io/charts/blueprints/{name}-{version}.tgz']}
+        if owned:
+            e['sources'] = [f'https://github.com/krateo-blueprints/{name}']
+        return e
+
+    def page(chart, catalog, live=None, **more):
+        compdef = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+                   'metadata': {'name': 'acme-feedback', 'namespace': 'krateo-system', 'creationTimestamp': '2026-10-07T10:00:00Z', 'uid': 'u'},
+                   'spec': {'chart': chart}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+        data = {'name': 'acme-feedback', 'namespace': 'krateo-system', 'compdef': compdef,
+                'catalog': {'entries': catalog}, 'comps': {'items': []}, **more}
+        if live is not None:
+            data['catalogLive'] = {'entries': live}
+        out = jq(prog, data)
+        rows = {r['label']: r['value'] for r in jq(info, out)}
+        return out, rows, jq(extra, out)
+
+    def check(label, got, want):
+        if got != want:
+            bad.append(label)
+            print(f'FAIL latest, {label}: got {got!r}, want {want!r}')
+
+    helm_repo = {'url': 'https://krateo-blueprints.github.io/charts/blueprints', 'repo': 'acme-feedback', 'version': '0.1.0'}
+    # The live index holds 0.1.1, the ConfigMap catalog 0.1.0: the Marketplace says 0.1.1, so does this page.
+    out, rows, tag = page(helm_repo, {'acme-feedback': [entry('acme-feedback', '0.1.0')]},
+                          live={'acme-feedback': [entry('acme-feedback', '0.1.1', owned=True), entry('acme-feedback', '0.1.0', owned=True)]})
+    check('live index read: latest', (out['latestVersion'], rows['Latest version'], out['updateAvailable'], tag),
+          ('0.1.1', '0.1.1', True, 'Update available → 0.1.1'))
+    check('live index read: the picker offers it', out['availableVersions'], ['0.1.0', '0.1.1'])
+    # Newest by version number, not by string.
+    out, rows, tag = page(dict(helm_repo, version='0.1.9'), {'acme-feedback': [entry('acme-feedback', '0.1.9'), entry('acme-feedback', '0.1.10')]})
+    check('0.1.10 is newer than 0.1.9', (out['latestVersion'], tag), ('0.1.10', 'Update available → 0.1.10'))
+    # Installed above the catalog: no "update" to an older version.
+    out, rows, tag = page(dict(helm_repo, version='0.2.0'), {'acme-feedback': [entry('acme-feedback', '0.1.0')]})
+    check('installed above the catalog', (out['updateAvailable'], tag), (False, 'Up to date'))
+    # An OCI install: nothing here reads its registry, so the latest version is not known.
+    oci = {'url': 'oci://ghcr.io/krateo-blueprints/charts/acme-feedback', 'version': '0.1.0'}
+    out, rows, tag = page(oci, {'acme-feedback': [entry('acme-feedback', '0.1.1')]})
+    check('OCI install: not known, no tag', (out['latestVersion'], out['updateAvailable'], tag), ('', False, ''))
+    check('OCI install: the row says why, and what the Marketplace lists', rows['Latest version'],
+          'not known: installed from an OCI registry, which is not read here (the Marketplace lists acme-feedback 0.1.1 from its own catalog)')
+    out, rows, tag = page(dict(oci, url='oci://ghcr.io/krateo-platformops/charts/observability-page'), {})
+    check('OCI install, nothing of that name in the catalog', rows['Latest version'], 'not known: installed from an OCI registry, which is not read here')
+    # The catalog could not be read.
+    out, rows, tag = page(helm_repo, {}, catalogError=[{'message': 'configmaps "blueprints-catalog-index" not found'}])
+    check('catalog unread', (rows['Latest version'], tag), ('not known: the catalog could not be read', ''))
+    out, rows, tag = page(helm_repo, {})
+    check('not in the catalog', (rows['Latest version'], tag), ('not known: this chart is not in the catalog', ''))
+    # Created is the header's, said once (BP-4).
+    check('Details has no Created', 'Created' in rows, False)
+    check('Metadata has no Created', [r['label'] for r in jq(meta, out)], ['Namespace', 'UID'])
+    return bad
+
+
 def main():
     docs = render()
     by = {(d['kind'], d['metadata']['name']): d for d in docs}
@@ -217,6 +286,8 @@ def main():
     check('marketplace, installed list unreadable: not "Known once installed"', (m_err['state'], m_err['title']), ('none', 'Not known here.'))
     m_col = [i['resourceRefId'] for i in mdocs[('Flex', 'marketplace-detail-col-left')]['spec']['widgetData']['items']]
     check('marketplace: the card follows About', m_col, ['card-marketplace-detail-about', 'card-marketplace-detail-contents'])
+
+    bad.extend(latest_failures(by, prog))
 
     control = prog.replace('elif ((($ct.unknown // "") | tostring) != "") then', 'elif false then', 1)
     if control == prog or detail(control, {'chartVersion': '0.3.0', 'values': 'default', 'unknown': why}, version='0.3.0')['contents']['state'] == 'unknown':
