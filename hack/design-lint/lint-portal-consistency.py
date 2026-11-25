@@ -975,7 +975,7 @@ def rule_button_role(crs):
     """C26 — a Button says what it does to the work in front of you.
 
     DISMISS — it closes or backs out without deleting anything (Cancel, Close): `intent: dismiss`,
-    which draws it amber and outlined. DESTROY — it deletes content (Delete, Remove, Discard):
+    which draws it as the neutral default outline (never primary; amber until 2026-11-25). DESTROY — it deletes content (Delete, Remove, Discard):
     `danger: true`, red. Read from the label, the only place a CR says which it is; a label that is
     neither is not judged."""
     out = []
@@ -985,7 +985,7 @@ def rule_button_role(crs):
         data = widget_data(doc)
         label = str(data.get('label') or '')
         if DISMISS_LABEL.match(label) and data.get('intent') != 'dismiss':
-            out.append((fname, f'"{label}" dismisses — give it `intent: dismiss` (amber), not a {data.get("type") or "primary"} button'))
+            out.append((fname, f'"{label}" dismisses — give it `intent: dismiss` (the neutral outline), not a {data.get("type") or "primary"} button'))
         if DESTROY_LABEL.match(label) and data.get('danger') is not True and data.get('color') != 'danger':
             out.append((fname, f'"{label}" deletes — give it `danger: true` (red)'))
     return out
