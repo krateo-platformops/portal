@@ -360,6 +360,31 @@ _ctl = jq(prog.replace(UNKNOWN_ARM, '{s: "unknown", l: "Unknown", c: "healthy"}'
           payload(conds(('Ready', 'Unknown', '')), getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP))
 check('control: a Ready=Unknown counted healthy is caught', (_ctl['healthyCount'], _ctl['resources'][0].get('countedAs')) == (0, 'unknown'), False)
 
+# A CHILD BEING DELETED (core-provider#678, implemented here ahead of the controller): converging
+# "Terminating" for every class — unless the composition itself is being deleted, when the row keeps
+# the reading it has without the timestamp.
+DELETING = [
+    ('a deleting ConfigMap', 'configmaps', 'core', [], '', {}, ('healthy', 'Healthy')),
+    ('a deleting Namespace', 'namespaces', 'core', [], 'Terminating', {}, ('healthy', 'Healthy')),
+    ('a deleting Deployment', 'deployments', 'apps', [], '', {'counts': {'replicas': 1, 'readyReplicas': 1}}, ('healthy', 'Healthy')),
+    ('a deleting failed Pod', 'pods', 'core', [], 'Failed', {}, ('failed', 'Failed')),
+]
+for label, kind, grp, c, phase, live, without in DELETING:
+    path = f'/api/v1/namespaces/ns/{kind}/c' if grp == 'core' else f'/apis/{grp}/v1/namespaces/ns/{kind}/c'
+    p = payload(c, getpath=path, kind=kind, grp=grp, phase=phase, deletionTimestamp='2026-11-25T10:00:00Z', **live)
+    out = jq(prog, p)
+    row = out['resources'][0]
+    check(f'{label}: converging Terminating, not counted healthy',
+          (row['state'], row['stateLabel'], row.get('countedAs'), out['healthyCount'], out['convergingCount']),
+          ('converging', 'Terminating', 'converging', 0, 1))
+    p['found'][0]['_cdel'] = True
+    row = jq(prog, p)['resources'][0]
+    check(f'{label}, under a composition itself being deleted: unchanged', (row['state'], row['stateLabel']), without)
+    p['found'][0]['_cdel'] = False
+    del p['resources'][0]['deletionTimestamp']
+    row = jq(prog, p)['resources'][0]
+    check(f'{label}, without the timestamp: its class reading', (row['state'], row['stateLabel']), without)
+
 # THE HEADLINE. One composition with the children the issue names: the page's "N of M healthy" is
 # core-provider's count of healthy children, and its no-readiness count is the unevaluated one.
 MIXED = [
@@ -558,6 +583,20 @@ if '--pinned' in sys.argv[1:]:
         _tbi.RESOLVED.append(('authored list-composition-detail-relations', relations))
         failures.extend(f'pinned frontend-crds {_version}: {p}' for p in _tbi.validate_resolved(_pinned.unpack(_version)))
         print(f'relations widget checked against frontend-crds {_version} ({_why})')
+
+# The two upstream steps carry what the arm reads: the child's deletionTimestamp, the composition's own.
+check('resources step: deletionTimestamp passed through',
+      [_p.get('deletionTimestamp') for _p in jq(named(docs, 'composition-resources')['spec']['api'][2]['filter'], {'resources': {'metadata': {'name': 'd', 'deletionTimestamp': 'T'}}})],
+      ['T'])
+_found_del = {'found': {'items': [{'metadata': {'name': 'p', 'namespace': 'ns', 'deletionTimestamp': 'T'},
+                                   'status': {'managed': [{'path': '/api/v1/namespaces/ns/configmaps/c'}]}},
+                                  {'metadata': {'name': 'q', 'namespace': 'ns'},
+                                   'status': {'managed': [{'path': '/api/v1/namespaces/ns/configmaps/c'}]}}]}}
+check('found step: the composition being deleted is carried as _cdel',
+      [r.get('_cdel') for n in ('p', 'q') for r in jq(named(docs, 'composition-resources')['spec']['api'][1]['filter'], {**_found_del, 'extras': {'name': n, 'namespace': 'ns'}})],
+      [True, False])
+with open(os.path.join(CHART, 'templates', 'restaction.composition-resources.yaml'), encoding='utf-8') as fh:
+    check('the deletion arm names core-provider#678 as the disagreement', 'core-provider#678' in fh.read(), True)
 
 for f in failures:
     print(f'FAIL  {f}')

@@ -108,6 +108,8 @@ spec:
             # aggregate folds it in, and this step filter is the only place that sees $comp.
             | { _cn: $cn, _cns: $cns, _rns: $rns, _kind: $res, _name: $nm,
                 _wh: $comp.status.workloadHealthy, _whMsg: ($comp.status.healthMessage // ""),
+                # Whether the composition ITSELF is being deleted (core-provider#678's exception).
+                _cdel: (($comp.metadata.deletionTimestamp // null) != null),
                 # Real group/version for the resource-view route ($p[1] = "api" for the core group
                 # → group "core", version $p[2]; "apis" → group $p[2], version $p[3]) + cluster-scope.
                 _grp: (if ($p[1] // "") == "apis" then ($p[2] // "") else "core" end),
@@ -140,6 +142,7 @@ spec:
           | select(type == "object" and (.kind // "") != "Status" and (.metadata.name // "") != "")
           | { rkind: (.kind // ""), rname: .metadata.name, rns: (.metadata.namespace // ""), conditions: (.status.conditions // []), phase: ((.status.phase // "") | tostring),
               gen: (.metadata.generation? // 0), ogen: (.status.observedGeneration? // null),
+              deletionTimestamp: (.metadata.deletionTimestamp? // null),
               counts: { replicas: (.spec.replicas? // null), readyReplicas: (.status.readyReplicas? // null),
                         unavailableReplicas: (.status.unavailableReplicas? // null),
                         desiredNumberScheduled: (.status.desiredNumberScheduled? // null),
@@ -250,6 +253,17 @@ spec:
               # A managed child we could NOT fetch (404 / API error) is not healthy: "pending"
               # (issue #152), neither a green tag nor counted toward convergence.
               elif ($found | not) then {s: "pending", l: "Pending"}
+              {{/* A CHILD BEING DELETED IS CONVERGING, for every class, labelled with Kubernetes' own
+                   word: metadata.deletionTimestamp is set and the object is on its way out, whatever
+                   its kind would otherwise say (a Terminating Namespace, a ConfigMap held by a
+                   finalizer, a Deployment). Not when the composition ITSELF is being deleted: its
+                   children are meant to be going, and the rows keep today's reading.
+                   THIS ARM IS AHEAD OF THE CONTROLLER. core-provider's classifyChildEval does not yet
+                   read deletionTimestamp — a Terminating Namespace is healthy by existence there —
+                   and core-provider#678 files that gap and this rule. Until it lands, the two writers
+                   disagree on a deleting child: this page counts it converging, the composition's
+                   Ready counts it by its class. */}}
+              elif ($obj.deletionTimestamp != null) and (($m._cdel // false) | not) then {s: "converging", l: "Terminating"}
               elif $isKrateo then
                 {{/* krateoEval: the FIRST Ready condition, by status and reason, in its order. A
                      reason this list does not name is CONVERGING when False (core-provider's
