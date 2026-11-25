@@ -1,4 +1,6 @@
-{{/* The Status card's facts line: the counts behind the verdict, each named, never colour alone. */}}
+{{/* The Status card's facts line: the counts behind the verdict, each named, never colour alone. Every
+     state is named by what it is (visual audit CMP-2, CMP-6): missing resources are missing, a resource
+     with no readiness to check says so, and while the composition is paused nothing is "converging". */}}
 kind: Paragraph
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -17,10 +19,14 @@ spec:
   widgetDataTemplate:
     - forPath: text
       expression: >-
-        ${ [ ((.healthyCount // 0 | tostring) + " healthy"),
-             (if (.failedCount // 0) > 0 then ((.failedCount | tostring) + " failed") else empty end),
+        ${ ((.composition // {}).state == "paused") as $paused
+        | ((.noReadinessCount // 0) + (.unknownCount // 0) + (.notObservedCount // 0) + (.readyNotSetCount // 0)) as $unjudged
+        | [ ((.healthyCount // 0 | tostring) + " healthy"),
+             (if (.notFoundCount // 0) > 0 then ((.notFoundCount | tostring) + " missing") else empty end),
+             (if ((.failedCount // 0) + (.terminalCount // 0)) > 0 then ((((.failedCount // 0) + (.terminalCount // 0)) | tostring) + " failed") else empty end),
              (if (.driftCount // 0) > 0 then ((.driftCount | tostring) + " drifted from the values") else empty end),
-             (if ((.pendingCount // 0) + (.convergingCount // 0)) > 0 then ((((.pendingCount // 0) + (.convergingCount // 0)) | tostring) + " converging") else empty end),
+             (if ((.pendingCount // 0) + (.convergingCount // 0)) > 0 then ((((.pendingCount // 0) + (.convergingCount // 0)) | tostring) + (if $paused then " pending" else " converging" end)) else empty end),
+             (if $unjudged > 0 then (($unjudged | tostring) + " with no readiness to check") else empty end),
              (if (.unreadCount // 0) > 0 then ((.unreadCount | tostring) + " not readable with your access") else empty end)
            ] | join(" · ") }
   resourcesRefs:
