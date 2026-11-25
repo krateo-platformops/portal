@@ -6,7 +6,9 @@
 {{/* reason · relative-time — the mockup `.event` row. Live in-card append was an */}}
 {{/* EventList/SSE concern; live events still surface globally via the SSE bell. */}}
 {{/* Honest empty-state: when the pipeline yields NOTHING the panel must say so (one */}}
-{{/* inert gray explanatory row pointing at kubectl events), never sit silently blank */}}
+{{/* inert gray explanatory row), never sit silently blank. It says what is so, "No events */}}
+{{/* recorded for this composition", and does not send the reader out of the portal to */}}
+{{/* kubectl (visual audit ACT-1). */}}
 {{/* under the card's "Live" badge. The no-composition-id case (events can't be */}}
 {{/* correlated at all) gets its own honest message. */}}
 kind: Listy
@@ -58,6 +60,6 @@ spec:
     {{/* ts "" → formatRelativeTime passes it through blank). .namespace / .compositionId are */}}
     {{/* RA-echoed, so the message is built server-side, nothing guessed. */}}
     - forPath: dataSource
-      expression: '${ (.list // []) as $evts | if ($evts | length) == 0 then [ { title: (if (.compositionId // "") == "" then "Events cannot be correlated — this composition has no krateo.io/composition-id label" else ("No streamed events for this composition — check kubectl events -n " + (.namespace // "") + " for raw cluster events") end), detail: "", type: "Empty", ts: "", route: "" } ] else ($evts | map({ message: (.message // ""), reason: (.reason // ""), type: (if (.type // "") == "Warning" then "Warning" else "Normal" end), ref: ((.involvedObject.kind // "") + "/" + (.involvedObject.name // "")), ts: (.lastTimestamp // .firstTimestamp // .eventTime // ""), route: (.route // "") }) | group_by([.reason, .ref]) | map((sort_by(.ts) | last) as $l | { title: ($l.reason + (if length > 1 then " ×" + (length | tostring) else "" end)), detail: ($l.ref + " · " + $l.message), type: $l.type, ts: $l.ts, route: $l.route }) | sort_by(.ts) | reverse | .[:5]) end }'
+      expression: '${ (.list // []) as $evts | if ($evts | length) == 0 then [ { title: (if (.compositionId // "") == "" then "Events cannot be correlated — this composition has no krateo.io/composition-id label" else "No events recorded for this composition" end), detail: "", type: "Empty", ts: "", route: "" } ] else ($evts | map({ message: (.message // ""), reason: (.reason // ""), type: (if (.type // "") == "Warning" then "Warning" else "Normal" end), ref: ((.involvedObject.kind // "") + "/" + (.involvedObject.name // "")), ts: (.lastTimestamp // .firstTimestamp // .eventTime // ""), route: (.route // "") }) | group_by([.reason, .ref]) | map((sort_by(.ts) | last) as $l | { title: ($l.reason + (if length > 1 then " ×" + (length | tostring) else "" end)), detail: ($l.ref + " · " + $l.message), type: $l.type, ts: $l.ts, route: $l.route }) | sort_by(.ts) | reverse | .[:5]) end }'
   resourcesRefs:
     items: []

@@ -51,8 +51,8 @@ gates = traces.gates                                        # snowplow's resolve
 enc = lambda t: quote(t, safe='._-~')                       # this chart's encoding of SQL text
 
 IV = {'phases': {'1h': '1 HOUR', '6h': '6 HOUR', '24h': '24 HOUR', '7d': '7 DAY'},
-      'fail': {'1h': '1 HOUR', '24h': '24 HOUR', '7d': '7 DAY'},
-      'q': {'1h': '1 HOUR', '24h': '24 HOUR', '7d': '7 DAY'}}
+      'fail': {'1h': '1 HOUR', '6h': '6 HOUR', '24h': '24 HOUR', '7d': '7 DAY'},
+      'q': {'1h': '1 HOUR', '6h': '6 HOUR', '24h': '24 HOUR', '7d': '7 DAY'}}
 
 
 def rules(step, iv):

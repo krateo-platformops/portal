@@ -155,6 +155,8 @@ spec:
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     {{- include "portal.inferredInputsDefs" . | nindent 4 }}
     {{- include "portal.migratedValuesDefs" . | nindent 4 }}
+    {{- include "portal.readyReasonDefs" . | nindent 4 }}
+    {{- include "portal.compositionStateDefs" . | nindent 4 }}
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
     # A probe that was skipped or failed keeps the control (see the stages above).
     def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
@@ -188,15 +190,19 @@ spec:
        else "not known: this chart is not in the catalog" end) as $latestLabel
     | ([ $d.status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown") as $ready
     | ([ $d.status.conditions[]? | select(.type == "Synced") ][0].status // "Unknown") as $synced
+    # A running composition's state is the one every page prints (portal.compositionStateDefs): a
+    # paused one is Paused, never the Ready=True it had before the pause; one nothing can assess is
+    # Unknown (visual audit BP-1). readyColor is that state, for the list's colour map.
     | ([ (.comps.items // [])[]
+         | ({ conditions: (.status.conditions // []), wh: .status.workloadHealthy } | compositionVerdict.state) as $state
          | { name: (.metadata.name // ""),
              namespace: (.metadata.namespace // ""),
              ready: ([ .status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown"),
              synced: ([ .status.conditions[]? | select(.type == "Synced") ][0].status // "Unknown"),
              created: (.metadata.creationTimestamp // ""),
              navHref: ("/compositions/" + (.metadata.namespace // "") + "/" + (.metadata.name // "")),
-             readyLabel: ([ .status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown" | if . == "True" then "Ready" elif . == "False" then "Failed" else "Pending" end),
-             readyColor: ([ .status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown" | if . == "True" then "Healthy" elif . == "False" then "Down" else "Pending" end) }
+             readyLabel: ($state | compositionStateName),
+             readyColor: $state }
        ] | sort_by(.created) | reverse) as $comps
     # ASK AGENTIKO (button.blueprint-detail-ask-agentiko): this page's own route with an ?ask seed
     # about the blueprint — its version against the catalog's latest, Ready and Synced, and the
