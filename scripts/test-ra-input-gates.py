@@ -427,6 +427,47 @@ GATES = {
     },
 }
 
+# dashboard-inbox reads the ResourceQuotas of the ONE namespace ?projects names (the capacity card):
+# no request without a single valid namespace. An admin may list resourcequotas cluster-wide, so
+# snowplow's cluster-list collapse serves the whole cluster's list, and the output keeps only that
+# namespace's; a tenant of team-a is served the namespaced list itself.
+def dash_quota(name, ns, pods_hard, pods_used):
+    return {'apiVersion': 'v1', 'kind': 'ResourceQuota', 'metadata': {'name': name, 'namespace': ns},
+            'spec': {'hard': {'pods': pods_hard}}, 'status': {'hard': {'pods': pods_hard}, 'used': {'pods': pods_used}}}
+
+
+DASH_QUOTAS = {'/api/v1/resourcequotas': {'items': [dash_quota('q', 'team-b', '5', '1'), dash_quota('q', 'team-a', '10', '3')]},
+               '/api/v1/namespaces/team-a/resourcequotas': {'items': [dash_quota('q', 'team-a', '10', '3')]}}
+
+
+def dash_capacity(ra, extras, out, caller=ADMIN):
+    """dashboard-inbox: the capacity is the scoped namespace's quota, and only with one namespace."""
+    one = extras.get('projects') in ('team-a',)
+    got = out.get('capacity')
+    if not one:
+        return None if got is None else f'capacity {got} without exactly one namespace'
+    rows = [(r.get('label'), r.get('value')) for r in (got or {}).get('rows') or []]
+    if (got or {}).get('namespace') != 'team-a' or rows != [('Pods', '3 of 10')]:
+        return f'capacity {got}'
+    return None
+
+
+GATES['dashboard-inbox'] = {
+    'gated': ['quotas'],
+    'free': dict({'gate' + g: {'metadata': {'name': 'page-' + g.lower()}}
+                  for g in ('Incidents', 'Alerts', 'Agents', 'Reviews', 'Compositions')},
+                 **{s: EMPTY for s in ('incidents', 'alerts', 'proposals', 'agents', 'servers', 'routes', 'policies',
+                                       'crds', 'definitions')}),
+    'check': dash_capacity,
+    'cases': [('one namespace, as a tenant of team-a: exactly its quotas', {'projects': 'team-a'}, {'quotas': DASH_QUOTAS},
+               [('quotas', '/api/v1/namespaces/team-a/resourcequotas')], tenant({'': ['team-a']})),
+              ("one namespace, as an admin: snowplow's cluster-list collapse, narrowed to it", {'projects': 'team-a'},
+               {'quotas': DASH_QUOTAS}, [('quotas', '/api/v1/resourcequotas')]),
+              ('two namespaces: no request', {'projects': 'team-a,team-b'}, {'quotas': DASH_QUOTAS}, []),
+              ('an empty scope: no request', {'projects': ''}, {'quotas': DASH_QUOTAS}, []),
+              ('not a namespace name: no request', {'projects': '../team-a'}, {'quotas': DASH_QUOTAS}, [])],
+}
+
 # composition-detail and the three RESTActions shaped like it find the composition by listing every
 # composition kind. The fixture is what snowplow serves on a running portal: more than one kind, the
 # composition's own NOT first (on krateo-057 it is one of 46), a composition of the same name in
