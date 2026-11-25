@@ -27,12 +27,14 @@ WHAT IT GUARDS.
   - Capacity in use (mockup C6, "One tenant chosen"): only with ?projects naming exactly one
     namespace, that namespace's ResourceQuotas as "<used> of <limit>" rows in human units (the
     tightest limit per resource across quotas, a resource no quota limits left out, quantities
-    parsed per suffix), one sentence for no quota or a failed read (its reason, never the body),
+    read by snowplow's own `quantity` jq module, every suffix checked), one sentence for no quota or a failed read (its reason, never the body),
     and the fixed "Use over time" sentence. Zero or several namespaces: no card.
   - With --crds DIR, every widget, as authored and as resolved in every case, validates against the
     frontend CRDs, closed the way the apiserver's strict field validation is.
 
-HOW. The chart is rendered with helm. Raw objects go through each stage's OWN filter (as snowplow
+HOW. The chart is rendered with helm. jq runs with snowplow's built-in modules on its search path
+(-L, from the snowplow the installer pins, via snowplow-path.py; SNOWPLOW_SRC=<checkout> skips the
+clone), so dashboard-inbox's `include "quantity";` loads the module the cluster runs. Raw objects go through each stage's OWN filter (as snowplow
 runs it), then the RESTAction's filter, then each widget's widgetDataTemplate, and Listy/Collapse
 rows are resolved the way the frontend's itemTemplate.ts does, so the checks read what a person
 sees. JQ=<gojq> runs the same on snowplow's engine. Each case is run on its own, so the control on
@@ -102,12 +104,20 @@ def named(docs, kind, name):
     raise AssertionError(f'{kind}/{name} not in the rendered chart')
 
 
+# snowplow's own path renderer and jq modules, from the snowplow the installer pins (snowplow-path.py).
+_spec = importlib.util.spec_from_file_location('spath', os.path.join(HERE, 'snowplow-path.py'))
+spath = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(spath)
+
+
 def jq(program, data):
+    """`program` over `data`, with snowplow's built-in modules on the search path, as its ModuleLoader
+    has them: dashboard-inbox's filter starts `include "quantity";`."""
     with tempfile.NamedTemporaryFile('w', suffix='.jq', delete=False) as fh:
         fh.write(program)
         path = fh.name
     try:
-        proc = subprocess.run([JQ, '-c', '-f', path], input=json.dumps(data),
+        proc = subprocess.run([JQ, '-c', '-L', spath.jq_modules(), '-f', path], input=json.dumps(data),
                               capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             raise AssertionError(f'jq failed: {proc.stderr.strip()[:300]}')
@@ -696,9 +706,6 @@ NOT_REVIEWS = (" AND LogAttributes['k8s.resource.resource'] NOT IN ('selfsubject
 
 @case('Recent changes: the request snowplow dials')
 def _():
-    spec = importlib.util.spec_from_file_location('spath', os.path.join(HERE, 'snowplow-path.py'))
-    spath = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(spath)
     st = next(s for s in named(DASH, 'RESTAction', 'dashboard-recent-changes')['spec']['api'] if s['name'] == 'recent')
     tail = " ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON"
     for label, item, access in [
@@ -803,6 +810,10 @@ def _():
 
 @case('capacity: Kubernetes quantities')
 def _():
+    # The filter's `include "quantity";` is snowplow's built-in module (the pinned snowplow's copy, on
+    # jq's -L): these hold what the card relies on from it. Not here: "1 Gi" (a space before the
+    # suffix), which the module reads as 1Gi under jq 1.7 (its tonumber accepts "1 ") and as null under
+    # gojq, snowplow's engine; the apiserver never emits it.
     defs = ra_defs()
     cases = [('0', 0), ('7', 7), ('1.5', 1.5), ('.5', 0.5), ('1.', 1), ('+2', 2), ('-1', -1),
              ('100n', 1e-7), ('5u', 5e-6), ('500m', 0.5), ('1500m', 1.5),
@@ -810,8 +821,9 @@ def _():
              ('1Ki', 1024), ('1Mi', 2**20), ('2Gi', 2 * 2**30), ('1.5Gi', 1.5 * 2**30), ('1Ti', 2**40), ('1Pi', 2**50), ('1Ei', 2**60),
              ('1e3', 1000), ('1E3', 1000), ('2e-3', 0.002), ('1E', 1e18),
              ('100M', 1e8), ('100m', 0.1),          # case is load-bearing
-             ('1K', None), ('1KiB', None), ('Gi', None), ('abc', None), ('', None), ('1 Gi', None), (None, None), (12, 12)]
-    got = jq(defs + ' [ .[] | qty ]', [c[0] for c in cases])
+             ('1K', 1000),                           # the module's one hand-written variant
+             (' 2Gi ', 2 * 2**30), ('1KiB', None), ('Gi', None), ('abc', None), ('', None), (None, None), (True, None), (12, 12)]
+    got = jq(defs + ' [ .[] | quantity ]', [c[0] for c in cases])
     for (text, want), value in zip(cases, got):
         ok = value == want if want is None or value is None else abs(value - want) <= abs(want) * 1e-12
         check(f'qty {text!r}', value if not ok else want, want)

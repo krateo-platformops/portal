@@ -36,7 +36,8 @@ this test passed (portal 1.8.56: the composition detail page resolved no composi
 Each case runs as an admin (collapse on, every namespace) unless it names a tenant's namespaces.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it. Needs `go` and `git` for snowplow's path
-renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
+renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag); the same checkout's built-in
+jq modules are passed as -L, so a filter's `include "quantity";` is snowplow's module.
 Usage: test-ra-input-gates.py [--crds DIR]. Exit code = failed checks.
 """
 import copy
@@ -982,6 +983,8 @@ def main():
         i = args.index('--crds')
         crds_dir = args[i + 1]
         del args[i:i + 2]
+    # dashboard-inbox's filter includes snowplow's `quantity` module: the pinned snowplow's copy.
+    tbi.JQ_LIBS.append(spath.jq_modules())
     portal = tbi.Chart(tbi.render_portal_and_pages())
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}

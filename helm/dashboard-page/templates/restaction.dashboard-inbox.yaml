@@ -205,6 +205,10 @@ spec:
       continueOnError: true
       errorKey: quotasError
   filter: |
+    # snowplow's built-in `quantity` module (internal/support/jq/modules/quantity.jq, resolved by its
+    # gojq ModuleLoader): `quantity` reads a Kubernetes quantity ("1500m", "8Gi", "1e3") into base
+    # units, null when it does not parse. A module directive comes before every def.
+    include "quantity";
     {{- include "portal.facets" . | nindent 4 }}
     {{- include "portal.agentsGateway" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
@@ -219,25 +223,6 @@ spec:
              | map(select(. != "")) | unique | join("; ") )
       end;
     def cut($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
-    # ── Kubernetes quantities (capacity in use) ──────────────────────────────────────────────────
-    # A quantity string to a number in base units (cores, bytes, a count), or null: never a guess and
-    # never an error. Case is load-bearing: "100m" is a tenth, "100M" a hundred million. Decimal
-    # (n u m k M G T P E), binary (Ki Mi Gi Ti Pi Ei) and an exponent ("1e3") are what the apiserver
-    # emits; an exponent is tried before the exa suffix E, so "1E3" is 1000 and "1E" is 10^18.
-    def qty:
-      if type == "number" then .
-      elif type != "string" then null
-      else ([ capture("^(?<n>[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+))(?<s>[eE][+-]?[0-9]+|Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E)?$") ] | .[0]) as $m
-        | if $m == null then null
-          else ($m.n | ltrimstr("+") | if startswith(".") then "0" + . elif startswith("-.") then "-0" + .[1:] else . end
-                     | if endswith(".") then . + "0" else . end) as $n
-            | ($m.s // "") as $s
-            | if ($s | test("^[eE][+-]?[0-9]+$")) then ((($n + $s) | tonumber) * 1)
-              else ($n | tonumber) * ({ "": 1, "n": 1e-9, "u": 1e-6, "m": 0.001, "k": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15, "E": 1e18,
-                                       "Ki": 1024, "Mi": 1048576, "Gi": 1073741824, "Ti": 1099511627776,
-                                       "Pi": 1125899906842624, "Ei": 1152921504606846976 }[$s]) end
-          end
-      end;
     # Human units, computed here: cores to two decimals (three under a tenth), bytes in the largest
     # binary unit that reads as 1 or more, to one decimal, trailing zeros dropped.
     def rnd($p): (. * $p | round) / $p;
@@ -387,8 +372,8 @@ spec:
                 { key: "volumes", label: "Volumes (PVCs)", names: ["persistentvolumeclaims"], unit: "count" } ]
               | map(. as $r
                     | ([ $quotas[] as $q | $r.names[] as $k
-                         | (($q.hard // {})[$k] | qty) as $h | select($h != null)
-                         | { quota: $q.name, hard: $h, used: (($q.used // {})[$k] | qty) } ]
+                         | (($q.hard // {})[$k] | quantity) as $h | select($h != null)
+                         | { quota: $q.name, hard: $h, used: (($q.used // {})[$k] | quantity) } ]
                        | sort_by(.hard, -(.used // 0)) | .[0]) as $t
                     | select($t != null)
                     | { key: $r.key, label: $r.label, quota: $t.quota, used: $t.used, hard: $t.hard,
