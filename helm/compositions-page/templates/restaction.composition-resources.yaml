@@ -135,7 +135,7 @@ spec:
       filter: >
         [ (.resources // .)
           | select(type == "object" and (.kind // "") != "Status" and (.metadata.name // "") != "")
-          | { rkind: (.kind // ""), rname: .metadata.name, rns: (.metadata.namespace // ""), conditions: (.status.conditions // []) } ]
+          | { rkind: (.kind // ""), rname: .metadata.name, rns: (.metadata.namespace // ""), conditions: (.status.conditions // []), phase: ((.status.phase // "") | tostring) } ]
   {{/* Authoritative row list = the composition's DECLARED managed resources (.found, */}}
   {{/* target-filtered) → total is always the true managed count, independent of */}}
   {{/* whether every per-resource GET round-tripped (the informer dispatch can drop */}}
@@ -226,6 +226,25 @@ spec:
           | (($reason == "DriftNotConverging") or ($reason == "AuthorizationDenied")) as $terminal
           | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
           | (($c | length) == 0) as $noconds
+          {{/* EXISTING IS NOT BEING HEALTHY (portal#230). A kind whose existence IS its whole state
+               (configuration, access, routing objects) is healthy by presence. Any other kind that
+               publishes no conditions reports its health some other way, which this page cannot
+               read: a Failed MongoDBCommunity (status.phase) read green "Healthy", 100% match. It is
+               now "noReadiness", grey and outside the healthy count, labelled with its own
+               status.phase when it has one ("Failed"), verbatim, else NoReadyCondition. A
+               PersistentVolumeClaim's phase is Kubernetes' own: Bound is healthy, Pending
+               converging, Lost failed; a Namespace's: Active healthy, Terminating converging. */}}
+          | ({ "core": ["configmaps", "secrets", "serviceaccounts", "services", "endpoints", "limitranges", "resourcequotas"],
+               "rbac.authorization.k8s.io": ["roles", "rolebindings", "clusterroles", "clusterrolebindings"],
+               "networking.k8s.io": ["networkpolicies", "ingresses", "ingressclasses"],
+               "discovery.k8s.io": ["endpointslices"],
+               "scheduling.k8s.io": ["priorityclasses"],
+               "storage.k8s.io": ["storageclasses"],
+               "admissionregistration.k8s.io": ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"] }[$m._grp] // []
+             | index($m._kind) != null) as $presenceKind
+          | ($m._grp == "core" and $m._kind == "persistentvolumeclaims") as $isPvc
+          | ($m._grp == "core" and $m._kind == "namespaces") as $isNs
+          | (($obj.phase) // "") as $phase
           | ($m._getpath | fetchablePath) as $readable
           | {
               kind: ($kindMap[$m._kind] // (if (($obj.rkind) // "") != "" then $obj.rkind else (($m._kind | .[0:1] | ascii_upcase) + ($m._kind[1:] | sub("s$"; ""))) end)),
@@ -240,7 +259,12 @@ spec:
                       elif $crdNameConflict then "failed"
                       elif $crdReady then "healthy"
                       elif $crdConverging then "converging"
-                      elif $noconds then "healthy"
+                      elif $noconds and $isPvc and $phase == "Bound" then "healthy"
+                      elif $noconds and $isPvc and $phase == "Lost" then "failed"
+                      elif $noconds and $isPvc then "converging"
+                      elif $noconds and $isNs then (if $phase == "Terminating" then "converging" else "healthy" end)
+                      elif $noconds and $presenceKind then "healthy"
+                      elif $noconds then "noReadiness"
                       elif $ready and ($unsynced | not) then "healthy"
                       elif $ready and $unsynced then "drift"
                       elif $notready and $converging then "converging"
@@ -270,7 +294,11 @@ spec:
                            elif $crdNameConflict then ($namesAccepted.reason // "NamesNotAccepted")
                            elif $crdReady then "Healthy"
                            elif $crdConverging then (if $terminating.status == "True" then "Terminating" else "Creating" end)
-                           elif $noconds or ($ready and ($unsynced | not)) then "Healthy"
+                           elif $noconds and $isPvc then (if $phase != "" then $phase else "Pending" end)
+                           elif $noconds and $isNs and $phase == "Terminating" then "Terminating"
+                           elif $noconds and $isNs then "Healthy"
+                           elif ($noconds and $presenceKind) or ($ready and ($unsynced | not)) then "Healthy"
+                           elif $noconds then (if $phase != "" then $phase else "NoReadyCondition" end)
                            elif $ready and $unsynced then "Drift"
                            {{/* Verbatim from the object for every reason the runtimes define, so
                                 the pill and `kubectl get -o yaml` read the same. */}}
@@ -294,7 +322,9 @@ spec:
                               elif $crdNameConflict then 20
                               elif $crdReady then 100
                               elif $crdConverging then 50
-                              elif $noconds or ($ready and ($unsynced|not)) then 100
+                              elif $noconds and $isPvc then (if $phase == "Bound" then 100 elif $phase == "Lost" then 20 else 50 end)
+                              elif $noconds and $isNs then (if $phase == "Terminating" then 50 else 100 end)
+                              elif ($noconds and $presenceKind) or ($ready and ($unsynced|not)) then 100
                               elif $ready and $unsynced then 70
                               elif $notready and $converging then 50
                               {{/* Terminal scores BELOW an unrecognised failure: the controller has
