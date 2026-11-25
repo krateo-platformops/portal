@@ -40,6 +40,7 @@ spec:
         | [ { resourceRefId: "incident-detail-page-header" }, { resourceRefId: "incident-detail-header-block" } ]
         + [ { resourceRefId: "incident-ticket-proposal-slot" } ]
         + (if ($s.error // false) then [ { resourceRefId: "incident-error" } ] else [] end)
+        + (if ($s.noAgent // false) then [ { resourceRefId: "incident-no-agent" } ] else [] end)
         + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
         + (if ($s.reasoning // false) then [ { resourceRefId: "incident-why-card" } ] else [] end)
         + [ { resourceRefId: "incident-tickets-slot" } ]
@@ -71,6 +72,12 @@ spec:
       name: incident-tickets-slot
       namespace: {{ $.Values.namespace }}
       resource: flexes
+      verb: GET
+    - id: incident-no-agent
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: incident-no-agent
+      namespace: {{ $.Values.namespace }}
+      resource: alerts
       verb: GET
     - id: incident-error
       apiVersion: widgets.templates.krateo.io/v1beta1

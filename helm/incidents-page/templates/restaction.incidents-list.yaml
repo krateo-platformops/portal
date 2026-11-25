@@ -116,6 +116,7 @@ spec:
             namespace: "{{ $.Release.Namespace }}",
             title: (if $dn != "" then $dn elif $alert != "" then $alert elif $rc != "" then $rc else (.metadata.name // "") end),
             cause: (if $rc != "" then $rc
+                    elif ($state == "Open" or $state == "Verifying") and ([ (.status.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ] | length) > 0 then "no analysis agent"
                     elif (.status.error // "") != "" then "analysis failed"
                     elif $state == "Analyzing" then "analyzing"
                     else "—" end),

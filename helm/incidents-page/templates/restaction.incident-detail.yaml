@@ -123,7 +123,12 @@ spec:
     # status.lastChecks: the latest result of each script, {exit, since, output}, tagged with its script for outcome.
     | ($st.lastChecks // {}) as $lc
     | (["precondition", "apply", "verify"] | map(. as $k | ($lc[$k] // null) | if . == null then null else . + { script: $k } end)) as $lastResults
-    | ($st.error // "") as $err
+    # NO ANALYSIS AGENT (alert-provider >= 0.2.88): AnalysisUnavailable=True/NoAnalysisAgent on an open
+    # incident means nothing was analysed and nothing failed; a person looks into it. It turns False when
+    # an agent arrives, and a closed incident keeps what it had, so it is read on Open and Verifying only.
+    | ([ ($st.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ][0]) as $unavailable
+    | (($state == "Open" or $state == "Verifying") and $unavailable != null) as $noAgent
+    | (if $noAgent then "" else ($st.error // "") end) as $err
     | ($st.report // "") as $rpt
     # status.howToFix.applyAction: the fix as ONE Kubernetes API write (alert-provider >= 0.2.45). Actionable
     # only with a known verb, a target, and a payload object unless it deletes; the verb maps to the
@@ -339,7 +344,7 @@ spec:
         canClose: ($exists and $state != "Closed" and $state != "Resolved"),
         canDiscard: $exists,
         # Re-run analysis: an Open or Verifying incident, while no request waits for alert-provider.
-        canReanalyze: ($exists and ($state == "Open" or $state == "Verifying") and ($reanalysisPending | not)),
+        canReanalyze: ($exists and ($state == "Open" or $state == "Verifying") and ($reanalysisPending | not) and ($noAgent | not)),
         canApply: $canApply,
         # Run apply: the same incidents as "I applied it", while no run of this incident is unfinished.
         canRunApply: $canRunApply,
@@ -406,6 +411,7 @@ spec:
         incidentManifestJson: (if $incidentObj != null then ($incidentObj | tojson) else "" end),
         alertManifestJson: (if $alertObj != null then ($alertObj | tojson) else "" end),
         errorText: $err,
+        noAgentText: (if $noAgent then (($unavailable.message // "") | if . == "" then "No analysis agent is installed here: a person looks into this incident." else . end) else "" end),
         # Shown only for an incident with no structured analysis: the report text, a provider error that stands in for one, or where the analysis is.
         proseMd: (
           ($rpt | test("Bad Request|token count|exceeds the maximum|no output|^ *[0-9][0-9][0-9] ")) as $dump
@@ -429,10 +435,11 @@ spec:
           reasoning: ((($trace | length) > 0) or (($logRows | length) > 0) or (($resourceRows | length) > 0) or (($gaps | length) > 0) or (($assump | length) > 0)),
           fix: $hasFix,
           error: ($err != ""),
+          noAgent: $noAgent,
           applyRuns: (($runRows | length) > 0),
           similar: (($similar | length) > 0),
           manifests: ($incidentObj != null or $alertObj != null),
           alertManifest: ($alertObj != null),
-          prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == ""))))
+          prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == "" and ($noAgent | not)))))
         }
       }

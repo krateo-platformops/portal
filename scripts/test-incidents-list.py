@@ -303,6 +303,12 @@ def check_figures_and_charts():
     expect(f, 'Verifying: what its checks are doing, never "running" once they gave up',
            [caption([gave_up]), caption([gave_up, TIMED[4]]), caption([cleared]), caption([TIMED[0]])],
            ['fix applied, checks gave no verdict', '1 with checks running, 1 with no verdict', 'fix applied, checks running', ''])
+    # No analysis agent (alert-provider >= 0.2.88): the cause says so, never "analysis failed".
+    no_agent = incident('n1', 'Open', ago(2), alert='a', error='leftover')
+    no_agent['status']['conditions'] = [{'type': 'AnalysisUnavailable', 'status': 'True', 'reason': 'NoAnalysisAgent'}]
+    failed = incident('n2', 'Open', ago(2), alert='a', error='model timed out')
+    causes = {r['name']: r['cause'] for r in resolve(responses(incidents={'items': [no_agent, failed]}, alerts={'items': [alert('a', 'A', 'OK')]}), {'status': 'all'})['rows']}
+    expect(f, 'no analysis agent is said as such; a real failure stays one', causes, {'n1': 'no analysis agent', 'n2': 'analysis failed'})
     stats = widget_data('Listy', 'incidents-stats', out)
     cards = widget_data('Listy', 'incidents-cards', out)
     expect(f, 'each figure wears its state\'s card colour, zero or not',
