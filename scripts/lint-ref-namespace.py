@@ -54,6 +54,10 @@ Observability page), 28 for blueprint-render-endpoint, 27 for clickhouse-endpoin
 and 51 for sse-proxy-internal-endpoint, which is the live event feed on both Compositions and
 Dashboard.
 
+One non-widget ref is a location too: a GET of a RESTAction the chart itself renders in the page
+namespace (the options source of a form field, form-options-alert-metrics). The page namespace
+holds that object, so the ref is checked against what the chart renders, by name.
+
 Widget plurals come from the released frontend-crds chart, so the lint tracks the real widget set
 rather than a hand-kept list. Charts declaring no `namespace` (portal,
 portal-agents) are skipped: they have one namespace and the distinction does not arise.
@@ -186,7 +190,13 @@ def main():
         return 1
     for cd in charts:
         chart = os.path.basename(cd)
-        for doc in render(cd):
+        docs = render(cd)
+        # The RESTActions this chart SHIPS in its page namespace. A GET ref to one of them (a form's
+        # options source) names where that object lives, as a widget ref does: the page namespace
+        # holds it, which is the one thing the data rule below exists to rule out.
+        shipped_ras = {(doc.get('metadata') or {}).get('name') for doc in docs
+                       if doc.get('kind') == 'RESTAction' and (doc.get('metadata') or {}).get('namespace') == NSPAGE}
+        for doc in docs:
             # endpointRef lives on RESTActions, a different API group, so it has to be read
             # before the widget-only filter below -- which is exactly why it went unchecked.
             if doc.get('kind') == 'RESTAction':
@@ -212,6 +222,8 @@ def main():
                     continue
                 checked += 1
                 is_widget = res in plurals
+                if res == 'restactions' and ns == NSPAGE and item.get('name') in shipped_ras:
+                    continue
                 if (chart, rid) in CROSS_CHART:
                     if ns != NSSHELL:
                         findings.append(f'{chart}: {owner} ref {rid} ({res}) is declared a '
