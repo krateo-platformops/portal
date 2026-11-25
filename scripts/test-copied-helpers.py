@@ -88,10 +88,18 @@ def controls(root):
         return problems  # the real run reports them; controls need a clean tree to mean anything
     if n == 0:
         return ['no COPIED FROM helpers found: a check that reads nothing must not pass']
-    copy = next(p for p in sorted(glob.glob(os.path.join(root, 'helm', '*', 'templates', '*.tpl'))) if HEADER.match(read(p)))
-    rel = os.path.relpath(copy, root)
-    for name, mutate in (('a one-byte edit under the header', lambda s: s[:-2] + ('x' if s[-2] != 'x' else 'y') + s[-1:]),
-                         ('the header removed', lambda s: HEADER.sub('', s, count=1))):
+    copies = [p for p in sorted(glob.glob(os.path.join(root, 'helm', '*', 'templates', '*.tpl'))) if HEADER.match(read(p))]
+    named = [HEADER.match(read(p)).group(1).rstrip('.,;:') for p in copies]
+    # Rule 2 knows a source by the copies that name it. A copy that loses its header while it is the
+    # ONLY copy of its source leaves nothing naming that source, so no rule can tie it back: the
+    # header-removal control needs a copy whose source another copy still names. (The edit control
+    # holds for any copy.)
+    shared = [p for p, src in zip(copies, named) if named.count(src) > 1]
+    if not shared:
+        return problems + ['no source has two copies: the header-removal control has nothing it can show']
+    for name, mutate, copy in (('a one-byte edit under the header', lambda s: s[:-2] + ('x' if s[-2] != 'x' else 'y') + s[-1:], copies[0]),
+                               ('the header removed', lambda s: HEADER.sub('', s, count=1), shared[0])):
+        rel = os.path.relpath(copy, root)
         with tempfile.TemporaryDirectory() as tmp:
             shutil.copytree(os.path.join(root, 'helm'), os.path.join(tmp, 'helm'))
             target = os.path.join(tmp, rel)
