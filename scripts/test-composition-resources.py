@@ -225,11 +225,18 @@ for label, conditions, want_state, want_label, kind, grp, getpath in ALL:
     check(f'{label}: stateLabel', rows[0]['stateLabel'], want_label)
     # THE PARTITION. Every checked row belongs to exactly one counted bucket; a state added later
     # must not land in an existing one silently, which is how Ready=Unknown became "pending".
-    buckets = ['healthyCount', 'driftCount', 'failedCount', 'pendingCount',
+    # healthyCount is core-provider's count and so INCLUDES the drifted rows; driftCount is the
+    # display count of those same rows. Every other display state has its own bucket.
+    buckets = ['healthyCount', 'failedCount', 'pendingCount',
                'notObservedCount', 'readyNotSetCount', 'unknownCount',
                'terminalCount', 'convergingCount', 'noReadinessCount']
     summed = sum(out.get(b, 0) for b in buckets)
     check(f'{label}: counts sum to total', summed, out['total'])
+    # THE BOUNDARY. The portal's finer states sit inside core-provider's buckets: none of these may
+    # be counted healthy or without readiness, so a later change cannot move one across silently.
+    if want_state in ('notObserved', 'readyNotSet', 'unknown', 'terminal'):
+        check(f'{label}: {want_state} crosses neither the healthy nor the noReadiness boundary',
+              (out['healthyCount'], out['noReadinessCount'], rows[0].get('countedAs')), (0, 0, want_state))
 
 for label, kind, grp, phase, want_state, want_label, want_pct in PRESENCE_CASES:
     out = jq(prog, payload([], getpath=f'/apis/{grp}/v1/namespaces/ns/{kind}/c', kind=kind, grp=grp, phase=phase))
@@ -329,6 +336,29 @@ for _row in _table:
     _state = _out['resources'][0]['state']
     check(f'child Composition Ready={_row["status"]}/{_row["reason"]}: {_state} is core-provider\'s {_row["verdict"]}',
           _state in VERDICT_STATES.get(_row['verdict'], set()), True)
+
+# DRIFT: counted as core-provider counts it (healthy), shown as what it is (Drift), and it keeps the
+# composition from reading converged ("All N resources match the desired state").
+out = jq(prog, payload(conds(('Ready', 'True', 'Available'), ('Synced', 'False', 'ReconcileError')),
+                       getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP))
+check('one drifting child: counted healthy, its row reads Drift, not converged',
+      (out['healthyCount'], out['driftCount'], out['total'], out['resources'][0]['state'],
+       out['resources'][0]['stateLabel'], out['resources'][0].get('countedAs'), out['converged']),
+      (1, 1, 1, 'drift', 'Drift', 'healthy', False))
+
+# CONTROLS for the two assertions above, run on mutated copies of the chart's own program: drift
+# counted by its display state, and a Ready=Unknown counted healthy, must each be caught.
+DRIFT_ARM = '{s: "drift", l: "Drift", c: "healthy"}'
+UNKNOWN_ARM = '{s: "unknown", l: "Unknown"}'
+check('the drift arm carries its count class (both CR arms)', prog.count(DRIFT_ARM), 2)
+check('the Ready=Unknown arm is there once', prog.count(UNKNOWN_ARM), 1)
+_drift_in = payload(conds(('Ready', 'True', 'Available'), ('Synced', 'False', 'ReconcileError')),
+                    getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP)
+_ctl = jq(prog.replace(DRIFT_ARM, '{s: "drift", l: "Drift"}'), _drift_in)
+check('control: drift counted by its display state is caught', _ctl['healthyCount'] == 1, False)
+_ctl = jq(prog.replace(UNKNOWN_ARM, '{s: "unknown", l: "Unknown", c: "healthy"}'),
+          payload(conds(('Ready', 'Unknown', '')), getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP))
+check('control: a Ready=Unknown counted healthy is caught', (_ctl['healthyCount'], _ctl['resources'][0].get('countedAs')) == (0, 'unknown'), False)
 
 # THE HEADLINE. One composition with the children the issue names: the page's "N of M healthy" is
 # core-provider's count of healthy children, and its no-readiness count is the unevaluated one.

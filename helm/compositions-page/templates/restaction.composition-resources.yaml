@@ -218,12 +218,17 @@ spec:
                Plurals stand in for kinds: an informer-served object carries no kind (see the join
                above), and a built-in group's plural names exactly one kind.
 
-               WHERE THIS PAGE STILL SAYS MORE THAN core-provider, deliberately and without moving a
-               child into or out of the healthy count except for drift: a Ready=True child with
-               Synced=False is "drift" here (core-provider: healthy); Ready=Unknown is split into
-               notObserved / readyNotSet / unknown, and DriftNotConverging / AuthorizationDenied are
+               A COUNT CLASS AND A DISPLAY STATE. Each verdict is {s, l, c}: `s` is the state the row
+               shows, `l` its label, and `c` the class the counts are made of — core-provider's
+               verdict — when it differs from `s`. They differ in one place: a Ready=True child with
+               Synced=False SHOWS "drift" (Synced is a separate fact and still an exception) and is
+               COUNTED healthy, as core-provider counts it (Diego, 2026-11-25).
+               The page's other finer states stay inside core-provider's buckets and never cross the
+               healthy or noReadiness boundary (the test asserts it): Ready=Unknown split into
+               notObserved / readyNotSet / unknown, and DriftNotConverging / AuthorizationDenied
                "terminal" (core-provider: failed). An unfetched child is "pending" and a Secret
-               "unread" (core-provider reads both). */}}
+               "unread" (core-provider reads both; portal#557 replaces this computation with
+               core-provider's own counts). */}}
           | ($g | endswith("krateo.io")) as $isKrateo
           | ($g == "core" or (["apps", "batch", "autoscaling", "policy", "extensions"] | any(. == $g)) or ($g | endswith(".k8s.io"))) as $native
           | ([ $c[]? | select(.type == "Ready") ][0]) as $rd
@@ -251,7 +256,7 @@ spec:
                      default), and its label is the reason verbatim, as `kubectl get -o yaml` reads. */}}
                 ( if $rd == null then $noReadiness
                   elif $rs == "True" and $rr == "AssumedUpToDate" then {s: "noReadiness", l: $rr}
-                  elif $rs == "True" then (if $unsynced then {s: "drift", l: "Drift"} else $healthy end)
+                  elif $rs == "True" then (if $unsynced then {s: "drift", l: "Drift", c: "healthy"} else $healthy end)
                   elif $rs == "False" and $rr == "TerminalByDesign" then {s: "healthy", l: $rr}
                   elif $rr == "DriftNotConverging" or $rr == "AuthorizationDenied" then {s: "terminal", l: $rr}
                   elif (["Unavailable", "CreateFailed", "UpdateFailed", "CreateUnreachable",
@@ -316,7 +321,7 @@ spec:
                      transient one from a permanent one. A True written for an older generation is
                      converging too ("Updating": the controller has not yet seen the current spec). */}}
                 ( if ($obj | staleCondition($rd)) then {s: "converging", l: "Updating"}
-                  elif $rs == "True" then (if $unsynced then {s: "drift", l: "Drift"} else $healthy end)
+                  elif $rs == "True" then (if $unsynced then {s: "drift", l: "Drift", c: "healthy"} else $healthy end)
                   else {s: "converging", l: (if $rr != "" then $rr elif $rs == "False" then "NotReady" else "Unknown" end)} end )
               elif $g == "kagent.dev" and $k == "modelconfigs" then
                 {{/* thirdPartyKindEval: a kagent ModelConfig has no Ready; it is Accepted, and its
@@ -335,6 +340,8 @@ spec:
               name: $m._name,
               ns: $m._rns,
               state: $v.s,
+              {{/* The class this row is COUNTED in (core-provider's verdict); `state` is what it shows. */}}
+              countedAs: ($v.c // $v.s),
               {{/* LABEL AND COLOUR ARE COMPUTED HERE, not derived from `state` by the widget.
                    The list used to bind `color: value: '{state}'` through a `map:` of five entries
                    and build the label by upper-casing the state's first letter. Both work only for
@@ -366,7 +373,7 @@ spec:
       ) as $rows
     | ($rows | map(select(.state != "unread"))) as $checked
     | ($checked | length) as $total
-    | ($checked | map(select(.state == "healthy")) | length) as $healthy
+    | ($checked | map(select(.countedAs == "healthy")) | length) as $healthy
     # Workload projection of the COMPOSITION itself (ridden in on _wh/_whMsg): resources can
     # all match declared-vs-actual while the pods behind them crashloop — `converged` must not
     # claim full convergence then, and the rail widget caps/annotates from these two keys.
@@ -398,7 +405,9 @@ spec:
         unknownCount: ($rows | map(select(.state == "unknown")) | length),
         noReadinessCount: ($rows | map(select(.state == "noReadiness")) | length),
         convergencePercent: (if $total > 0 then (($healthy * 100 / $total) | floor) else 0 end),
-        converged: (($rows | length) > 0 and $healthy == $total and ($whBad | not)),
+        {{/* Converged is "every resource matches the desired state", which a drifted one does not:
+             it is counted healthy, and still keeps this false. */}}
+        converged: (($rows | length) > 0 and $healthy == $total and ($rows | all(.state != "drift")) and ($whBad | not)),
         workloadUnhealthy: $whBad,
         workloadMessage: $whMsg
       }
