@@ -9,7 +9,8 @@
        comps one cluster-scope LIST per composition kind -> name, ns, kind, created, conditions, the
              workload verdict and the child counts (compositions-list's projection);
        last  ONLY with reconcileTracing: ONE ClickHouse aggregate over the cdc `reconcile` spans of the
-             last 7 days (the otel_traces TTL), per kind|ns|name: the newest and oldest span, the p95
+             page's time range (?range=1h|6h|24h|7d, default 24h, as every other card on the tab;
+             7d is the otel_traces TTL), per kind|ns|name: the newest and oldest span, the p95
              span duration and the count. No ParentSpanId filter: a composition stamped with
              krateo.io/traceparent reconciles as a CHILD span (about 18/min roots of 85/min on 057).
      Both apiserver stages carry a userAccessFilter, so snowplow's SA dials them and narrows per item;
@@ -56,7 +57,9 @@
                  pending, then healthy; each with its state, kind, reason and when it last reconciled;
        table     every composition in the picked state, the same order, for the full list;
        byState / byKind / byNamespace   the side charts (a kind or namespace row searches for it);
-       extra     the trace window ("since <oldest span held> (7 days)");
+       extra     the trace window ("since <oldest span held> (24 hours)"): the range the spans were
+                 read over, the one the chip names, so the caption, the cards, the p95s and the
+                 latency table below speak of one window;
        note      a warning above the cards when a list or the traces could not be read;
        emptyText the line in place of the cards when there is nothing to list. */}}
 apiVersion: templates.krateo.io/v1
@@ -103,15 +106,16 @@ spec:
        toUnixTimestamp(min(Timestamp)) AS first, toUnixTimestamp(now()) AS now,
        round(quantile(0.95)(Duration)/1e6, 0) AS p95_ms, count() AS n FROM otel_traces
        WHERE ServiceName = 'composition-dynamic-controller' AND SpanName = 'reconcile'
-       AND Timestamp > now() - INTERVAL 7 DAY GROUP BY kind, ns, name FORMAT JSON
-       No request input reaches it. ServiceName and SpanName lead otel_traces' sort key and the 7-day
-       bound prunes its toDate partitions: on 057 (~87 reconcile spans/min, 114 compositions) the
+       AND Timestamp > now() - INTERVAL <1 HOUR | 6 HOUR | 24 HOUR | 7 DAY> GROUP BY kind, ns, name FORMAT JSON
+       The interval is one of four literals picked by ?range (anything else is 24 HOUR), so no request
+       text reaches the SQL. ServiceName and SpanName lead otel_traces' sort key and the time
+       bound prunes its toDate partitions: over 7 days on 057 (~87 reconcile spans/min, 114 compositions) the
        dating alone read 155k rows / 8.5 MiB in 32 ms; the p95 adds the Duration column. */}}
   - name: last
     endpointRef:
       name: clickhouse-endpoint
       namespace: {{ .Release.Namespace }}
-    path: '${ "/?query=SELECT%20SpanAttributes%5B%27k8s.object.kind%27%5D%20AS%20kind%2C%20SpanAttributes%5B%27k8s.object.namespace%27%5D%20AS%20ns%2C%20SpanAttributes%5B%27k8s.object.name%27%5D%20AS%20name%2C%20toUnixTimestamp%28max%28Timestamp%29%29%20AS%20last%2C%20toUnixTimestamp%28min%28Timestamp%29%29%20AS%20first%2C%20toUnixTimestamp%28now%28%29%29%20AS%20now%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C%200%29%20AS%20p95_ms%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20ServiceName%20%3D%20%27composition-dynamic-controller%27%20AND%20SpanName%20%3D%20%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%207%20DAY%20GROUP%20BY%20kind%2C%20ns%2C%20name%20FORMAT%20JSON" }'
+    path: '${ ((.range // "24h") | tostring) as $r | (if $r=="1h" then "1%20HOUR" elif $r=="6h" then "6%20HOUR" elif $r=="7d" then "7%20DAY" else "24%20HOUR" end) as $iv | "/?query=SELECT%20SpanAttributes%5B%27k8s.object.kind%27%5D%20AS%20kind%2C%20SpanAttributes%5B%27k8s.object.namespace%27%5D%20AS%20ns%2C%20SpanAttributes%5B%27k8s.object.name%27%5D%20AS%20name%2C%20toUnixTimestamp%28max%28Timestamp%29%29%20AS%20last%2C%20toUnixTimestamp%28min%28Timestamp%29%29%20AS%20first%2C%20toUnixTimestamp%28now%28%29%29%20AS%20now%2C%20round%28quantile%280.95%29%28Duration%29%2F1e6%2C%200%29%20AS%20p95_ms%2C%20count%28%29%20AS%20n%20FROM%20otel_traces%20WHERE%20ServiceName%20%3D%20%27composition-dynamic-controller%27%20AND%20SpanName%20%3D%20%27reconcile%27%20AND%20Timestamp%20%3E%20now%28%29%20-%20INTERVAL%20" + $iv + "%20GROUP%20BY%20kind%2C%20ns%2C%20name%20FORMAT%20JSON" }'
     verb: GET
     headers:
     - 'Accept: application/json'
@@ -151,6 +155,9 @@ spec:
     . as $in
     | {{ if (.Values.observability | default dict).reconcileTracing }}true{{ else }}false{{ end }} as $tracing
     | 300 as $overdueAfter
+    # The time range the spans were read over, as the path picked it.
+    | ((.range // "24h") | tostring) as $range
+    | ({"1h": "1 hour", "6h": "6 hours", "7d": "7 days"}[$range] // "24 hours") as $window
     | 24 as $cardCap
     | qRaw as $qRaw
     | ($qRaw | ascii_downcase) as $q
@@ -216,7 +223,7 @@ spec:
        + (if ($tracing | not) then []
           elif $telemetry == "ok" then [ { title: "Reconcile overdue", value: $counts.overdue,
               caption: (if $neverN > 0 then ($neverN | tostring) + " with none in the trace window" elif $counts.overdue > 0 then "last reconcile over 5 min ago" else "all reconciled within 5 min" end), tone: "overdue", route: stateRoute("overdue") } ]
-          elif $telemetry == "empty" then [ { title: "Reconcile overdue", value: "", caption: "no reconcile traces in 7 days", tone: "overdue", route: "" } ]
+          elif $telemetry == "empty" then [ { title: "Reconcile overdue", value: "", caption: ("no reconcile traces in " + $window), tone: "overdue", route: "" } ]
           else [ { title: "Reconcile overdue", value: "", caption: "traces could not be read", tone: "unread", route: "" } ] end)
        | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)) as $stats
     | (if $sel == "all" then "" else $sel end) as $selParam
@@ -229,7 +236,7 @@ spec:
                      percent: (.count * 100 / $max | floor), tone: (if .attention > 0 then "bad" else "ok" end),
                      route: ($in | obsHref({ q: $r.name, status: "", view: (if $tableView then "table" else "" end) }; "Reconciliation")) } ];
       (if $telemetry == "unavailable" then "The reconcile traces could not be read, so last-reconcile times can't be shown right now. The compositions themselves are not affected."
-       elif $telemetry == "empty" then "No reconcile traces from the last 7 days were found, so last-reconcile times can't be shown right now. Reconcile tracing may be off on this cluster. The compositions themselves are not affected."
+       elif $telemetry == "empty" then "No reconcile traces from the last " + $window + " were found, so last-reconcile times can't be shown right now. Reconcile tracing may be off on this cluster. The compositions themselves are not affected."
        else "" end) as $traceNote
     | {
         tracing: $tracing,
@@ -264,7 +271,7 @@ spec:
         byState: (if $failed then [] else [ $order[] | { state: $names[.], count: $counts[.] } | select(.count > 0) ] end),
         byKind: (if $failed then [] else ($base | bars("kind"; 8)) end),
         byNamespace: (if $failed then [] else ($base | bars("ns"; 8)) end),
-        extra: (if $telemetry == "ok" then "trace window: since " + short($since) + " (7 days)" elif $tracing then "trace window: unavailable" else "" end),
+        extra: (if $telemetry == "ok" then "trace window: since " + short($since) + " (" + $window + ")" elif $tracing then "trace window: unavailable" else "" end),
         note: ([ (if $listError and ($failed | not) then "A CompositionDefinition or composition list could not be read (" + $readError + "), so some compositions may be missing below." else empty end),
                  (if $traceNote != "" then $traceNote else empty end) ] | join(" ")),
         emptyText: (if $failed then "The compositions could not be read (" + $readError + "), so nothing on this tab counts them."
