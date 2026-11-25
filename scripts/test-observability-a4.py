@@ -217,7 +217,7 @@ def check_recon_figures(c, on):
     expect(f, 'overdue is the cards\' clock colour', smap['overdue'], wd(on, 'Listy', 'obs-recon-cards', out)['dataSource'][0]['statusColor'])
     expect(f, 'a failed read is orange; Compositions is neutral', (smap['unread'], 'total' in smap), ('orange', False))
     for label, kw, want in (('ClickHouse down', {'ch_down': True}, ('', 'traces could not be read', 'unread')),
-                            ('no reconcile span', {'spans': []}, ('', 'no reconcile traces in 7 days', 'overdue'))):
+                            ('no reconcile span', {'spans': []}, ('', 'no reconcile traces in 24 hours', 'overdue'))):
         _, _, o = recon_out(on, **kw)
         s = o['stats'][4]
         expect(f, f'{label}: the overdue figure says why', (s['value'], s['caption'], s['tone']), want)
@@ -361,13 +361,13 @@ def check_recon_query(on):
     expect(f, 'one CompositionDefinition list', by.get('crds'), ['/apis/core.krateo.io/v1alpha1/compositiondefinitions'])
     expect(f, 'one list per kind', sorted(by.get('comps') or []), sorted([FW, PT]))
     sql = unquote(by['last'][0][len('/?query='):])
-    expect(f, 'one bounded ClickHouse aggregate, with the p95', sql,
+    expect(f, 'one bounded ClickHouse aggregate, with the p95, over the default range (24h)', sql,
            "SELECT SpanAttributes['k8s.object.kind'] AS kind, SpanAttributes['k8s.object.namespace'] AS ns, "
            "SpanAttributes['k8s.object.name'] AS name, toUnixTimestamp(max(Timestamp)) AS last, "
            "toUnixTimestamp(min(Timestamp)) AS first, toUnixTimestamp(now()) AS now, "
            "round(quantile(0.95)(Duration)/1e6, 0) AS p95_ms, count() AS n FROM otel_traces "
            "WHERE ServiceName = 'composition-dynamic-controller' AND SpanName = 'reconcile' "
-           "AND Timestamp > now() - INTERVAL 7 DAY GROUP BY kind, ns, name FORMAT JSON")
+           "AND Timestamp > now() - INTERVAL 24 HOUR GROUP BY kind, ns, name FORMAT JSON")
     for step in on.get('RESTAction', 'obs-reconciliation')['spec']['api']:
         if not step.get('endpointRef') and not step.get('userAccessFilter'):
             f.append(f'{step["name"]}: an apiserver stage with no userAccessFilter')
@@ -377,7 +377,56 @@ def check_recon_query(on):
     _, _, plain = recon_out(on)
     expect(f, 'quoted 64-bit integers read the same', quoted['rows'], plain['rows'])
     expect(f, 'the trace window, in the caption', (plain['extra'], wd(on, 'Paragraph', 'obs-sec-reconciliation-desc', plain)['text'].split(' Reconcile ')[-1]),
-           ('trace window: since 3 Nov, 14:02 (7 days)', 'trace window: since 3 Nov, 14:02 (7 days).'))
+           ('trace window: since 3 Nov, 14:02 (24 hours)', 'trace window: since 3 Nov, 14:02 (24 hours).'))
+    # OBS-1: the caption named a 7-day window while the 24h chip was on and every other card on the
+    # tab read 24 hours. The spans are read over the range the chip names, and the caption says it.
+    for rng, iv, words in (('1h', '1 HOUR', '1 hour'), ('6h', '6 HOUR', '6 hours'), ('24h', '24 HOUR', '24 hours'),
+                           ('7d', '7 DAY', '7 days'), ('x', '24 HOUR', '24 hours')):
+        reqs, _, out = recon_out(on, {'range': rng})
+        sql = unquote([p for n, p, _ in reqs if n == 'last'][0][len('/?query='):])
+        expect(f, f'range={rng}: the spans are read over it', sql.split(' GROUP BY ')[0].split(' AND Timestamp > ')[-1],
+               f'now() - INTERVAL {iv}')
+        expect(f, f'range={rng}: the caption names it', out['extra'], f'trace window: since 3 Nov, 14:02 ({words})')
+        _, _, empty = recon_out(on, {'range': rng}, spans=[])
+        expect(f, f'range={rng}: no span in it, said of it', (empty['stats'][4]['caption'], f'from the last {words} were found' in empty['note']),
+               (f'no reconcile traces in {words}', True))
+    return f
+
+
+# The window each range chip names, as every query on the page must read it (`now() - INTERVAL <iv>`).
+WINDOWS = {'1h': '1 HOUR', '6h': '6 HOUR', '24h': '24 HOUR', '7d': '7 DAY'}
+# The Telemetry tab still folds 6h into 24h, and says so on its "Window read" figure ("the logs are
+# read per 1 h, 24 h or 7 d"); it moves with that figure. The SLOs tab sends its window as
+# param_start/param_end and has its own test (test-obs-slo.py).
+WINDOW_EXEMPT = {'obs-error-log-digest', 'obs-log-stream', 'obs-slo'}
+
+
+def check_range_windows(on):
+    """Every ClickHouse query a range chip drives reads the window the chip names. The 6h chip used to
+    read 24 hours on the four snowplow tabs and the reconcile throughput: each path mapped 1h, 24h and
+    7d, and 6h fell through to the default."""
+    f = []
+    norm = lambda sql: ' '.join(sql.replace('now()-INTERVAL', 'now() - INTERVAL').split())
+    for ra in on.docs:
+        if ra.get('kind') != 'RESTAction' or ra['metadata']['name'] in WINDOW_EXEMPT:
+            continue
+        steps = [st for st in ra['spec']['api'] if st.get('endpointRef') and '.range' in (st.get('path') or '')]
+        if not steps:
+            continue
+        stub = {st['name']: ch([]) for st in ra['spec']['api']}
+        for rng, iv in WINDOWS.items():
+            reqs, _, _ = gates.resolve(ra, {'range': rng}, stub)
+            for st in steps:
+                paths = [p for n, p, _ in reqs if n == st['name']]
+                if not paths:
+                    f.append(f'{ra["metadata"]["name"]}/{st["name"]} range={rng}: no request')
+                    continue
+                sql = norm(unquote(paths[0].split('query=', 1)[-1]))
+                if f'now() - INTERVAL {iv}' not in sql:
+                    f.append(f'{ra["metadata"]["name"]}/{st["name"]} range={rng}: does not read the last {iv}')
+                for other in set(WINDOWS.values()) - {iv}:
+                    if f'now() - INTERVAL {other}' in sql:
+                        f.append(f'{ra["metadata"]["name"]}/{st["name"]} range={rng}: reads the last {other}')
     return f
 
 
@@ -623,6 +672,23 @@ def check_traces(c):
 # State tiles: a figure that counts a state opens the list filtered to it
 # ---------------------------------------------------------------------------------------------
 
+def check_recon_paused(on):
+    """A paused composition (visual audit CMP-9): Paused, as on /compositions; never overdue, since
+    Krateo is not reconciling it on purpose; named apart in the bars ("1 paused"), neutral."""
+    f = []
+    paused = comp('Portal', 'krateo-system', 'held', '2026-09-01T10:00:00Z',
+                  [cond('Ready', 'True', 'ReconcilePaused'), cond('Synced', 'False', 'ReconcilePaused')])
+    lists = {FW: LISTS[FW], PT: {'items': LISTS[PT]['items'] + [paused]}}
+    _, _, out = recon_out(on, lists=lists)
+    row = next(r for r in out['table'] if r['name'] == 'held')
+    expect(f, 'Paused, and not overdue although it has no reconcile in the window', (row['state'], row['overdue']), ('Paused', False))
+    expect(f, 'the overdue count leaves it out', out['counts']['overdue'], 2)
+    kinds = wd(on, 'Listy', 'obs-by-kind-list', out)['dataSource']
+    expect(f, 'by kind: named apart, neutral', [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] == 'Portal'],
+           [('Portal', '2 · 1 paused', 'ok')])
+    return f
+
+
 def check_state_tiles(c, on):
     """A state tile's route is its state chip's, the other page params kept (q, view, range); a total,
     a metric and a failed read have route "" (a plain tile); every figures Listy wires navigateTo."""
@@ -706,10 +772,12 @@ def main():
         ('Reconciliation: the cards and the full list', lambda: check_recon_cards_and_table(c, on)),
         ('Reconciliation: the chips, the scope and the search', lambda: check_recon_chips_and_search(c, on)),
         ('Reconciliation: the reads', lambda: check_recon_query(on)),
+        ('every query a range chip drives reads the window the chip names', lambda: check_range_windows(on)),
         ('Telemetry: figures, errors as cards, the stream as the full list, the side, the search', lambda: check_telemetry(c, on)),
         ('Components: figures, chips, cards, the full list, the side, the search', lambda: check_components(c)),
         ('Traces: figures, status chips, cards, the full list, the side, the search', lambda: check_traces(c)),
         ('State tiles open their state chip\'s route; totals, metrics and failed reads do not', lambda: check_state_tiles(c, on)),
+        ('Reconciliation: a paused composition is neutral and never overdue', lambda: check_recon_paused(on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
     ]
     if crds_dir:
