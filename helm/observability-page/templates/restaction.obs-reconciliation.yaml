@@ -24,7 +24,8 @@
      OVERDUE (tracing only): no reconcile span in the trace window, or the last one over 5 min ago —
      a healthy composition reconciles every couple of minutes. A paused composition is never overdue:
      Krateo is not reconciling it on purpose (visual audit CMP-9). In the by-kind and by-namespace
-     bars it is named apart ("1 paused"), neutral.
+     bars it is named apart ("1 paused"), neutral. With Needs attention picked and none in it, the
+     empty text says how many are paused and that the Paused chip holds them, as /compositions does.
 
      THE PARAMS (request extras).
        projects  the shell scope: compositions in those namespaces only;
@@ -279,6 +280,9 @@ spec:
                     elif ($base | length) == 0 then "There are no compositions."
                     elif $sel == "all" then "There are no compositions."
                     elif $sel == "attention" then "No composition needs attention."
+                      + (if ($counts.paused // 0) == 1 then " 1 paused composition is under the Paused chip."
+                         elif ($counts.paused // 0) > 1 then " " + ($counts.paused | tostring) + " paused compositions are under the Paused chip."
+                         else "" end)
                     elif $sel == "overdue" then "Every composition reconciled within the last 5 min."
                     elif $names[$sel] != null then "No composition is " + $names[$sel] + "."
                     else "No composition is in this state." end)

@@ -697,7 +697,17 @@ def check_recon_paused(on):
     expect(f, 'paused only: Needs attention 0, Paused 1, the chip empty and said calmly',
            (out['counts']['attention'], out['counts']['paused'], out['matched'], out['emptyText'],
             [s['caption'] for s in out['stats'] if s['title'] == 'Needs attention']),
-           (0, 1, 0, 'No composition needs attention.', ['nothing NotReady, degraded, drifted or unreadable']))
+           (0, 1, 0, 'No composition needs attention. 1 paused composition is under the Paused chip.',
+            ['nothing NotReady, degraded, drifted or unreadable']))
+    expect(f, 'paused only: the Paused chip is there to point to', [(c['label'], c['count']) for c in out['chips'] if c['key'] == 'paused'], [('Paused', 1)])
+    held2 = comp('Portal', 'krateo-system', 'held-2', '2026-09-01T10:00:00Z',
+                 [cond('Ready', 'True', 'ReconcileGracefullyPaused'), cond('Synced', 'True', 'ReconcileSuccess')])
+    _, _, out = recon_out(on, {'status': 'attention'}, lists={FW: {'items': []}, PT: {'items': [paused, held2]}})
+    expect(f, 'two paused: counted in the empty text', out['emptyText'], 'No composition needs attention. 2 paused compositions are under the Paused chip.')
+    fine = comp('Portal', 'krateo-system', 'fine', '2026-09-01T10:00:00Z',
+                [cond('Ready', 'True', 'Available'), cond('Synced', 'True', 'ReconcileSuccess')])
+    _, _, out = recon_out(on, {'status': 'attention'}, lists={FW: {'items': []}, PT: {'items': [fine]}})
+    expect(f, 'none paused, none needing attention: the sentence alone', out['emptyText'], 'No composition needs attention.')
     return f
 
 
