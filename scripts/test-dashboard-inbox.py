@@ -340,7 +340,24 @@ def _():
 def _():
     out = inbox()
     got = page(out)
-    check('present: the body', got['body'], ['dashboard-filter-bar', 'dashboard-strip', 'dashboard-needs-you', 'dashboard-quiet'])
+    check('present: the body', got['body'], ['dashboard-filter-bar', 'dashboard-strip', 'dashboard-health', 'dashboard-needs-you', 'dashboard-quiet'])
+    # Health of compositions (mockup C6): the four states from the Ready verdict, paused apart.
+    health = out['health']
+    states = {t['key']: (t['value'], t['color'], t['highlight']) for t in health['tiles']}
+    check('health: the four states add up with paused to all', sum(int(v[0]) for v in states.values()) + health['paused'], health['total'])
+    check('health: OK is every Ready one, and only those', states['ok'][0], str(out['compositions']['ready']))
+    check('health: paused is apart, said in the header', (health['paused'] >= 1, health['summary'].startswith(f"{health['paused']} paused · ")), (True, True))
+    check('health: OK and Unknown are neutral; a zero alarm is neutral too',
+          [(k, c, h) for k, (v, c, h) in states.items() if k in ('ok', 'unknown') or v == '0'],
+          [(k, '', False) for k, (v, _c, _h) in states.items() if k in ('ok', 'unknown') or v == '0'])
+    check('health: each state opens the list filtered to it, every scope',
+          [t['route'] for t in health['tiles']],
+          ['/compositions?scope=all&status=healthy', '/compositions?scope=all&status=pending,drift,degraded',
+           '/compositions?scope=all&status=failed', '/compositions?scope=all&status=unknown,unreadable'])
+    tiles = resolved('dashboard-health-tiles', 'Listy', out)
+    check('health: the tiles draw the data\'s colour and highlight, with icons and no frames',
+          {k: tiles['itemTemplate'].get(k) for k in ('tileVariant', 'icon', 'highlight')} | {'color': tiles['itemTemplate']['color']},
+          {'tileVariant': 'borderless', 'icon': '{icon}', 'highlight': '{highlight}', 'color': {'value': '{color}'}})
     check('present: the strip, in the mockup order, red only for a fault', got['strip'], [
         ('Open incidents', '5', '2 alerts', 'red'),
         ('Alerts firing', '1', 'of 3', 'red'),
@@ -369,7 +386,7 @@ def _():
     check('present: the paused composition', (cmp_['subPrimaryText'], cmp_['description'], cmp_['color']),
           ('acme-feedback-controller', 'Ready reason ReconcilePaused.', None))
     check('present: the calm line lists what is fine, beside Needs you', got['quiet'],
-          'The rest is fine: 80 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
+          'The rest is fine: 79 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
     check('present: the source facet, largest first, counted in items', got['options'], [
         ('Incidents', 'incidents', 5), ('Platform review', 'reviews', 4), ('Agents', 'agents', 2),
         ('Alerts', 'alerts', 1), ('Compositions', 'compositions', 1)])
@@ -419,6 +436,16 @@ def _():
     check('Unknown/ObserveFailed + Synced=False: failed; with Synced=True: pending; ChildrenForbidden keeps unreadable',
           sorted((p['name'], p['class']) for p in out['compositions']['problems'] if p['name'] != 'acme-feedback-controller'),
           [('alerts-page', 'failed'), ('children-forbidden', 'unreadable'), ('first-observe', 'pending')])
+    states = {t['key']: (t['value'], t['color'], t['highlight']) for t in out['health']['tiles']}
+    check('health: a failed one is Critical, red and standing out; a converging one is Warning; unreadable is Unknown',
+          (states['critical'], states['warning'][1:], int(states['unknown'][0]) >= 1, states['unknown'][1:]),
+          (('1', 'red', True), ('orange', True), True, ('', False)))
+    scoped = inbox(extras={'projects': 'krateo-system'}, raw={'allCompositions': {'items': COMPS057}})
+    check('health: a namespace scope narrows the counts and rides the links',
+          (scoped['health']['total'] <= out['health']['total'] - 3, scoped['health']['tiles'][0]['route']),
+          (True, '/compositions?projects=krateo-system&scope=all&status=healthy'))
+    failed = inbox(raw={'allCompositions': None}, errors={'allCompositionsError': ['forbidden']})
+    check('health: a failed read of the compositions shows no health card', (failed['health'], 'dashboard-health' in page(failed)['body']), (None, False))
 
 
 # --- 3. each source absent (its page is not the caller's) -------------------------------------------
@@ -585,7 +612,7 @@ def _():
 def _():
     out = inbox(raw=QUIET_RAW)
     got = page(out)
-    check('all quiet: no Needs you, no facet', got['body'], ['dashboard-strip', 'dashboard-quiet'])
+    check('all quiet: no Needs you, no facet', got['body'], ['dashboard-strip', 'dashboard-health', 'dashboard-quiet'])
     check('all quiet: no panel', got['panel'], None)
     check('all quiet: the strip is neutral', [t[3] for t in got['strip']], [None] * 5)
     check('all quiet: the calm line', got['quiet'],
