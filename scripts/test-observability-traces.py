@@ -309,7 +309,13 @@ def check_error_status_shows_as_an_error(c):
     expect(p, 'the service node counts its error spans', [n['detail'] for n in nodes], ['3 spans · 2 errors'])
     _, _, det = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch(TRACE_A_SPANS)})
     tags = tbi.widget(c, 'PageHeader', 'trace-detail-page-header', 'tags', det, {'traceId': TRACE_A})
-    expect(p, 'a trace with no Error span', tags, [{'label': 'OK', 'color': 'green'}])
+    # OBS-4: the list drew this trace's span "Unset" and the trace page "OK". The page now says the
+    # trace's status in the list's words, with the list's mapping.
+    expect(p, 'a trace whose every span is Unset says Unset, as the list does', tags, [{'label': 'Unset', 'color': 'gray'}])
+    ok = [dict(s, status='Ok') if s['span_id'] == 'a000000000000001' else s for s in TRACE_A_SPANS]
+    _, _, det = resolve(c, 'obs-trace-detail', {'traceId': TRACE_A}, {'spans': ch(ok)})
+    tags = tbi.widget(c, 'PageHeader', 'trace-detail-page-header', 'tags', det, {'traceId': TRACE_A})
+    expect(p, 'a trace with an Ok span and no Error span', tags, [{'label': 'OK', 'color': 'green'}])
     return p
 
 

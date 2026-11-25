@@ -97,6 +97,15 @@ spec:
              error: (.status.error // ""),
              reportText: ((.status.report // "") | if type == "string" then . else "" end),
              structured: ((.status.rootCause.statement // "") != ""),
+             # NO MODEL ANALYSES IT — the same two rules as incidents-page's incident-detail:
+             # no analysis agent installed (AnalysisUnavailable=True, alert-provider >= 0.2.88), read
+             # on Open and Verifying only; or its alert is analysed by a person (label
+             # observability.krateo.io/analysis=human, copied to the incident), read in every state.
+             # alert-provider writes the person's reason into status.error; it is not a failure.
+             unavailable: (((.status.state // "Analyzing") as $s | ($s == "Open" or $s == "Verifying"))
+                           and ([ (.status.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ] | length) > 0),
+             unavailableMsg: ([ (.status.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ][0].message // ""),
+             byPerson: (((.metadata.labels // {})["observability.krateo.io/analysis"] // "") == "human"),
              when: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]
        | sort_by(.when) | reverse
        | map(. + { open: (.state != "Resolved" and .state != "Closed"),
@@ -105,8 +114,10 @@ spec:
     | [ $shaped[] | select(.open) ] as $open
     | [ $shaped[] | select(.open | not) ] as $ended
       # Did the analysis produce a result, fail (status.error, or a provider error in the report), or produce nothing?
+      # An incident no model analyses had no analysis to fail or to produce: it is said as such.
+      | ($rep != null and (($rep.byPerson // false) or ($rep.unavailable // false))) as $repNoAnalysis
       | (if $rep == null then "" else ($rep.reportText // "") end) as $repText
-      | ($rep != null and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
+      | ($rep != null and ($repNoAnalysis | not) and ((($rep.error // "") != "") or ($repText | test("Bad Request|Too Many Requests|STREAM_ERROR|token count|exceeds the maximum")))) as $repFailed
       | (if $rep == null then false elif $repFailed then false else (($rep.structured // false) or (($repText | length) > 0)) end) as $repProduced
       # The About card: the description, then a warning for each failure the page would otherwise
       # hide. A healthy alert shows its description alone.
@@ -116,7 +127,11 @@ spec:
           elif $state == "ALERT" and ($paused | not) and $opensIncidents and ($open | length) == 0
           then "**Firing, but no incident has opened.** One normally opens within a minute; if none does, check the alert-provider's logs."
           else "" end),
-         (if $rep == null or ($rep.state // "") == "Analyzing" or $repProduced then ""
+         # In incidents-page's words (incident-no-analysis): information, not a failure.
+         (if $repNoAnalysis then
+            (if $rep.byPerson then "**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched, so no analysis or fix is proposed here."
+             else "**No analysis on this platform.** " + (($rep.unavailableMsg // "") | if . == "" then "No analysis agent is installed here: a person looks into this incident." else . end) end)
+          elif $rep == null or ($rep.state // "") == "Analyzing" or $repProduced then ""
           elif $repFailed then "**The latest analysis failed.** Open its incident below to see the error."
           else "**The latest analysis produced no result.** Open its incident below." end)
        ] | map(select(. != "")) | join("\n\n")) as $about
