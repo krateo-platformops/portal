@@ -73,6 +73,63 @@ def expr(doc, for_path):
     return e[2:-1]
 
 
+def marketplace_failures(mdocs):
+    """The marketplace detail page's facts (UX audit MKT-1, MKT-3, MKT-5), over marketplace-detail and
+    the widgets that read it: "What it creates" says whose list it is when the installed version is
+    not the page's; Latest version is the newest by version number; Category is the chart's
+    krateo.io/category as its card shows it, or no row; no raw "Published" timestamp under the
+    header's "published 49d ago"; a name the catalog does not hold says so, with no About rows.
+    MARKETPLACE_CHART=<origin/main's chart> is the control: these checks fail there."""
+    mprog = mdocs[('RESTAction', 'marketplace-detail')]['spec']['filter']
+    about = expr(mdocs[('Descriptions', 'descriptions-marketplace-detail-about')], 'items')
+    desc = expr(mdocs[('Paragraph', 'marketplace-detail-description')], 'text')
+    title = expr(mdocs[('Card', 'card-marketplace-detail-contents')], 'title') \
+        if any(t['forPath'] == 'title' for t in mdocs[('Card', 'card-marketplace-detail-contents')]['spec'].get('widgetDataTemplate', [])) else '"What it creates"'
+    subtitle = expr(mdocs[('PageHeader', 'marketplace-detail-page-header')], 'subtitle')
+    bad = []
+
+    def check(label, got, want):
+        if got != want:
+            bad.append(label)
+            print(f'FAIL marketplace, {label}: got {got!r}, want {want!r}')
+
+    def entry(version, **more):
+        return dict({'name': 'acme-feedback', 'version': version, 'created': '2026-10-06T04:35:04.158732159Z',
+                     'urls': [f'https://krateo-blueprints.github.io/charts/blueprints/acme-feedback-{version}.tgz']}, **more)
+
+    def cd(version, name='acme-feedback'):
+        return {'name': name, 'version': version, 'namespace': 'krateo-system', 'status': {'contents': SAMPLE}}
+
+    def page(name, entries, compdefs):
+        out = jq(mprog, {'name': name, 'catalog': {'entries': {'acme-feedback': entries}}, 'compdefs': compdefs})
+        return out, {r['label']: r['value'] for r in jq(about, out)}
+
+    # Installed 0.1.0, the page is about 0.1.1 (MKT-1); an index that is not newest-first.
+    out, rows = page('acme-feedback', [entry('0.1.1'), entry('0.1.10'), entry('0.1.9')], [cd('0.1.1')])
+    check('latest by version number', (out['version'], rows['Latest version']), ('0.1.10', '0.1.10'))
+    check('installed below the page: whose list it is', jq(title, out), 'What the installed 0.1.1 creates')
+    out, rows = page('acme-feedback', [entry('0.1.1')], [cd('0.1.1')])
+    check('installed at the page\'s version', jq(title, out), 'What it creates')
+    out, rows = page('acme-feedback', [entry('0.1.1')], [])
+    check('not installed', jq(title, out), 'What it creates')
+    # One date: the header's age, not a raw timestamp under it (MKT-5).
+    check('no Published row', 'Published' in rows, False)
+    # Category: the annotation, title-cased as the card shows it; else no row (MKT-5).
+    check('no category: no row, not "uncategorized"', 'Category' in rows, False)
+    # (`created` left out: the subtitle's age parses RFC 3339 with gojq's fromdate, which jq 1.7 refuses.)
+    check('no category: not in the subtitle', jq(subtitle, dict(out, created='')), 'v0.1.1')
+    out, rows = page('acme-feedback', [entry('0.1.1', keywords=['krateo'], annotations={'krateo.io/category': 'compute'})], [])
+    check('category: the annotation, as the card shows it', rows.get('Category'), 'Compute')
+    # A name the catalog does not hold, a platform component of that name installed (MKT-3).
+    out, rows = page('observability-page', [entry('0.1.1')], [cd('1.8.163', name='observability-page')])
+    check('not in the catalog: said', jq(desc, out),
+          'observability-page is not in the Marketplace catalog. A blueprint with this name is installed in krateo-system: Configure opens it.')
+    check('not in the catalog: no About rows', rows, {})
+    out, rows = page('nothing', [entry('0.1.1')], [])
+    check('not in the catalog, nothing installed', jq(desc, out), 'nothing is not in the Marketplace catalog.')
+    return bad
+
+
 def detail(prog, contents, version='0.0.0-envtest'):
     status = {'conditions': [{'type': 'Ready', 'status': 'True', 'reason': 'Available'}]}
     if contents is not None:
@@ -148,6 +205,7 @@ def main():
     # "not known here" when the installed blueprints could not be read.
     mdocs = {(d['kind'], d['metadata']['name']): d for d in render(MARKETPLACE)}
     mprog = mdocs[('RESTAction', 'marketplace-detail')]['spec']['filter']
+    bad.extend(marketplace_failures(mdocs))
     base = {'name': 'core-provider', 'catalog': {'entries': {'core-provider': [{'version': '0.0.0-envtest', 'name': 'core-provider'}]}}}
     m_not = jq(mprog, dict(base, compdefs=[]))['contents']
     check('marketplace, not installed', (m_not['state'], m_not['title'], m_not['extra']), ('notInstalled', 'Known once installed.', 'not installed'))

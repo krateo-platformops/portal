@@ -346,11 +346,11 @@ d = jq(detail_prog, {'name': 'redis', 'catalog': INDEX, 'compdefs': [{'name': 'r
 href, prompt = ask(d['askHref'])
 check('marketplace detail: -> self page', href, '/marketplace/redis')
 check('marketplace detail: installed -> the prompt', prompt,
-      'Tell me about the "redis" chart in the Marketplace (v1.2.0, database, stable; installed here at v1.1.0): what it provisions, '
+      'Tell me about the "redis" chart in the Marketplace (v1.2.0, Database, stable; installed here at v1.1.0): what it provisions, '
       'what it has created in my namespace, and whether it fits this platform.')
 _, prompt = ask(jq(detail_prog, {'name': 'kafka', 'catalog': INDEX, 'compdefs': []})['askHref'])
 check('marketplace detail: not installed -> the prompt', prompt,
-      'Tell me about the "kafka" chart in the Marketplace (v3.0.0, queue; not installed here): what it provisions, '
+      'Tell me about the "kafka" chart in the Marketplace (v3.0.0; not installed here): what it provisions, '
       'what installing it would create in my namespace, and whether it fits this platform.')
 _, prompt = ask(jq(detail_prog, {'name': 'kafka', 'catalog': INDEX, 'compdefsError': ERR403})['askHref'])
 check('marketplace detail: installed list refused -> says so', '; whether it is installed here could not be read)' in prompt, True)
