@@ -1,6 +1,6 @@
 {{/* Page root for /incidents/{namespace}/{name}, top to bottom: header (state, actions) → alert */}}
-{{/* chips + meta → Agentiko's Zendesk-request proposal (exception-only) → analysis error → Summary (why, */}}
-{{/* fix, who fixes it) → Reasoning (trace · evidence · resources · gaps) → Zendesk requests → How to fix */}}
+{{/* chips + meta → Agentiko's Zendesk-request proposal (exception-only) → analysis error, or that no model analyses it → */}}
+{{/* Summary (why, fix, who fixes it) → Reasoning (trace · evidence · resources · gaps) → Zendesk requests → How to fix */}}
 {{/* (the scripts) → tabs (Incident · Alert · Apply runs · Similar incidents) → prose fallback. */}}
 {{/* The proposal and the requests card sit in two slots that read incident-tickets, so this page */}}
 {{/* (incident-detail, no userAccessFilter) stays cacheable and updates live; see that RESTAction. */}}
@@ -40,7 +40,7 @@ spec:
         | [ { resourceRefId: "incident-detail-page-header" }, { resourceRefId: "incident-detail-header-block" } ]
         + [ { resourceRefId: "incident-ticket-proposal-slot" } ]
         + (if ($s.error // false) then [ { resourceRefId: "incident-error" } ] else [] end)
-        + (if ($s.noAgent // false) then [ { resourceRefId: "incident-no-agent" } ] else [] end)
+        + (if ($s.noAnalysis // false) then [ { resourceRefId: "incident-no-analysis" } ] else [] end)
         + (if ($s.summary // false) then [ { resourceRefId: "incident-summary-card" } ] else [] end)
         + (if ($s.reasoning // false) then [ { resourceRefId: "incident-why-card" } ] else [] end)
         + [ { resourceRefId: "incident-tickets-slot" } ]
@@ -73,9 +73,9 @@ spec:
       namespace: {{ $.Values.namespace }}
       resource: flexes
       verb: GET
-    - id: incident-no-agent
+    - id: incident-no-analysis
       apiVersion: widgets.templates.krateo.io/v1beta1
-      name: incident-no-agent
+      name: incident-no-analysis
       namespace: {{ $.Values.namespace }}
       resource: alerts
       verb: GET
