@@ -271,7 +271,9 @@ spec:
     | ([ $comps[] | select(.class == "paused") ]) as $paused
     | ([ $comps[] | select(.class == "drift") ]) as $drift
     | { total: ($comps | length),
-        ready: ([ $comps[] | select(.class == "ready" or .class == "paused" or .class == "drift") ] | length),
+        # Ready is Ready: a paused or drifted composition is not counted in it (audit DASH-1: 93 here, 92 on
+        # /compositions, the paused one counted Ready).
+        ready: ([ $comps[] | select(.class == "ready") ] | length),
         notReady: ($notReady | length),
         paused: ($paused | length),
         drift: ($drift | length),
@@ -279,6 +281,25 @@ spec:
         problems: [ ($notReady + $paused + $drift)[] | {name, namespace: .ns, kind, class, reason: readyReason} ],
         blueprints: (if errText(.definitionsError) != "" then null else ($defs | length) end),
         blueprintsReady: (if errText(.definitionsError) != "" then null else ([ $defs[] | select(.ready == "True") ] | length) end) } as $cmp
+    # ── health of compositions (approved mockup C6, option A: the Ready verdict) ───────────────
+    # Four health states from the class above, paused shown apart and never a health state. Each
+    # opens the compositions list filtered to the same states (every scope: the counts include the
+    # platform's). Colour marks an exception only: Warning and Critical are coloured and stand out
+    # above 0; OK and Unknown (nothing to judge it by, not a fault) are neutral.
+    | (if $projects != "" then "projects=" + ($projects | @uri) + "&" else "" end) as $hc
+    | ([ { key: "ok", title: "OK", icon: "fa-circle-check", classes: ["ready"], statuses: "healthy", caption: "Ready", alarm: "" },
+         { key: "warning", title: "Warning", icon: "fa-triangle-exclamation", classes: ["pending", "drift", "degraded"],
+           statuses: "pending,drift,degraded", caption: "changing, drifting or with unhealthy workloads", alarm: "orange" },
+         { key: "critical", title: "Critical", icon: "fa-circle-xmark", classes: ["failed"], statuses: "failed", caption: "failed", alarm: "red" },
+         { key: "unknown", title: "Unknown", icon: "fa-circle-question", classes: ["notAssessable", "unreadable"],
+           statuses: "unknown,unreadable", caption: "can’t be assessed", alarm: "" } ]
+       | map(. as $h | ([ $comps[] | select(.class | IN($h.classes[])) ] | length) as $v
+             | { key, title, icon, caption, value: ($v | tostring),
+                 color: (if $v > 0 and .alarm != "" then .alarm else "" end), highlight: ($v > 0 and .alarm != ""),
+                 route: ("/compositions?" + $hc + "scope=all&status=" + .statuses) })) as $healthTiles
+    | ($comps | map(select(.class == "paused")) | length) as $pausedN
+    | { tiles: $healthTiles, paused: $pausedN, total: ($comps | length),
+        summary: ((if $pausedN > 0 then ($pausedN | tostring) + " paused · " else "" end) + ($comps | length | tostring) + " in all") } as $health
     # ── the sources, gated ─────────────────────────────────────────────────────────────────────
     | (if $projects != "" then "projects=" + ($projects | @uri) else "" end) as $carry
     | def page($path; $query): ([ $query, $carry ] | map(select(. != "")) | join("&")) as $q | if $q == "" then $path else $path + "?" + $q end;
@@ -351,6 +372,7 @@ spec:
         agents: (if ($by.agents.on // false) then $agt else null end),
         reviews: (if ($by.reviews.on // false) then $rev else null end),
         compositions: (if ($by.compositions.on // false) then $cmp else null end),
+        health: (if ($by.compositions.on // false) and ($by.compositions.failed | not) then $health else null end),
         filters: $flt,
         facets: $facets,
         chips: fx_chips("/dashboard"; $params; $facets),
