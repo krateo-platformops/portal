@@ -1,7 +1,6 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
-{{/* Dirty-marks issued and dependency records held. */}}
-{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
-     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
+{{/* Dirty-marks issued, per bucket. The dependency records held are their own chart beside it in the same card
+     (sp-dep-records, the same RESTAction): one unit per axis (charts mockup, CHART-4; Diego, 2026-11-26). */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,16 +12,16 @@ metadata:
 spec:
   keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
+    title: Dirty marks
     xField: t
     yField: v
     colorField: series
     colorMap:
       "Dirty marks": cyan
-      "Dep records": teal
     shapeField: smooth
     area: false
-    legend: true
-    height: 160
+    legend: false
+    height: 150
     xTimeUnit: hour
     point: false
     scale:
@@ -36,11 +35,11 @@ spec:
         tickCount: 6
       "y":
         tickCount: 4
-        title: marks and records
+        title: marks
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"dirty_mark_total": "Dirty marks", "records": "Dep records"}[$k] // $k), v: (.v|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | select((.stat|tostring) == "dirty_mark_total") | { t: (.t|tonumber), series: "Dirty marks", v: (.v|tonumber) } ] }'
   apiRef:
     name: sp-dep-marks
     namespace: {{ $.Values.namespace }}

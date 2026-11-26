@@ -875,8 +875,8 @@ def check_resource_usage(c):
 Y_TITLES = {
     'obs-reconcile-throughput': 'reconciles', 'obs-resource-usage-cpu': 'cores', 'obs-resource-usage-mem': 'GiB',
     'sp-authz-memo': 'checks', 'sp-cache-evictions': 'entries', 'sp-cache-size': 'entries', 'sp-dep-evictions': 'entries',
-    'sp-dep-marks': 'marks and records', 'sp-fallthrough': 'requests', 'sp-http-mean': 'seconds', 'sp-http-status': 'responses',
-    'sp-informer-freshness': 'seconds and GVRs', 'sp-l1-lookups': 'lookups', 'sp-log-levels': 'lines', 'sp-queue-depth': 'items',
+    'sp-dep-marks': 'marks', 'sp-dep-records': 'records', 'sp-fallthrough': 'requests', 'sp-http-mean': 'seconds', 'sp-http-status': 'responses',
+    'sp-informer-freshness': 'seconds', 'sp-informer-stale': 'GVRs', 'sp-l1-lookups': 'lookups', 'sp-log-levels': 'lines', 'sp-queue-depth': 'items',
     'sp-refresher-outcomes': 'refreshes', 'sp-uaf-declines': 'requests',
 }
 
@@ -901,10 +901,12 @@ SP_SERIES = {
     'sp-cache-size': ('stat', {'entries': 'Entries', 'resident_entries': 'Resident entries'}),
     'sp-dep-evictions': ('stat', {'evict_delete_total': 'On delete', 'evict_self_gone_total': 'Object gone (404)',
                                   'self_notfound_evict_total': 'Refresher 404'}),
-    'sp-dep-marks': ('stat', {'dirty_mark_total': 'Dirty marks', 'records': 'Dep records'}),
+    'sp-dep-marks': ('stat', {'dirty_mark_total': 'Dirty marks'}),
+    'sp-dep-records': ('stat', {'records': 'Dep records'}),
     'sp-fallthrough': ('series', {'snowplow_apiserver_fallthrough_total': 'Fell through to the apiserver',
                                   'snowplow_cache_diagnostic_total': 'Diagnostic hits'}),
-    'sp-informer-freshness': ('stat', {'max_event_age_seconds': 'Oldest event age (s)', 'gvrs_stale_over_hour': 'GVRs stale over 1 h'}),
+    'sp-informer-freshness': ('stat', {'max_event_age_seconds': 'Oldest event age'}),
+    'sp-informer-stale': ('stat', {'gvrs_stale_over_hour': 'GVRs stale over 1 h'}),
     'sp-l1-lookups': ('outcome', {'hit': 'Hit', 'miss': 'Miss', 'seed_hit': 'Seed hit'}),
     'sp-queue-depth': ('series', {'snowplow_refresher_queue_depth': 'Refresher queue', 'snowplow_prewarm_engine_pending_depth': 'Prewarm pending'}),
     'sp-refresher-outcomes': ('stat', {'completed': 'Completed', 'failed': 'Failed', 'dropped': 'Dropped', 'retried': 'Retried',
@@ -915,20 +917,42 @@ SP_SERIES = {
 }
 
 
+# Charts split in two, one unit per axis (Diego, 2026-11-26): the chart that stays -> the one split out of it,
+# which reads the same RESTAction.
+SP_SPLIT = {'sp-dep-marks': 'sp-dep-records', 'sp-informer-freshness': 'sp-informer-stale'}
+RA_OF = {moved: kept for kept, moved in SP_SPLIT.items()}
+
+
 def check_sp_series_names(on):
     """Every SP line chart draws its series under a plain name, in the colour its map gives it, and the
-    SQL still selects each raw key the map names; a key the map does not know is drawn as itself."""
+    SQL still selects each raw key the map names; a key the map does not know is drawn as itself. A chart
+    split out of another (one unit per axis, CHART-4) draws its own stat and nothing else, from its card's
+    RESTAction, in the same card."""
     f = []
     for chart, (field, names) in SP_SERIES.items():
         cmap = on.get('LineChart', chart)['spec']['widgetData']['colorMap']
         rows = [{'t': '1700000000', field: raw, 'd': '1', 'v': '1'} for raw in names] + [{'t': '1700000000', field: 'new_key', 'd': '1', 'v': '1'}]
         drawn = [d['series'] for d in wd(on, 'LineChart', chart, {'rows': rows})['data']]
-        expect(f, f'{chart}: the series, named', drawn, list(names.values()) + ['new_key'])
+        split = chart in SP_SPLIT or chart in SP_SPLIT.values()
+        expect(f, f'{chart}: the series, named', drawn, list(names.values()) + ([] if split else ['new_key']))
         expect(f, f'{chart}: each name has its colour', sorted(cmap), sorted(names.values()))
-        sql = unquote(on.get('RESTAction', chart)['spec']['api'][0]['path'])
+        if split:
+            others = [r for c, (fl, n) in SP_SERIES.items() if c != chart and RA_OF.get(c, c) == RA_OF.get(chart, chart) for r in n]
+            expect(f, f'{chart}: not the other chart\'s stat', wd(on, 'LineChart', chart, {'rows': [{'t': '1700000000', field: r, 'v': '1'} for r in others]})['data'], [])
+        ra = on.get('RESTAction', RA_OF.get(chart, chart))
+        expect(f, f'{chart}: reads its card\'s RESTAction', on.get('LineChart', chart)['spec']['apiRef']['name'], ra['metadata']['name'])
+        sql = unquote(ra['spec']['api'][0]['path'])
         for raw in names:
             if raw not in sql and raw not in {'hit', 'miss', 'seed_hit', 'completed', 'failed', 'dropped', 'retried'}:
                 f.append(f'{chart}: the SQL no longer names {raw}')
+    for kept, moved in SP_SPLIT.items():
+        card = next(d for d in on.docs if d.get('kind') == 'Card' and any(i['resourceRefId'] == kept for i in d['spec']['widgetData'].get('items') or []))
+        expect(f, f'{kept}: the card holds both charts, the split one after', [i['resourceRefId'] for i in card['spec']['widgetData']['items']], [kept, moved])
+        expect(f, f'{kept}: the card references both', [r['name'] for r in card['spec']['resourcesRefs']['items']], [kept, moved])
+        for name in (kept, moved):
+            spec = on.get('LineChart', name)['spec']['widgetData']
+            expect(f, f'{name}: one series, titled, no legend', (spec.get('legend'), spec.get('title'), len(spec['colorMap'])),
+                   (False, next(iter(SP_SERIES[name][1].values())), 1))
     return f
 
 

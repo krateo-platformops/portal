@@ -1,7 +1,7 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
-{{/* How stale the informers are. A rising max_event_age means a watch has gone quiet. */}}
-{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
-     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
+{{/* How stale the informers are: the oldest event age, in seconds. A rising max_event_age means a watch has gone
+     quiet. The GVRs stale over an hour are their own chart beside it in the same card (sp-informer-stale, the same
+     RESTAction): one unit per axis (charts mockup, CHART-4; Diego, 2026-11-26). */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -13,16 +13,16 @@ metadata:
 spec:
   keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
+    title: Oldest event age
     xField: t
     yField: v
     colorField: series
     colorMap:
-      "Oldest event age (s)": orange
-      "GVRs stale over 1 h": red
+      "Oldest event age": orange
     shapeField: smooth
     area: false
-    legend: true
-    height: 160
+    legend: false
+    height: 150
     xTimeUnit: hour
     point: false
     scale:
@@ -36,11 +36,11 @@ spec:
         tickCount: 6
       "y":
         tickCount: 4
-        title: seconds and GVRs
+        title: seconds
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"max_event_age_seconds": "Oldest event age (s)", "gvrs_stale_over_hour": "GVRs stale over 1 h"}[$k] // $k), v: (.v|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | select((.stat|tostring) == "max_event_age_seconds") | { t: (.t|tonumber), series: "Oldest event age", v: (.v|tonumber) } ] }'
   apiRef:
     name: sp-informer-freshness
     namespace: {{ $.Values.namespace }}

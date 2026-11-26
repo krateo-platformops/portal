@@ -1,0 +1,50 @@
+{{- if (.Values.observability | default dict).snowplowSli }}
+{{/* How many GVRs have been stale for over an hour, per bucket: the `gvrs_stale_over_hour` stat of
+     sp-informer-freshness, drawn apart from the oldest event age in the same card, one unit per axis (charts
+     mockup, CHART-4; Diego, 2026-11-26). Unsmoothed, the bucket holding now partial (the RESTAction's `current`,
+     from feat/chart-time-slots; absent, nothing is). */}}
+kind: LineChart
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: sp-informer-stale
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+    "krateo.io/external-cache-ttl-seconds": "30"
+spec:
+  keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
+  widgetData:
+    title: GVRs stale over 1 h
+    xField: t
+    yField: v
+    colorField: series
+    slotField: slot
+    colorMap:
+      "GVRs stale over 1 h": red
+    area: false
+    legend: false
+    height: 150
+    xTimeUnit: hour
+    point: false
+    scale:
+      "y":
+        zero: true
+        nice: true
+        domainMin: 0
+        tickCount: 4
+    axis:
+      x:
+        tickCount: 6
+      "y":
+        tickCount: 4
+        title: GVRs
+    data: []
+  widgetDataTemplate:
+  - forPath: data
+    expression: '${ (.current // null) as $cur | [ (.rows // [])[] | select((.stat|tostring) == "gvrs_stale_over_hour") | { t: (.t|tonumber), series: "GVRs stale over 1 h", v: (.v|tonumber) } | . + (if .t == $cur then { slot: "partial" } else {} end) ] }'
+  apiRef:
+    name: sp-informer-freshness
+    namespace: {{ $.Values.namespace }}
+  resourcesRefs:
+    items: []
+{{- end }}
