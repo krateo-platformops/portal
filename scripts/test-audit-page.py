@@ -755,7 +755,7 @@ def check_columns_map_to_the_record(c):
                                                     first['namespace']['stringValue']),
            ('admin', 'Update', 'alerts · observability.krateo.io', 'acmp-new-alert-check', 'krateo-system'))
     expect(p, 'outcome pill', (first['outcome']['kind'], first['outcome']['stringValue'], first['outcome']['color']),
-           ('tag', 'success · 200', 'green'))
+           ('tag', 'success · 200', 'gray'))
     expect(p, 'POST is Create; failure is red', (by['storefront-web/failure · 409']['action']['stringValue'],
                                                  by['storefront-web/failure · 409']['outcome']['color']), ('Create', 'red'))
     rdc = [cells(r) for r in rows if cells(r)['resource']['stringValue'].startswith('Repo ')][0]
@@ -1276,14 +1276,16 @@ def check_figures(c):
     expect(p, 'figures are statistic tiles', (stats['itemTemplate']['rowVariant'], stats['itemTemplate']['color']['value']),
            ('statistic', '{tone}'))
     expect(p, 'each outcome figure wears its card colour', {k: smap[k] for k in ('success', 'failure', 'denied')}, cmap['map'])
-    expect(p, '... which is the outcome tag\'s', cmap['map'], {'success': 'green', 'failure': 'red', 'denied': 'orange'})
+    # Colour marks the exceptions (Diego, 2026-11-26): a success is gray, only Failure and Denied are coloured.
+    expect(p, '... which is the outcome tag\'s', cmap['map'], {'success': 'gray', 'failure': 'red', 'denied': 'orange'})
     expect(p, 'Untraced is the tag\'s gray for no outcome; Records neutral slate; a failed read orange',
            (smap['untraced'], cmap['default'], smap['records'], smap['unread']), ('gray', 'gray', 'slate', 'orange'))
-    expect(p, 'the donut and the activity lines use the same colours',
+    # Other is slate beside Success's gray: two slices of one gray read as one.
+    expect(p, 'the donut and the activity bars use the same colours',
            ({k.lower(): v for k, v in wd(c, 'PieChart', 'audit-outcomes', out)['colorMap'].items() if k != 'Other'},
             {k.lower(): v for k, v in wd(c, 'BarChart', 'audit-activity', out)['colorMap'].items()},
             wd(c, 'PieChart', 'audit-outcomes', out)['colorMap']['Other']),
-           (cmap['map'], cmap['map'], 'gray'))
+           (cmap['map'], cmap['map'], 'slate'))
     _, fo, _ = records_all(c, {'auditOutcome': 'failure'}, ADMIN)
     expect(p, 'the figures follow the chips', [x[1] for x in figures(fo)], ['2', '0', '2', '0', '1'])
     expect(p, 'a zero figure keeps its colour', [x[3] for x in figures(fo)], ['records', 'success', 'failure', 'denied', 'untraced'])
@@ -1402,7 +1404,7 @@ def check_trend(c):
         lc = wd(c, 'BarChart', chart, out, {'range': rng}, f'{chart} ({rng})')
         expect(p, f'{rng}: the chart\'s data and time unit', (len(lc['data']), lc.get('xTimeUnit')),
                (3 * n, None if unit == 'minute' else unit))
-        p += counts.problems(f'{rng}: Activity', lc, title='records', colors={'Success': 'green', 'Failure': 'red', 'Denied': 'orange'},
+        p += counts.problems(f'{rng}: Activity', lc, title='records', colors={'Success': 'gray', 'Failure': 'red', 'Denied': 'orange'},
                              resolve_rows=lambda rows, out=out, chart=chart, rng=rng: wd(c, 'BarChart', chart, dict(out, trend=rows), {'range': rng}, f'{chart} ({rng}, counts)'))
         other = wd(c, 'BarChart', 'audit-activity' if unit == 'minute' else 'audit-activity-minutes', out, {'range': rng}, f'other chart ({rng})')
         expect(p, f'{rng}: the other chart is empty', other['data'], [])
