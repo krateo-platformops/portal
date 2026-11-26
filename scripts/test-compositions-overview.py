@@ -137,16 +137,23 @@ def check_stats_and_empty():
     expect(f, 'the figures, as drawn', rows, [('NotReady', '1', 'of 25', 'failed'), ('Degraded', '1', 'workload unhealthy', 'degraded'),
                                               ('Drift', '1', 'Synced=False', 'drift'), ('Paused', '1', 'ReconcilePaused', 'paused'),
                                               ('Ready', '18', '2 kinds', 'healthy')])
-    smap = w('Listy', 'compositions-stats', out)['itemTemplate']['color']['map']
+    tpl = w('Listy', 'compositions-stats', out)['itemTemplate']
     cmap = w('Listy', 'compositions-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'each figure wears its state\'s card colour; a failed read orange',
-           ({k: smap[k] for k in ('failed', 'degraded', 'drift', 'paused', 'healthy')}, smap['unread']),
-           ({k: cmap[k] for k in ('failed', 'degraded', 'drift', 'paused', 'healthy')}, 'orange'))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    look = lambda o: [(t['title'], t['color'], t['highlight']) for t in o['stats']]
+    expect(f, 'above 0, each Needs-attention figure wears its state\'s card colour, highlighted; Ready neutral', look(out),
+           [('NotReady', cmap['failed'], True), ('Degraded', cmap['degraded'], True), ('Drift', cmap['drift'], True),
+            ('Paused', cmap['paused'], True), ('Ready', '', False)])
+    three = resolve({}, [comp(f'down-{i}', 'WebApp', ready='False', reason='Unavailable') for i in range(3)])
+    expect(f, 'NotReady at 3: red and highlighted', (three['stats'][0]['value'], three['stats'][0]['color'], three['stats'][0]['highlight']), ('3', 'red', True))
     expect(f, 'the figures do not follow the state chip', out['stats'], resolve({'status': 'healthy'})['stats'])
     quiet = [c for c in WORK if c['name'].startswith('pub-')]
     out = resolve({}, quiet)
-    expect(f, 'quiet: still coloured by state, at 0', [(t['value'], t['tone']) for t in out['stats']][:4],
+    expect(f, 'quiet: each state still its tone, at 0', [(t['value'], t['tone']) for t in out['stats']][:4],
            [('0', 'failed'), ('0', 'degraded'), ('0', 'drift'), ('0', 'paused')])
+    expect(f, 'quiet: a 0 is neutral and plain, never red or orange; Ready too', [(t['color'], t['highlight']) for t in out['stats']],
+           [('', False)] * 5)
     expect(f, 'quiet: the sentence in place of the cards', (items(w('Card', 'compositions-list-card', out)), w('Paragraph', 'compositions-empty', out)['text']),
            (['compositions-state-chips', 'compositions-empty'],
             'Nothing needs attention in My workloads: none is NotReady, Degraded, drifting, paused or with unreadable children.'))
@@ -154,7 +161,8 @@ def check_stats_and_empty():
     empty = w('Paragraph', 'compositions-empty', out)
     expect(f, 'nothing read: said, as a warning', (empty['text'], empty['type']),
            ('The compositions could not be read (compositiondefinitions is forbidden), so nothing on this page counts them.', 'warning'))
-    expect(f, 'nothing read: the figures are "—", never 0', {(t['value'], t['caption']) for t in out['stats']}, {('', 'could not be read')})
+    expect(f, 'nothing read: the figures are "—", never 0, orange and highlighted', {(t['value'], t['caption'], t['color'], t['highlight']) for t in out['stats']},
+           {('', 'could not be read', 'orange', True)})
     expect(f, 'nothing read: no slice, no kind', (out['byState'], out['byKind']), ([], []))
     return f
 
@@ -199,6 +207,16 @@ def check_charts():
            [(r['name'], r['why'], r['href']) for r in w('Listy', 'compositions-longest', out)['dataSource']],
            [('cache', 'Drift · 3 d 12 h', '/compositions/team-a/cache'), ('acme', 'Paused · 2 d', '/compositions/team-a/acme'),
             ('orders', 'NotReady · 6 h', '/compositions/team-a/orders')])
+    expect(f, 'by kind: a paused composition is named apart, neutral, and is not one that needs attention (CMP-9)',
+           [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] in ('AcmeFeedback', 'Redis')],
+           [('Redis', '2 · 2 need attention', 'bad'), ('AcmeFeedback', '1 · 1 paused', 'ok')])
+    longest = w('Listy', 'compositions-longest', out)
+    lmap = longest['itemTemplate']['color'].get('map', {})
+    cmap = w('Listy', 'compositions-cards', out)['itemTemplate']['color']['map']
+    expect(f, 'needing attention longest: each dot is its state\'s card colour, paused gray, never red (CMP-9)',
+           [(r['name'], lmap.get(r.get('tone'), longest['itemTemplate']['color'].get('default'))) for r in longest['dataSource']],
+           [('cache', cmap['drift']), ('acme', 'gray'), ('orders', cmap['failed'])])
+    expect(f, 'the dot\'s colour comes from the row', longest['itemTemplate']['color']['value'], '{tone}')
     expect(f, 'the side shows it while there are any', items(w('Flex', 'compositions-side', out)),
            ['compositions-by-state-card', 'compositions-by-kind-card', 'compositions-longest-card'])
     out = resolve(ex, [c for c in WORK if c['name'] != 'cache' and c['name'] != 'acme' and c['name'] != 'orders'])

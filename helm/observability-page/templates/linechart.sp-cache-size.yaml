@@ -1,5 +1,7 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
 {{/* Resolved-cache occupancy. `resident_entries` is the in-memory subset. */}}
+{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
+     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,8 +17,8 @@ spec:
     yField: v
     colorField: series
     colorMap:
-      "entries": cyan
-      "resident_entries": teal
+      "Entries": cyan
+      "Resident entries": teal
     shapeField: smooth
     area: false
     legend: true
@@ -37,7 +39,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.stat|tostring), v: (.v|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"entries": "Entries", "resident_entries": "Resident entries"}[$k] // $k), v: (.v|tonumber) } ] }'
   apiRef:
     name: sp-cache-size
     namespace: {{ $.Values.namespace }}

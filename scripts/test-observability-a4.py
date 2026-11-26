@@ -7,9 +7,10 @@ THE PAGE: the header (no subtitle), the toolbar (the time range left, the search
 stacked when narrow), the tabs; krateo.io/filter-keys on the root, and every widget the root reaches
 (every flag on) declaring exactly those keys (F6).
 EACH LISTING TAB (Reconciliation, Telemetry, Components, Traces):
-  - the figures: titles, values, captions and tones, each tile coloured by the state it counts
-    with the same palette colour its cards give that state, zero or not; a failed read is "",
-    "could not be read", orange — never a 0;
+  - the figures: titles, values, captions and tones; the colour and the highlighted border are the
+    data's (portal.tileDefs): a figure that counts something wrong wears the palette colour its
+    cards give that state and is highlighted above 0 only, a 0 and every other figure neutral and
+    plain; a failed read is "", "could not be read", orange and highlighted — never a 0;
   - the layout: figures, then the main row (list card 16 | charts 8, stacked when narrow); the list
     card's items (state chips, then the cards, ?view=table the full list, or the empty line) and its
     "Summary | Full list" chips (extraRefId); the side cards, a card with no data left out;
@@ -65,6 +66,11 @@ SINCE_S = traces.SINCE_S
 def expect(f, what, got, want):
     if got != want:
         f.append(f'{what}: got {got!r}, want {want!r}')
+
+
+def looks(out):
+    """Each figure's computed colour and border (portal.tileDefs)."""
+    return [(s['color'], s['highlight']) for s in out['stats']]
 
 
 def wd(c, kind, name, out, extras=None, label=None):
@@ -210,17 +216,26 @@ def check_recon_figures(c, on):
            ['Compositions', 'Healthy', 'Needs attention', 'Pending'])
     stats = wd(on, 'Listy', 'obs-recon-stats', out)
     cmap = wd(on, 'Listy', 'obs-recon-cards', out)['itemTemplate']['color']['map']
-    smap = stats['itemTemplate']['color']['map']
     expect(f, 'the cards colour each state as /compositions does', cmap, CARD_MAP)
-    expect(f, 'each figure wears its state\'s card colour',
-           (smap['healthy'], smap['pending'], smap['attention']), (cmap['healthy'], cmap['pending'], cmap['failed']))
-    expect(f, 'overdue is the cards\' clock colour', smap['overdue'], wd(on, 'Listy', 'obs-recon-cards', out)['dataSource'][0]['statusColor'])
-    expect(f, 'a failed read is orange; Compositions is neutral', (smap['unread'], 'total' in smap), ('orange', False))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)',
+           (stats['itemTemplate']['color'], stats['itemTemplate'].get('highlight')), ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Needs attention, Pending and Overdue wear their card colour, highlighted; Compositions and Healthy neutral',
+           looks(out), [('', False), ('', False), (cmap['failed'], True), (cmap['pending'], True),
+                        (wd(on, 'Listy', 'obs-recon-cards', out)['dataSource'][0]['statusColor'], True)])
+    calm = {FW: {'items': [LISTS[FW]['items'][0]]}, PT: LISTS[PT]}
+    _, _, quiet = recon_out(on, spans=SPANS[:2], lists=calm)
+    expect(f, 'a quiet scope: every 0 neutral and plain, never red or orange; Healthy too',
+           [(s['value'],) + l for s, l in zip(quiet['stats'], looks(quiet))], [('2', '', False), ('2', '', False)] + [('0', '', False)] * 3)
+    broken = LISTS[FW]['items'][1]
+    three = {FW: {'items': [dict(broken, metadata=dict(broken['metadata'], name=f'broken-{i}')) for i in range(3)]}, PT: LISTS[PT]}
+    _, _, o3 = recon_out(on, spans=SPANS[:1], lists=three)
+    expect(f, 'Needs attention at 3: red and highlighted', (o3['stats'][2]['value'],) + looks(o3)[2], ('3', 'red', True))
     for label, kw, want in (('ClickHouse down', {'ch_down': True}, ('', 'traces could not be read', 'unread')),
-                            ('no reconcile span', {'spans': []}, ('', 'no reconcile traces in 7 days', 'overdue'))):
+                            ('no reconcile span', {'spans': []}, ('', 'no reconcile traces in 24 hours', 'overdue'))):
         _, _, o = recon_out(on, **kw)
         s = o['stats'][4]
         expect(f, f'{label}: the overdue figure says why', (s['value'], s['caption'], s['tone']), want)
+        expect(f, f'{label}: with no count to show, the overdue figure stays orange and highlighted', looks(o)[4], ('orange', True))
         expect(f, f'{label}: nothing dated, nothing overdue', (o['counts']['overdue'], [r['statusIcon'] for r in o['rows']]),
                (0, [''] * 6))
         expect(f, f'{label}: the note says it', 'The compositions themselves are not affected.' in o['note'], True)
@@ -228,6 +243,7 @@ def check_recon_figures(c, on):
     _, _, bad = recon_out(on, crds={'__status__': {'kind': 'Status', 'code': 403, 'message': 'compositiondefinitions is forbidden'}}, lists={})
     expect(f, 'a failed read: every figure "could not be read", never 0',
            {(s['value'], s['caption'], s['tone']) for s in bad['stats']}, {('', 'could not be read', 'unread')})
+    expect(f, 'a failed read: every figure orange and highlighted', set(looks(bad)), {('orange', True)})
     expect(f, 'a failed read: the line, as a warning', (items(on, 'Card', 'obs-recon-list-card', bad)[-1],
                                                          wd(on, 'Paragraph', 'obs-recon-empty', bad)['type']), ('obs-recon-empty', 'warning'))
     expect(f, 'a failed read: no chart', (bad['byState'], bad['byKind'], bad['byNamespace']), ([], [], []))
@@ -361,13 +377,13 @@ def check_recon_query(on):
     expect(f, 'one CompositionDefinition list', by.get('crds'), ['/apis/core.krateo.io/v1alpha1/compositiondefinitions'])
     expect(f, 'one list per kind', sorted(by.get('comps') or []), sorted([FW, PT]))
     sql = unquote(by['last'][0][len('/?query='):])
-    expect(f, 'one bounded ClickHouse aggregate, with the p95', sql,
+    expect(f, 'one bounded ClickHouse aggregate, with the p95, over the default range (24h)', sql,
            "SELECT SpanAttributes['k8s.object.kind'] AS kind, SpanAttributes['k8s.object.namespace'] AS ns, "
            "SpanAttributes['k8s.object.name'] AS name, toUnixTimestamp(max(Timestamp)) AS last, "
            "toUnixTimestamp(min(Timestamp)) AS first, toUnixTimestamp(now()) AS now, "
            "round(quantile(0.95)(Duration)/1e6, 0) AS p95_ms, count() AS n FROM otel_traces "
            "WHERE ServiceName = 'composition-dynamic-controller' AND SpanName = 'reconcile' "
-           "AND Timestamp > now() - INTERVAL 7 DAY GROUP BY kind, ns, name FORMAT JSON")
+           "AND Timestamp > now() - INTERVAL 24 HOUR GROUP BY kind, ns, name FORMAT JSON")
     for step in on.get('RESTAction', 'obs-reconciliation')['spec']['api']:
         if not step.get('endpointRef') and not step.get('userAccessFilter'):
             f.append(f'{step["name"]}: an apiserver stage with no userAccessFilter')
@@ -377,7 +393,56 @@ def check_recon_query(on):
     _, _, plain = recon_out(on)
     expect(f, 'quoted 64-bit integers read the same', quoted['rows'], plain['rows'])
     expect(f, 'the trace window, in the caption', (plain['extra'], wd(on, 'Paragraph', 'obs-sec-reconciliation-desc', plain)['text'].split(' Reconcile ')[-1]),
-           ('trace window: since 3 Nov, 14:02 (7 days)', 'trace window: since 3 Nov, 14:02 (7 days).'))
+           ('trace window: since 3 Nov, 14:02 (24 hours)', 'trace window: since 3 Nov, 14:02 (24 hours).'))
+    # OBS-1: the caption named a 7-day window while the 24h chip was on and every other card on the
+    # tab read 24 hours. The spans are read over the range the chip names, and the caption says it.
+    for rng, iv, words in (('1h', '1 HOUR', '1 hour'), ('6h', '6 HOUR', '6 hours'), ('24h', '24 HOUR', '24 hours'),
+                           ('7d', '7 DAY', '7 days'), ('x', '24 HOUR', '24 hours')):
+        reqs, _, out = recon_out(on, {'range': rng})
+        sql = unquote([p for n, p, _ in reqs if n == 'last'][0][len('/?query='):])
+        expect(f, f'range={rng}: the spans are read over it', sql.split(' GROUP BY ')[0].split(' AND Timestamp > ')[-1],
+               f'now() - INTERVAL {iv}')
+        expect(f, f'range={rng}: the caption names it', out['extra'], f'trace window: since 3 Nov, 14:02 ({words})')
+        _, _, empty = recon_out(on, {'range': rng}, spans=[])
+        expect(f, f'range={rng}: no span in it, said of it', (empty['stats'][4]['caption'], f'from the last {words} were found' in empty['note']),
+               (f'no reconcile traces in {words}', True))
+    return f
+
+
+# The window each range chip names, as every query on the page must read it (`now() - INTERVAL <iv>`).
+WINDOWS = {'1h': '1 HOUR', '6h': '6 HOUR', '24h': '24 HOUR', '7d': '7 DAY'}
+# The Telemetry tab still folds 6h into 24h, and says so on its "Window read" figure ("the logs are
+# read per 1 h, 24 h or 7 d"); it moves with that figure. The SLOs tab sends its window as
+# param_start/param_end and has its own test (test-obs-slo.py).
+WINDOW_EXEMPT = {'obs-error-log-digest', 'obs-log-stream', 'obs-slo'}
+
+
+def check_range_windows(on):
+    """Every ClickHouse query a range chip drives reads the window the chip names. The 6h chip used to
+    read 24 hours on the four snowplow tabs and the reconcile throughput: each path mapped 1h, 24h and
+    7d, and 6h fell through to the default."""
+    f = []
+    norm = lambda sql: ' '.join(sql.replace('now()-INTERVAL', 'now() - INTERVAL').split())
+    for ra in on.docs:
+        if ra.get('kind') != 'RESTAction' or ra['metadata']['name'] in WINDOW_EXEMPT:
+            continue
+        steps = [st for st in ra['spec']['api'] if st.get('endpointRef') and '.range' in (st.get('path') or '')]
+        if not steps:
+            continue
+        stub = {st['name']: ch([]) for st in ra['spec']['api']}
+        for rng, iv in WINDOWS.items():
+            reqs, _, _ = gates.resolve(ra, {'range': rng}, stub)
+            for st in steps:
+                paths = [p for n, p, _ in reqs if n == st['name']]
+                if not paths:
+                    f.append(f'{ra["metadata"]["name"]}/{st["name"]} range={rng}: no request')
+                    continue
+                sql = norm(unquote(paths[0].split('query=', 1)[-1]))
+                if f'now() - INTERVAL {iv}' not in sql:
+                    f.append(f'{ra["metadata"]["name"]}/{st["name"]} range={rng}: does not read the last {iv}')
+                for other in set(WINDOWS.values()) - {iv}:
+                    if f'now() - INTERVAL {other}' in sql:
+                        f.append(f'{ra["metadata"]["name"]}/{st["name"]} range={rng}: reads the last {other}')
     return f
 
 
@@ -409,16 +474,22 @@ def check_telemetry(c, on):
     expect(f, 'the figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
            [('Error lines', '1495', 'in the last 7 days', 'error'), ('Distinct problems', '15', 'grouped by service and message', 'error'),
             ('Services erroring', '2', 'among the 40 most frequent problems', 'error'), ('Window read', '7 d', 'the time range', 'window')])
-    smap = wd(c, 'Listy', 'obs-tel-stats', out)['itemTemplate']['color']['map']
+    tpl = wd(c, 'Listy', 'obs-tel-stats', out)['itemTemplate']
     cmap = wd(c, 'Listy', 'obs-error-log-list', out)['itemTemplate']['color']['map']
-    expect(f, 'an error figure wears the error cards\' colour; the window is neutral', (smap['error'], 'window' in smap, smap['unread']),
-           (cmap['ERROR'], False, 'orange'))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, an error figure wears the error cards\' colour, highlighted; the window is neutral', looks(out),
+           [(cmap['ERROR'], True)] * 3 + [('', False)])
+    none = digest(c, rows=[], tot=ch([{'total': '0', 'distinct_problems': '0'}]))
+    expect(f, 'no error logged: every 0 neutral and plain, never red', [(s['value'],) + l for s, l in zip(none['stats'], looks(none))][:3],
+           [('0', '', False)] * 3)
     six = digest(c, {'range': '6h'})
     expect(f, '6h: the window the SQL read, said', (six['stats'][3]['value'], six['stats'][3]['caption']),
            ('24 h', 'the logs are read per 1 h, 24 h or 7 d'))
     down = digest(c, rows=None, tot=None)
     expect(f, 'a failed read: "could not be read", never 0',
            [(s['value'], s['tone']) for s in down['stats']], [('', 'unread')] * 3 + [('24 h', 'window')])
+    expect(f, 'a failed read: orange and highlighted; the window still neutral', looks(down), [('orange', True)] * 3 + [('', False)])
     expect(f, 'a failed read: the line, as a warning', (items(c, 'Card', 'obs-errors-card', down), wd(c, 'Paragraph', 'obs-tel-empty', down)['type']),
            (['obs-tel-empty'], 'warning'))
     card = wd(c, 'Card', 'obs-errors-card', out)
@@ -510,14 +581,21 @@ def check_components(c):
     out = comps(c)
     expect(f, 'the figures', [(s['title'], s['value'], s['tone']) for s in out['stats']],
            [('Deployments', '4', 'total'), ('Ready', '2', 'ready'), ('Not ready', '1', 'notready'), ('Scaled to zero', '1', 'scaled')])
-    smap = wd(c, 'Listy', 'obs-components-stats', out)['itemTemplate']['color']['map']
+    tpl = wd(c, 'Listy', 'obs-components-stats', out)['itemTemplate']
     cmap = wd(c, 'Listy', 'obs-components-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'each figure wears its state\'s card colour', {k: v for k, v in smap.items() if k != 'unread'}, cmap)
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Not ready wears its card colour, highlighted; the rest neutral', looks(out),
+           [('', False), ('', False), (cmap['notready'], True), ('', False)])
+    calm = comps(c, deps={'items': [dep('snowplow', 2, 2), dep('core-provider', 1, 1)]})
+    expect(f, 'every Deployment ready: Not ready at 0 neutral and plain', (calm['stats'][2]['value'],) + looks(calm)[2], ('0', '', False))
+    sick = comps(c, deps={'items': [dep(f'down-{i}', 1, 0) for i in range(3)]})
+    expect(f, 'Not ready at 3: red and highlighted', (sick['stats'][2]['value'],) + looks(sick)[2], ('3', 'red', True))
     expect(f, 'the donut colours the states as the cards', wd(c, 'PieChart', 'obs-components-by-state', out)['colorMap'],
            {'Ready': cmap['ready'], 'Not ready': cmap['notready'], 'Scaled to zero': cmap['scaled']})
     down = comps(c, deps=None)
-    expect(f, 'a failed read: "could not be read", orange', ({(s['value'], s['tone']) for s in down['stats']}, smap['unread']),
-           ({('', 'unread')}, 'orange'))
+    expect(f, 'a failed read: "could not be read", orange and highlighted', ({(s['value'], s['tone']) for s in down['stats']}, set(looks(down))),
+           ({('', 'unread')}, {('orange', True)}))
     card = wd(c, 'Card', 'obs-components-list-card', out)
     expect(f, 'the list card', ([i['resourceRefId'] for i in card['items']], card['extraRefId']),
            (['obs-components-state-chips', 'obs-components-cards'], 'obs-components-view-chips'))
@@ -569,14 +647,23 @@ def check_traces(c):
     expect(f, 'the figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
            [('Spans', '6', 'in the time range', 'spans'), ('Errors', '1', 'spans with StatusCode Error', 'error'),
             ('Services', '2', 'most: agentgateway', 'services'), ('Users', '2', 'with a jwt.sub (AI calls)', 'users')])
-    smap = wd(c, 'Listy', 'obs-traces-stats', out)['itemTemplate']['color']['map']
+    tpl = wd(c, 'Listy', 'obs-traces-stats', out)['itemTemplate']
     cmap = wd(c, 'Listy', 'obs-traces-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'Errors wears the Error cards\' colour', (smap['error'], smap['unread']), (cmap['Error'], 'orange'))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Errors wears the Error cards\' colour, highlighted; the rest neutral', looks(out),
+           [('', False), (cmap['Error'], True), ('', False), ('', False)])
+    clean = spans(c, rows=[r for r in traces.LIST_ROWS if r['status'] != 'Error'])
+    expect(f, 'no error span: Errors at 0 neutral and plain, never red', (clean['stats'][1]['value'],) + looks(clean)[1], ('0', '', False))
+    errs = [dict(r, status='Error') for r in traces.LIST_ROWS[:3]]
+    three = spans(c, rows=errs)
+    expect(f, 'Errors at 3: red and highlighted', (three['stats'][1]['value'],) + looks(three)[1], ('3', 'red', True))
     expect(f, 'the donut colours the statuses as the cards', wd(c, 'PieChart', 'obs-traces-by-status', out)['colorMap'],
            {'Error': cmap['Error'], 'OK': cmap['Ok'], 'Unset': cmap['Unset']})
     down = spans(c, rows=False)
     expect(f, 'a failed read', ({(s['value'], s['caption'], s['tone']) for s in down['stats']}, items(c, 'Card', 'obs-traces-list-card', down)),
            ({('', 'could not be read', 'unread')}, ['obs-traces-status-chips', 'obs-traces-empty']))
+    expect(f, 'a failed read: orange and highlighted', set(looks(down)), {('orange', True)})
     bad = spans(c, {'traceUser': "x' OR 1=1"}, rows=[])
     expect(f, 'a refused filter: said, not counted', (bad['stats'][0]['caption'], wd(c, 'Paragraph', 'obs-traces-empty', bad)['text']),
            ('a filter was refused', 'The user filter holds a character it may not, so no span was read.'))
@@ -622,6 +709,23 @@ def check_traces(c):
 # ---------------------------------------------------------------------------------------------
 # State tiles: a figure that counts a state opens the list filtered to it
 # ---------------------------------------------------------------------------------------------
+
+def check_recon_paused(on):
+    """A paused composition (visual audit CMP-9): Paused, as on /compositions; never overdue, since
+    Krateo is not reconciling it on purpose; named apart in the bars ("1 paused"), neutral."""
+    f = []
+    paused = comp('Portal', 'krateo-system', 'held', '2026-09-01T10:00:00Z',
+                  [cond('Ready', 'True', 'ReconcilePaused'), cond('Synced', 'False', 'ReconcilePaused')])
+    lists = {FW: LISTS[FW], PT: {'items': LISTS[PT]['items'] + [paused]}}
+    _, _, out = recon_out(on, lists=lists)
+    row = next(r for r in out['table'] if r['name'] == 'held')
+    expect(f, 'Paused, and not overdue although it has no reconcile in the window', (row['state'], row['overdue']), ('Paused', False))
+    expect(f, 'the overdue count leaves it out', out['counts']['overdue'], 2)
+    kinds = wd(on, 'Listy', 'obs-by-kind-list', out)['dataSource']
+    expect(f, 'by kind: named apart, neutral', [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] == 'Portal'],
+           [('Portal', '2 · 1 paused', 'ok')])
+    return f
+
 
 def check_state_tiles(c, on):
     """A state tile's route is its state chip's, the other page params kept (q, view, range); a total,
@@ -685,6 +789,46 @@ def check_unchanged_tabs(c, on):
     return f
 
 
+# CHART-4: a legend read "snowplow_cache_diagnostic_total". Each SP chart's raw series keys (the SQL's)
+# and the name it draws each under.
+SP_SERIES = {
+    'sp-authz-memo': ('series', {'snowplow_authz_memo_hits': 'Memo hits', 'snowplow_authz_memo_misses': 'Memo misses',
+                                 'snowplow_authz_memo_deny_uncached_total': 'Uncached denials'}),
+    'sp-cache-evictions': ('stat', {'evict_ttl_total': 'Expired (TTL)', 'evict_lru_total': 'Evicted (LRU)', 'evict_delete_total': 'Deleted'}),
+    'sp-cache-size': ('stat', {'entries': 'Entries', 'resident_entries': 'Resident entries'}),
+    'sp-dep-evictions': ('stat', {'evict_delete_total': 'On delete', 'evict_self_gone_total': 'Object gone (404)',
+                                  'self_notfound_evict_total': 'Refresher 404'}),
+    'sp-dep-marks': ('stat', {'dirty_mark_total': 'Dirty marks', 'records': 'Dep records'}),
+    'sp-fallthrough': ('series', {'snowplow_apiserver_fallthrough_total': 'Fell through to the apiserver',
+                                  'snowplow_cache_diagnostic_total': 'Diagnostic hits'}),
+    'sp-informer-freshness': ('stat', {'max_event_age_seconds': 'Oldest event age (s)', 'gvrs_stale_over_hour': 'GVRs stale over 1 h'}),
+    'sp-l1-lookups': ('outcome', {'hit': 'Hit', 'miss': 'Miss', 'seed_hit': 'Seed hit'}),
+    'sp-queue-depth': ('series', {'snowplow_refresher_queue_depth': 'Refresher queue', 'snowplow_prewarm_engine_pending_depth': 'Prewarm pending'}),
+    'sp-refresher-outcomes': ('stat', {'completed': 'Completed', 'failed': 'Failed', 'dropped': 'Dropped', 'retried': 'Retried',
+                                       'skipped_stage_error': 'Skipped (stage error)'}),
+    'sp-uaf-declines': ('series', {'snowplow_restactions_uaf_put_declined_total': 'RESTAction Put declined',
+                                   'snowplow_widgets_uaf_put_declined_total': 'Widget Put declined',
+                                   'snowplow_ra_full_list_uaf_bypass_total': 'Full-list bypass'}),
+}
+
+
+def check_sp_series_names(on):
+    """Every SP line chart draws its series under a plain name, in the colour its map gives it, and the
+    SQL still selects each raw key the map names; a key the map does not know is drawn as itself."""
+    f = []
+    for chart, (field, names) in SP_SERIES.items():
+        cmap = on.get('LineChart', chart)['spec']['widgetData']['colorMap']
+        rows = [{'t': '1700000000', field: raw, 'd': '1', 'v': '1'} for raw in names] + [{'t': '1700000000', field: 'new_key', 'd': '1', 'v': '1'}]
+        drawn = [d['series'] for d in wd(on, 'LineChart', chart, {'rows': rows})['data']]
+        expect(f, f'{chart}: the series, named', drawn, list(names.values()) + ['new_key'])
+        expect(f, f'{chart}: each name has its colour', sorted(cmap), sorted(names.values()))
+        sql = unquote(on.get('RESTAction', chart)['spec']['api'][0]['path'])
+        for raw in names:
+            if raw not in sql and raw not in {'hit', 'miss', 'seed_hit', 'completed', 'failed', 'dropped', 'retried'}:
+                f.append(f'{chart}: the SQL no longer names {raw}')
+    return f
+
+
 def check_authored(c, on):
     for chart, label in ((c, 'default'), (on, 'every flag')):
         for d in chart.docs:
@@ -706,11 +850,14 @@ def main():
         ('Reconciliation: the cards and the full list', lambda: check_recon_cards_and_table(c, on)),
         ('Reconciliation: the chips, the scope and the search', lambda: check_recon_chips_and_search(c, on)),
         ('Reconciliation: the reads', lambda: check_recon_query(on)),
+        ('every query a range chip drives reads the window the chip names', lambda: check_range_windows(on)),
         ('Telemetry: figures, errors as cards, the stream as the full list, the side, the search', lambda: check_telemetry(c, on)),
         ('Components: figures, chips, cards, the full list, the side, the search', lambda: check_components(c)),
         ('Traces: figures, status chips, cards, the full list, the side, the search', lambda: check_traces(c)),
         ('State tiles open their state chip\'s route; totals, metrics and failed reads do not', lambda: check_state_tiles(c, on)),
+        ('Reconciliation: a paused composition is neutral and never overdue', lambda: check_recon_paused(on)),
         ('SLOs and the SP tabs keep their layout', lambda: check_unchanged_tabs(c, on)),
+        ('SP charts draw their series under plain names', lambda: check_sp_series_names(on)),
     ]
     if crds_dir:
         checks.append(('(authored widgets queued for validation)', lambda: check_authored(c, on)))

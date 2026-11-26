@@ -225,10 +225,12 @@ def phases_card():
 
 def throughput_card():
     prog = template(named(obs, 'Card', 'obs-throughput-card'), 'extra')
+    # OBS-3: no p95 here. It was the newest 10-minute bucket's, beside the range's "Reconcile p95" in
+    # the card below, and the two disagreed; the failures are the range's, and say it is per 10 min.
     check('obs-throughput-card extra',
-          jq(prog, {'current': {'p95_ms': 1189}, 'failures': 1, 'successes': 99}), 'p95 1.2 s · 1 fail (1%)')
-    check('obs-throughput-card extra, sub-second',
-          jq(prog, {'current': {'p95_ms': 830}, 'failures': 0, 'successes': 10}), 'p95 830 ms · 0 fail (0%)')
+          jq(prog, {'current': {'p95_ms': 1189}, 'failures': 1, 'successes': 99}), 'per 10 min · 1 failed (1%)')
+    check('obs-throughput-card extra, no failure',
+          jq(prog, {'current': {'p95_ms': 830}, 'failures': 0, 'successes': 10}), 'per 10 min · 0 failed (0%)')
     check('obs-throughput-card extra, no data',
           jq(prog, {'current': {}, 'failures': 0, 'successes': 0}), 'no reconcile-trace data')
 
@@ -239,8 +241,11 @@ def phases_list():
         {'metric': 'x.rbac_generation_duration_seconds', 'mean_ms': '1189'},
         {'metric': 'x.get.duration_seconds', 'mean_ms': '12.5'},
     ]})
+    # OBS-3: each step says what its mean is of, since none is a share of the reconcile's average.
     check('obs-reconcile-phases labels', [(r['label'], r['msLabel']) for r in got],
-          [('RBAC generate', '1.2 s'), ('Get object', '13 ms')])
+          [('RBAC generate · per call', '1.2 s'), ('Get object · before start', '13 ms')])
+    check('obs-phases-card title: not "where reconcile time goes"', named(obs, 'Card', 'obs-phases-card')['spec']['widgetData']['title'],
+          'Reconcile time')
     # the bar length still comes from the raw number, not the label
     check('obs-reconcile-phases percents', [r['percent'] for r in got], [100, 1])
 

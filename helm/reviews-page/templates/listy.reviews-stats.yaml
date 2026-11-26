@@ -1,10 +1,12 @@
 {{/* The five figures: Waiting for a decision (Proposed) and Pull request open (PrOpen) now,
      Merged and Rejected in the range, all over the proposals the filters and the search match;
-     then the last review run of every kind. Each tile wears the colour the cards give the phase it
-     counts (listy.reviews-cards), zero or not, and the last run the colour its row has under
-     Recent runs (listy.reviews-runs, rv_run_color). The title says the state too, so colour is
-     never the only signal. A failed read is an empty value (a muted "—") captioned "could not be
-     read", in orange, never a 0. No confidence anywhere (decision Q3). A state tile (the first
+     then the last review run of every kind. The colour and the highlighted border come computed
+     (platform-reviews `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93): a proposal
+     waiting is work, not a fault, so the four proposal figures are neutral at any count; the last
+     run is red and highlighted when it Failed, orange when PartiallyCompleted (its Recent runs
+     colour, rv_run_color), neutral otherwise. The title says the state too, so colour is never the
+     only signal. A failed read is an empty value (a muted "—") captioned "could not be read", in
+     orange and highlighted, never a 0. No confidence anywhere (decision Q3). A state tile (the first
      four) opens the list filtered to that state, by its state chip's route (every other param
      kept), and that list holds as many as the tile counts (Merged and Rejected: in the range too);
      the last run, and any tile of a failed read, is plain. */}}
@@ -28,19 +30,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          Proposed: gray
-          PrOpen: blue
-          Merged: gray
-          Rejected: gray
-          Failed: red
-          Completed: gray
-          PartiallyCompleted: orange
-          Running: blue
-          Pending: gray
-          none: gray
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

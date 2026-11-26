@@ -1,5 +1,7 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
 {{/* L1 dispatch lookups per bucket. After warm-up the invariant is ~100% hit. */}}
+{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
+     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,9 +17,9 @@ spec:
     yField: v
     colorField: series
     colorMap:
-      "hit": green
-      "miss": orange
-      "seed_hit": cyan
+      "Hit": green
+      "Miss": orange
+      "Seed hit": cyan
     shapeField: smooth
     area: false
     legend: true
@@ -38,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.outcome|tostring), v: (.d|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.outcome|tostring) as $k | {"hit": "Hit", "miss": "Miss", "seed_hit": "Seed hit"}[$k] // $k), v: (.d|tonumber) } ] }'
   apiRef:
     name: sp-l1-lookups
     namespace: {{ $.Values.namespace }}

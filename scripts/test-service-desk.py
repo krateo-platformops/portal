@@ -363,9 +363,19 @@ def check_dashboard(chart):
            [('Active', '3', 'of 5 requests', 'active'), ('Pending', '1', 'waiting for your reply', 'pending'),
             ('Need attention', '1', 'refused, held or unknown', 'attention'), ('Opened', '3', 'in the last 7 days', 'active'),
             ('Solved', '1', 'solved or closed in the last 7 days', 'solved')])
-    expect(f, 'each figure wears the colour of the status pill it counts',
-           widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')['itemTemplate']['color']['map'],
-           {'active': 'slate', 'pending': 'gold', 'attention': 'red', 'solved': 'faint'})
+    tpl = widget(chart, 'Listy', 'service-desk-stats', out, ex, 'stats')['itemTemplate']
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    looks = lambda o: [(s_['title'], s_['value'], s_['color'], s_['highlight']) for s_ in o['stats']]
+    expect(f, 'above 0, Pending and Need attention wear their pill colour, highlighted; Active, Opened and Solved neutral', looks(out),
+           [('Active', '3', '', False), ('Pending', '1', 'gold', True), ('Need attention', '1', 'red', True),
+            ('Opened', '3', '', False), ('Solved', '1', '', False)])
+    calm, _ = queue(chart, [o for o in items if o['metadata']['name'] not in ('zr-pend', 'zr-ref')])
+    expect(f, 'nobody waits and nothing refused: Pending and Need attention at 0, neutral and plain', looks(calm)[1:3],
+           [('Pending', '0', '', False), ('Need attention', '0', '', False)])
+    ref = [o for o in items if o['metadata']['name'] == 'zr-ref'][0]
+    three, _ = queue(chart, [dict(ref, metadata=dict(ref['metadata'], name=f'zr-ref{i}', uid=f'uid-ref{i}')) for i in range(3)])
+    expect(f, 'Need attention at 3: red and highlighted', looks(three)[2], ('Need attention', '3', 'red', True))
     out30, _ = resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, {'username': 'claude-user1@krateo.io', 'range': '30d'})
     expect(f, '?range=30d widens Opened and Solved', [s_['value'] for s_ in out30['stats']][3:], ['4', '2'])
     expect(f, 'the trend: a point per day and series, the newest today',

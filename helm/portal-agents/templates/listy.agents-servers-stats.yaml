@@ -1,7 +1,9 @@
-{{/* The five Tool servers figures (agents-servers `stats`): Tool servers and Tools discovered (blue),
-     Accepted (green), NotAccepted (red), Advisories (orange: an external endpoint, no gateway route, a
-     condition Unknown). Every tile wears the colour the cards give the state it counts, zero or not; a
-     failed server read is "—", "could not be read", in orange. A state tile (Accepted, NotAccepted,
+{{/* The five Tool servers figures (agents-servers `stats`): Tool servers, Accepted, NotAccepted,
+     Advisories (an external endpoint, no gateway route, a condition Unknown), Tools discovered. The
+     colour and the highlighted border come computed (`color`, `highlight`; portal.tileDefs, frontend
+     >= 1.8.93): NotAccepted (red) and Advisories (orange), the cards' colours, are coloured and
+     highlighted above 0 only; a 0 and the other three are neutral. A failed server read is "—",
+     "could not be read", in orange and highlighted. A state tile (Accepted, NotAccepted,
      Advisories) opens the list filtered to that state (?group=accepted, notaccepted, advisory); the two
      totals and a failed read are plain tiles. */}}
 kind: Listy
@@ -24,13 +26,8 @@ spec:
       secondaryText: '{value}'
       subPrimaryText: '{caption}'
       color:
-        value: '{tone}'
-        map:
-          all: blue
-          ok: green
-          bad: red
-          warn: orange
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

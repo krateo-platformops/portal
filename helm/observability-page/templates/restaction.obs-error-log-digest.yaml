@@ -83,6 +83,7 @@ spec:
        Every route built here keeps every other page param (obs.href). */}}
   {{/* Literal `|` block (NOT folded `>`). */}}
   filter: |
+    {{ include "portal.tileDefs" . }}
     {{ include "obs.href" . }}
     {{ include "obs.search" . }}
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
@@ -135,7 +136,10 @@ spec:
          { title: "Services erroring", value: $services, caption: (if $q != "" then "among the matching problems" else "among the 40 most frequent problems" end), tone: "error" },
          { title: "Window read", value: $windowShort, caption: (if $r == "1h" or $r == "24h" or $r == "7d" then "the time range" else "the logs are read per 1 h, 24 h or 7 d" end), tone: "window" } ]
        | map(if $failed and .tone != "window" then { title, value: "", caption: "could not be read", tone: "unread" } else . + { value: (.value | tostring) } end)
-       | map(. + { route: "" })) as $stats
+       | map(. + { route: "" })
+    # Colour marks an exception (portal.tileDefs): the three error counts red and highlighted above 0
+    # only; Window read is neutral.
+       | map(tilePaint({ error: "red" }; {}))) as $stats
     | (($rows | group_by(.service // "") | map({ name: (.[0].service // ""), n: ([ .[] | (.occurrences // 0) | tonumber? // 0 ] | add // 0) })
         | map(select(.name != "")) | sort_by(-.n, .name) | .[0:8]) as $g
        | ($g | .[0].n // 1) as $max
