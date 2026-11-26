@@ -436,6 +436,8 @@ def check_banner_and_empty_states(chart):
     w = resolve_widgets(chart, 'platform-reviews', out, {}, 'proposals-unread')
     expect(f, 'proposals unread: the figures are "—", in orange',
            [(t['value'], t['caption'], t['tone']) for t in w['reviews-stats']['dataSource'][:4]], [('', 'could not be read', 'unread')] * 4)
+    expect(f, 'proposals unread: those figures orange and highlighted',
+           [(t['color'], t['highlight']) for t in w['reviews-stats']['dataSource'][:4]], [('orange', True)] * 4)
     expect(f, 'proposals unread: no figure is a link', {t['route'] for t in w['reviews-stats']['dataSource']}, {''})
     expect(f, 'proposals unread: the card says why', (items(w, 'reviews-list-card'), w['reviews-empty']['text'], w['reviews-empty']['type']),
            (['reviews-state-chips', 'reviews-empty'], 'The proposals could not be read (dial tcp: i/o timeout), so nothing on this page counts them.', 'warning'))
@@ -470,7 +472,8 @@ def check_run_review_now(chart):
     expect(f, 'header actions', [i['resourceRefId'] for i in w['reviews-header-actions']['items']],
            ['reviews-ask-agentiko', 'reviews-run-now'])
     expect(f, 'the last run is the last figure', w['reviews-stats']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': 'Completed', 'caption': 'rr-20260929-1933 · 19:33 UTC', 'tone': 'Completed', 'route': ''})
+           {'title': 'Last run (all kinds)', 'value': 'Completed', 'caption': 'rr-20260929-1933 · 19:33 UTC', 'tone': 'Completed', 'route': '',
+            'color': '', 'highlight': False})
     act = w['reviews-run-now']['actions']['rest'][0]
     body = act['payload']
     expect(f, 'a batch/v1 Job', (body['apiVersion'], body['kind']), ('batch/v1', 'Job'))
@@ -612,6 +615,8 @@ def check_run_detail(chart):
     expect(f, 'tokens', facts['Tokens'], '7535 in · 8433 out · 15968 total')
     expect(f, 'no model name row', 'Model' in facts, False)
     w = resolve_widgets(chart, 'review-run', out, ex, 'run-completed')
+    # RUN-1 (UX audit, 2026-11-25): horizontal, "Succeeded" broke one letter per line.
+    expect(f, 'steps run down the page', w['review-run-steps-list'].get('orientation'), 'vertical')
     expect(f, 'completed page items', [i['resourceRefId'] for i in w['page-review-run']['items']],
            ['review-run-header', 'review-run-summary', 'review-run-steps', 'review-run-body', 'review-run-queries', 'review-run-facts'])
 
@@ -1018,26 +1023,30 @@ def check_overview_figures(chart):
     cmap = w['reviews-cards']['itemTemplate']['color']['map']
     expect(f, 'statistic tiles', (tpl['rowVariant'], tpl['primaryText'], tpl['secondaryText'], tpl['subPrimaryText']),
            ('statistic', '{title}', '{value}', '{caption}'))
-    expect(f, 'each proposal figure wears its phase\'s card colour, zero or not', {k: tpl['color']['map'][k] for k in cmap}, cmap)
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'a proposal waiting is work, not a fault: the four proposal figures neutral at any count; a completed run too',
+           [(t['value'], t['color'], t['highlight']) for t in w['reviews-stats']['dataSource']],
+           [('6', '', False), ('1', '', False), ('1', '', False), ('1', '', False), ('Completed', '', False)])
     expect(f, 'the cards\' colours are the table\'s Status tag (rv_phase_color)', cmap, CARD_COLOURS)
-    expect(f, 'the last run wears its run row\'s colour', {k: tpl['color']['map'][k] for k in RUN_COLOURS},
-           {k: v for k, v in w['reviews-runs']['itemTemplate']['color']['map'].items()})
     expect(f, 'the run rows are rv_run_color', w['reviews-runs']['itemTemplate']['color']['map'], RUN_COLOURS)
-    expect(f, 'a failed read is orange, no run is gray', (tpl['color']['map']['unread'], tpl['color']['map']['none']), ('orange', 'gray'))
     out, w = ov(chart, {'kind': 'Alert'})
     expect(f, '?kind=Alert: the figures count the filtered set, the last run every kind\'s',
            [t['value'] for t in w['reviews-stats']['dataSource']], ['3', '1', '1', '0', 'Completed'])
     expect(f, '?kind=Alert: the header counter stays every open proposal', w['reviews-page-header']['counter'], 7)
     out, w = ov(chart, runs={'items': [RUNS[2]]})
-    expect(f, 'a failed last run: red', tpl['color']['map'][w['reviews-stats']['dataSource'][-1]['tone']], 'red')
+    last = lambda w: (w['reviews-stats']['dataSource'][-1]['color'], w['reviews-stats']['dataSource'][-1]['highlight'])
+    expect(f, 'a failed last run: red (its run row\'s colour), highlighted', last(w), (RUN_COLOURS['Failed'], True))
     out, w = ov(chart, runs={'items': [RUNS[1]]})
-    expect(f, 'a partial last run: orange', tpl['color']['map'][w['reviews-stats']['dataSource'][-1]['tone']], 'orange')
+    expect(f, 'a partial last run: orange (its run row\'s colour), highlighted', last(w), (RUN_COLOURS['PartiallyCompleted'], True))
     out, w = ov(chart, runs='ERROR:dial tcp: i/o timeout')
-    expect(f, 'runs unread: "—", in orange', w['reviews-stats']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'could not be read', 'tone': 'unread', 'route': ''})
+    expect(f, 'runs unread: "—", in orange, highlighted', w['reviews-stats']['dataSource'][-1],
+           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'could not be read', 'tone': 'unread', 'route': '',
+            'color': 'orange', 'highlight': True})
     out, w = ov(chart, runs={'items': []})
-    expect(f, 'no run yet: "—", said', w['reviews-stats']['dataSource'][-1],
-           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'no review has run yet', 'tone': 'none', 'route': ''})
+    expect(f, 'no run yet: "—", said, neutral', w['reviews-stats']['dataSource'][-1],
+           {'title': 'Last run (all kinds)', 'value': '', 'caption': 'no review has run yet', 'tone': 'none', 'route': '',
+            'color': '', 'highlight': False})
     expect(f, 'the tiles navigate to their route', tpl.get('navigateTo'), '{route}')
     ex = {'q': 'a', 'view': 'table', 'range': '30d', 'kind': 'Alert', 'today': '1', 'state': 'merged'}
     out, w = ov(chart, ex)

@@ -1195,6 +1195,11 @@ def figures(out):
     return [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']]
 
 
+def looks(out):
+    """Each figure's computed colour and border (portal.tileDefs)."""
+    return [(s['color'], s['highlight']) for s in out['stats']]
+
+
 def check_dashboard_layout(c):
     """Mockup A4: header, toolbar (filters 18/24, search 6/24), the five figures, then the records card
     (2/3) beside the charts (1/3)."""
@@ -1272,14 +1277,14 @@ def check_figures(c):
             ('Untraced', '6', 'written with no trace context', 'untraced')])
     stats = wd(c, 'Listy', 'audit-stats', out)
     cards = wd(c, 'Listy', 'audit-cards', out)
-    smap, cmap = stats['itemTemplate']['color']['map'], cards['itemTemplate']['color']
-    expect(p, 'figures are statistic tiles', (stats['itemTemplate']['rowVariant'], stats['itemTemplate']['color']['value']),
-           ('statistic', '{tone}'))
-    expect(p, 'each outcome figure wears its card colour', {k: smap[k] for k in ('success', 'failure', 'denied')}, cmap['map'])
+    cmap = cards['itemTemplate']['color']
+    expect(p, 'figures are statistic tiles, colour and border from the data (portal.tileDefs)',
+           (stats['itemTemplate']['rowVariant'], stats['itemTemplate']['color'], stats['itemTemplate'].get('highlight')),
+           ('statistic', {'value': '{color}'}, '{highlight}'))
     # Colour marks the exceptions (Diego, 2026-11-26): a success is gray, only Failure and Denied are coloured.
     expect(p, '... which is the outcome tag\'s', cmap['map'], {'success': 'gray', 'failure': 'red', 'denied': 'orange'})
-    expect(p, 'Untraced is the tag\'s gray for no outcome; Records neutral slate; a failed read orange',
-           (smap['untraced'], cmap['default'], smap['records'], smap['unread']), ('gray', 'gray', 'slate', 'orange'))
+    expect(p, 'above 0, Failure and Denied wear their card colour, highlighted; Records, Success and Untraced neutral',
+           looks(out), [('', False), ('', False), (cmap['map']['failure'], True), (cmap['map']['denied'], True), ('', False)])
     # Other is slate beside Success's gray: two slices of one gray read as one.
     expect(p, 'the donut and the activity bars use the same colours',
            ({k.lower(): v for k, v in wd(c, 'PieChart', 'audit-outcomes', out)['colorMap'].items() if k != 'Other'},
@@ -1288,18 +1293,21 @@ def check_figures(c):
            (cmap['map'], cmap['map'], 'slate'))
     _, fo, _ = records_all(c, {'auditOutcome': 'failure'}, ADMIN)
     expect(p, 'the figures follow the chips', [x[1] for x in figures(fo)], ['2', '0', '2', '0', '1'])
-    expect(p, 'a zero figure keeps its colour', [x[3] for x in figures(fo)], ['records', 'success', 'failure', 'denied', 'untraced'])
+    expect(p, 'a zero figure keeps its tone', [x[3] for x in figures(fo)], ['records', 'success', 'failure', 'denied', 'untraced'])
+    expect(p, 'Denied at 0: neutral and plain, never orange (at 1 above: orange, highlighted)', looks(fo)[3], ('', False))
     _, o30, _ = records_all(c, {'range': '30d'}, ADMIN)
     expect(p, '30d: the window widens', [x[1] for x in figures(o30)][:2], ['12', '9'])
     _, bad, _ = records_all(c, {}, ADMIN, broken=('summary',))
     expect(p, 'summary unread: Records and Untraced say so; the outcomes stand', figures(bad),
            [('Records', '', 'could not be read', 'unread'), ('Success', '8', '', 'success'), ('Failure', '2', '', 'failure'),
             ('Denied', '1', '', 'denied'), ('Untraced', '', 'could not be read', 'unread')])
+    expect(p, 'summary unread: the unread figures orange and highlighted', [looks(bad)[0], looks(bad)[4]], [('orange', True)] * 2)
     _, bad, _ = records_all(c, {}, ADMIN, broken=('breakdown',))
     expect(p, 'breakdown unread: the outcome figures say so', [x[1:] for x in figures(bad)][1:4],
            [('', 'could not be read', 'unread')] * 3)
     _, none, _ = records_all(c, {}, NOBODY)
     expect(p, 'no namespace: nothing read, never 0', {x[1:] for x in figures(none)}, {('', 'nothing was read', 'unread')})
+    expect(p, 'no namespace: every figure orange and highlighted', set(looks(none)), {('orange', True)})
     wd(c, 'Listy', 'audit-stats', none, {}, 'figures (no namespace)')
     return p
 
@@ -1619,7 +1627,7 @@ def main():
         ('Ask Agentiko: the window, the filters kept, and every failure said', lambda: check_agentiko_ask(c)),
         ('chart conventions: namespace, RBAC, endpoint, keyExtras, nav, values', lambda: check_chart_conventions(c)),
         ('A4 layout: header, toolbar (filters 18, search 6), figures, records 16 beside charts 8', lambda: check_dashboard_layout(c)),
-        ('A4 figures: Records, Success, Failure, Denied, Untraced, coloured as the outcome tag', lambda: check_figures(c)),
+        ('A4 figures: Records, Success, Failure, Denied, Untraced; Failure and Denied in the outcome tag colour, highlighted, above 0 only', lambda: check_figures(c)),
         ('A4 figures: a state tile opens the outcome chip\'s route; totals and unread tiles do not', lambda: check_figure_routes(c)),
         ('A4 cards: one per record, the outcome colour, the trace link, 48 and the Full list', lambda: check_cards(c)),
         ('A4 activity: buckets per range, consecutive, ending now, summing to the figures', lambda: check_trend(c)),

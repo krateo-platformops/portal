@@ -1,10 +1,10 @@
 {{/* The five figures over the window, the chips and the search: Records, Success, Failure, Denied and
-     Untraced (written with no trace context). Each tile wears the colour the outcome tag and the
-     cards give the outcome it counts (success gray, failure red, denied orange: colour marks the exceptions), zero or not;
-     Records is neutral slate and Untraced gray, the tag's colour for anything that is not an
-     outcome. The title says the outcome too, so colour is never the only signal. A failed read is
-     an empty value (drawn as a muted "—") captioned "could not be read", never a 0, in orange; so
-     is a view that read nothing (a refused filter, no namespace shared). A state tile (Success,
+     Untraced (written with no trace context). The colour and the highlighted border come computed
+     (audit-records `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93): only Failure (red)
+     and Denied (orange) above 0 are coloured and highlighted, the outcome tag's colours; a 0,
+     Records, Success and Untraced are neutral. The title says the outcome too, so colour is never
+     the only signal. A failed read is an empty value (drawn as a muted "—") captioned "could not be
+     read", never a 0, in orange and highlighted; so is a view that read nothing (a refused filter, no namespace shared). A state tile (Success,
      Failure, Denied) opens the list filtered to that state, the outcome chip's route; Records,
      Untraced and a failed read have no route and are plain tiles. */}}
 kind: Listy
@@ -28,14 +28,8 @@ spec:
       secondaryText: '{value}'
       subPrimaryText: '{caption}'
       color:
-        value: '{tone}'
-        map:
-          records: slate
-          success: gray
-          failure: red
-          denied: orange
-          untraced: gray
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
