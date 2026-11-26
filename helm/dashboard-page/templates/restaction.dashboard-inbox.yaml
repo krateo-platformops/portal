@@ -30,6 +30,11 @@
      controller can read, which is permanent and nobody's defect (compositions-list's `assessable`).
      A paused composition reports Ready=True on purpose, so it is "paused", not "not Ready".
 
+     CAPACITY IN USE is read only when ?projects names exactly one namespace: that namespace's
+     ResourceQuotas, as the caller (the `quotas` stage). With no scope or several namespaces there is
+     no read and `capacity` is null; a caller who may not list resourcequotas there gets the failure,
+     said as such, never "no quota".
+
      DATA, NOT PRESENTATION. This returns numbers, names, hrefs and the facet; the widgets word and
      order it. `askHref` is the one sentence built here, because Ask Agentiko's prompt is data the
      button carries verbatim (as on every other page). */}}
@@ -180,7 +185,30 @@ spec:
       filter: >
         [.allCompositions.items[]?
          | {name: .metadata.name, ns: .metadata.namespace, kind: .kind, conditions: (.status.conditions // []), wh: .status.workloadHealthy}]
+    {{/* Capacity in use (approved mockup C6, "One tenant chosen"): the ResourceQuotas of the ONE
+         namespace ?projects= names, read as the caller (a plain stage). GATED on that input
+         (scripts/lint-ra-paths.py): the iterator yields one element only when ?projects is exactly
+         one namespace name (no comma, a DNS-1123 label), and none otherwise, so no request is made
+         with no scope, with several namespaces, or on snowplow's Phase-1 walk (no extras).
+         A caller who may list resourcequotas cluster-wide is served snowplow's cluster-list
+         collapse (resolvers/restactions/api/cluster_list.go), one list of EVERY namespace's quotas,
+         which is why the filter below keeps only the chosen namespace's. */}}
+    - name: quotas
+      dependsOn:
+        name: ""
+        iterator: '[ ((.projects // "") | tostring) | select(test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")) | {ns: .} ]'
+      path: ${ "/api/v1/namespaces/" + .ns + "/resourcequotas" }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      filter: '[.quotas.items[]? | {name: (.metadata.name // ""), ns: (.metadata.namespace // ""), hard: (.status.hard // {}), used: (.status.used // {})}]'
+      continueOnError: true
+      errorKey: quotasError
   filter: |
+    # snowplow's built-in `quantity` module (internal/support/jq/modules/quantity.jq, resolved by its
+    # gojq ModuleLoader): `quantity` reads a Kubernetes quantity ("1500m", "8Gi", "1e3") into base
+    # units, null when it does not parse. A module directive comes before every def.
+    include "quantity";
     {{- include "portal.facets" . | nindent 4 }}
     {{- include "portal.agentsGateway" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
@@ -195,6 +223,31 @@ spec:
              | map(select(. != "")) | unique | join("; ") )
       end;
     def cut($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
+    # Human units, computed here: cores to two decimals (three under a tenth), bytes in the largest
+    # binary unit that reads as 1 or more, to one decimal, trailing zeros dropped.
+    def rnd($p): (. * $p | round) / $p;
+    def coresText:
+      if . == 0 then "0"
+      elif . < 0.1 then (rnd(1000) | if . == 0 then "< 0.001" else tostring end)
+      else rnd(100) | tostring end;
+    def bytesUnit: . as $b | first(([["TiB", 1099511627776], ["GiB", 1073741824], ["MiB", 1048576], ["KiB", 1024]][]
+                                    | select((($b / .[1]) | rnd(10)) >= 1)), ["B", 1]);
+    def bytesIn($u): ((. / $u[1]) | rnd(10) | tostring) + " " + $u[0];
+    # A failed read's reason, short: the apiserver Status' reason in words and its HTTP code, never
+    # the raw upstream body (snowplow's envelope for a non-2xx answer carries the body as message).
+    def shortErr($e):
+      [ ($e | if type == "array" then .[] else . end)
+        | if type == "object" then
+            ([ ((.reason // "") | tostring | select(. != "" and . != "Failure")
+                | gsub("(?<a>[a-z])(?<b>[A-Z])"; "\(.a) \(.b)") | ascii_downcase) ] | .[0]) as $why
+            | ((.code // null) | if type == "number" then "HTTP " + tostring else null end) as $code
+            | if $why != null and $code != null then $why + " (" + $code + ")"
+              elif $why != null then $why
+              elif $code != null then $code
+              else ((.message // "") | tostring | split("\n")[0] | cut(80)) end
+          elif . == null then ""
+          else (tostring | split("\n")[0] | cut(80)) end ]
+      | map(select(. != "")) | unique | join("; ") | cut(120);
     # A composition's class, from its conditions (compositions-list's railState, read the same way).
     def cclass:
       (.conditions // []) as $c
@@ -300,6 +353,44 @@ spec:
     | ($comps | map(select(.class == "paused")) | length) as $pausedN
     | { tiles: $healthTiles, paused: $pausedN, total: ($comps | length),
         summary: ((if $pausedN > 0 then ($pausedN | tostring) + " paused · " else "" end) + ($comps | length | tostring) + " in all") } as $health
+    # ── capacity in use (approved mockup C6, "One tenant chosen") ──────────────────────────────
+    # Only with exactly one namespace in scope, the same test the quotas stage's iterator makes, so
+    # the card is never drawn over a read that was not made. Per resource, across the namespace's
+    # quotas, the TIGHTEST hard limit and the used figure of that quota (status.hard / status.used;
+    # cpu and memory are the requests.* names or their bare synonyms). A resource no quota limits is
+    # left out. `state`: rows, none (no quota), unlimited (quotas, but none on these four), failed.
+    | (if $projects | test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$") then $projects else null end) as $capNs
+    | (if $capNs == null then null
+       else shortErr(.quotasError) as $qErr
+         | (if (.quotas | type) == "array" then [ .quotas[] | select(type == "object" and .ns == $capNs) ] else null end) as $quotas
+         | if $qErr != "" or $quotas == null then
+             { namespace: $capNs, state: "failed", error: (if $qErr != "" then $qErr else "no answer" end), rows: [] }
+           else
+             ([ { key: "pods", label: "Pods", names: ["pods"], unit: "count" },
+                { key: "cpu", label: "CPU", names: ["requests.cpu", "cpu"], unit: "cores" },
+                { key: "memory", label: "Memory", names: ["requests.memory", "memory"], unit: "bytes" },
+                { key: "volumes", label: "Volumes (PVCs)", names: ["persistentvolumeclaims"], unit: "count" } ]
+              | map(. as $r
+                    | ([ $quotas[] as $q | $r.names[] as $k
+                         | (($q.hard // {})[$k] | quantity) as $h | select($h != null)
+                         | { quota: $q.name, hard: $h, used: (($q.used // {})[$k] | quantity) } ]
+                       | sort_by(.hard, -(.used // 0)) | .[0]) as $t
+                    | select($t != null)
+                    | { key: $r.key, label: $r.label, quota: $t.quota, used: $t.used, hard: $t.hard,
+                        value: (if $r.unit == "cores" then
+                                  (if $t.used == null then "—" else ($t.used | coresText) end) + " of " + ($t.hard | coresText)
+                                  + (if $t.hard == 1 then " core" else " cores" end)
+                                elif $r.unit == "bytes" then
+                                  ($t.hard | bytesUnit) as $hu
+                                  | (if $t.used == null then "—" elif $t.used == 0 then "0 " + $hu[0] else ($t.used | bytesIn($t.used | bytesUnit)) end)
+                                    + " of " + ($t.hard | bytesIn($hu))
+                                else
+                                  (if $t.used == null then "—" else ($t.used | tostring) end) + " of " + ($t.hard | tostring)
+                                end) })) as $capRows
+             | { namespace: $capNs, error: "", rows: $capRows,
+                 state: (if ($capRows | length) > 0 then "rows" elif ($quotas | length) == 0 then "none" else "unlimited" end) }
+           end
+       end) as $capacity
     # ── the sources, gated ─────────────────────────────────────────────────────────────────────
     | (if $projects != "" then "projects=" + ($projects | @uri) else "" end) as $carry
     | def page($path; $query): ([ $query, $carry ] | map(select(. != "")) | join("&")) as $q | if $q == "" then $path else $path + "?" + $q end;
@@ -373,6 +464,7 @@ spec:
         reviews: (if ($by.reviews.on // false) then $rev else null end),
         compositions: (if ($by.compositions.on // false) then $cmp else null end),
         health: (if ($by.compositions.on // false) and ($by.compositions.failed | not) then $health else null end),
+        capacity: $capacity,
         filters: $flt,
         facets: $facets,
         chips: fx_chips("/dashboard"; $params; $facets),
