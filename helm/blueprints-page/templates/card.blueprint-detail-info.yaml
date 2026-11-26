@@ -1,6 +1,8 @@
 {{/* "Blueprint" info card → hosts the info Descriptions. The top-right `extra` reflects whether a */}}
 {{/* newer chart version exists in the helm index (server-derived updateAvailable); the version */}}
-{{/* picker / Update lives in the blueprint-update Form below it on the page. */}}
+{{/* picker / Update lives in the blueprint-update Form below it on the page. No tag at all when the */}}
+{{/* latest version is not known (latestVersion ""): "Up to date" there was a claim nothing checked */}}
+{{/* (UX audit BP-2); the Details row says why it is not known. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -23,7 +25,7 @@ spec:
       - resourceRefId: descriptions-blueprint-detail-info
   widgetDataTemplate:
     - forPath: extra
-      expression: '${ if .updateAvailable then ("Update available → " + .latestVersion) else "Up to date" end }'
+      expression: '${ if .updateAvailable then ("Update available → " + .latestVersion) elif (.latestVersion // "") != "" then "Up to date" else "" end }'
     - forPath: extraStatus
       expression: '${ if .updateAvailable then "orange" else "green" end }'
   resourcesRefs:
