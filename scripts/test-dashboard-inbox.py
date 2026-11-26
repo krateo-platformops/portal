@@ -148,11 +148,22 @@ def interpolate(template, item):
 
 
 def accent(spec, item):
-    """The statistic/card colour: resolved only through the map (no fallback), as resolveAccent does."""
+    """The statistic/card colour, as resolveAccent does: through the map when there is one (no
+    fallback); with no map (frontend >= 1.8.93) the value is the palette name itself, "" none."""
     if not spec:
         return None
     got = interpolate(spec.get('value'), item)
+    if 'map' not in spec:
+        return got or None
     return (spec.get('map') or {}).get(got, spec.get('default'))
+
+
+def border(template, item, colour):
+    """Whether a statistic tile's border is highlighted (frontend >= 1.8.93): `highlight` is a
+    {dot.path} to a boolean and only true highlights; without it the border follows the colour."""
+    if 'highlight' not in template:
+        return colour is not None
+    return interpolate(template['highlight'], item) == 'true'
 
 
 def rows(template, data_source):
@@ -161,6 +172,7 @@ def rows(template, data_source):
         row = {k: interpolate(template.get(k), item) for k in
                ('primaryText', 'secondaryText', 'subPrimaryText', 'subSecondaryText', 'description', 'cardCta', 'navigateTo')}
         row['color'] = accent(template.get('color'), item)
+        row['highlight'] = border(template, item, row['color'])
         row['removable'] = item.get('removable') is True
         out.append(row)
     return out
@@ -290,8 +302,8 @@ def page(out):
     """What /dashboard shows for one dashboard-inbox output."""
     body = [i['resourceRefId'] for i in resolved('dashboard-inbox-body', 'Flex', out)['items']]
     strip_w = resolved('dashboard-strip', 'Listy', out)
-    strip = [(r['primaryText'], r['secondaryText'], r['subPrimaryText'], r['color'])
-             for r in rows(strip_w['itemTemplate'], strip_w['dataSource'])]
+    strip_rows = rows(strip_w['itemTemplate'], strip_w['dataSource'])
+    strip = [(r['primaryText'], r['secondaryText'], r['subPrimaryText'], r['color']) for r in strip_rows]
     needs = resolved('dashboard-needs-you', 'Collapse', out)
     panels = needs['items']
     cards = rows(needs['itemTemplate'], panels[0]['dataSource']) if panels else []
@@ -302,6 +314,8 @@ def page(out):
     return {
         'body': body,
         'strip': strip,
+        'strip_hl': [r['highlight'] for r in strip_rows],
+        'strip_tpl': (strip_w['itemTemplate'].get('color'), strip_w['itemTemplate'].get('highlight')),
         'panel': {k: panels[0].get(k) for k in ('key', 'label', 'count', 'status')} if panels else None,
         'cards': cards,
         'titles': [c['primaryText'] for c in cards],
@@ -347,6 +361,9 @@ def _():
         ('Compositions not Ready', '0', 'of 82', None),
         ('Agent gateway gaps', '1', 'of 3 agents', 'red'),
         ('Waiting for a decision', '4', 'review proposals', None)])
+    check('present: colour and border are the data\'s (portal.tileDefs)', got['strip_tpl'], ({'value': '{color}'}, '{highlight}'))
+    check('present: only a fault above 0 is highlighted; a 0 and the proposals waiting are plain', got['strip_hl'],
+          [True, True, False, True, False])
     check('present: one Needs you panel, red, counting its cards', got['panel'],
           {'key': 'needs-you', 'label': 'Needs you', 'count': 5, 'status': 'error'})
     check('present: the panel has no footer (the Dashboard has no table view to link to)',
@@ -401,6 +418,7 @@ def _():
         ('creating', 'pending'), ('deleting', 'pending'), ('helm-pending', 'pending'), ('helm-running', 'pending'), ('inventory-not-recorded', 'pending')])
     got = page(out)
     check('defects: the tile goes red', got['strip'][2], ('Compositions not Ready', '7', 'of 89', 'red'))
+    check('defects: and is highlighted (at 0 it is plain, see every source present)', got['strip_hl'][2], True)
     card = next(c for c in got['cards'] if c['subSecondaryText'] == 'Compositions')
     check('defects: one card, a fault, names capped at three', (card['primaryText'], card['subPrimaryText'], card['description'], card['color']),
           ('8 compositions need attention', 'inventory-not-recorded, children-forbidden, broken and 5 more',
@@ -472,6 +490,7 @@ def _():
         got = page(out)
         tile = next((t for t in got['strip'] if t[0] == titles[key]), None)
         check(f'{key} {why}: the tile is "—", not 0', tile, (titles[key], '', 'could not be read', 'orange'))
+        check(f'{key} {why}: the tile is highlighted', got['strip_hl'][[t[0] for t in got['strip']].index(titles[key])] if tile else None, True)
         card = next((c for c in got['cards'] if c['subSecondaryText'] == labels[key]), None)
         check(f'{key} {why}: a card says it could not be read, with the error',
               card and (card['primaryText'], card['secondaryText'], card['description'], card['color']),
@@ -495,6 +514,7 @@ def _():
     out = inbox(raw={'routes': {'items': []}})
     got = page(out)
     check('no route visible: the tile says not checked', got['strip'][3], ('Agent gateway gaps', '', 'not checked', 'orange'))
+    check('no route visible: and is highlighted', got['strip_hl'][3], True)
     caveat = next(c for c in got['cards'] if c['primaryText'] == 'Gateway registration not checked')
     check('no route visible: the card says why', caveat['description'],
           'Whether the gateway can reach your agents could not be checked: no HTTPRoute is visible to you.')
@@ -588,6 +608,7 @@ def _():
     check('all quiet: no Needs you, no facet', got['body'], ['dashboard-strip', 'dashboard-quiet'])
     check('all quiet: no panel', got['panel'], None)
     check('all quiet: the strip is neutral', [t[3] for t in got['strip']], [None] * 5)
+    check('all quiet: nothing is highlighted', got['strip_hl'], [False] * 5)
     check('all quiet: the calm line', got['quiet'],
           'All quiet: 79 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 2 agents registered at the gateway · '
           'no open incident · no proposal waiting for a decision.')

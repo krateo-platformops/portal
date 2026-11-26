@@ -1,9 +1,12 @@
 {{/* The five figures over the compositions in scope (narrowed by kind or search when a link
      carries them): NotReady (of how many), Degraded (workload unhealthy), Drift (Synced=False),
-     Paused (ReconcilePaused) and Ready (in how many kinds). Each tile wears the colour the cards
-     give the state it counts (compositions-cards), zero or not; the title says the state too, so
-     colour is never the only signal. A failed read with nothing read is an empty value (a muted
-     "—") captioned "could not be read" on every tile, never a 0, in orange. A paused composition
+     Paused (ReconcilePaused) and Ready (in how many kinds). The colour and the highlighted border
+     come computed (portal's compositions-list `color`, `highlight`; portal.tileDefs, frontend >=
+     1.8.93): a state that counts toward Needs attention is coloured and highlighted above 0 only,
+     the cards' colour for it (NotReady and Degraded red, Drift orange, Paused gray); a 0 and Ready
+     are neutral. The title says the state too, so colour is never the only signal. A failed read
+     with nothing read is an empty value (a muted "—") captioned "could not be read" on every tile,
+     never a 0, in orange and highlighted. A paused composition
      is Paused, never Ready. Every tile counts a state, so a state tile opens the list filtered to
      that state: its `route` is that state chip's route (same ?status, keeping ?q, ?view, ?scope,
      ?kind, ?projects); a failed read's tiles have none and are plain. */}}
@@ -27,14 +30,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          failed: red
-          degraded: red
-          drift: orange
-          paused: gray
-          healthy: green
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

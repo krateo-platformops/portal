@@ -1,7 +1,8 @@
-{{/* The Components figures over the Deployments (the search narrows them): Deployments (neutral), Ready
-     (green), Not ready (red), Scaled to zero (gray), each the colour the cards give the state it counts,
-     zero or not. A failed read is an empty value (a muted "—") captioned "could not be read", in
-     orange, never a 0. A state tile (Ready, Not ready, Scaled to zero) opens the list filtered to that
+{{/* The Components figures over the Deployments (the search narrows them): Deployments, Ready, Not
+     ready, Scaled to zero. The colour and the highlighted border come computed (obs-components
+     `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93): Not ready above 0 is red and
+     highlighted; a 0 and every other tile are neutral. A failed read is an empty value (a muted
+     "—") captioned "could not be read", in orange and highlighted, never a 0. A state tile (Ready, Not ready, Scaled to zero) opens the list filtered to that
      state: its route is the matching state chip's (?componentStatus=); the total and a failed read have
      none and stay plain tiles. */}}
 kind: Listy
@@ -24,12 +25,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          ready: green
-          notready: red
-          scaled: gray
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

@@ -27,8 +27,10 @@
                  foot (the card's footer: since when, and how often it is evaluated);
        counts    per state, over every alert (the chips, the donut, the figures);
        stats     Firing, Not evaluated, Pending, OK, With unresolved incidents; a failed read is "—". Each
-                 tile's tone is the state it counts, so it wears the colour the cards give that
-                 state (With unresolved incidents: the cards' red incident mark); `unread` on a failed read.
+                 tile's tone is the state it counts (`unread` on a failed read); `color` and
+                 `highlight` (portal.tileDefs) are the colour the cards give that state (With
+                 unresolved incidents: the cards' red incident mark) and true above 0 only, ""
+                 and false at 0 and on OK, orange and true on a failed read.
                  route: each tile opens the list filtered to what it counts, the same route as its
                  chip (With unresolved incidents: ?status=open-incidents); "" (not clickable) on a failed read;
        chips / viewChips / rangeChips   each a label, a count where it has one, active, and the
@@ -63,6 +65,7 @@ spec:
       errorKey: incidentsError
       filter: '[ (.incidents.items // [])[] | { alert: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // ""), state: (.status.state // "Analyzing"), at: (.spec.triggeredAt // .metadata.creationTimestamp // "") } ]'
   filter: |
+    {{ include "portal.tileDefs" . }}
     def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
     # fromdateiso8601 takes `...SSZ` only: drop a fractional part and fold a +00:00 offset to Z.
     # status.stateSince (alert-provider 0.2.83; RFC 3339): when .status.state last CHANGED, never moved
@@ -161,7 +164,10 @@ spec:
          else { title: "With unresolved incidents", value: ($withOpen | length | tostring),
                 caption: (([ $withOpen[] | .openIncidents ] | add // 0) as $n | if $n == 0 then "" else ($n | tostring) + " not resolved" end), tone: "incident",
                 route: href("open-incidents"; $range; $tableView) } end) ]
-      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . end) as $stats
+      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . end)
+    # Colour marks an exception (portal.tileDefs): Firing, Not evaluated, Pending and With unresolved
+    # incidents in their colour and highlighted above 0 only; OK is neutral.
+      | map(tilePaint({ alert: "red", "not-evaluated": "orange", pending: "blue", incident: "red" }; {})) as $stats
     # INCIDENTS OPENED, per bucket over the range, the newest bucket the current hour or day.
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
     | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
