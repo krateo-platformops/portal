@@ -10,7 +10,9 @@
        stats        the five figures: Records, Success, Failure, Denied, Untraced, each with the
                     tone of the state it counts (success / failure / denied as the outcome tag,
                     records slate, untraced gray); a failed or refused read is "" captioned so,
-                    tone `unread`. `route`: an outcome tile (Success, Failure, Denied) opens the
+                    tone `unread`. `color` and `highlight` (portal.tileDefs): Failure red and
+                    Denied orange, highlighted, above 0 only; every other tile and a 0 "" and
+                    false; a failed read orange and true. `route`: an outcome tile (Success, Failure, Denied) opens the
                     page filtered to that outcome, the outcome chip's own route (auditHref, so
                     every other filter, the view and the search are kept); Records (a total),
                     Untraced (no ?auditOutcome value means "no trace context": it is not an
@@ -212,7 +214,7 @@ spec:
        breakdown stages are read on their own: one failing leaves the table and its note standing,
        and only the figures and charts it feeds say "could not be read" (or are left out). */}}
   filter: >
-    {{ include "audit.valid" . }} {{ include "audit.rangeLabel" . }} {{ include "audit.q.valid" . }} {{ include "audit.href" . }} {{ include "audit.buckets" . }}
+    {{ include "portal.tileDefs" . }} {{ include "audit.valid" . }} {{ include "audit.rangeLabel" . }} {{ include "audit.q.valid" . }} {{ include "audit.href" . }} {{ include "audit.buckets" . }}
     . as $x
     | ((.range // "24h") | tostring) as $range
     | {ns: ((.auditNamespace // "") | tostring), usr: ((.auditUser // "") | tostring), oc: ((.auditOutcome // "") | tostring), q: ((.q // "") | qText)} as $f
@@ -291,7 +293,10 @@ spec:
       | map(if ($queried | not) then { title, value: "", caption: "nothing was read", tone: "unread", route: "" }
             elif (.src == "summary" and $failed) or (.src == "breakdown" and $bdFailed) then { title, value: "", caption: "could not be read", tone: "unread", route: "" }
             else { title, value: (.value | tostring), caption, tone,
-                   route: ((.oc // "") as $o | if $o != "" then ($x | auditHref({auditOutcome: $o})) else "" end) } end)) as $stats
+                   route: ((.oc // "") as $o | if $o != "" then ($x | auditHref({auditOutcome: $o})) else "" end) } end)
+      {{- /* Colour marks an exception (portal.tileDefs): Failure and Denied in their colour and
+           highlighted above 0 only; Records, Success and Untraced are neutral. */}}
+      | map(tilePaint({ failure: "red", denied: "orange" }; {}))) as $stats
     | ($range | auditBuckets) as $b
     | [ ((.trend | objects | .data) // [])[] | {b: (.b | num), oc: ((.outcome // "") | tostring), n: (.n | num), now: (.now_s | num)} ] as $tr
     | (([ $tr[] | .now ] | max) // 0) as $srvNow

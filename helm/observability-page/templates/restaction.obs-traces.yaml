@@ -73,6 +73,7 @@ spec:
        service, name, user, status or trace id contains it, among the 200 read: it narrows the rows,
        it never reaches the SQL. Every route keeps every other page param (obs.traces.route). */}}
   filter: >
+    {{ include "portal.tileDefs" . }}
     {{ include "obs.traces.valid" . }}
     {{ include "obs.traces.route" . }}
     {{ include "obs.traces.format" . }}
@@ -110,7 +111,10 @@ spec:
                   { title: "Users", value: $users, caption: "with a jwt.sub (AI calls)", tone: "users", route: "" } ]
                 | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" }
                       elif ($rejected | length) > 0 then { title, value: "", caption: "a filter was refused", tone: "unread", route: "" }
-                      else . + { value: (.value | tostring) } end)),
+                      else . + { value: (.value | tostring) } end)
+                {{- /* Colour marks an exception (portal.tileDefs): Errors red and highlighted above
+                     0 only; Spans, Services and Users are neutral. */}}
+                | map(tilePaint({ error: "red" }; {}))),
         cards: [ $rows[0:24][] | (.status | traceStatusTag) as $st
                  | { span: (if .span == "" then "—" else .span end), tone: (if .status == "" then "Unset" else .status end), stateLabel: $st.label,
                      service: (if .service == "" then "—" else .service end),

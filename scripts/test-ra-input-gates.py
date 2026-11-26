@@ -932,13 +932,20 @@ def check_alert_about_card(charts):
     """The alert detail's About card is the description, plus a warning only for a failure the page
     would otherwise hide: an alert HyperDX never accepted, a row alert firing with no open
     incident, a failed analysis. A metric or value alert opens no incident, so its firing is not
-    one; neither is a paused alert's."""
+    one; neither is a paused alert's. An incident no model analyses (its alert analysed by a person,
+    or no analysis agent installed) is no failed analysis: the card says so in incidents-page's
+    words, by incidents-page's rules."""
     ra = charts['alert-detail'].get('RESTAction', 'alert-detail')
     desc = 'A container keeps crashing.'
     synced = {'hyperdxAlertId': 'h1'}
     incident = lambda state, **status: {'metadata': {'name': 'i1', 'labels': {'observability.krateo.io/alert': 'a1'}},
                                         'spec': {'triggeredAt': '2026-11-09T10:00:00Z'},
                                         'status': {'state': state, **status}}
+    def by_person(inc):
+        inc['metadata']['labels']['observability.krateo.io/analysis'] = 'human'
+        return inc
+    no_agent = lambda message, status='True': {'type': 'AnalysisUnavailable', 'status': status,
+                                               'reason': 'NoAnalysisAgent', 'message': message}
     cases = {
         'healthy: the description alone': ({'description': desc}, {**synced, 'state': 'OK'}, [], desc, True),
         'healthy, no description: no card': ({}, {**synced, 'state': 'OK'}, [], '', False),
@@ -955,6 +962,30 @@ def check_alert_about_card(charts):
         'analysis failed': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Open', error='boom')],
                             'The latest analysis failed.', True),
         'analysis still running': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Analyzing')], desc, True),
+        # No model analyses it (incidents-page's incident-detail rules and words): not a failure.
+        'analyzed by a person, alert-provider\'s reason in status.error': (
+            {'description': desc}, {**synced, 'state': 'ALERT'},
+            [by_person(incident('Open', error='This alert is analysed by a person, so no model reads it.'))],
+            desc + '\n\n**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched,'
+            ' so no analysis or fix is proposed here.', True),
+        'analyzed by a person, resolved': (
+            {'description': desc}, {**synced, 'state': 'OK'}, [by_person(incident('Resolved', error='x'))],
+            desc + '\n\n**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched,'
+            ' so no analysis or fix is proposed here.', True),
+        'no analysis agent, its message': (
+            {'description': desc}, {**synced, 'state': 'ALERT'},
+            [incident('Open', conditions=[no_agent('No analysis agent is installed; a person investigates.')])],
+            desc + '\n\n**No analysis on this platform.** No analysis agent is installed; a person investigates.', True),
+        'no analysis agent, no message': (
+            {'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Verifying', conditions=[no_agent('')])],
+            desc + '\n\n**No analysis on this platform.** No analysis agent is installed here: a person looks into'
+            ' this incident.', True),
+        'no analysis agent, read on Open and Verifying only': (
+            {'description': desc}, {**synced, 'state': 'OK'}, [incident('Resolved', error='boom', conditions=[no_agent('m')])],
+            'The latest analysis failed.', True),
+        'AnalysisUnavailable False: an ordinary failure': (
+            {'description': desc}, {**synced, 'state': 'ALERT'},
+            [incident('Open', error='boom', conditions=[no_agent('m', status='False')])], 'The latest analysis failed.', True),
     }
     problems = []
     for name, (spec, status, incidents, want, shown) in cases.items():

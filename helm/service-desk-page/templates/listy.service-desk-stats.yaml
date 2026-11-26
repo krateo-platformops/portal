@@ -1,9 +1,10 @@
 {{/* The five figures over every request the caller may list: Active (of all), Pending (Zendesk is
      waiting for a reply from someone here), Need attention (refused by Zendesk, held, or an
-     undocumented reason), Opened and Solved in the range. Each tile wears the colour the cards give
-     the status it counts (_zendesk.tpl): Active and Opened slate (New, Open), Pending gold, Need
-     attention red (Refused), Solved faint, zero or not; the title says it too, so colour is never
-     the only signal. A state tile (Active, Pending, Need attention, Solved) opens the list filtered
+     undocumented reason), Opened and Solved in the range. The colour and the highlighted border
+     come computed (zendesk-requests `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93):
+     Pending (gold) and Need attention (red, Refused), the cards' colours, are coloured and
+     highlighted above 0 only; a 0, Active, Opened and Solved are neutral. The title says it too, so
+     colour is never the only signal. A state tile (Active, Pending, Need attention, Solved) opens the list filtered
      to that state, by its state chip's route (Solved's lists what it counts: solved or closed in
      the range); Opened is a total and is a plain tile. A failed read
      never reaches this: the page draws the unavailable sentence in its place (and its tiles have
@@ -30,12 +31,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          active: slate
-          pending: gold
-          attention: red
-          solved: faint
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

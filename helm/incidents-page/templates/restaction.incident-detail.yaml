@@ -128,7 +128,15 @@ spec:
     # an agent arrives, and a closed incident keeps what it had, so it is read on Open and Verifying only.
     | ([ ($st.conditions // [])[]? | select(.type == "AnalysisUnavailable" and .status == "True") ][0]) as $unavailable
     | (($state == "Open" or $state == "Verifying") and $unavailable != null) as $noAgent
-    | (if $noAgent then "" else ($st.error // "") end) as $err
+    # ANALYSED BY A PERSON (alert-provider LabelAnalysis=human, copied from the Alert to its incidents):
+    # no model reads what the alert matched, by design, so there is no analysis to fail or to re-run
+    # (alert-provider drops a reanalysis request on such an incident). alert-provider writes its reason
+    # into status.error (HumanOnly) and stamps completedAt when it opens the incident; neither is an
+    # error nor an analysis. A label does not change, so it is read in every state.
+    | ((($r.metadata.labels // {})["observability.krateo.io/analysis"] // "") == "human") as $byPerson
+    # NO MODEL ANALYSES IT, for either reason: no failure, no Re-run, no "Analyzed".
+    | ($noAgent or $byPerson) as $noAnalysis
+    | (if $noAnalysis then "" else ($st.error // "") end) as $err
     | ($st.report // "") as $rpt
     # status.howToFix.applyAction: the fix as ONE Kubernetes API write (alert-provider >= 0.2.45). Actionable
     # only with a known verb, a target, and a payload object unless it deletes; the verb maps to the
@@ -177,10 +185,13 @@ spec:
     | $lastResults[0] as $lastPre
     | $lastResults[1] as $lastApply
     | $lastResults[2] as $lastVerify
-    # A flagged precondition no longer runs, so it is neither a pass nor a failure.
+    # A flagged precondition no longer runs, so it is neither a pass nor a failure. A verdict is the
+    # precondition doing its job, never a failure: it runs only while the incident is Open, where
+    # exit 1 ("still holds") is the expected answer that the fix is still needed, and exit 0 moves
+    # the incident to Verifying. So either verdict finishes the step; a red mark would say a step that
+    # worked went wrong. (Verify's exit 1 stays an error: the fix was applied and the problem holds.)
     | (if $flagged then "wait"
-       elif ($lastPre.exit // null) == 1 then "error"
-       elif ($lastPre.exit // null) == 0 then "finish"
+       elif (($lastPre.exit // null) | IN(0, 1)) then "finish"
        elif $state == "Open" then "process" else "wait" end) as $preStatus
     | (if $canApply or $canApplyAction or ($state == "Open" and $appliedPending) then "process" elif $lastApply != null then "finish" else "wait" end) as $applyStatus
     | (if $state == "Verifying" then "process"
@@ -320,7 +331,8 @@ spec:
                 else
                   (($lc.precondition.since // $doneAt) as $t | if ($t // "") != "" then { label: "Checking the fix since", since: $t, live: true } else null end)
                 end
-            elif $state == "Open" then (if $doneAt != "" then { label: "Analyzed at", since: $doneAt, live: false } else null end)
+            # No model analysed it: completedAt is when it was opened for a person, not an analysis.
+            elif $state == "Open" then (if $doneAt != "" and ($noAnalysis | not) then { label: "Analyzed at", since: $doneAt, live: false } else null end)
             elif $state == "Resolved" then
               ((($st.resolution // {}).at // $doneAt) as $t | if ($t // "") != "" then { label: "Resolved at", since: $t, live: false } else null end)
             else null end),
@@ -344,7 +356,7 @@ spec:
         canClose: ($exists and $state != "Closed" and $state != "Resolved"),
         canDiscard: $exists,
         # Re-run analysis: an Open or Verifying incident, while no request waits for alert-provider.
-        canReanalyze: ($exists and ($state == "Open" or $state == "Verifying") and ($reanalysisPending | not) and ($noAgent | not)),
+        canReanalyze: ($exists and ($state == "Open" or $state == "Verifying") and ($reanalysisPending | not) and ($noAnalysis | not)),
         canApply: $canApply,
         # Run apply: the same incidents as "I applied it", while no run of this incident is unfinished.
         canRunApply: $canRunApply,
@@ -358,7 +370,9 @@ spec:
            + ". A new analysis has been requested automatically.") else "" end),
         applyAction: (if $aaOk then { verb: $aaVerb, apiVersion: $aa.apiVersion, resource: $aa.resource, namespace: ($aa.namespace // ""), name: $aa.name, payload: (if $aaVerb == "DELETE" then null else $aa.payload end) } else null end),
         metaItems: ([ (if ($r | when) != "" then { label: "Started", value: ($r | when | stamp) } else empty end),
-                      (if ($st.completedAt // "") != "" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
+                      # On an Open incident the header's progress line already says "Analyzed at" this
+                      # same time (headerProgress), so the row does not say it twice.
+                      (if ($st.completedAt // "") != "" and ($noAnalysis | not) and $state != "Open" then { label: "Analyzed", value: ($st.completedAt | stamp) } else empty end),
                       (if $reanalysisPending then { label: "Re-analysis", value: "requested, waiting to start" }
                        elif $reanalysingStale then { label: "Re-analysing", value: "previous fix targeted an unserved version" }
                        elif $reanalysis != null then { label: "Re-analysis", value: ("#" + (($reanalysis.count // 1) | tostring) + " · " + ($reanalysis.at | stamp)
@@ -398,7 +412,10 @@ spec:
               title: (.value.statement // ""),
               description: (if ($cited | length) > 0 then ("Evidence " + ($cited | join(", "))) else "" end),
               status: "finish" })),
-        traceCurrent: (if ($trace | length) > 0 then (($trace | length) - 1) else 0 end),
+        # No trace step is in progress: each one is a finished part of the analysis. `current` past the
+        # last step, so antd marks none active (an active step draws its "Evidence N" line in another
+        # colour than the rest).
+        traceCurrent: ($trace | length),
         fixSteps: $fixSteps,
         fixCurrent: $fixCurrent,
         fixStepsForWidget: ($fixSteps | map({ eyebrow, title, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),
@@ -411,7 +428,12 @@ spec:
         incidentManifestJson: (if $incidentObj != null then ($incidentObj | tojson) else "" end),
         alertManifestJson: (if $alertObj != null then ($alertObj | tojson) else "" end),
         errorText: $err,
-        noAgentText: (if $noAgent then (($unavailable.message // "") | if . == "" then "No analysis agent is installed here: a person looks into this incident." else . end) else "" end),
+        # The notice for an incident no model analyses. A person's incident is said in the page's words,
+        # not status.error's: that field is the provider's error slot, never put on screen raw.
+        noAnalysisTitle: (if $byPerson then "Analyzed by a person" elif $noAgent then "No analysis on this platform" else "" end),
+        noAnalysisText: (if $byPerson then "This alert is analyzed by a person: no model reads what it matched, so no analysis or fix is proposed here."
+                         elif $noAgent then (($unavailable.message // "") | if . == "" then "No analysis agent is installed here: a person looks into this incident." else . end)
+                         else "" end),
         # Shown only for an incident with no structured analysis: the report text, a provider error that stands in for one, or where the analysis is.
         proseMd: (
           ($rpt | test("Bad Request|token count|exceeds the maximum|no output|^ *[0-9][0-9][0-9] ")) as $dump
@@ -435,11 +457,11 @@ spec:
           reasoning: ((($trace | length) > 0) or (($logRows | length) > 0) or (($resourceRows | length) > 0) or (($gaps | length) > 0) or (($assump | length) > 0)),
           fix: $hasFix,
           error: ($err != ""),
-          noAgent: $noAgent,
+          noAnalysis: $noAnalysis,
           applyRuns: (($runRows | length) > 0),
           similar: (($similar | length) > 0),
           manifests: ($incidentObj != null or $alertObj != null),
           alertManifest: ($alertObj != null),
-          prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == "" and ($noAgent | not)))))
+          prose: (($exists | not) or (($structured | not) and (($rpt != "") or ($err == "" and ($noAnalysis | not)))))
         }
       }

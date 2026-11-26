@@ -56,10 +56,23 @@ spec:
         namespaceFrom: .metadata.name
   {{/* Build the Select options from every listable namespace — no exclusion. An empty selection */}}
   {{/* still means "All projects" (cluster-wide), shown via the placeholder. */}}
+  {{/* THE OPTIONS. A namespace labelled krateo.io/tenant (a marker, "true") belongs to a tenant (a */}}
+  {{/* customer, CMP). The onboarding policy writes the tenant's name as krateo.io/tenant-user (acmp, */}}
+  {{/* read on demo: tenant-acme -> acme); it is listed by that name, the namespace muted beside it, */}}
+  {{/* under "Tenants", or by the namespace when the name label is missing. Where any */}}
+  {{/* exists, the rest go under "Other namespaces"; where none does, there are no headings at all. */}}
+  {{/* The value is always the namespace, so ?projects= and saved links are unchanged. */}}
   filter: >
-    {
-      options: (
-        [ .namespaces.items[]? | { label: .metadata.name, value: .metadata.name } ]
-        | sort_by(.value)
-      )
-    }
+    ([ .namespaces.items[]? | select((.metadata.name // "") != "")
+       | (.metadata.labels // {}) as $l
+       | { ns: .metadata.name, tenant: ($l["krateo.io/tenant-user"] // ""), isTenant: (($l["krateo.io/tenant"] // "") != "") } ]) as $all
+    | ([ $all[] | select(.isTenant) ] | length > 0) as $grouped
+    | {
+        options: (
+          ([ $all[] | select(.isTenant) ] | sort_by(.tenant, .ns)
+           | map(if .tenant != "" and .tenant != .ns then { label: .tenant, hint: .ns, value: .ns, group: "Tenants" }
+                 else { label: .ns, value: .ns, group: "Tenants" } end))
+          + ([ $all[] | select(.isTenant | not) ] | sort_by(.ns)
+             | map({ label: .ns, value: .ns } + (if $grouped then { group: "Other namespaces" } else {} end)))
+        )
+      }

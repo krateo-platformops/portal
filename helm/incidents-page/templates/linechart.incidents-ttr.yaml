@@ -1,5 +1,6 @@
 {{/* The median time to resolve (triggered to resolution.at, Resolved incidents) of each of the last
-     8 weeks, in minutes; a week with nothing resolved has no point. */}}
+     8 weeks, in minutes, hours or days (incidents-list `ttrUnit`, the y axis's title); a week with
+     nothing resolved has no point. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -37,5 +38,7 @@ spec:
   widgetDataTemplate:
   - forPath: data
     expression: '${ if .failed then [] else (.ttrWeekly // []) end }'
+  - forPath: axis
+    expression: '${ { x: { tickCount: 4 }, "y": { tickCount: 4, title: (.ttrUnit // "minutes") } } }'
   resourcesRefs:
     items: []

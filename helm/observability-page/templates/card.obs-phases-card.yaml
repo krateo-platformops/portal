@@ -2,10 +2,16 @@
 {{/* both the items entry and the resourcesRefs entry that reach this CR. Without the guard here */}}
 {{/* the CR rendered, applied and reconciled on every install while nothing could ever reach it. */}}
 {{- if (.Values.observability | default dict).reconcileTracing }}
-{{/* "Where reconcile time goes", a side card of the Reconciliation tab: the exact p50 / p95 / p99 */}}
-{{/* of the reconcile spans in the range (obs-perf-stat-row) over the mean of each reconcile phase */}}
+{{/* "Reconcile time", a side card of the Reconciliation tab: the exact p50 / p95 / p99 of the */}}
+{{/* reconcile spans in the range (obs-perf-stat-row) over the mean of each step timed around them */}}
 {{/* (obs-reconcile-phases). The `extra` shows the overall reconcile mean + sample count (from the */}}
 {{/* RA's pctl step) — e.g. "avg 1.2 s · 42 reconciles" (duration.label). */}}
+{{/* NOT "where reconcile time goes" (visual audit OBS-3: the bars added up to 1.9 s of an average */}}
+{{/* of 4.6 s). The steps are not parts of the span: unstructured-runtime records the queue wait */}}
+{{/* and the Get before it starts the reconcile root (worker.go: RecordQueueWaitDuration before */}}
+{{/* processItem, fetch before StartReconcile), and the cdc times RBAC generate and apply per CALL */}}
+{{/* (TimedRBAC), only on the passes that make one, while the helm install/upgrade it runs is not */}}
+{{/* among them. So no "other" remainder can be computed; each bar says what it is a mean of. */}}
 kind: Card
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -18,7 +24,7 @@ spec:
   {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
   keyExtras: [projects, range, tab, serviceName, limit, traceService, traceUser, traceStatus, latencyBy, status, componentStatus, q, view]
   widgetData:
-    title: Where reconcile time goes
+    title: Reconcile time
     titleVariant: eyebrow
     variant: outlined
     extra: 'mean per phase'
