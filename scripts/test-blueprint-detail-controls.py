@@ -15,6 +15,9 @@ Two things are checked, over the chart as rendered:
      every combination of `may`, and over an output with no `may` at all (a probe skipped or failed),
      which must keep every control.
 
+And the /blueprints header's words (UX audit BP-3): the page's verb is Create, never the
+Marketplace's Install; every blueprint on it is installed already.
+
 Uses `helm` and `jq`. Exit code = number of failures.
 """
 import itertools
@@ -119,6 +122,10 @@ def main():
             f.append(f'actions, {label}: {jq(actions, out)} — every control must stay')
         if [i['resourceRefId'] for i in jq(right, out)] != ['card-blueprint-detail-contents', 'card-blueprint-detail-update', 'card-blueprint-impact-picker']:
             f.append(f'right column, {label}: {jq(right, out)} — the contents card, then the update flow, must stay')
+
+    subtitle = get(docs, 'PageHeader', 'blueprints-page-header')['spec']['widgetData']['subtitle']
+    if 'install a blueprint' in subtitle.lower() or 'Create a composition' not in subtitle:
+        f.append(f'/blueprints subtitle: {subtitle!r} — the page creates compositions; installing is the Marketplace\'s')
 
     for x in f:
         print(f'FAIL  {x}')

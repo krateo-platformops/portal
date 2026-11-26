@@ -197,7 +197,95 @@ def check_detail_pill():
     return f
 
 
-CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill]
+def check_create_form_offers_services():
+    """The create form offers, on `where`, a predicate per service with telemetry in the last hour
+    (portal#228), without closing the field; ClickHouse down leaves a plain field and a working form."""
+    f = []
+    crd = {'spec': {'versions': [{'name': 'v1alpha1', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'required': ['interval'],
+        'properties': {'where': {'type': 'string'}, 'interval': {'type': 'string'}}}}}}}]}}
+    nss = {'items': [{'metadata': {'name': 'krateo-system'}}]}
+    # ClickHouse FORMAT JSON: 64-bit counts arrive quoted.
+    services = {'data': [{'svc': 'api', 'logs': '1200', 'spans': '0'},
+                         {'svc': 'snowplow', 'logs': '1', 'spans': '35'},
+                         {'svc': 'otel.collector-1', 'logs': '0', 'spans': '1'},
+                         {'svc': "it's", 'logs': '3', 'spans': '0'},   # no SQL literal as it is: left out
+                         {'svc': '', 'logs': '9', 'spans': '0'}]}
+
+    def form(responses):
+        out = tbi.resolve(CH, 'alert-formdef', responses, {})
+        return out, tbi.resolved_widget(CH, 'Form', 'alert-create', out, {}, 'alert create form')['spec']['widgetData']
+
+    out, wd = form({'crd': crd, 'namespaces': nss, 'services': services})
+    group = 'Services with telemetry in the last hour'
+    expect(f, 'where: one predicate per populated service', wd.get('suggestions'), [{'name': 'where', 'options': [
+        {'value': "ServiceName = 'api'", 'description': '1200 log lines in the last hour', 'group': group},
+        {'value': "ServiceName = 'snowplow'", 'description': '1 log line · 35 spans in the last hour', 'group': group},
+        {'value': "ServiceName = 'otel.collector-1'", 'description': '1 span in the last hour', 'group': group}]}])
+    expect(f, 'where stays an open text field (no enum)', 'enum' in wd['schema']['properties']['where'], False)
+    expect(f, 'the services read is a static query',
+           '${' in CH.get('RESTAction', 'alert-formdef')['spec']['api'][2]['path'], False)
+    for label, resp in (('ClickHouse down', 'ERROR'), ('no telemetry', {'data': []})):
+        out, wd = form({'crd': crd, 'namespaces': nss, 'services': resp})
+        expect(f, f'{label}: no suggestions', wd.get('suggestions'), [])
+        expect(f, f'{label}: the form still renders the spec', sorted(wd['schema']['properties']),
+               ['__alert_name__', '__alert_namespace__', 'interval', 'where'])
+    return f
+
+
+def check_detail_subtitle():
+    """The alert page's header says the rule in words and when it was last checked: the threshold,
+    the interval and the last evaluation, which only the manifest showed (audit ALD-1)."""
+    f = []
+    ra = CH.get('RESTAction', 'alert-detail')
+    ex = {'name': 'x', 'namespace': 'krateo-system'}
+
+    def subtitle(spec=None, status=None, a=None):
+        a = a if a is not None else alert('x', 'OK')
+        a['spec'].update(spec or {})
+        a['status'].update(status or {})
+        out = tbi.jq(ra['spec']['filter'], dict(ex, alert=a, incidents={'items': []}))
+        return tbi.resolved_widget(CH, 'PageHeader', 'alert-detail-page-header', out, ex, 'detail header')['spec']['widgetData']['subtitle']
+
+    seen = {'stateObservedAt': '2026-11-25T14:02:31Z'}
+    expect(f, 'log alert, every row', subtitle(status=seen),
+           'Fires when the number of log lines over 5 minutes is at least 1 · last checked 2026-11-25 14:02 UTC')
+    expect(f, 'log alert with a where; an offset stamp in UTC',
+           subtitle({'where': "ServiceName = 'api'"}, {'stateObservedAt': '2026-11-25T16:02:31.5+02:00'}),
+           'Fires when the number of matching log lines over 5 minutes is at least 1 · last checked 2026-11-25 14:02 UTC')
+    expect(f, 'traces, strictly more than, 1 hour',
+           subtitle({'source': 'traces', 'where': "StatusCode = 'Error'", 'thresholdType': 'above_exclusive',
+                     'threshold': 10, 'interval': '1h'}, seen),
+           'Fires when the number of matching spans over 1 hour is more than 10 · last checked 2026-11-25 14:02 UTC')
+    expect(f, 'grouped metric, consecutive intervals',
+           subtitle({'metricRef': {'name': 'k8s-container-ready'}, 'aggregation': 'max', 'thresholdType': 'below',
+                     'interval': '1m', 'groupBy': ['k8s.pod.name', 'k8s.container.name'], 'consecutiveWindows': 5}, seen),
+           'Fires when the maximum of k8s-container-ready per k8s.pod.name, k8s.container.name over 1 minute'
+           ' is less than 1, 5 intervals in a row · last checked 2026-11-25 14:02 UTC')
+    expect(f, 'ratio metric, a range',
+           subtitle({'metricRef': {'name': 'http-requests'}, 'aggregation': 'sum', 'ratio': {'labels': {}},
+                     'thresholdType': 'not_between', 'threshold': 0, 'thresholdMax': 0.01}, seen),
+           'Fires when the sum of http-requests as a share over 5 minutes is outside 0 to 0.01'
+           ' · last checked 2026-11-25 14:02 UTC')
+    expect(f, 'value read from log rows, at most',
+           subtitle({'value': 'toFloat64OrZero(Body)', 'aggregation': 'p95', 'where': 'x', 'thresholdType': 'below_or_equal',
+                     'threshold': 2.5}, seen),
+           'Fires when the 95th percentile of a value read from matching log lines over 5 minutes is at most 2.5'
+           ' · last checked 2026-11-25 14:02 UTC')
+    expect(f, 'between names both bounds', subtitle({'thresholdType': 'between', 'threshold': 1, 'thresholdMax': 3}),
+           'Fires when the number of log lines over 5 minutes is between 1 and 3')
+    expect(f, 'never read: no "last checked"', subtitle(), 'Fires when the number of log lines over 5 minutes is at least 1')
+    expect(f, 'nothing evaluates it: no "last checked", whatever the stale stamp says',
+           subtitle(status=seen, a=alert('x', 'OK', synced=False)),
+           'Fires when the number of log lines over 5 minutes is at least 1')
+    out = tbi.jq(ra['spec']['filter'], dict(ex, alertError=['forbidden'], incidents={'items': []}))
+    expect(f, 'unreadable alert: no subtitle',
+           tbi.resolved_widget(CH, 'PageHeader', 'alert-detail-page-header', out, ex, 'detail header')['spec']['widgetData']['subtitle'], '')
+    return f
+
+
+CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill,
+          check_create_form_offers_services, check_detail_subtitle]
 
 
 def main():

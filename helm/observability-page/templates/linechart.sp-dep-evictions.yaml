@@ -1,5 +1,7 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
 {{/* The #187 containment signal: evict_delete_total moving means the primary delete path works; the other two are fallbacks and should stay flat at 0. */}}
+{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
+     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,9 +17,9 @@ spec:
     yField: v
     colorField: series
     colorMap:
-      "evict_delete_total": green
-      "evict_self_gone_total": orange
-      "self_notfound_evict_total": red
+      "On delete": green
+      "Object gone (404)": orange
+      "Refresher 404": red
     shapeField: smooth
     area: false
     legend: true
@@ -38,7 +40,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.stat|tostring), v: (.d|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"evict_delete_total": "On delete", "evict_self_gone_total": "Object gone (404)", "self_notfound_evict_total": "Refresher 404"}[$k] // $k), v: (.d|tonumber) } ] }'
   apiRef:
     name: sp-dep-evictions
     namespace: {{ $.Values.namespace }}
