@@ -84,9 +84,11 @@ spec:
          read that found nothing both used to arrive as an empty `found`: a deleted composition and one
          the caller may not read were one page, with every widget on its default. Now the errorKeys
          (lists, accumulated per stage; never stringified) tell them apart:
-           gone       a name and namespace were asked for, nothing matched, and BOTH reads succeeded;
+           gone       a name and namespace were asked for, nothing matched, BOTH reads succeeded and at
+                      least one composition kind was searched (a non-empty crds list);
            unreadable a name and namespace were asked for, nothing matched, and a read FAILED (a 403
-                      or any other status), so whether it exists is not known.
+                      or any other status) or no kind was searched at all (an empty crds list, whatever
+                      the reason: no grant, filtered, none), so whether it exists is not known.
          A match wins over a failed read (another kind's list failing does not unfind it). With no name
          or namespace (snowplow's Phase-1 walk resolves the card with no extras) neither is true. */}}
     def failed: . != null and . != [] and . != "";
@@ -95,7 +97,7 @@ spec:
     | ([ .found[]? | select(.metadata.name == $n and .metadata.namespace == $ns) ]) as $hits
     | ($hits[0] // {}) as $d
     | ((($n // "") != "") and (($ns // "") != "") and ($hits | length == 0)) as $missing
-    | ((.crdsError | failed) or (.foundError | failed)) as $readFailed
+    | ((.crdsError | failed) or (.foundError | failed) or (((.crds // []) | length) == 0)) as $readFailed
     | ($d.apiVersion // "") as $av
     | ($d.metadata.name // $n) as $cn
     | ($d.metadata.namespace // $ns) as $cns

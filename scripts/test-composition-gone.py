@@ -100,8 +100,8 @@ def main():
             'creationTimestamp': '2026-11-01T10:00:00Z'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True', 'reason': 'Available'}]}}
     crds = [{'plural': 'ks', 'version': 'v1', 'kind': 'K', 'group': 'composition.krateo.io', 'cdName': 'bp', 'cdNamespace': 'krateo-system'}]
 
-    def resolve(found=(), errors=None, name='demo-1125', namespace='tenant-bob'):
-        data = {'crds': crds, 'found': list(found), **(errors or {})}
+    def resolve(found=(), errors=None, name='demo-1125', namespace='tenant-bob', kinds=None):
+        data = {'crds': crds if kinds is None else kinds, 'found': list(found), **(errors or {})}
         if name is not None:
             data['name'] = name
         if namespace is not None:
@@ -112,6 +112,7 @@ def main():
         'deleted': resolve(),
         'unreadable: the found read was refused': resolve(errors={'foundError': [FORBIDDEN]}),
         'unreadable: the definitions read failed': resolve(errors={'crdsError': ['boom']}),
+        'unreadable: no kind was searched (empty crds)': resolve(kinds=[]),
         'present': resolve([live]),
         'present although another kind failed': resolve([live], errors={'foundError': [FORBIDDEN]}),
         'no name or namespace asked for (the Phase-1 walk)': resolve(name=None, namespace=None),
@@ -119,7 +120,7 @@ def main():
         'empty error lists are not errors': resolve(errors={'crdsError': [], 'foundError': []}),
     }
     want = {'deleted': (True, False), 'unreadable: the found read was refused': (False, True),
-            'unreadable: the definitions read failed': (False, True), 'present': (False, False),
+            'unreadable: the definitions read failed': (False, True), 'unreadable: no kind was searched (empty crds)': (False, True), 'present': (False, False),
             'present although another kind failed': (False, False),
             'no name or namespace asked for (the Phase-1 walk)': (False, False), 'a name but no namespace': (False, False),
             'empty error lists are not errors': (True, False)}
