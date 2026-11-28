@@ -988,6 +988,75 @@ def check_create_form_loads_field_options(chart):
     return f
 
 
+def check_create_form_requires_what_the_blueprint_flags(chart):
+    """`x-krateo-required-on-create: true` on a top-level property (docs/form-options.md): the create
+    form lists the field as required, so it shows up front with the required mark and is validated
+    before anything is sent. Both schema sources: the raw ConfigMap schema (stringSchema), and the
+    CRD fallback (schemaSpec), where only the raw schema carries the flag because the CRD drops
+    x-krateo-* keys. Only `true` counts, only on a top-level property, and nothing is required twice.
+    (The edit form ignores it: scripts/test-composition-editdef.py.)"""
+    f = []
+    extras = {'name': 'my-bp', 'namespace': 'team-bp', 'username': 'admin'}
+    registered = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+                  'metadata': {'name': 'my-bp', 'namespace': 'team-bp'},
+                  'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'MyBp', 'resource': 'mybps'}}
+    flag = 'x-krateo-required-on-create'
+    crd_props = {k: {'type': 'string'} for k in ('datastore', 'region', 'replicas', 'tier', 'text', 'nested')}
+    crd = {'spec': {'versions': [{'name': 'v0-1-0', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'required': ['replicas'], 'properties': crd_props}}}}}]}}
+    namespaces = {'items': [{'metadata': {'name': 'team-bp'}}]}
+    ids = ['__composition_name__', '__composition_namespace__']
+
+    def schema_text(flags, required=('replicas',)):
+        props = {'datastore': {'type': 'string'}, 'region': {'type': 'string'}, 'replicas': {'type': 'integer'},
+                 'tier': {'type': 'string'}, 'text': {'type': 'string'},
+                 'nested': {'type': 'object', 'properties': {'inner': {'type': 'string', flag: True}}}}
+        for key, value in flags.items():
+            props[key][flag] = value
+        return json.dumps({'type': 'object', 'properties': props, 'required': list(required)}, indent=2)
+
+    def create(label, text):
+        out = resolve(chart, 'blueprint-formdef',
+                      {'compdef': registered, 'crd': crd, 'namespaces': namespaces,
+                       'jsonschema': 'ERROR' if text is None else {'data': {'values.schema.json': text}}}, extras)
+        resolved_widget(chart, 'Form', 'blueprint-create', out, extras, f'blueprint-create ({label})')
+        return out
+
+    out = create('flagged', schema_text({'datastore': True}))
+    expect(f, 'flagged: required on create, after the schema\'s own required',
+           json.loads(out['stringSchema'])['required'], ids + ['replicas', 'datastore'])
+    expect(f, 'flagged, CRD fallback: required too (the flag comes from the raw schema)',
+           out['schemaSpec']['required'], ids + ['replicas', 'datastore'])
+    expect(f, 'flagged: the field itself is untouched', json.loads(out['stringSchema'])['properties']['datastore'],
+           {'type': 'string', flag: True})
+
+    out = create('unflagged', schema_text({}))
+    expect(f, 'unflagged: required is unchanged', json.loads(out['stringSchema'])['required'], ids + ['replicas'])
+    expect(f, 'unflagged, CRD fallback: unchanged', out['schemaSpec']['required'], ids + ['replicas'])
+
+    out = create('only true counts', schema_text({'datastore': False, 'region': 'true', 'tier': 1}))
+    expect(f, 'false, "true" and 1 do not require', json.loads(out['stringSchema'])['required'], ids + ['replicas'])
+    expect(f, 'a flag on a nested property is not a top-level field',
+           json.loads(create('nested', schema_text({}))['stringSchema'])['required'], ids + ['replicas'])
+
+    out = create('twice', schema_text({'replicas': True, 'datastore': True, 'region': True}, required=('replicas', 'tier')))
+    expect(f, 'already required: listed once; the flagged follow, in schema order',
+           json.loads(out['stringSchema'])['required'], ids + ['replicas', 'tier', 'datastore', 'region'])
+    expect(f, 'already required, CRD fallback: once too', out['schemaSpec']['required'],
+           ids + ['replicas', 'datastore', 'region'])
+
+    crd_without = {'spec': {'versions': [{'name': 'v0-1-0', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'properties': {'replicas': {'type': 'integer'}}}}}}}]}}
+    out = resolve(chart, 'blueprint-formdef', {'compdef': registered, 'crd': crd_without, 'namespaces': namespaces,
+                                               'jsonschema': {'data': {'values.schema.json': schema_text({'datastore': True})}}}, extras)
+    expect(f, 'CRD fallback never requires a field the CRD does not have', out['schemaSpec']['required'], ids)
+
+    out = create('no ConfigMap', None)
+    expect(f, 'no ConfigMap: nothing carries the flag, so the CRD\'s own required stands',
+           out['schemaSpec']['required'], ids + ['replicas'])
+    return f
+
+
 def create_ref(chart, kind, name, ra_output, extras):
     """The form's NON-iterated resourcesRefsTemplate entry — its create target — as snowplow renders
     it: each `${ … }` field over the RA output with the request extras folded in UNDERNEATH
@@ -1377,6 +1446,7 @@ CHECKS = [
     check_review_proposals_are_not_builder_publishes,
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
     check_create_form_loads_field_options,
+    check_create_form_requires_what_the_blueprint_flags,
     check_create_ref_names_a_namespace_the_user_can_create_in,
     check_marketplace_detail_resolves_without_a_name,
     check_render_draft_reads_the_chart_from_its_configmap,

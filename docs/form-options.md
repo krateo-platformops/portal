@@ -32,6 +32,17 @@ The formdef also splices the identity fields (`__composition_name__`,
 `__composition_namespace__`) into the schema's TOP-LEVEL `properties`, found by a scan that
 skips strings and nested objects: a schema may put an `if: { properties: … }` before its own.
 
+**Required on create.** A top-level property marked `"x-krateo-required-on-create": true` in the
+blueprint's `values.schema.json` is required of whoever creates the composition: `blueprint-formdef`
+appends it to the `required` it builds (after the schema's own), so the Form shows it up front with the
+required mark and validates it before sending. It is not `required` in the schema itself, so an
+existing instance that lacks the field still edits and renders: `composition-editdef` does not read
+the keyword. Only the literal `true` on a top-level property counts. The generated CRD drops the
+keyword, so the create form built from it (no jsonschema ConfigMap) takes the flag from the raw
+schema and only for fields the CRD has.
+The key lives only in the chart's `values.schema.json`: core-provider's CRD generator drops every
+non-`x-kubernetes-*` key (pinned by core-provider#687), so the portal reads it from the raw schema.
+
 **Shared sources** in the release namespace:
 
 | RESTAction | Answers |
