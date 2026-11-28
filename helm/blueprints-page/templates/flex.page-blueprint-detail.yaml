@@ -32,18 +32,23 @@ spec:
     gap: middle
     allowedResources:
       - pageheaders
+      - flexes
       - rows
       - cards
     items:
       - resourceRefId: blueprint-detail-page-header
       - resourceRefId: blueprint-detail-grid
-  {{/* `.to` is the raw URL query param (extras merge is non-overwriting, and blueprint-detail's */}}
+  {{/* Between them, only when core-provider reports status.schemaDefaults (portal#576), the neutral notice */}}
+{{/* "Form defaults differ from the chart's values"; absent field, no notice. */}}
+{{/* `.to` is the raw URL query param (extras merge is non-overwriting, and blueprint-detail's */}}
   {{/* filter emits no `to` key, so the extras value survives); `.currentVersion` comes from the */}}
   {{/* RA. Equal / absent / cleared ⇒ the impact card is not mounted and never fetched. */}}
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "blueprint-detail-page-header" }, { resourceRefId: "blueprint-detail-grid" } ]
+        ${ [ { resourceRefId: "blueprint-detail-page-header" } ]
+        + (if (.schemaDefaults // null) != null then [ { resourceRefId: "blueprint-detail-defaults" } ] else [] end)
+        + [ { resourceRefId: "blueprint-detail-grid" } ]
         + (if (((.to // "") != "") and ((.to // "") != (.currentVersion // ""))) then [ { resourceRefId: "card-blueprint-detail-impact" } ] else [] end) }
   resourcesRefs:
     items:
@@ -52,6 +57,12 @@ spec:
         name: blueprint-detail-page-header
         namespace: {{ $.Values.namespace }}
         resource: pageheaders
+        verb: GET
+      - id: blueprint-detail-defaults
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: blueprint-detail-defaults
+        namespace: {{ $.Values.namespace }}
+        resource: flexes
         verb: GET
       - id: blueprint-detail-grid
         apiVersion: widgets.templates.krateo.io/v1beta1

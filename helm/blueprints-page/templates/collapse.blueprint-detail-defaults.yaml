@@ -1,0 +1,28 @@
+{{/* The fields behind the defaults notice (portal#576): one row per path core-provider names, then */}}
+{{/* "+N more" from `dropped`. Above 3 fields in all the panel starts folded under "Show the N fields"; */}}
+{{/* 3 or fewer start open. Built by blueprint-detail's schemaDefaults (_schema-defaults.tpl). */}}
+kind: Collapse
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: collapse-blueprint-detail-defaults
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    ghost: true
+    itemTemplate:
+      primaryText: '{line}'
+    items: []
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetDataTemplate:
+    - forPath: items
+      expression: '${ if (.schemaDefaults // null) == null then [] else [ { key: "fields", label: .schemaDefaults.label, dataSource: .schemaDefaults.rows } ] end }'
+    - forPath: defaultActiveKey
+      expression: '${ if ((.schemaDefaults // null) != null) and (.schemaDefaults.folded | not) then ["fields"] else [] end }'
+  resourcesRefs:
+    items: []

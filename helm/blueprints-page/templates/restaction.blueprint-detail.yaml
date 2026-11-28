@@ -155,6 +155,8 @@ spec:
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     {{- include "portal.inferredInputsDefs" . | nindent 4 }}
     {{- include "portal.migratedValuesDefs" . | nindent 4 }}
+    {{- include "portal.schemaDefaultsDefs" . | nindent 4 }}
+    {{- include "portal.reasonActionsDefs" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
     {{- include "portal.compositionStateDefs" . | nindent 4 }}
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
@@ -239,6 +241,12 @@ spec:
         migratedValues: (($d.status.migratedValues // null) as $mv
           | ([ ($d.status.conditions // [])[]? | objects | select(.type == "MigratedValuesValid") ] | first) as $mvCond
           | migratedValuesDetails($mv; $mvCond)),
+        # The neutral notice under the header when the form's defaults differ from the chart's values
+        # (portal#576): status.schemaDefaults, which core-provider omits when they agree, when another
+        # definition owns the chart and before 2.13.137, so absent is null and nothing is drawn. The
+        # action sentence is the generated reason table's for SchemaDefaultsDiffer (_reason-actions.tpl).
+        schemaDefaults: schemaDefaultsNotice(($d.status.schemaDefaults // null);
+          ({type: "SchemaDefaultsMatchValues", status: "False", reason: "SchemaDefaultsDiffer"} | cdReasonAction | (.action // ""))),
         # The "Inputs" line (portal.inferredInputsDefs, _inferred-inputs.tpl): "" for an authored
         # schema or no ConfigMap, so the row is left out; a follower says "Defined by another
         # blueprint <ns/name>", linking the owner (core-provider 2.13.126 status.owner).

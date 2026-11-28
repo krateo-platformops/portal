@@ -795,6 +795,16 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-migrated-values.py
 
+      # A blueprint's form defaults against its chart's values (core-provider 2.13.137, portal#576): the
+      # neutral notice under the header, over core-provider's status.schemaDefaults shape and the charts'
+      # own jq. Absent renders nothing; the action sentence is the generated reason table's, not a string
+      # in the chart; a control removes the table entry and the sentence must go with it.
+      - name: Blueprint defaults notice
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-blueprint-defaults-notice.py
+
       # Every sidebar page item names the root its ref names, so a ref snowplow could not check still has
       # an address (frontend#533). A control drops the namespace.
       - name: Sidebar items say where their page lives

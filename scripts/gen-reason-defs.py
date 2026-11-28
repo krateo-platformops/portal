@@ -221,7 +221,8 @@ ACTIONS_HEADER = """{{/*
   reasonFrom entry (a composition's ApiResolved=False, whose reasons are authn's own) is the fallback
   for its condition and status only, when no listed reason matches.
 
-  No page includes it yet (portal#542 wires the sentences). Defs only, on ONE line with no single
+  blueprints-page includes its copy: blueprint-detail's schemaDefaults takes the SchemaDefaultsDiffer
+  sentence from it (portal#576). Defs only, on ONE line with no single
   quote, no `#` and no template delimiter, so it can open a jq program anywhere.
 */}}
 """

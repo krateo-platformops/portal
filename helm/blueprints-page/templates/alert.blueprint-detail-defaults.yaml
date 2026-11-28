@@ -1,0 +1,30 @@
+{{/* A blueprint's form defaults differ from its chart's values (core-provider 2.13.137, portal#576): */}}
+{{/* ONE neutral (info) notice under the header, never an alert or an incident, for everyone who can open */}}
+{{/* the page. The action sentence is core-provider's own words, from the generated reason table for */}}
+{{/* SchemaDefaultsDiffer (_reason-actions.tpl), built by blueprint-detail's schemaDefaults. The rows sit */}}
+{{/* under it in the Collapse beside this Alert. Mounted by blueprint-detail-defaults only when */}}
+{{/* status.schemaDefaults is present. Approved mockup: https://claude.ai/artifact/WmME7NoHKtz4LE78EVPk35 */}}
+kind: Alert
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: alert-blueprint-detail-defaults
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  {{/* F6 (snowplow#130): extras keys that partition this widget's cache cell. */}}
+  keyExtras: [name, namespace]
+  widgetData:
+    title: ""
+    type: info
+    showIcon: true
+  apiRef:
+    name: blueprint-detail
+    namespace: {{ $.Values.namespace }}
+  widgetDataTemplate:
+    - forPath: title
+      expression: '${ .schemaDefaults.title // "" }'
+    - forPath: description
+      expression: '${ .schemaDefaults.action // "" }'
+  resourcesRefs:
+    items: []
