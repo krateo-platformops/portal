@@ -12,7 +12,7 @@ and says which case it is:
   neither     a match (whatever other reads failed), or no name/namespace asked for.
 
 The widgets only show that. This runs the RESTAction's real final filter over the three cases and then
-the header, the page root, the paragraph and the back link over each, with the present composition
+the header, the page root, and the paragraph over each, with the present composition
 unchanged.
 
 CHART_DIR overrides the chart (the failing control runs the same cases over origin/main's).
@@ -159,22 +159,16 @@ def main():
           ['composition-detail-page-header', 'composition-detail-status-row', 'composition-detail-tabs'])
     check('every item the page can mount is declared', all(i in declared for o in (deleted, present) for i in items(o)), True)
 
-    # The sentence and the way back.
+    # The sentence.
     sentence = template(named(docs, 'Paragraph', 'composition-detail-gone'), 'text')
     check('deleted sentence', jq(sentence, deleted), 'This composition no longer exists.')
     check('refused sentence', jq(sentence, refused), 'You can’t read this composition with your access.')
-    back = named(docs, 'Button', 'composition-detail-gone-back')
-    def backpath(out):
-        got = jq(template(back, 'actions'), out)
-        return got['navigate'][0]['path'] if isinstance(got, dict) else got
-
-    check('the back label', back['spec']['widgetData'].get('label'), 'Back to Compositions')
-    check('back filters to the namespace', backpath(deleted), '/compositions?projects=tenant-bob')
-    check('back with no namespace is the plain list', backpath(walk), '/compositions')
     card = named(docs, 'Card', 'card-composition-detail-gone')
-    check('the card holds the sentence and the link only',
-          [i['resourceRefId'] for i in card['spec']['widgetData']['items']],
-          ['paragraph-composition-detail-gone', 'button-composition-detail-gone-back'])
+    check('the card holds the sentence only: the breadcrumb is the one way back (rule P1)',
+          [i['resourceRefId'] for i in card['spec']['widgetData']['items']], ['paragraph-composition-detail-gone'])
+    check('no button anywhere in the gone card', [r['resource'] for r in card['spec']['resourcesRefs']['items']], ['paragraphs'])
+    check('no Button renders for the gone page', [d['metadata']['name'] for d in docs
+                                                   if d.get('kind') == 'Button' and 'gone' in d['metadata']['name']], [])
 
     failures.extend(MISSING)
     for f in failures:
