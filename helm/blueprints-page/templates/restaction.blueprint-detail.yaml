@@ -14,10 +14,25 @@
 {{/* versionSchema / versionInitial : the update Form's JSON schema (version enum) + initial value */}}
 {{/* gvr               : PATCH/DELETE target (always core.krateo.io compositiondefinitions) */}}
 {{/* Needs snowplow >= 1.4.0 for the external helm-index YAML fetch (GKE is on 1.4.1). */}}
+{{/* ONE SOURCE, THREE RESTActions, so the page's skeleton clears as soon as the cheap data is in */}}
+{{/* (snowplow runs a RESTAction's stages serially; one RA of seven stages made every widget wait for all):
+       blueprint-detail               the cheap reads  : compdef, jsonschema, catalog, catalogLive
+       blueprint-detail-compositions  the same + comps : adds the cluster-wide LIST of the blueprint's
+                                      compositions, for what reads them (the compositions list, Ask
+                                      Agentiko's prompt, the Details "Upgrades" row's behind count)
+       blueprint-detail-may           compdef, catalog, catalogLive + the three access reviews, for what
+                                      reads the caller's access (the two action Flexes, the right column)
+   Each variant emits only the fields its stages can fill (see the object at the end); a field is never
+   emitted from a variant that did not read what it is made of. scripts/test-blueprint-detail-split.py. */}}
+{{- range $variant := list "base" "compositions" "may" }}
+{{- with $ }}
+{{- if ne $variant "base" }}
+---
+{{- end }}
 apiVersion: templates.krateo.io/v1
 kind: RESTAction
 metadata:
-  name: blueprint-detail
+  name: blueprint-detail{{ if ne $variant "base" }}-{{ $variant }}{{ end }}
   namespace: {{ $.Values.namespace }}
   annotations:
     krateo.io/verbose: "true"
@@ -42,6 +57,7 @@ spec:
     {{/* were INFERRED from values.yaml (core-provider #568) and how many fields accept any value, on */}}
     {{/* the "Inputs" line. Gated on the CD's status like the formdef's step; continueOnError, so a */}}
     {{/* blueprint without the ConfigMap (or a caller who cannot read it) just shows no line. */}}
+    {{- if ne $variant "may" }}
     - name: jsonschema
       path: ${ "/api/v1/namespaces/" + .namespace + "/configmaps/" + .resource + "-" + .version + "-jsonschema-configmap" }
       verb: GET
@@ -52,6 +68,7 @@ spec:
         iterator: '[ .compdef | objects | { namespace: (.metadata.namespace // "{{ .Release.Namespace }}"), resource: (.status.resource // ""), version: (((.status.apiVersion // "") | split("/"))[1] // "") } | select(.resource != "" and .version != "") ]'
       continueOnError: true
       errorKey: jsonschemaError
+    {{- end }}
     {{/* The helm index — used to enumerate the chart's available versions (update picker). */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
     {{/* The live blueprints index too (marketplace.liveIndex), merged by withLive in the filter as */}}
@@ -67,6 +84,7 @@ spec:
     {{/* or no CD at all, makes no call, and the card reads "no running compositions". It had no */}}
     {{/* dependsOn, so snowplow ran it in random order against compdef (resolvers/restactions/api */}}
     {{/* sort.go), and its `// "none.krateo.io/v1"` fallback then dialled `/apis/none.krateo.io/v1/none`. */}}
+    {{- if eq $variant "compositions" }}
     - name: comps
       dependsOn:
         name: compdef
@@ -100,6 +118,7 @@ spec:
         namespaceFrom: .metadata.namespace
       continueOnError: true
       errorKey: compsError
+    {{- end }}
     {{/* THE CALLER'S OWN ACCESS, asked of the authorizer, so the page leaves out the controls they
          cannot use (Diego, 2026-11-16: hide, not disable). Each probe is the request its control
          makes, in the same namespace and on the same name:
@@ -111,6 +130,7 @@ spec:
          caller may not make: a failed probe must not hide a working action from an admin. Same
          probe shape as blueprint-palette's mayListCrds. Gated on the route like `compdef`: no
          name, no probe. */}}
+    {{- if eq $variant "may" }}
     - name: mayDelete
       dependsOn:
         name: ""
@@ -150,6 +170,7 @@ spec:
       payload: '{"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":{"resourceAttributes":{"group":"core.krateo.io","resource":"compositiondefinitions","verb":"create","namespace":"{{ .Release.Namespace }}"}}}'
       filter: >
         {allowed: (.mayCreate.status.allowed == true), evaluated: ((.mayCreate.status // null) != null)}
+    {{- end }}
   filter: |
     {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
@@ -230,8 +251,17 @@ spec:
                  else ($comps | length | tostring) + (if ($comps | length) == 1 then " composition runs" else " compositions run" end) + " from it (" + ($notReady | tostring) + " not ready)" end)
               + ". Is it healthy, should I upgrade it, and what would an upgrade change for those compositions?") | @uri))
        else "" end) as $askHref
+    {{- if eq $variant "may" }}
     | {
+        may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
+        currentVersion: $cur,
+        availableVersions: $avail
+      }
+    {{- else }}
+    | {
+        {{- if eq $variant "compositions" }}
         askHref: $askHref,
+        {{- end }}
         contents: $contents,
         # After a migration, compositions whose values the served version refuses (core-provider #623):
         # the "Values check" row and the Alert above the Details card (portal.migratedValuesDefs,
@@ -254,6 +284,7 @@ spec:
         # carry one, differs from the version the definition serves now, status.apiVersion's), the
         # row says how many and links the list of this kind. None behind, or the compositions could
         # not be listed, adds nothing: a failed read is not "none behind", and it is not said either.
+        {{- if eq $variant "compositions" }}
         upgrades: ((($d.spec.upgradePolicy // "") | tostring) as $policy
           | ((($d.status.apiVersion // "") | tostring | split("/"))[1] // "") as $served
           | (($d.status.kind // "") | tostring) as $kind
@@ -265,10 +296,10 @@ spec:
                      + (if $behind > 0 then " · " + ($behind | tostring) + (if $behind == 1 then " composition" else " compositions" end) + " on an older version" else "" end)),
               href: (if $behind > 0 and $kind != "" then "/compositions?kind=" + ($kind | @uri) + "&status=all&scope=all" else "" end)
             } end),
-        may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
-        detail: $d,
         compositions: $comps,
         compositionsCount: ($comps | length),
+        {{- end }}
+        detail: $d,
         name: ($d.metadata.name // $n),
         namespace: ($d.metadata.namespace // $ns),
         # IA followup F3: forward cross-link to the marketplace catalog entry. $bp is the
@@ -304,3 +335,6 @@ spec:
           namespace: ($d.metadata.namespace // $ns)
         }
       }
+    {{- end }}
+{{- end }}
+{{- end }}

@@ -340,7 +340,7 @@ def main():
     check('marketplace: the card follows About', m_col, ['card-marketplace-detail-about', 'card-marketplace-detail-contents'])
 
     bad.extend(latest_failures(by, prog))
-    bad.extend(upgrades_failures(by, prog))
+    bad.extend(upgrades_failures(by, by[('RESTAction', 'blueprint-detail-compositions')]['spec']['filter']))   # the Upgrades row counts compositions
 
     control = prog.replace('elif ((($ct.unknown // "") | tostring) != "") then', 'elif false then', 1)
     if control == prog or detail(control, {'chartVersion': '0.3.0', 'values': 'default', 'unknown': why}, version='0.3.0')['contents']['state'] == 'unknown':

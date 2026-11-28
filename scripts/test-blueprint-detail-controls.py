@@ -77,7 +77,7 @@ def probe(ra, name, item):
 def main():
     docs = render()
     f = []
-    ra = get(docs, 'RESTAction', 'blueprint-detail')
+    ra = get(docs, 'RESTAction', 'blueprint-detail-may')   # the three access reviews live in the may RA
     item = {'namespace': 'krateo-bp-x', 'name': 'keystone'}
 
     # 1. Each probe asks about its control's own request.

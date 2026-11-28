@@ -337,7 +337,7 @@ check('blueprints grid: Create is a secondary button',
       [(a['label'], a.get('type')) for a in grid['spec']['widgetData']['itemTemplate']['rowActions']], [('Create', 'default')])
 
 # --- /blueprints/{namespace}/{name} ----------------------------------------------------------------
-detail_prog = named(bpage, 'RESTAction', 'blueprint-detail')['spec']['filter']
+detail_prog = named(bpage, 'RESTAction', 'blueprint-detail-compositions')['spec']['filter']
 CD = {'metadata': {'name': 'web-app', 'namespace': 'krateo-system'},
       'spec': {'chart': {'repo': 'web-app', 'version': '1.4.2'}},
       'status': {'conditions': [{'type': 'Ready', 'status': 'True'}, {'type': 'Synced', 'status': 'True'}]}}

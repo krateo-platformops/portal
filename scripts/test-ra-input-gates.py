@@ -235,8 +235,8 @@ def sar_body(verb, ns, name):
 
 
 def blueprint_controls(ra, extras, out, caller=ADMIN):
-    """blueprint-detail's `may`: a control is hidden only on an explicit no from its probe."""
-    if ra != 'blueprint-detail':
+    """blueprint-detail-may's `may`: a control is hidden only on an explicit no from its probe."""
+    if ra != 'blueprint-detail-may':
         return None
     want = {'uninstall': True, 'update': True, 'fleet': True}
     if extras.get('namespace') == 'krateo-bp-x':
@@ -277,34 +277,50 @@ GATES = {
         'cases': [('named', {'name': 'a1', 'namespace': 'team-a'}, {},
                    [('alert', '/apis/observability.krateo.io/v1alpha1/namespaces/team-a/alerts/a1')])],
     },
+    # blueprint-detail is three RESTActions (restaction.blueprint-detail.yaml): the cheap reads, the same
+    # plus the compositions LIST, and the three access reviews.
     'blueprint-detail': {
-        'gated': ['compdef', 'comps', 'mayDelete', 'mayPatch'],
+        'gated': ['compdef', 'jsonschema'],
+        'free': {'catalog': tbi.catalog_configmap()},
+        'cases': [
+            ('named', {'namespace': NS, 'name': 'keystone'}, {'compdef': CD}, [
+                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
+                ('jsonschema', f'/api/v1/namespaces/{NS}/configmaps/keystonedemoes-v0-1-0-jsonschema-configmap')]),
+            ('unreconciled CD: no jsonschema ConfigMap, no /apis/none.krateo.io/v1/none',
+             {'namespace': NS, 'name': 'keystone'}, {'compdef': CD_UNRECONCILED}, [
+                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone')])],
+    },
+    'blueprint-detail-compositions': {
+        'gated': ['compdef', 'jsonschema', 'comps'],
+        'free': {'catalog': tbi.catalog_configmap()},
+        'cases': [
+            ('named', {'namespace': NS, 'name': 'keystone'}, {'compdef': CD, 'comps': EMPTY}, [
+                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
+                ('jsonschema', f'/api/v1/namespaces/{NS}/configmaps/keystonedemoes-v0-1-0-jsonschema-configmap'),
+                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes')]),
+            ('unreconciled CD: no instances to list, and no /apis/none.krateo.io/v1/none',
+             {'namespace': NS, 'name': 'keystone'}, {'compdef': CD_UNRECONCILED}, [
+                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone')])],
+    },
+    'blueprint-detail-may': {
+        'gated': ['compdef', 'mayDelete', 'mayPatch'],
         'free': {'catalog': tbi.catalog_configmap(), 'mayCreate': sar(True)},
         'check': blueprint_controls,
         'cases': [
             ('named', {'namespace': NS, 'name': 'keystone'},
-             {'compdef': CD, 'comps': EMPTY, 'mayDelete': sar(True), 'mayPatch': sar(True)}, [
+             {'compdef': CD, 'mayDelete': sar(True), 'mayPatch': sar(True)}, [
                 ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
-                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes'),
                 ('mayDelete', SAR_PATH, sar_body('delete', NS, 'keystone')),
                 ('mayPatch', SAR_PATH, sar_body('patch', NS, 'keystone'))]),
             # The tenant on demo (acmp, 2026-11-16): may read the blueprint, may not change it.
             ('tenant: may not uninstall, update or deploy to fleet', {'namespace': 'krateo-bp-x', 'name': 'keystone'},
-             {'compdef': CD, 'comps': EMPTY, 'mayDelete': sar(False), 'mayPatch': sar(False), 'mayCreate': sar(False)}, [
+             {'compdef': CD, 'mayDelete': sar(False), 'mayPatch': sar(False), 'mayCreate': sar(False)}, [
                 ('compdef', '/apis/core.krateo.io/v1alpha1/namespaces/krateo-bp-x/compositiondefinitions/keystone'),
-                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes'),
                 ('mayDelete', SAR_PATH, sar_body('delete', 'krateo-bp-x', 'keystone')),
                 ('mayPatch', SAR_PATH, sar_body('patch', 'krateo-bp-x', 'keystone'))]),
             # A probe that fails is not a no: the controls stay, and the apiserver still decides.
             ('the probes failed: every control stays', {'namespace': NS, 'name': 'keystone'},
-             {'compdef': CD, 'comps': EMPTY, 'mayCreate': None}, [
-                ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
-                ('comps', '/apis/composition.krateo.io/v0-1-0/keystonedemoes'),
-                ('mayDelete', SAR_PATH, sar_body('delete', NS, 'keystone')),
-                ('mayPatch', SAR_PATH, sar_body('patch', NS, 'keystone'))]),
-            ('unreconciled CD: no instances to list, and no /apis/none.krateo.io/v1/none',
-             {'namespace': NS, 'name': 'keystone'},
-             {'compdef': CD_UNRECONCILED, 'mayDelete': sar(True), 'mayPatch': sar(True)}, [
+             {'compdef': CD, 'mayCreate': None}, [
                 ('compdef', f'/apis/core.krateo.io/v1alpha1/namespaces/{NS}/compositiondefinitions/keystone'),
                 ('mayDelete', SAR_PATH, sar_body('delete', NS, 'keystone')),
                 ('mayPatch', SAR_PATH, sar_body('patch', NS, 'keystone'))])],
