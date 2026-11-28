@@ -146,6 +146,8 @@ spec:
   {{/*               falls back to the default; */}}
   {{/*   stats       Tool servers, Accepted, NotAccepted, Advisories, Tools discovered; each tile's tone */}}
   {{/*               is the state it counts (all, ok, bad, warn), `unread` on a failed server read; */}}
+  {{/*               `color` and `highlight` (portal.tileDefs): NotAccepted red and Advisories */}}
+  {{/*               orange, highlighted, above 0 only; the rest and a 0 "" and false; */}}
   {{/*               `route`: a state tile (Accepted, NotAccepted, Advisories) opens the tab on its */}}
   {{/*               group, built as the chips' routes are (href); the two totals and a failed read */}}
   {{/*               are "", not clickable; */}}
@@ -155,6 +157,7 @@ spec:
   {{/*   listCount / emptyText / emptyType   what the list card shows, or says instead; */}}
   {{/*   byState / topTools / topConsumers   the donut and the two bar lists. */}}
   filter: |-
+    {{ include "portal.tileDefs" . }}
     . as $in
     | ( [ { k: "servers",  what: "Tool servers (remotemcpservers.kagent.dev)",             e: .serversError  },
         { k: "agents",   what: "Agents (agents.kagent.dev)",                             e: .agentsError   },
@@ -379,7 +382,11 @@ spec:
                    { title: "Advisories", value: ($groups.advisory | length), tone: "warn", route: href("advisory"; $tableView), caption: "external endpoint, no gateway route or unknown" },
                    { title: "Tools discovered", value: ([ $rowsOK[] | .toolsN ] | add // 0), tone: "all", route: "",
                      caption: (if $agentsDenied then "agents not readable" else n($inUseN; "tool"; "tools") + " in use by agents" end) } ]
-                 | map(if $serversDenied then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end) ),
+                 | map(if $serversDenied then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)
+                 # Colour marks an exception (portal.tileDefs): NotAccepted and Advisories in their
+                 # colour and highlighted above 0 only; Tool servers, Accepted and Tools discovered
+                 # are neutral.
+                 | map(tilePaint({ bad: "red", warn: "orange" }; {})) ),
         # Accepted, NotAccepted and Advisories are the figures' states, named as their tiles.
         serverChips: ( [ { k: "attention", l: "Needs attention" }, { k: "healthy", l: "Healthy" }, { k: "accepted", l: "Accepted" },
                          { k: "notaccepted", l: "NotAccepted" }, { k: "advisory", l: "Advisories" }, { k: "all", l: "All" } ]
