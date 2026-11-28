@@ -1,5 +1,7 @@
 {{- if (.Values.observability | default dict).snowplowSli }}
 {{/* Refresh outcomes per bucket. `dropped` is the deterministic-failure path that leaves a stale entry resident. */}}
+{{/* Series under plain names (visual audit CHART-4: "snowplow_cache_diagnostic_total" on a legend); the map is
+     the SQL's raw series key to its name, and a key it does not know is drawn as itself. */}}
 kind: LineChart
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -15,11 +17,11 @@ spec:
     yField: v
     colorField: series
     colorMap:
-      "completed": green
-      "failed": red
-      "dropped": orange
-      "retried": gold
-      "skipped_stage_error": magenta
+      "Completed": green
+      "Failed": red
+      "Dropped": orange
+      "Retried": gold
+      "Skipped (stage error)": magenta
     shapeField: smooth
     area: false
     legend: true
@@ -40,7 +42,7 @@ spec:
     data: []
   widgetDataTemplate:
   - forPath: data
-    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: (.stat|tostring), v: (.d|tonumber) } ] }'
+    expression: '${ [ (.rows // [])[] | { t: (.t|tonumber), series: ((.stat|tostring) as $k | {"completed": "Completed", "failed": "Failed", "dropped": "Dropped", "retried": "Retried", "skipped_stage_error": "Skipped (stage error)"}[$k] // $k), v: (.d|tonumber) } ] }'
   apiRef:
     name: sp-refresher-outcomes
     namespace: {{ $.Values.namespace }}

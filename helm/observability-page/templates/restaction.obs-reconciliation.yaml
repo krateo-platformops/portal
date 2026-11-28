@@ -51,6 +51,9 @@
        counts    per state + attention, overdue, all, over the searched set;
        stats     the figures: Compositions, Healthy, Needs attention, Pending and, with tracing,
                  Reconcile overdue; each tile's tone is the state it counts (unread on a failed read);
+                 `color` and `highlight` (portal.tileDefs): Needs attention, Pending and Reconcile
+                 overdue coloured and highlighted above 0 only (an Overdue with no trace to count
+                 too), every other tile and a 0 "" and false, a failed read orange and true;
                  `route` is the matching state chip's (stateRoute), "" on the total, on an Overdue
                  the traces could not date and on a failed read (a plain tile);
        chips / viewChips   the state chips (label, count, active, route) and Summary | Full list;
@@ -126,6 +129,7 @@ spec:
   {{/* Literal block: the filter carries # comments. FORMAT JSON quotes 64-bit integers on some
        servers, hence tonumber. Times are UTC. */}}
   filter: |
+    {{ include "portal.tileDefs" . }}
     {{ include "obs.href" . }}
     {{ include "obs.search" . }}
     {{ include "portal.readyReasonDefs" . }}
@@ -226,7 +230,11 @@ spec:
               caption: (if $neverN > 0 then ($neverN | tostring) + " with none in the trace window" elif $counts.overdue > 0 then "last reconcile over 5 min ago" else "all reconciled within 5 min" end), tone: "overdue", route: stateRoute("overdue") } ]
           elif $telemetry == "empty" then [ { title: "Reconcile overdue", value: "", caption: ("no reconcile traces in " + $window), tone: "overdue", route: "" } ]
           else [ { title: "Reconcile overdue", value: "", caption: "traces could not be read", tone: "unread", route: "" } ] end)
-       | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)) as $stats
+       | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)
+    # Colour marks an exception (portal.tileDefs): Needs attention, Pending and Reconcile overdue in
+    # their colour and highlighted above 0 only; Compositions and Healthy are neutral. Overdue with no
+    # reconcile trace in 7 days has no count to show (""), so it stays marked, orange.
+       | map(tilePaint({ attention: "red", pending: "blue", overdue: "orange" }; {}))) as $stats
     | (if $sel == "all" then "" else $sel end) as $selParam
     | ([ "all", "attention" ] + (if $telemetry == "ok" then [ "overdue" ] else [] end)
        + ($order | map(select(. as $s | ($counts[$s] // 0) > 0 or $sel == $s)))) as $chipKeys

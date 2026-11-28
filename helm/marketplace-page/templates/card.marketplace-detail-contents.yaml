@@ -22,6 +22,11 @@ spec:
       - resourceRefId: paragraph-marketplace-detail-contents-title-none
       - resourceRefId: paragraph-marketplace-detail-contents-body
   widgetDataTemplate:
+    {{/* The list is read from the INSTALLED blueprint, so when that is not the version this page */}}
+    {{/* is about, the title says whose it is: "What the installed 0.1.0 creates" on a page for */}}
+    {{/* 0.1.1 (UX audit MKT-1). The same version, or not installed: "What it creates". */}}
+    - forPath: title
+      expression: '${ if (.installed == true) and ((.installedVersion // "") != "") and ((.installedVersion // "") != (.version // "")) then ("What the installed " + .installedVersion + " creates") else "What it creates" end }'
     - forPath: extra
       expression: '${ .contents.extra // "—" }'
     - forPath: items

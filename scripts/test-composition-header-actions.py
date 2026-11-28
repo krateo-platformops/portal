@@ -4,7 +4,9 @@
   - the blueprint is a LINK, labelled with its name and the installed version, not one more button;
   - exactly ONE primary action, "Edit values";
   - Pause and Delete live under the "More actions" Dropdown, never in the row beside Edit;
-  - the row's order: blueprint link, Ask Agentiko, Sync, Edit values, the menu.
+  - the row's order: blueprint link, Ask Agentiko, Refresh, Edit values, the menu;
+  - the re-read button is labelled "Refresh", not "Sync": it only GETs the composition again for the
+    page (the controller does not reconcile), so it keeps its icon and its GET.
 """
 import json
 import os
@@ -54,6 +56,12 @@ def main():
     check('one primary, and it is Edit values', [(n, b['label']) for n, b in buttons.items() if b.get('type') == 'primary'],
           [('composition-detail-edit', 'Edit values')])
     check('the blueprint is a link', buttons['composition-detail-blueprint']['type'], 'link')
+    refresh = buttons['composition-detail-sync']
+    check('the re-read button says Refresh', (refresh['label'], refresh['icon']), ('Refresh', 'fa-arrows-rotate'))
+    action = next(a for a in refresh['actions']['rest'] if a['id'] == refresh['clickActionId'])
+    ref = next(r for r in docs[('Button', 'composition-detail-sync')]['spec']['resourcesRefsTemplate']
+               if r['template']['id'] == action['resourceRefId'])['template']
+    check('Refresh only re-reads the composition', (ref['verb'], action['successMessage']), ('GET', 'Composition refreshed'))
 
     tmpl = docs[('Button', 'composition-detail-blueprint')]['spec']['widgetDataTemplate']
     expr = next(t['expression'] for t in tmpl if t['forPath'] == 'label').strip().removeprefix('${').removesuffix('}').strip()

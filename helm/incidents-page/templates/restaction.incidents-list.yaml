@@ -27,15 +27,20 @@
                  Resolved and Closed in the range, as their lists are; all over every incident;
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
                  to resolve in the range; a failed read is "—", never 0. Each tile's tone is the
-                 state it counts (the time to resolve is resolved's), so it wears the colour the
-                 cards give that state; `unread` on a failed read. route: a state tile (Open, Analyzing,
+                 state it counts (the time to resolve is resolved's); `unread` on a failed read.
+                 `color` and `highlight` (portal.tileDefs): Open, Analyzing and Verifying in the
+                 colour the cards give that state, highlighted, above 0 only; a 0, Resolved and
+                 Time to resolve "" and false; a failed read orange and true. route: a state tile (Open, Analyzing,
                  Verifying, Resolved) opens the list filtered to its state, the same route as that
                  state's chip; Time to resolve and a failed read have "" (not clickable);
        chips / viewChips / rangeChips   the state chips, Summary | Full list, the range chips: each a
                  label, a count where it has one, active, and the route that keeps the other params;
        byState   the donut: one slice per state that has incidents;
        trend     opened and resolved per hour (24h) or per day (7d, 30d), one point per bucket;
-       ttrWeekly the median time to resolve of each of the last 8 weeks, in minutes;
+       ttrWeekly the median time to resolve of each of the last 8 weeks, in `ttrUnit`;
+       ttrUnit   the unit the weekly medians are in, the largest that keeps the longest one readable:
+                 minutes under 2 h, hours under 3 days, else days (visual audit CHART-3: a chart in
+                 minutes ran to 40,000 under a "20 h 49 min" figure);
        awaiting  firing Alerts (state ALERT, not paused) with no open incident, each with an
                  /incidents?ask= Autopilot deep-link and `why`, off alert-provider's OpensIncidents
                  condition: a metric or value Alert never opens one, a counting Alert has not
@@ -63,6 +68,7 @@ spec:
       continueOnError: true
       errorKey: alertsError
   filter: |
+    {{ include "portal.tileDefs" . }}
     def alertlabel: ((.metadata.labels // {})["observability.krateo.io/alert"] // .spec.alertRef.name // "");
     # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list, each element a
     # message string or the apiserver's Status object, so the text is read from either.
@@ -181,7 +187,10 @@ spec:
         { title: "Resolved", value: ($resolvedIn | length), caption: ("in " + $rangeText), tone: "resolved", route: href("resolved"; $range; $tableView) },
         { title: "Time to resolve", value: (if $ttrMedian == null then "—" else ($ttrMedian | durlabel) end),
           caption: (if $ttrMedian == null then "nothing resolved in " + $rangeText else "median over " + $rangeText end), tone: "resolved", route: "" } ]
-      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end) as $stats
+      | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)
+    # Colour marks an exception (portal.tileDefs): Open, Analyzing and Verifying (an incident not
+    # resolved yet) in their colour and highlighted above 0 only; Resolved and Time to resolve neutral.
+      | map(tilePaint({ open: "red", analyzing: "blue", verifying: "orange" }; {})) as $stats
     # THE TREND: opened (by triggeredAt) and resolved (by resolution.at) per bucket, the newest
     # bucket the current hour or day, so the chart ends now.
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
@@ -195,7 +204,10 @@ spec:
     | (((($now / 604800) | floor) - 7) * 604800) as $w0
     | ([ range(0; 8) as $i | ($w0 + $i * 604800) as $t
          | ([ $ttr[] | select(.at >= $t and .at < $t + 604800) | .m ] | median) as $m
-         | select($m != null) | { t: $t, v: ($m | round) } ]) as $ttrWeekly
+         | select($m != null) | { t: $t, m: $m } ]) as $ttrWeeks
+    | (([ $ttrWeeks[] | .m ] | max) // 0) as $ttrMax
+    | (if $ttrMax < 120 then { unit: "minutes", per: 1 } elif $ttrMax < 4320 then { unit: "hours", per: 60 } else { unit: "days", per: 1440 } end) as $ttrU
+    | ([ $ttrWeeks[] | { t, v: (if $ttrU.per == 1 then (.m | round) else ((.m / $ttrU.per * 10 | round) / 10) end) } ]) as $ttrWeekly
     | ([ $allRows[] | select(.stateKey != "resolved" and .stateKey != "closed") | .alert ] | unique) as $openAlerts
     | ([ $alerts[]
          | select((.status.state // "") == "ALERT")
@@ -292,6 +304,7 @@ spec:
         trend: $trend,
         trendUnit: $b.unit,
         ttrWeekly: $ttrWeekly,
+        ttrUnit: $ttrU.unit,
         ttrMedian: (if $ttrMedian == null then "" else ($ttrMedian | durlabel) end),
         projects: $projects,
         awaiting: $awaiting,

@@ -330,7 +330,13 @@ spec:
               routeNs:   ( if $known404 then "" else $pns end ),
               routeName: ( if $known404 then "" else $dr.name end ),
               role: ( ($pa.spec.description // "") | clip(90) ),
-              status: ( if $pa != null then ( [ $pexc[] | condLabel ] | join(" · ") )
+              # The target's own word when nothing is wrong: "Ready", as the header says it, not an
+              # empty cell under a heading that promises "the state of each target" (UX audit
+              # AGT-4). Only with a Ready=True condition to say it from; none at all stays blank.
+              status: ( if $pa != null then
+                          ( if ($pexc | length) > 0 then ( [ $pexc[] | condLabel ] | join(" · ") )
+                            elif ( [ (($pa.status // {}).conditions // [])[] | select(.type == "Ready" and .status == "True") ] | length ) > 0 then "Ready"
+                            else "" end )
                         elif $known404 then "NotFound"
                         else "" end ),
               statusColor: ( if $pa == null then (if $known404 then "red" else "" end)
@@ -452,9 +458,16 @@ spec:
         emptyText: ( if ($rn == "") then "No agent was named in the route."
                      elif ($agentErr != null) then ("The Agent " + $rns + "/" + $rn + " could not be read — " + errOf($agentErr) + ". That is a failed read, not evidence the agent is absent.")
                      else ("No Agent named " + $rn + " is readable in namespace " + $rns + " — it does not exist, or your permissions do not cover it.") end ),
-        statusLabel: ( [ $exc[] | condLabel ] | join(" · ") ),
+        # The header's state pill, as every other detail page has one: the exceptions when there
+        # are any, else "Ready" (green, the other headers' Ready) from a Ready=True condition. It was
+        # exception-only, so a working agent had no state in its header at all (UX audit AGT-4). No
+        # conditions: no pill, never "Ready" from the absence of a condition.
+        statusLabel: ( if ($exc | length) > 0 then ( [ $exc[] | condLabel ] | join(" · ") )
+                       elif ( [ $conds[] | select(.type == "Ready" and .status == "True") ] | length ) > 0 then "Ready"
+                       else "" end ),
         statusColor: ( if ( [ $exc[] | select(.status == "False") ] | length ) > 0 then "red"
                        elif ( $exc | length ) > 0 then "orange"
+                       elif ( [ $conds[] | select(.type == "Ready" and .status == "True") ] | length ) > 0 then "green"
                        else "" end ),
         orchestrator: $isOrchestrator,
         orchestratorLabel: ( if $isOrchestrator then ("orchestrator · " + ($delRefs | length | tostring) + " sub-agents") else "" end ),
@@ -467,7 +480,9 @@ spec:
                      else "" end ),
           stream: ( if $d == null then "" elif ($d.stream // false) then "enabled" else "disabled" end ),
           owner: $owner,
-          created: ( ($md.creationTimestamp // "") | if . == "" then "" else (.[0:10] + " " + .[11:16] + " UTC · " + rel) end ),
+          # The age after the timestamp, unless the age IS the date (past 60 days `rel` gives the
+          # date back): "2026-08-24 15:37 UTC · 2026-08-24" said the day twice (UX audit AGT-5).
+          created: ( ($md.creationTimestamp // "") | if . == "" then "" else (.[0:10] + " " + .[11:16] + " UTC" + (rel as $r | if $r == .[0:10] then "" else " · " + $r end)) end ),
           conditions: ( [ $conds[] | condLabel ] | join(" · ") ),
           advisories: ( [ $exc[] | select((.message // "") != "") | (.type + " — " + .message) ] | join("  ") ),
           inboundRoute: ( ( if ($routesReadable | not) then ("x-kagent-host: " + $aHost + " — the HTTPRoute read failed (" + errOf($routesErr) + "), so reachability is unknown")
