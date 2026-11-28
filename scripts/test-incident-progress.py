@@ -12,7 +12,10 @@ incident per state and checks the line it emits:
   Verifying                "Checking the fix since" lastChecks.precondition.since, live, no hint
   Verifying, gave up       ChecksUnknown=True: "Fix check gave no verdict at" its time, NOT live
   Open                     "Analyzed at" completedAt, not live
-  Resolved                 "Resolved at" resolution.at, not live
+  Open, no model analyses  no line: analysed by a person (label observability.krateo.io/analysis=human)
+                           or no analysis agent (AnalysisUnavailable=True); completedAt is not an analysis
+  Resolved                 "Resolved by the verify script at" / "Resolved by a person at" resolution.at,
+                           not live; "Resolved at" for a resolution.by it has no words for
   Closed / missing         no line
 A control: with the Analyzing branch forced off, the re-analysis case must fail.
 Another: ignoring ChecksUnknown must make the gave-up Verifying case tick again, and fail.
@@ -56,6 +59,11 @@ def incident(state, **status):
             'status': dict({'state': state}, **status)}
 
 
+def by_person(inc):
+    inc['metadata']['labels']['observability.krateo.io/analysis'] = 'human'
+    return inc
+
+
 CASES = [
     ('Analyzing, re-analysis', incident('Analyzing', completedAt='2026-11-21T10:00:00Z',
                                         reanalysis={'at': '2026-11-21T11:54:15Z', 'cause': 'Person', 'count': 4}),
@@ -82,8 +90,23 @@ CASES = [
      {'label': 'Checking the fix since', 'since': '2026-11-21T12:11:22Z', 'live': True}),
     ('Open', incident('Open', completedAt='2026-11-21T12:11:19Z'),
      {'label': 'Analyzed at', 'since': '2026-11-21T12:11:19Z', 'live': False}),
+    # alert-provider opens a person's incident Open, with completedAt and its reason in status.error.
+    ('Open, analysed by a person', by_person(incident('Open', completedAt='2026-11-14T17:14:27Z',
+                                                      error='This alert is analysed by a person: no model reads what it matched.')),
+     None),
+    # alert-provider >= 0.2.88 with no agent: Open, completedAt, AnalysisUnavailable=True.
+    ('Open, no analysis agent', incident('Open', completedAt='2026-11-24T12:00:00Z',
+                                         conditions=[{'type': 'AnalysisUnavailable', 'status': 'True', 'reason': 'NoAnalysisAgent'}]),
+     None),
+    # Who resolved it, in the header, so the meta row need not say it again (audit INC-7).
     ('Resolved', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
                           resolution={'at': '2026-11-21T12:21:24Z', 'by': 'verify'}),
+     {'label': 'Resolved by the verify script at', 'since': '2026-11-21T12:21:24Z', 'live': False}),
+    ('Resolved by a person', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
+                                      resolution={'at': '2026-11-21T12:21:24Z', 'by': 'user'}),
+     {'label': 'Resolved by a person at', 'since': '2026-11-21T12:21:24Z', 'live': False}),
+    ('Resolved, by a value with no words', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
+                                                    resolution={'at': '2026-11-21T12:21:24Z', 'by': 'budget-exceeded'}),
      {'label': 'Resolved at', 'since': '2026-11-21T12:21:24Z', 'live': False}),
     ('Closed', incident('Closed', completedAt='2026-11-21T12:11:19Z'), None),
 ]

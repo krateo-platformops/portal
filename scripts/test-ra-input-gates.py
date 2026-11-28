@@ -36,7 +36,8 @@ this test passed (portal 1.8.56: the composition detail page resolved no composi
 Each case runs as an admin (collapse on, every namespace) unless it names a tenant's namespaces.
 
 Uses the `jq` binary; JQ=gojq runs the same checks on it. Needs `go` and `git` for snowplow's path
-renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag).
+renderer (SNOWPLOW_SRC=<checkout> skips the clone of the pinned tag); the same checkout's built-in
+jq modules are passed as -L, so a filter's `include "quantity";` is snowplow's module.
 Usage: test-ra-input-gates.py [--crds DIR]. Exit code = failed checks.
 """
 import copy
@@ -425,6 +426,47 @@ GATES = {
         'cases': [('named', {'namespace': 'team-a', 'name': 'k8s-agent'}, {}, [
             ('agent', '/apis/kagent.dev/v1alpha2/namespaces/team-a/agents/k8s-agent')])],
     },
+}
+
+# dashboard-inbox reads the ResourceQuotas of the ONE namespace ?projects names (the capacity card):
+# no request without a single valid namespace. An admin may list resourcequotas cluster-wide, so
+# snowplow's cluster-list collapse serves the whole cluster's list, and the output keeps only that
+# namespace's; a tenant of team-a is served the namespaced list itself.
+def dash_quota(name, ns, pods_hard, pods_used):
+    return {'apiVersion': 'v1', 'kind': 'ResourceQuota', 'metadata': {'name': name, 'namespace': ns},
+            'spec': {'hard': {'pods': pods_hard}}, 'status': {'hard': {'pods': pods_hard}, 'used': {'pods': pods_used}}}
+
+
+DASH_QUOTAS = {'/api/v1/resourcequotas': {'items': [dash_quota('q', 'team-b', '5', '1'), dash_quota('q', 'team-a', '10', '3')]},
+               '/api/v1/namespaces/team-a/resourcequotas': {'items': [dash_quota('q', 'team-a', '10', '3')]}}
+
+
+def dash_capacity(ra, extras, out, caller=ADMIN):
+    """dashboard-inbox: the capacity is the scoped namespace's quota, and only with one namespace."""
+    one = extras.get('projects') in ('team-a',)
+    got = out.get('capacity')
+    if not one:
+        return None if got is None else f'capacity {got} without exactly one namespace'
+    rows = [(r.get('label'), r.get('value')) for r in (got or {}).get('rows') or []]
+    if (got or {}).get('namespace') != 'team-a' or rows != [('Pods', '3 of 10')]:
+        return f'capacity {got}'
+    return None
+
+
+GATES['dashboard-inbox'] = {
+    'gated': ['quotas'],
+    'free': dict({'gate' + g: {'metadata': {'name': 'page-' + g.lower()}}
+                  for g in ('Incidents', 'Alerts', 'Agents', 'Reviews', 'Compositions')},
+                 **{s: EMPTY for s in ('incidents', 'alerts', 'proposals', 'agents', 'servers', 'routes', 'policies',
+                                       'crds', 'definitions')}),
+    'check': dash_capacity,
+    'cases': [('one namespace, as a tenant of team-a: exactly its quotas', {'projects': 'team-a'}, {'quotas': DASH_QUOTAS},
+               [('quotas', '/api/v1/namespaces/team-a/resourcequotas')], tenant({'': ['team-a']})),
+              ("one namespace, as an admin: snowplow's cluster-list collapse, narrowed to it", {'projects': 'team-a'},
+               {'quotas': DASH_QUOTAS}, [('quotas', '/api/v1/resourcequotas')]),
+              ('two namespaces: no request', {'projects': 'team-a,team-b'}, {'quotas': DASH_QUOTAS}, []),
+              ('an empty scope: no request', {'projects': ''}, {'quotas': DASH_QUOTAS}, []),
+              ('not a namespace name: no request', {'projects': '../team-a'}, {'quotas': DASH_QUOTAS}, [])],
 }
 
 # composition-detail and the three RESTActions shaped like it find the composition by listing every
@@ -890,13 +932,20 @@ def check_alert_about_card(charts):
     """The alert detail's About card is the description, plus a warning only for a failure the page
     would otherwise hide: an alert HyperDX never accepted, a row alert firing with no open
     incident, a failed analysis. A metric or value alert opens no incident, so its firing is not
-    one; neither is a paused alert's."""
+    one; neither is a paused alert's. An incident no model analyses (its alert analysed by a person,
+    or no analysis agent installed) is no failed analysis: the card says so in incidents-page's
+    words, by incidents-page's rules."""
     ra = charts['alert-detail'].get('RESTAction', 'alert-detail')
     desc = 'A container keeps crashing.'
     synced = {'hyperdxAlertId': 'h1'}
     incident = lambda state, **status: {'metadata': {'name': 'i1', 'labels': {'observability.krateo.io/alert': 'a1'}},
                                         'spec': {'triggeredAt': '2026-11-09T10:00:00Z'},
                                         'status': {'state': state, **status}}
+    def by_person(inc):
+        inc['metadata']['labels']['observability.krateo.io/analysis'] = 'human'
+        return inc
+    no_agent = lambda message, status='True': {'type': 'AnalysisUnavailable', 'status': status,
+                                               'reason': 'NoAnalysisAgent', 'message': message}
     cases = {
         'healthy: the description alone': ({'description': desc}, {**synced, 'state': 'OK'}, [], desc, True),
         'healthy, no description: no card': ({}, {**synced, 'state': 'OK'}, [], '', False),
@@ -913,6 +962,30 @@ def check_alert_about_card(charts):
         'analysis failed': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Open', error='boom')],
                             'The latest analysis failed.', True),
         'analysis still running': ({'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Analyzing')], desc, True),
+        # No model analyses it (incidents-page's incident-detail rules and words): not a failure.
+        'analyzed by a person, alert-provider\'s reason in status.error': (
+            {'description': desc}, {**synced, 'state': 'ALERT'},
+            [by_person(incident('Open', error='This alert is analysed by a person, so no model reads it.'))],
+            desc + '\n\n**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched,'
+            ' so no analysis or fix is proposed here.', True),
+        'analyzed by a person, resolved': (
+            {'description': desc}, {**synced, 'state': 'OK'}, [by_person(incident('Resolved', error='x'))],
+            desc + '\n\n**Analyzed by a person.** This alert is analyzed by a person: no model reads what it matched,'
+            ' so no analysis or fix is proposed here.', True),
+        'no analysis agent, its message': (
+            {'description': desc}, {**synced, 'state': 'ALERT'},
+            [incident('Open', conditions=[no_agent('No analysis agent is installed; a person investigates.')])],
+            desc + '\n\n**No analysis on this platform.** No analysis agent is installed; a person investigates.', True),
+        'no analysis agent, no message': (
+            {'description': desc}, {**synced, 'state': 'ALERT'}, [incident('Verifying', conditions=[no_agent('')])],
+            desc + '\n\n**No analysis on this platform.** No analysis agent is installed here: a person looks into'
+            ' this incident.', True),
+        'no analysis agent, read on Open and Verifying only': (
+            {'description': desc}, {**synced, 'state': 'OK'}, [incident('Resolved', error='boom', conditions=[no_agent('m')])],
+            'The latest analysis failed.', True),
+        'AnalysisUnavailable False: an ordinary failure': (
+            {'description': desc}, {**synced, 'state': 'ALERT'},
+            [incident('Open', error='boom', conditions=[no_agent('m', status='False')])], 'The latest analysis failed.', True),
     }
     problems = []
     for name, (spec, status, incidents, want, shown) in cases.items():
@@ -941,6 +1014,8 @@ def main():
         i = args.index('--crds')
         crds_dir = args[i + 1]
         del args[i:i + 2]
+    # dashboard-inbox's filter includes snowplow's `quantity` module: the pinned snowplow's copy.
+    tbi.JQ_LIBS.append(spath.jq_modules())
     portal = tbi.Chart(tbi.render_portal_and_pages())
     agents = tbi.Chart(tbi.render(os.path.join(HERE, '..', 'helm', 'portal-agents')))
     charts = {name: (agents if name == 'agent-detail' else portal) for name in GATES}

@@ -18,8 +18,8 @@
 {{/* resources → ITERATOR (full dict) filters _cn/_cns to the target (only the */}}
 {{/* target's ~N resources are fetched), GETs each at _getpath, and */}}
 {{/* its filter shapes the live object to {kind,name,ns,conditions}. */}}
-{{/* Final filter derives per-resource state (Ready×Synced / Available / ready-by- */}}
-{{/* presence) + aggregate, folding in the composition's own workload projection */}}
+{{/* Final filter derives per-resource state by core-provider's classifyChildEval (group+kind */}}
+{{/* dispatch; see the filter) + aggregate, folding in the composition's own workload projection */}}
 {{/* (workloadUnhealthy/workloadMessage from .status.workloadHealthy/.healthMessage, */}}
 {{/* ridden through `found` as _wh/_whMsg) so `converged` can't claim full */}}
 {{/* convergence over a crashlooping workload. Nothing hardcoded (the cluster-scoped */}}
@@ -94,7 +94,17 @@ spec:
             # inject it ONLY when absent — else the URL doubles the namespace segment → 404, and
             # the fetch-miss silently defaults the resource to healthy (issue #152). Idempotent
             # for both path shapes (old omitted-ns and new included-ns).
-            | (if $cluster != null or ($m.path | contains("/namespaces/")) then $m.path
+            # A path without /namespaces/ is the entry's own answer when the entry says its
+            # namespace: core-provider reads namespaced-ness from discovery and records namespace ""
+            # for a cluster-scoped child (managedPath, composition-dynamic-controller support.go).
+            # The static $clusterKinds list is only for an entry with no namespace field at all: a
+            # cluster-scoped kind missing from it (trust-manager's Bundle) had the composition's
+            # namespace spliced in, 404'd, and read "Pending" forever (visual audit CMP-7).
+            | (if ($m.path | contains("/namespaces/")) then $m.path
+               elif ($m | has("namespace")) then
+                 (if (($m.namespace // "") | tostring) == "" then $m.path
+                  else ($pre + "/namespaces/" + ($m.namespace | tostring) + "/" + $res + "/" + $nm) end)
+               elif $cluster != null then $m.path
                else ($pre + "/namespaces/" + $cns + "/" + $res + "/" + $nm) end) as $getpath
             # THE CHILD'S OWN NAMESPACE, read from the path it is fetched at: .../namespaces/<ns>/<res>/<name>,
             # or "" for a cluster-scoped child. It is NOT the composition's namespace. A page chart's
@@ -106,14 +116,45 @@ spec:
             | (if ($q | length) >= 4 and $q[-4] == "namespaces" then $q[-3] else "" end) as $rns
             # The parent's workload projection rides on every row (_wh/_whMsg): the final
             # aggregate folds it in, and this step filter is the only place that sees $comp.
+            # The parent's own Ready and Synced ride along too (_conds): the final filter reads the
+            # composition's state from them (portal.compositionStateDefs), so the verdict says
+            # Paused or Unknown of a paused or unassessable composition, never "converging".
             | { _cn: $cn, _cns: $cns, _rns: $rns, _kind: $res, _name: $nm,
                 _wh: $comp.status.workloadHealthy, _whMsg: ($comp.status.healthMessage // ""),
+                # Whether the composition ITSELF is being deleted (core-provider#678's exception).
+                _cdel: (($comp.metadata.deletionTimestamp // null) != null),
+                _conds: [ ($comp.status.conditions // [])[] | select(.type == "Ready" or .type == "Synced") ],
                 # Real group/version for the resource-view route ($p[1] = "api" for the core group
                 # → group "core", version $p[2]; "apis" → group $p[2], version $p[3]) + cluster-scope.
                 _grp: (if ($p[1] // "") == "apis" then ($p[2] // "") else "core" end),
                 _ver: (if ($p[1] // "") == "apis" then ($p[3] // "v1") else ($p[2] // "v1") end),
-                _cluster: ($cluster != null),
-                _getpath: $getpath } ]
+                _getpath: $getpath,
+                # The group/version's discovery path (the apiresources stage), "" for the core group.
+                _gvpath: (if ($p[1] // "") == "apis" then ("/apis/" + ($p[2] // "") + "/" + ($p[3] // "")) else "" end) } ]
+    {{/* THE KIND EACH CHILD IS SERVED AS, from the apiserver's discovery of its group/version
+         (/apis/<group>/<version>: .resources[] with .name, the plural, and .kind). status.managed
+         names a child by its plural only, and a child that was not fetched (missing, refused) has no
+         object to read a kind from: the row used to make one up from the plural ("restdefinitions"
+         became "Restdefinition", the served kind being RestDefinition; visual audit REL-2). One call
+         per group/version this composition's children use, as composition-events resolves its
+         plurals; k8s binds system:discovery to system:authenticated, so it answers for any caller.
+         Core-group kinds keep the static map in the final filter. Only enriches: continueOnError,
+         and a group it cannot read prints the plural as recorded, never a guess. */}}
+    - name: apiresources
+      dependsOn:
+        name: found
+        {{/* fetchableTarget over a discovery path (no resource segment) yields its group and
+             version, so the path is portal.targetPath over it like every data-driven path here. */}}
+        iterator: |
+          {{- include "portal.fetchableDefs" . | nindent 10 }}
+          .name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns and (._gvpath // "") != "") ] | unique_by(._gvpath) | [ .[] | (._gvpath | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: discoveryErr
+      filter: '[ .apiresources as $r | $r.resources[]? | select(((.name // "") | test("/")) | not) | {group: (($r.groupVersion // "") | split("/")[0]), kind: (.kind // ""), plural: (.name // "")} | select(.group != "" and .kind != "" and .plural != "") ]'
     - name: resources
       dependsOn:
         name: found
@@ -132,16 +173,27 @@ spec:
       {{/* Shape each fetched live object to {rkind,rname,rns,conditions} (1-elem */}}
       {{/* array; 404s/Status drop to []). (.resources // .) tolerates either */}}
       {{/* dict-keyed or root-bound response shapes across dispatch paths. */}}
+      {{/* gen/ogen and counts are what core-provider's classifyChildEval reads besides conditions and */}}
+      {{/* phase: the generations for staleCondition, the replica counts for workloadReady, the Job */}}
+      {{/* counts for jobReady. Each `?` keeps a kind whose spec/status is not an object from erroring. */}}
       filter: >
         [ (.resources // .)
           | select(type == "object" and (.kind // "") != "Status" and (.metadata.name // "") != "")
-          | { rkind: (.kind // ""), rname: .metadata.name, rns: (.metadata.namespace // ""), conditions: (.status.conditions // []) } ]
+          | { rkind: (.kind // ""), rname: .metadata.name, rns: (.metadata.namespace // ""), conditions: (.status.conditions // []), phase: ((.status.phase // "") | tostring),
+              gen: (.metadata.generation? // 0), ogen: (.status.observedGeneration? // null),
+              deletionTimestamp: (.metadata.deletionTimestamp? // null),
+              counts: { replicas: (.spec.replicas? // null), readyReplicas: (.status.readyReplicas? // null),
+                        unavailableReplicas: (.status.unavailableReplicas? // null),
+                        desiredNumberScheduled: (.status.desiredNumberScheduled? // null),
+                        numberReady: (.status.numberReady? // null), numberUnavailable: (.status.numberUnavailable? // null),
+                        succeeded: (.status.succeeded? // null), failed: (.status.failed? // null),
+                        backoffLimit: (.spec.backoffLimit? // null) } } ]
   {{/* Authoritative row list = the composition's DECLARED managed resources (.found, */}}
   {{/* target-filtered) → total is always the true managed count, independent of */}}
   {{/* whether every per-resource GET round-tripped (the informer dispatch can drop */}}
   {{/* core kinds). Live state is JOINED from the fetched objects (.resources) by */}}
   {{/* name(+ns); kind prefers the fetched object's kind, falls back to the managed */}}
-  {{/* plural. A managed resource with no fetched conditions = healthy-by-presence. */}}
+  {{/* plural. Its state is core-provider's verdict for that child (classifyChildEval). */}}
   {{/* LITERAL block (|), not folded (>): folding joins same-indent lines with spaces, */}}
   {{/* so a base-indent jq `#` comment would swallow the code joined after it (the */}}
   {{/* composition-events filter shipped broken exactly this way). */}}
@@ -151,9 +203,29 @@ spec:
   {{/* were not). It does not link to /resources, which would not read it either. */}}
   filter: |
     {{- include "portal.fetchableDefs" . | nindent 4 }}
+    {{- include "portal.readyReasonDefs" . | nindent 4 }}
+    {{/* core-provider's staleCondition (childhealth.go:964-976), over a fetched object: a condition
+         written for an older generation says nothing about the current spec. Its own
+         observedGeneration first, else status.observedGeneration, else (neither published, or a kind
+         with no generation) never stale. */}}
+    def staleCondition($cond): (.gen // 0) as $gen
+      | if $gen == 0 then false
+        elif ($cond.observedGeneration | type) == "number" then $cond.observedGeneration != $gen
+        elif (.ogen | type) == "number" then .ogen != $gen
+        else false end;
+    {{- include "portal.compositionStateDefs" . | nindent 4 }}
     (.name) as $n | (.namespace) as $ns
     | ({"serviceaccounts":"ServiceAccount","configmaps":"ConfigMap","secrets":"Secret","services":"Service","endpoints":"Endpoints","persistentvolumeclaims":"PersistentVolumeClaim","deployments":"Deployment","replicasets":"ReplicaSet","statefulsets":"StatefulSet","daemonsets":"DaemonSet","pods":"Pod","jobs":"Job","cronjobs":"CronJob","clusterroles":"ClusterRole","clusterrolebindings":"ClusterRoleBinding","roles":"Role","rolebindings":"RoleBinding","ingresses":"Ingress","networkpolicies":"NetworkPolicy","namespaces":"Namespace"}) as $kindMap
     | ( [ .found[]? | select(._cn == $n and ._cns == $ns) ] ) as $managed
+    # The kind each group's plural is served as (the apiresources stage): "group|plural" -> Kind.
+    | ( [ (.apiresources // empty) | .. | objects | select(has("group") and has("kind") and has("plural")) | { key: (.group + "|" + .plural), value: .kind } ] | from_entries ) as $served
+    # A child that is NOT THERE: the apiserver's own NotFound for it, among the resources stage's
+    # errors (resErr, a list: snowplow records a definite NotFound as a Status with code 404 and the
+    # apiserver's message, any other failure as its text). The message names the object exactly,
+    # `<plural>[.<group>] "<name>" not found`, so a row is NotFound only on that answer; a fetch
+    # that failed any other way (refused, not served) stays Pending, as before.
+    | ( [ (.resErr // []) | (if type == "array" then .[] else . end)
+          | if type == "object" then (select((.code // 0) == 404) | (.message // "") | tostring) elif type == "string" then . else empty end ] ) as $notFoundMsgs
     | ( [ .resources ] | flatten | map(select(type == "object" and (.rname // "") != "")) ) as $fetched
     | ( $managed | map(
           . as $m
@@ -167,92 +239,179 @@ spec:
                kinds (a Role and its RoleBinding) therefore still share the first fetched object. */}}
           | ( [ $fetched[] | select(.rname == $m._name and .rns == $m._rns) ][0] ) as $obj
           | ($obj != null) as $found
+          | ($m._kind + (if $m._grp == "core" then "" else "." + $m._grp end) + " \"" + $m._name + "\" not found") as $nfMsg
+          | (($found | not) and any($notFoundMsgs[]; . == $nfMsg or endswith(" " + $nfMsg))) as $missing
           | (($obj.conditions) // []) as $c
-          | ([ $c[]? | select(.type == "Ready" or .type == "Available") ][0]) as $rc
-          {{/* A CRD HAS NO Ready. Its readiness conditions are `Established` and `NamesAccepted`, so it
-               used to have conditions (not "conditionless → healthy") and no $rc, and fell through
-               every branch to "pending" — forever, whatever its real state (krateo-057's authn-crd).
-               The arms are the composition's own rule for a CRD child, in ITS evaluation order
-               (core-provider#473, crdReady in childhealth.go), so the portal and the composition's
-               Ready never disagree:
-                 1. NamesAccepted=False                     → failed, its reason verbatim. Checked
-                    FIRST: a name conflict is terminal, even while Established or terminating.
-                 2. Established=True and Terminating≠True   → healthy
-                 3. anything else                           → converging: Established False/Unknown,
-                    no conditions yet (a just-created CRD carries none for a moment), or
-                    Terminating=True (still Established). The cdc reports it as Ready=False reason
-                    `Creating`; a fresh install must not flash "failed". */}}
-          | ($m._kind == "customresourcedefinitions") as $isCrd
+          | (($obj.phase) // "") as $phase
+          | (($obj.counts) // {}) as $n
+          | ($m._grp) as $g | ($m._kind) as $k
+          | ($m._getpath | fetchablePath) as $readable
+          {{/* THE SOURCE OF TRUTH IS core-provider's classifyChildEval (core-provider
+               go/composition-dynamic-controller/internal/composition/childhealth.go:832-879, at
+               f2e0ab1), and this chain is a port of it, so the page's "N of M healthy" is the count the
+               composition's own Ready verdict was made from. Change it there first, then here. (The page
+               will read core-provider's counts directly later — portal P3/C6 — and this port goes.)
+
+               It is a GROUP rule, not a list of kinds, and it dispatches on group AND kind:
+                 *krateo.io                      → krateoEval (:1064-1410): the Ready condition only.
+                 apps Deployment/StatefulSet/
+                      DaemonSet/ReplicaSet       → workloadReady (:1425-1456): replica counts.
+                 batch CronJob                   → cronJobReady (:1492): healthy by existence.
+                 batch Job                       → jobReady (:1498-1507): succeeded / failed > backoffLimit.
+                 core Pod                        → podReady (:999-1016): phase, then Ready when Running.
+                 core PersistentVolumeClaim      → pvcReady (:1041-1053): phase.
+                 apiextensions.k8s.io CRD        → crdReady (:1577-1592): NamesAccepted / Established.
+                 any other NATIVE group          → healthy by existence: isNativeGroup (:151-157) is
+                                                   "" (core), apps, batch, autoscaling, policy,
+                                                   extensions and every *.k8s.io. Its conditions are
+                                                   not read: a Namespace Terminating, an HPA, a PDB,
+                                                   a Lease, an APIService are healthy because they exist.
+                 anything else (a custom resource) → thirdPartyEval (:904-949): a current Ready
+                                                   condition, or a kagent ModelConfig's Accepted; any
+                                                   other shape is unevaluated = "noReadiness" here.
+               Plurals stand in for kinds: an informer-served object carries no kind (see the join
+               above), and a built-in group's plural names exactly one kind.
+
+               A COUNT CLASS AND A DISPLAY STATE. Each verdict is {s, l, c}: `s` is the state the row
+               shows, `l` its label, and `c` the class the counts are made of — core-provider's
+               verdict — when it differs from `s`. They differ in one place: a Ready=True child with
+               Synced=False SHOWS "drift" (Synced is a separate fact and still an exception) and is
+               COUNTED healthy, as core-provider counts it (Diego, 2026-11-25).
+               The page's other finer states stay inside core-provider's buckets and never cross the
+               healthy or noReadiness boundary (the test asserts it): Ready=Unknown split into
+               notObserved / readyNotSet / unknown, and DriftNotConverging / AuthorizationDenied
+               "terminal" (core-provider: failed). An unfetched child is "pending" and a Secret
+               "unread" (core-provider reads both; portal#557 replaces this computation with
+               core-provider's own counts). */}}
+          | ($g | endswith("krateo.io")) as $isKrateo
+          | ($g == "core" or (["apps", "batch", "autoscaling", "policy", "extensions"] | any(. == $g)) or ($g | endswith(".k8s.io"))) as $native
+          | ([ $c[]? | select(.type == "Ready") ][0]) as $rd
+          | (($rd.status) // "") as $rs
+          | (($rd.reason) // "") as $rr
+          | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
+          | (($c | length) == 0) as $noconds
+          {{/* No readiness to read: labelled with the child's own status.phase when it has one
+               ("Failed" on a MongoDBCommunity), verbatim, else NoReadyCondition. */}}
+          | {s: "noReadiness", l: (if $noconds and $phase != "" then $phase else "NoReadyCondition" end)} as $noReadiness
+          | {s: "healthy", l: "Healthy"} as $healthy
+          {{/* crdReady's order: NamesAccepted=False first (a name conflict is terminal, even while
+               Established or terminating), then Established=True while not Terminating. Anything else
+               converges: no conditions yet, Established False/Unknown, or Terminating=True. */}}
           | ([ $c[]? | select(.type == "Established") ][0]) as $established
           | ([ $c[]? | select(.type == "NamesAccepted") ][0]) as $namesAccepted
           | ([ $c[]? | select(.type == "Terminating") ][0]) as $terminating
-          | ($isCrd and $namesAccepted.status == "False") as $crdNameConflict
-          | ($isCrd and ($crdNameConflict | not) and $established.status == "True" and $terminating.status != "True") as $crdReady
-          | ($isCrd and ($crdNameConflict | not) and ($crdReady | not)) as $crdConverging
-          | ($rc.status == "True") as $ready
-          | ($rc.status == "False") as $notready
-          {{/* THE THIRD STATE. A Ready condition is True, False or Unknown, and Unknown used to
-               fall off the end of the chain below into "pending" — which reads as PROGRESS about
-               something that may be permanently stuck. provider-runtime's words, and the reason
-               this is worth changing: a stuck resource looked like it was still working, so an
-               operator waited instead of looking.
-
-               Split by REASON, because the two Unknown cases have different causes and different
-               fixes. `NotObserved` with Synced=False is "we cannot observe it"; the same reason
-               with Synced=TRUE is a contract breach — the provider finished its Observe and never
-               set Ready — for which the runtime also records a Warning event, verbatim
-               `ReadyNotSetAfterObserve` (reconciler.ReasonReadyNotSetAfterObserve, v1.8.1). */}}
-          | ($rc.status == "Unknown") as $unknownReady
-          | ($rc.reason // "") as $reason
-          {{/* NotObserved and ObserveFailed ARE THE SAME FACT FROM TWO RUNTIMES, and which word
-               arrives depends only on whether the provider was built on provider-runtime
-               (markNotObserved, pkg/reconciler/ready.go:60, from a failed Connect or Observe) or on
-               unstructured-runtime (ObserveFailed, pkg/tools/unstructured/condition/condition.go:50).
-               That is an implementation detail no portal user can see, so both get the same STATE
-               and the same RANK — otherwise the identical failure sorts differently depending on
-               whether the resource came from oasgen-provider or rest-dynamic-controller.
-
-               The LABEL stays verbatim per reason, because the status-pill rule is to print what the
-               object says and greppability is the point: an operator reading `ObserveFailed` can
-               find that string. Same treatment, own word. */}}
-          | (($reason == "NotObserved") or ($reason == "ObserveFailed")) as $observeFailed
-          {{/* Ready=False IS NOT ONE THING EITHER, and treating it as one was the mirror of the
-               Unknown defect above: `Pending` and `Updating` are genuinely in progress and were
-               rendering RED, while `DriftNotConverging` and `AuthorizationDenied` are terminal —
-               the controller has stopped and a human must act — and rendered as a transient
-               failure. All four come from rest-dynamic-controller and the set is OPEN, so an
-               unrecognised Ready=False still falls to `failed` rather than to progress. */}}
-          | (($reason == "Pending") or ($reason == "Updating")) as $converging
-          | (($reason == "DriftNotConverging") or ($reason == "AuthorizationDenied")) as $terminal
-          | (any($c[]?; .type == "Synced" and .status == "False")) as $unsynced
-          | (($c | length) == 0) as $noconds
-          | ($m._getpath | fetchablePath) as $readable
+          | ( if ($readable | not) then {s: "unread", l: "Unread"}
+              # A managed child we could NOT fetch is not healthy. The apiserver's own NotFound for it
+              # (resErr) is "notFound": it is not there, a problem. Any other miss (refused, not served)
+              # is "pending" (issue #152): neither a green tag nor counted toward convergence.
+              elif $missing then {s: "notFound", l: "NotFound"}
+              elif ($found | not) then {s: "pending", l: "Pending"}
+              {{/* A CHILD BEING DELETED IS CONVERGING, for every class, labelled with Kubernetes' own
+                   word: metadata.deletionTimestamp is set and the object is on its way out, whatever
+                   its kind would otherwise say (a Terminating Namespace, a ConfigMap held by a
+                   finalizer, a Deployment). Not when the composition ITSELF is being deleted: its
+                   children are meant to be going, and the rows keep today's reading.
+                   THIS ARM IS AHEAD OF THE CONTROLLER. core-provider's classifyChildEval does not yet
+                   read deletionTimestamp — a Terminating Namespace is healthy by existence there —
+                   and core-provider#678 files that gap and this rule. Until it lands, the two writers
+                   disagree on a deleting child: this page counts it converging, the composition's
+                   Ready counts it by its class. */}}
+              elif ($obj.deletionTimestamp != null) and (($m._cdel // false) | not) then {s: "converging", l: "Terminating"}
+              elif $isKrateo then
+                {{/* krateoEval: the FIRST Ready condition, by status and reason, in its order. A
+                     reason this list does not name is CONVERGING when False (core-provider's
+                     default), and its label is the reason verbatim, as `kubectl get -o yaml` reads. */}}
+                ( if $rd == null then $noReadiness
+                  elif $rs == "True" and $rr == "AssumedUpToDate" then {s: "noReadiness", l: $rr}
+                  elif $rs == "True" then (if $unsynced then {s: "drift", l: "Drift", c: "healthy"} else $healthy end)
+                  elif $rs == "False" and $rr == "TerminalByDesign" then {s: "healthy", l: $rr}
+                  elif $rr == "DriftNotConverging" or $rr == "AuthorizationDenied" then {s: "terminal", l: $rr}
+                  elif (["Unavailable", "CreateFailed", "UpdateFailed", "CreateUnreachable",
+                         "NoCreateVerbDeclared", "NoIdentifierRecorded", "CreateOutcomeUnknown"] | any(. == $rr))
+                    or ($rs == "False" and (["SchemaDefaultContradiction", "RemoteChartUnreachable",
+                         "ValuesSchemaMissing", "DerivedNameTooLong", "HooksMayNotHaveRun", "InstallFailing",
+                         "CreateWithheldByPolicy", "RecoveryWithheldByPolicy", "CreateRefusedPersistently"] | any(. == $rr)))
+                    then {s: "failed", l: "NotReady"}
+                  elif $rr == "ZeroEvidence" then {s: "noReadiness", l: $rr}
+                  {{/* NotObserved and ObserveFailed ARE THE SAME FACT FROM TWO RUNTIMES (provider-runtime
+                       markNotObserved, pkg/reconciler/ready.go:60; unstructured-runtime ObserveFailed,
+                       pkg/tools/unstructured/condition/condition.go:50), so both get the same state; the
+                       label stays verbatim per reason, because an operator can grep that string.
+                       With Synced=TRUE it is a contract breach — the provider finished Observe and never
+                       set Ready — which the runtime records as a Warning event whose reason is verbatim
+                       `ReadyNotSetAfterObserve` (reconciler.ReasonReadyNotSetAfterObserve, v1.8.1). That
+                       is not a condition reason: it is synthesised from the pair, so the pill matches the
+                       event an operator will find. */}}
+                  elif $rr == "NotObserved" or $rr == "ObserveFailed" then
+                    (if $unsynced or $rs == "False" then {s: "notObserved", l: $rr} else {s: "readyNotSet", l: "ReadyNotSetAfterObserve"} end)
+                  {{/* The label of a converging Ready=False is the reason verbatim, except where the
+                       portal's one definition of a composition's converging reasons names another
+                       (portal.readyReasonDefs: a timer-bounded helm operation reads Pending). */}}
+                  elif $rs == "False" then {s: "converging", l: (readyFalseConverging[$rr] // (if $rr != "" then $rr else "NotReady" end))}
+                  {{/* Ready=Unknown for any other reason: a third state, never progress (core-provider
+                       counts it converging; both leave it out of the healthy count). */}}
+                  else {s: "unknown", l: "Unknown"} end )
+              elif $g == "apps" and (["deployments", "statefulsets", "daemonsets", "replicasets"] | any(. == $k)) then
+                {{/* workloadReady: a DaemonSet is told by status.desiredNumberScheduled; the others are
+                     Deployment-shaped, spec.replicas defaulting to 1. Never failed: unready replicas,
+                     a CrashLoopBackOff among them, self-progress. */}}
+                ( if $n.desiredNumberScheduled != null
+                  then (($n.numberReady // 0) >= $n.desiredNumberScheduled and ($n.numberUnavailable // 0) == 0)
+                  else (($n.readyReplicas // 0) >= ($n.replicas // 1) and ($n.unavailableReplicas // 0) == 0) end
+                  | if . then $healthy else {s: "converging", l: "NotReady"} end )
+              {{/* cronJobReady: a CronJob is a schedule, with nothing to complete; suspended included. */}}
+              elif $g == "batch" and $k == "cronjobs" then $healthy
+              elif $g == "batch" and $k == "jobs" then
+                ( if ($n.succeeded // 0) > 0 then $healthy
+                  elif $n.backoffLimit != null and ($n.failed // 0) > $n.backoffLimit then {s: "failed", l: "BackoffLimitExceeded"}
+                  else {s: "converging", l: "Running"} end )
+              elif $g == "core" and $k == "pods" then
+                ( if $phase == "Succeeded" or $phase == "" then $healthy
+                  elif $phase == "Failed" then {s: "failed", l: "Failed"}
+                  elif $phase == "Running" then (if $rd == null or $rs == "True" then $healthy else {s: "converging", l: "NotReady"} end)
+                  else {s: "converging", l: $phase} end )
+              {{/* pvcReady: Pending converges (WaitForFirstConsumer binds only once a Pod is
+                   scheduled); Lost is terminal; a phase not yet written is healthy, fail-safe. */}}
+              elif $g == "core" and $k == "persistentvolumeclaims" then
+                ( if $phase == "Bound" then {s: "healthy", l: "Bound"}
+                  elif $phase == "Lost" then {s: "failed", l: "Lost"}
+                  elif $phase == "" then $healthy
+                  else {s: "converging", l: $phase} end )
+              elif $k == "customresourcedefinitions" then
+                ( if $namesAccepted.status == "False" then {s: "failed", l: ($namesAccepted.reason // "NamesNotAccepted")}
+                  elif $established.status == "True" and $terminating.status != "True" then $healthy
+                  else {s: "converging", l: (if $terminating.status == "True" then "Terminating" else "Creating" end)} end )
+              elif $native then $healthy
+              elif $rd != null then
+                {{/* thirdPartyEval: a Ready condition, current. Not-True is converging, never failed:
+                     a third party's reasons are its own vocabulary, and nothing here can tell a
+                     transient one from a permanent one. A True written for an older generation is
+                     converging too ("Updating": the controller has not yet seen the current spec). */}}
+                ( if ($obj | staleCondition($rd)) then {s: "converging", l: "Updating"}
+                  elif $rs == "True" then (if $unsynced then {s: "drift", l: "Drift", c: "healthy"} else $healthy end)
+                  else {s: "converging", l: (if $rr != "" then $rr elif $rs == "False" then "NotReady" else "Unknown" end)} end )
+              elif $g == "kagent.dev" and $k == "modelconfigs" then
+                {{/* thirdPartyKindEval: a kagent ModelConfig has no Ready; it is Accepted, and its
+                     ResolvedRefs, where present, True — both current. */}}
+                ( ([ $c[]? | select(.type == "Accepted") ][0]) as $acc
+                  | ([ $c[]? | select(.type == "ResolvedRefs") ][0]) as $refs
+                  | if $acc == null then $noReadiness
+                    elif ($obj | staleCondition($acc)) then {s: "converging", l: "Updating"}
+                    elif $acc.status != "True" then {s: "converging", l: (($acc.reason // "") | if . != "" then . else "NotReady" end)}
+                    elif $refs != null and ($obj | staleCondition($refs)) then {s: "converging", l: "Updating"}
+                    elif $refs != null and $refs.status != "True" then {s: "converging", l: (($refs.reason // "") | if . != "" then . else "NotReady" end)}
+                    else $healthy end )
+              else $noReadiness end ) as $v
           | {
-              kind: ($kindMap[$m._kind] // (if (($obj.rkind) // "") != "" then $obj.rkind else (($m._kind | .[0:1] | ascii_upcase) + ($m._kind[1:] | sub("s$"; ""))) end)),
+              {{/* The kind as served: the fetched object's own, else discovery's for its group and
+                   plural, else the core map; a group discovery could not read prints the plural as
+                   status.managed records it, never a kind made up from it (REL-2). */}}
+              kind: (if (($obj.rkind) // "") != "" then $obj.rkind else ($served[$m._grp + "|" + $m._kind] // $kindMap[$m._kind] // $m._kind) end),
               name: $m._name,
               ns: $m._rns,
-              # healthy-by-presence applies ONLY to a child we actually FETCHED (a conditionless kind
-              # like ServiceAccount/ConfigMap that exists). A managed child we could NOT fetch
-              # ($found=false — 404 / API error) is NOT healthy: report it "pending" (issue #152), so
-              # it neither shows a green tag nor counts toward convergence.
-              state: (if ($readable | not) then "unread"
-                      elif ($found | not) then "pending"
-                      elif $crdNameConflict then "failed"
-                      elif $crdReady then "healthy"
-                      elif $crdConverging then "converging"
-                      elif $noconds then "healthy"
-                      elif $ready and ($unsynced | not) then "healthy"
-                      elif $ready and $unsynced then "drift"
-                      elif $notready and $converging then "converging"
-                      elif $notready and $terminal then "terminal"
-                      elif $notready then "failed"
-                      elif $unknownReady and $observeFailed and $unsynced then "notObserved"
-                      elif $unknownReady and $observeFailed then "readyNotSet"
-                      elif $unknownReady then "unknown"
-                      {{/* Conditions, but none that says ready for this kind (no Ready/Available, and
-                           not a CRD): say so, rather than "pending", which reads as progress. */}}
-                      elif $rc == null then "noReadiness"
-                      else "unknown" end),
+              state: $v.s,
+              {{/* The class this row is COUNTED in (core-provider's verdict); `state` is what it shows. */}}
+              countedAs: ($v.c // $v.s),
               {{/* LABEL AND COLOUR ARE COMPUTED HERE, not derived from `state` by the widget.
                    The list used to bind `color: value: '{state}'` through a `map:` of five entries
                    and build the label by upper-casing the state's first letter. Both work only for
@@ -264,47 +423,14 @@ spec:
                    exactly this reason. Doing the same here makes the vocabulary and the palette one
                    decision in one place, and the label verbatim rather than re-cased: the status
                    pill rule is a single PascalCase K8s-native token, taken from the object where
-                   possible, and `NotObserved` / `ReadyNotSetAfterObserve` / `Unknown` all are. */}}
-              stateLabel: (if ($readable | not) then "Unread"
-                           elif ($found | not) then "Pending"
-                           elif $crdNameConflict then ($namesAccepted.reason // "NamesNotAccepted")
-                           elif $crdReady then "Healthy"
-                           elif $crdConverging then (if $terminating.status == "True" then "Terminating" else "Creating" end)
-                           elif $noconds or ($ready and ($unsynced | not)) then "Healthy"
-                           elif $ready and $unsynced then "Drift"
-                           {{/* Verbatim from the object for every reason the runtimes define, so
-                                the pill and `kubectl get -o yaml` read the same. */}}
-                           elif $notready and ($converging or $terminal) then $reason
-                           elif $notready then "NotReady"
-                           elif $unknownReady and $observeFailed and $unsynced then $reason
-                           {{/* ReadyNotSetAfterObserve IS NOT A REASON — do not look for a const.
-                                It is synthesised here from the condition PAIR: a successful Observe
-                                that left Ready at the marker breaks provider-runtime's contract, and
-                                the runtime records it as a Warning EVENT whose reason is this
-                                string (reconciler.ReasonReadyNotSetAfterObserve, v1.8.1). Printing
-                                it means the pill matches the event an operator will find. */}}
-                           elif $unknownReady and $observeFailed then "ReadyNotSetAfterObserve"
-                           elif $unknownReady then "Unknown"
-                           elif $rc == null then "NoReadyCondition"
-                           else "Unknown" end),
-              {{/* notObserved is scored BELOW drift, per provider-runtime: a child we cannot
-                   observe is a weaker claim than one we can see has drifted. */}}
-              healthPercent: (if ($readable | not) then 0
-                              elif ($found | not) then 50
-                              elif $crdNameConflict then 20
-                              elif $crdReady then 100
-                              elif $crdConverging then 50
-                              elif $noconds or ($ready and ($unsynced|not)) then 100
-                              elif $ready and $unsynced then 70
-                              elif $notready and $converging then 50
-                              {{/* Terminal scores BELOW an unrecognised failure: the controller has
-                                   stopped and nothing will change it without a human. */}}
-                              elif $notready and $terminal then 15
-                              elif $notready then 20
-                              elif $unknownReady and $observeFailed and $unsynced then 40
-                              elif $unknownReady and $observeFailed then 60
-                              elif $unknownReady then 50
-                              else 50 end),
+                   possible. */}}
+              stateLabel: $v.l,
+              {{/* A function of the state alone. notObserved is scored BELOW drift, per
+                   provider-runtime: a child we cannot observe is a weaker claim than one we can see
+                   has drifted. Terminal scores BELOW an unrecognised failure: the controller has
+                   stopped and nothing will change it without a human. */}}
+              healthPercent: ({healthy: 100, drift: 70, readyNotSet: 60, converging: 50, pending: 50, unknown: 50,
+                               noReadiness: 50, notObserved: 40, failed: 20, terminal: 15, unread: 0, notFound: 0}[$v.s] // 50),
               # IA F5 + F5-full: composition.krateo.io children drill into the first-class
               # /compositions detail; EVERY other kind drills into the generic /resources view
               # (namespaced → its ns; cluster-scoped → the "cluster" filler; core group → "core").
@@ -317,7 +443,7 @@ spec:
       ) as $rows
     | ($rows | map(select(.state != "unread"))) as $checked
     | ($checked | length) as $total
-    | ($checked | map(select(.state == "healthy")) | length) as $healthy
+    | ($checked | map(select(.countedAs == "healthy")) | length) as $healthy
     # Workload projection of the COMPOSITION itself (ridden in on _wh/_whMsg): resources can
     # all match declared-vs-actual while the pods behind them crashloop — `converged` must not
     # claim full convergence then, and the rail widget caps/annotates from these two keys.
@@ -325,6 +451,12 @@ spec:
     # declares no managed resources.)
     | ($managed[0]._wh == false) as $whBad
     | (if $whBad then ($managed[0]._whMsg // "") else "" end) as $whMsg
+    # THE COMPOSITION'S OWN STATE, the one every page prints (portal.compositionStateDefs), from the
+    # Ready and Synced that ride on every row: the verdict says Paused or Unknown from it. Paused
+    # since: when a condition took the ReconcilePaused reason (the annotation carries no time).
+    | ({ conditions: ($managed[0]._conds // []), wh: $managed[0]._wh } | compositionVerdict) as $cv
+    | ([ ($managed[0]._conds // [])[] | select(.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused") | .lastTransitionTime // empty ] | min) as $pausedAt
+    | ([ ($managed[0]._conds // [])[] | select(.type == "Ready") ][0] // {}) as $cready
     | {
         resources: $rows,
         total: $total,
@@ -333,6 +465,7 @@ spec:
         driftCount: ($rows | map(select(.state == "drift")) | length),
         failedCount: ($rows | map(select(.state == "failed")) | length),
         pendingCount: ($rows | map(select(.state == "pending")) | length),
+        notFoundCount: ($rows | map(select(.state == "notFound")) | length),
         {{/* Each state counted by its OWN predicate rather than by subtraction, so a state added
              later cannot land in an existing bucket silently — which is how Ready=Unknown ended up
              reported as pending in the first place. The test asserts the counts PARTITION the
@@ -349,7 +482,16 @@ spec:
         unknownCount: ($rows | map(select(.state == "unknown")) | length),
         noReadinessCount: ($rows | map(select(.state == "noReadiness")) | length),
         convergencePercent: (if $total > 0 then (($healthy * 100 / $total) | floor) else 0 end),
-        converged: (($rows | length) > 0 and $healthy == $total and ($whBad | not)),
+        {{/* Converged is "every resource matches the desired state", which a drifted one does not:
+             it is counted healthy, and still keeps this false. */}}
+        converged: (($rows | length) > 0 and $healthy == $total and ($rows | all(.state != "drift")) and ($whBad | not)),
         workloadUnhealthy: $whBad,
-        workloadMessage: $whMsg
+        workloadMessage: $whMsg,
+        composition: {
+          state: (if ($managed | length) == 0 then "" else $cv.state end),
+          stateLabel: (if ($managed | length) == 0 then "" else ($cv.state | compositionStateName) end),
+          pausedSince: (if $pausedAt == null then "" else (try ($pausedAt | fromdateiso8601 | ((strftime("%d") | tonumber | tostring) + " " + strftime("%b %H:%M") + " UTC")) catch "") end),
+          readyReason: (($cready.reason // "") | tostring),
+          readyMessage: (($cready.message // "") | tostring | ltrimstr("Composition health is unknown: "))
+        }
       }
