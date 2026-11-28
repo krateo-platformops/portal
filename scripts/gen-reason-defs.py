@@ -47,9 +47,8 @@ import sys
 import tempfile
 import urllib.request
 
-# core-provider main after #679 (the reason tables as JSON). Switch to the first tag that carries
-# them, 2.13.134, once it is cut.
-CORE_PROVIDER_REF = '2.13.134'
+# core-provider 2.13.137: the first tag that carries the SchemaDefaultsMatchValues rows.
+CORE_PROVIDER_REF = '2.13.137'
 RAW = 'https://raw.githubusercontent.com/krateo-platformops/core-provider/{ref}/docs/{name}.json'
 
 HERE = os.path.dirname(os.path.abspath(__file__))
