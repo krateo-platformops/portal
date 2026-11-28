@@ -185,10 +185,13 @@ spec:
     | $lastResults[0] as $lastPre
     | $lastResults[1] as $lastApply
     | $lastResults[2] as $lastVerify
-    # A flagged precondition no longer runs, so it is neither a pass nor a failure.
+    # A flagged precondition no longer runs, so it is neither a pass nor a failure. A verdict is the
+    # precondition doing its job, never a failure: it runs only while the incident is Open, where
+    # exit 1 ("still holds") is the expected answer that the fix is still needed, and exit 0 moves
+    # the incident to Verifying. So either verdict finishes the step; a red mark would say a step that
+    # worked went wrong. (Verify's exit 1 stays an error: the fix was applied and the problem holds.)
     | (if $flagged then "wait"
-       elif ($lastPre.exit // null) == 1 then "error"
-       elif ($lastPre.exit // null) == 0 then "finish"
+       elif (($lastPre.exit // null) | IN(0, 1)) then "finish"
        elif $state == "Open" then "process" else "wait" end) as $preStatus
     | (if $canApply or $canApplyAction or ($state == "Open" and $appliedPending) then "process" elif $lastApply != null then "finish" else "wait" end) as $applyStatus
     | (if $state == "Verifying" then "process"
@@ -409,7 +412,10 @@ spec:
               title: (.value.statement // ""),
               description: (if ($cited | length) > 0 then ("Evidence " + ($cited | join(", "))) else "" end),
               status: "finish" })),
-        traceCurrent: (if ($trace | length) > 0 then (($trace | length) - 1) else 0 end),
+        # No trace step is in progress: each one is a finished part of the analysis. `current` past the
+        # last step, so antd marks none active (an active step draws its "Evidence N" line in another
+        # colour than the rest).
+        traceCurrent: ($trace | length),
         fixSteps: $fixSteps,
         fixCurrent: $fixCurrent,
         fixStepsForWidget: ($fixSteps | map({ eyebrow, title, status, resourceRefId: ("incident-rem-step-" + (.i | tostring)) })),

@@ -6,12 +6,13 @@ WHAT IT GUARDS.
 THE DASHBOARD (mockup A4):
   - the state is the page's one filter: absent it is Open; ?status= is read in any case, `all` lists
     every incident, and a value that is no state lists nothing, with the chips still there;
-  - the chips: Open, Analyzing, Verifying, Resolved, Closed, All, each counting every incident but
-    Resolved, the picked one active;
+  - the chips: Open, Analyzing, Verifying, Resolved, Closed, All, the live states and All counting
+    every incident, Resolved and Closed their range's, the picked one active; each donut slice is
+    its chip's count;
   - RESOLVED IS THE RANGE'S: the Resolved figure, its chip's count and the rows it lists (cards and
     table) are the incidents resolved in the range (resolution.at in the window, not before
     triggeredAt): one number, an incident resolved earlier or with no resolution.at left out, and
-    the empty line and the prompt say "in the last …"; every route on the page (state, range and view chips) keeps the other params
+    the empty line and the prompt say "in the last …"; CLOSED likewise, by its resolution.at; every route on the page (state, range and view chips) keeps the other params
     and the ?projects= scope, and leaves out a param at its default;
   - the five figures count every incident: Open, Analyzing, Verifying now; Resolved and the median
     Time to resolve (triggered to resolution.at) in the range; a failed read is "—", never 0;
@@ -208,11 +209,11 @@ def check_status_param():
     href, prompt = ask(out['askHref'])
     expect(f, 'empty state: kept', href, '/incidents?status=closed')
     expect(f, 'empty state: says so', prompt,
-           'I have no closed incidents; my 5 incidents are in other states, with 1 alert firing with no incident '
-           '(Pod restarts). Tell me whether anything here needs attention — grounded in the evidence on this page.')
+           'No incident was closed in the last 7 days; my 5 incidents are in other states or closed before that, with 1 alert '
+           'firing with no incident (Pod restarts). Tell me whether anything here needs attention — grounded in the evidence on this page.')
     expect(f, 'empty state: the line in place of the cards', items_of('Card', 'incidents-list-card', out, {'status': 'closed'}),
            ['incidents-status-chips', 'incidents-empty'])
-    expect(f, 'empty state: the line', widget_data('Paragraph', 'incidents-empty', out)['text'], 'No incident is closed.')
+    expect(f, 'empty state: the line says the range', widget_data('Paragraph', 'incidents-empty', out)['text'], 'No incident closed in the last 7 days.')
     out = resolve(responses(), {'status': 'foo', 'projects': 'team-a'})
     href, prompt = ask(out['askHref'])
     expect(f, 'not a state: no rows, no chip active', (out['rows'], [c['active'] for c in out['chips']]), ([], [False] * 6))
@@ -232,6 +233,8 @@ def check_empty_and_failed():
            'crashloop, Pod restarts). Tell me which alert to investigate first and why — grounded in the evidence on this page.')
     expect(f, 'no incidents: the line', widget_data('Paragraph', 'incidents-empty', out)['text'], 'There are no incidents.')
     expect(f, 'no incidents: zeros, not dashes', [s['value'] for s in out['stats']], ['0', '0', '0', '0', '—'])
+    expect(f, 'no incidents: every figure neutral and plain, a 0 never red or orange',
+           [(s['color'], s['highlight']) for s in out['stats']], [('', False)] * 5)
     _, prompt = ask(resolve(responses(incidents={'items': []}, alerts={'items': []}), {})['askHref'])
     expect(f, 'nothing at all', prompt,
            'There are no incidents on this platform, and no alert firing without an incident. Tell me whether anything '
@@ -248,6 +251,8 @@ def check_empty_and_failed():
         expect(f, f'failed read ({label}): keeps the state', href, '/incidents?status=verifying')
         expect(f, f'failed read ({label}): every figure "could not be read", never 0',
                {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'unread')})
+        expect(f, f'failed read ({label}): every figure orange and highlighted',
+               {(s['color'], s['highlight']) for s in out['stats']}, {('orange', True)})
         para = widget_data('Paragraph', 'incidents-empty', out)
         expect(f, f'failed read ({label}): said, as a warning', (para['text'], para['type']),
                ('The incidents could not be read (' + said + '), so nothing on this page counts them.', 'warning'))
@@ -311,10 +316,16 @@ def check_figures_and_charts():
     expect(f, 'no analysis agent is said as such; a real failure stays one', causes, {'n1': 'no analysis agent', 'n2': 'analysis failed'})
     stats = widget_data('Listy', 'incidents-stats', out)
     cards = widget_data('Listy', 'incidents-cards', out)
-    expect(f, 'each figure wears its state\'s card colour, zero or not',
-           {k: v for k, v in stats['itemTemplate']['color']['map'].items() if k != 'unread'},
-           {k.lower(): v for k, v in cards['itemTemplate']['color']['map'].items() if k != 'Closed'})
-    expect(f, 'a failed read is orange', stats['itemTemplate']['color']['map']['unread'], 'orange')
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)',
+           (stats['itemTemplate']['color'], stats['itemTemplate'].get('highlight')), ({'value': '{color}'}, '{highlight}'))
+    cmap = cards['itemTemplate']['color']['map']
+    expect(f, 'above 0, each unresolved state wears its card colour, highlighted; Resolved and Time to resolve neutral',
+           [(s['title'], s['color'], s['highlight']) for s in out['stats']],
+           [('Open', cmap['Open'], True), ('Analyzing', cmap['Analyzing'], True), ('Verifying', cmap['Verifying'], True),
+            ('Resolved', '', False), ('Time to resolve', '', False)])
+    three = resolve(responses(incidents={'items': [incident(f'o{i}', 'Open', ago(2), alert='a') for i in range(3)]},
+                              alerts={'items': [alert('a', 'A', 'OK')]}), {})
+    expect(f, 'Open at 3: red and highlighted', [(s['value'], s['color'], s['highlight']) for s in three['stats']][0], ('3', 'red', True))
     out30 = timed({'range': '30d'})
     expect(f, '30d: Resolved and Time to resolve widen', [s['value'] for s in out30['stats'][3:]], ['3', '2 h'])
     out24 = timed({'range': '24h'})
@@ -343,13 +354,22 @@ def check_figures_and_charts():
     for hours, minutes in ((12, 120), (72, 40), (480, 360)):
         at = (NOW - datetime.timedelta(hours=hours)).replace(microsecond=0).timestamp()
         by_week.setdefault(int(at // 604800) * 604800, []).append(minutes)
-    want = [{'t': t, 'v': round(sum(ms) / len(ms))} for t, ms in sorted(by_week.items())]
-    expect(f, 'per week: the median of each week with something resolved, in minutes', out['ttrWeekly'], want)
+    # CHART-3: the weekly medians in the largest unit that keeps the longest readable. Here the
+    # longest is 6 h: hours. Under 2 h, minutes; from 3 days, days.
+    want = [{'t': t, 'v': round(sum(ms) / len(ms) / 60 * 10) / 10} for t, ms in sorted(by_week.items())]
+    expect(f, 'per week: the median of each week with something resolved, in hours', (out['ttrWeekly'], out['ttrUnit']), (want, 'hours'))
+    expect(f, 'the chart names the unit on its axis', widget_data('LineChart', 'incidents-ttr', out)['axis']['y']['title'], 'hours')
+    quick = resolve(responses(incidents={'items': [TIMED[6]]}, alerts={'items': [alert('a', 'A', 'OK')]}), {'range': '30d'})
+    expect(f, 'under 2 h: minutes', (quick['ttrWeekly'][0]['v'], quick['ttrUnit']), (40, 'minutes'))
+    slow = incident('s1', 'Resolved', ago(24 * 30), alert='a', cause='c', resolved=ago(24))
+    long_ = resolve(responses(incidents={'items': [slow]}, alerts={'items': [alert('a', 'A', 'OK')]}), {'range': '30d'})
+    expect(f, 'from 3 days: days', (long_['ttrWeekly'][0]['v'], long_['ttrUnit'], widget_data('LineChart', 'incidents-ttr', long_)['axis']['y']['title']),
+           (29.0, 'days', 'days'))
     expect(f, 'the TTR card shows the median', widget_data('Card', 'incidents-ttr-card', out)['extra'], '1 h 20 min')
-    expect(f, 'by state: Open first, a slice per state with incidents',
+    expect(f, 'by state: Open first, a slice per state with incidents; Resolved is the figure\'s 2, not every one ever',
            widget_data('PieChart', 'incidents-by-state', out)['data'],
            [{'state': 'Open', 'count': 3}, {'state': 'Analyzing', 'count': 1}, {'state': 'Verifying', 'count': 1},
-            {'state': 'Resolved', 'count': 3}, {'state': 'Closed', 'count': 1}])
+            {'state': 'Resolved', 'count': 2}, {'state': 'Closed', 'count': 1}])
     return f
 
 
@@ -548,9 +568,9 @@ def check_resolved_in_range():
         names = [{c['valueKey']: c.get('stringValue') for c in row}['name'] for row in table]
         expect(f, f'{rng or "7d"}: Resolved figure == chip count == cards == table rows, only the range\'s',
                (tile, chip, cards, names, out['matched']), (str(len(want)), len(want), want, want, len(want)))
-        expect(f, f'{rng or "7d"}: the other chips still count every incident',
+        expect(f, f'{rng or "7d"}: the live chips and All count every incident; Closed, its range\'s (c1, closed 29 h ago)',
                [(c['label'], c['count']) for c in out['chips'] if c['label'] != 'Resolved'],
-               [('Open', 3), ('Analyzing', 1), ('Verifying', 1), ('Closed', 1), ('All', 10)])
+               [('Open', 3), ('Analyzing', 1), ('Verifying', 1), ('Closed', 0 if rng == '24h' else 1), ('All', 10)])
     out = resolve(responses(incidents={'items': TIMED[:5] + TIMED[7:]}, alerts={'items': [alert('a', 'A', 'OK')]}),
                   {'status': 'resolved'})  # only r3, 20 days ago
     expect(f, 'none resolved in the range: zero, the empty line says the range',
@@ -564,6 +584,32 @@ def check_resolved_in_range():
     expect(f, 'none resolved in the range: the prompt says so', prompt,
            'No incident was resolved in the last 7 days; my 7 incidents are in other states or resolved before that, with '
            'no alert firing without an incident. Tell me whether anything here needs attention — grounded in the evidence on this page.')
+    return f
+
+
+def check_closed_in_range():
+    """UX audit INC-4: with 7d picked, the Resolved figure and chip said 3 while the donut's Resolved
+    slice and the Closed chip counted every incident ever. Both states an incident ends in are the
+    range's: the Closed chip, its cards and table, and each donut slice are the chip's own count."""
+    f = []
+    closed = [incident('k1', 'Closed', ago(30), alert='a', cause='k1', resolved=ago(20)),
+              incident('k2', 'Closed', ago(200), alert='a', cause='k2', resolved=ago(100)),
+              incident('k3', 'Closed', ago(800), alert='a', cause='k3', resolved=ago(700)),
+              incident('k-noat', 'Closed', ago(2), alert='a', cause='k4')]  # Closed, no resolution.at: in no range
+    incs = TIMED[:8] + closed
+    for rng, want in (('24h', ['k1']), (None, ['k1', 'k2']), ('30d', ['k1', 'k2', 'k3'])):
+        ex = {'status': 'closed', **({'range': rng} if rng else {})}
+        out = resolve(responses(incidents={'items': incs}, alerts={'items': [alert('a', 'A', 'OK')]}), ex)
+        chip = {c['label']: c['count'] for c in out['chips']}
+        cards = [r['name'] for r in widget_data('Listy', 'incidents-cards', out, ex)['dataSource']]
+        table = widget_data('Table', 'incidents-table', out, {**ex, 'view': 'table'})['dataSource']
+        names = [{c['valueKey']: c.get('stringValue') for c in row}['name'] for row in table]
+        expect(f, f'{rng or "7d"}: Closed chip count == cards == table rows, only the range\'s',
+               (chip['Closed'], cards, names, out['matched']), (len(want), want, want, len(want)))
+        donut = {d['state']: d['count'] for d in widget_data('PieChart', 'incidents-by-state', out, ex)['data']}
+        expect(f, f'{rng or "7d"}: each donut slice is its chip\'s count (no slice for a zero)',
+               donut, {c['label']: c['count'] for c in out['chips'] if c['label'] != 'All' and c['count'] > 0})
+        expect(f, f'{rng or "7d"}: All is every incident', chip['All'], len(incs))
     return f
 
 
@@ -587,7 +633,7 @@ def check_tile_routes():
     return f
 
 
-CHECKS = [check_default_is_open, check_no_model_analysis, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_tile_routes, check_routes,
+CHECKS = [check_default_is_open, check_no_model_analysis, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_closed_in_range, check_tile_routes, check_routes,
           check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 

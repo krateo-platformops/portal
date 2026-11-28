@@ -64,6 +64,8 @@ spec:
           terminal: red
           {{/* Conditions present, none that says ready for this kind: not claimed broken. */}}
           noReadiness: gray
+          {{/* The apiserver answered NotFound: the child is not there. A failure, like `failed`. */}}
+          notFound: red
       {{/* The child's health as the page header's worst-child pill counts it (frontend Listy
            itemTemplate.health). The header used to infer it from the row COLOUR, and `unread` is the
            same grey as a genuinely unknown child, so a healthy installer opened under "└─ ReadyUnknown
@@ -83,6 +85,6 @@ spec:
            letter. Re-casing in the chart is what the status-pill rule forbids — a label describing
            a Kubernetes resource state is a single PascalCase token from the object, and
            `ReadyNotSetAfterObserve` cannot be produced by capitalising anything. */}}
-      expression: '${ {healthy: "ready", drift: "notSynced", pending: "pending", failed: "notReady", unread: "excluded", notObserved: "unknown", readyNotSet: "pending", unknown: "unknown", converging: "pending", terminal: "notReady", noReadiness: "unknown"} as $health | (.resources // []) | map({ kind: .kind, name: .name, ns: .ns, state: .state, stateLabel: .stateLabel, navHref: .navHref, health: ($health[.state] // "") }) }'
+      expression: '${ {healthy: "ready", drift: "notSynced", pending: "pending", failed: "notReady", unread: "excluded", notObserved: "unknown", readyNotSet: "pending", unknown: "unknown", converging: "pending", terminal: "notReady", noReadiness: "unknown", notFound: "notReady"} as $health | (.resources // []) | map({ kind: .kind, name: .name, ns: .ns, state: .state, stateLabel: .stateLabel, navHref: .navHref, health: ($health[.state] // "") }) }'
   resourcesRefs:
     items: []

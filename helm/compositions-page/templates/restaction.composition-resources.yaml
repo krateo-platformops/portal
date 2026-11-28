@@ -94,7 +94,17 @@ spec:
             # inject it ONLY when absent — else the URL doubles the namespace segment → 404, and
             # the fetch-miss silently defaults the resource to healthy (issue #152). Idempotent
             # for both path shapes (old omitted-ns and new included-ns).
-            | (if $cluster != null or ($m.path | contains("/namespaces/")) then $m.path
+            # A path without /namespaces/ is the entry's own answer when the entry says its
+            # namespace: core-provider reads namespaced-ness from discovery and records namespace ""
+            # for a cluster-scoped child (managedPath, composition-dynamic-controller support.go).
+            # The static $clusterKinds list is only for an entry with no namespace field at all: a
+            # cluster-scoped kind missing from it (trust-manager's Bundle) had the composition's
+            # namespace spliced in, 404'd, and read "Pending" forever (visual audit CMP-7).
+            | (if ($m.path | contains("/namespaces/")) then $m.path
+               elif ($m | has("namespace")) then
+                 (if (($m.namespace // "") | tostring) == "" then $m.path
+                  else ($pre + "/namespaces/" + ($m.namespace | tostring) + "/" + $res + "/" + $nm) end)
+               elif $cluster != null then $m.path
                else ($pre + "/namespaces/" + $cns + "/" + $res + "/" + $nm) end) as $getpath
             # THE CHILD'S OWN NAMESPACE, read from the path it is fetched at: .../namespaces/<ns>/<res>/<name>,
             # or "" for a cluster-scoped child. It is NOT the composition's namespace. A page chart's
@@ -106,16 +116,45 @@ spec:
             | (if ($q | length) >= 4 and $q[-4] == "namespaces" then $q[-3] else "" end) as $rns
             # The parent's workload projection rides on every row (_wh/_whMsg): the final
             # aggregate folds it in, and this step filter is the only place that sees $comp.
+            # The parent's own Ready and Synced ride along too (_conds): the final filter reads the
+            # composition's state from them (portal.compositionStateDefs), so the verdict says
+            # Paused or Unknown of a paused or unassessable composition, never "converging".
             | { _cn: $cn, _cns: $cns, _rns: $rns, _kind: $res, _name: $nm,
                 _wh: $comp.status.workloadHealthy, _whMsg: ($comp.status.healthMessage // ""),
                 # Whether the composition ITSELF is being deleted (core-provider#678's exception).
                 _cdel: (($comp.metadata.deletionTimestamp // null) != null),
+                _conds: [ ($comp.status.conditions // [])[] | select(.type == "Ready" or .type == "Synced") ],
                 # Real group/version for the resource-view route ($p[1] = "api" for the core group
                 # → group "core", version $p[2]; "apis" → group $p[2], version $p[3]) + cluster-scope.
                 _grp: (if ($p[1] // "") == "apis" then ($p[2] // "") else "core" end),
                 _ver: (if ($p[1] // "") == "apis" then ($p[3] // "v1") else ($p[2] // "v1") end),
-                _cluster: ($cluster != null),
-                _getpath: $getpath } ]
+                _getpath: $getpath,
+                # The group/version's discovery path (the apiresources stage), "" for the core group.
+                _gvpath: (if ($p[1] // "") == "apis" then ("/apis/" + ($p[2] // "") + "/" + ($p[3] // "")) else "" end) } ]
+    {{/* THE KIND EACH CHILD IS SERVED AS, from the apiserver's discovery of its group/version
+         (/apis/<group>/<version>: .resources[] with .name, the plural, and .kind). status.managed
+         names a child by its plural only, and a child that was not fetched (missing, refused) has no
+         object to read a kind from: the row used to make one up from the plural ("restdefinitions"
+         became "Restdefinition", the served kind being RestDefinition; visual audit REL-2). One call
+         per group/version this composition's children use, as composition-events resolves its
+         plurals; k8s binds system:discovery to system:authenticated, so it answers for any caller.
+         Core-group kinds keep the static map in the final filter. Only enriches: continueOnError,
+         and a group it cannot read prints the plural as recorded, never a guess. */}}
+    - name: apiresources
+      dependsOn:
+        name: found
+        {{/* fetchableTarget over a discovery path (no resource segment) yields its group and
+             version, so the path is portal.targetPath over it like every data-driven path here. */}}
+        iterator: |
+          {{- include "portal.fetchableDefs" . | nindent 10 }}
+          .name as $n | .namespace as $ns | [ .found[] | select(._cn == $n and ._cns == $ns and (._gvpath // "") != "") ] | unique_by(._gvpath) | [ .[] | (._gvpath | fetchableTarget) ]
+      path: ${ {{ include "portal.targetPath" . }} }
+      verb: GET
+      headers:
+        - 'Accept: application/json'
+      continueOnError: true
+      errorKey: discoveryErr
+      filter: '[ .apiresources as $r | $r.resources[]? | select(((.name // "") | test("/")) | not) | {group: (($r.groupVersion // "") | split("/")[0]), kind: (.kind // ""), plural: (.name // "")} | select(.group != "" and .kind != "" and .plural != "") ]'
     - name: resources
       dependsOn:
         name: found
@@ -174,9 +213,19 @@ spec:
         elif ($cond.observedGeneration | type) == "number" then $cond.observedGeneration != $gen
         elif (.ogen | type) == "number" then .ogen != $gen
         else false end;
+    {{- include "portal.compositionStateDefs" . | nindent 4 }}
     (.name) as $n | (.namespace) as $ns
     | ({"serviceaccounts":"ServiceAccount","configmaps":"ConfigMap","secrets":"Secret","services":"Service","endpoints":"Endpoints","persistentvolumeclaims":"PersistentVolumeClaim","deployments":"Deployment","replicasets":"ReplicaSet","statefulsets":"StatefulSet","daemonsets":"DaemonSet","pods":"Pod","jobs":"Job","cronjobs":"CronJob","clusterroles":"ClusterRole","clusterrolebindings":"ClusterRoleBinding","roles":"Role","rolebindings":"RoleBinding","ingresses":"Ingress","networkpolicies":"NetworkPolicy","namespaces":"Namespace"}) as $kindMap
     | ( [ .found[]? | select(._cn == $n and ._cns == $ns) ] ) as $managed
+    # The kind each group's plural is served as (the apiresources stage): "group|plural" -> Kind.
+    | ( [ (.apiresources // empty) | .. | objects | select(has("group") and has("kind") and has("plural")) | { key: (.group + "|" + .plural), value: .kind } ] | from_entries ) as $served
+    # A child that is NOT THERE: the apiserver's own NotFound for it, among the resources stage's
+    # errors (resErr, a list: snowplow records a definite NotFound as a Status with code 404 and the
+    # apiserver's message, any other failure as its text). The message names the object exactly,
+    # `<plural>[.<group>] "<name>" not found`, so a row is NotFound only on that answer; a fetch
+    # that failed any other way (refused, not served) stays Pending, as before.
+    | ( [ (.resErr // []) | (if type == "array" then .[] else . end)
+          | if type == "object" then (select((.code // 0) == 404) | (.message // "") | tostring) elif type == "string" then . else empty end ] ) as $notFoundMsgs
     | ( [ .resources ] | flatten | map(select(type == "object" and (.rname // "") != "")) ) as $fetched
     | ( $managed | map(
           . as $m
@@ -190,6 +239,8 @@ spec:
                kinds (a Role and its RoleBinding) therefore still share the first fetched object. */}}
           | ( [ $fetched[] | select(.rname == $m._name and .rns == $m._rns) ][0] ) as $obj
           | ($obj != null) as $found
+          | ($m._kind + (if $m._grp == "core" then "" else "." + $m._grp end) + " \"" + $m._name + "\" not found") as $nfMsg
+          | (($found | not) and any($notFoundMsgs[]; . == $nfMsg or endswith(" " + $nfMsg))) as $missing
           | (($obj.conditions) // []) as $c
           | (($obj.phase) // "") as $phase
           | (($obj.counts) // {}) as $n
@@ -250,8 +301,10 @@ spec:
           | ([ $c[]? | select(.type == "NamesAccepted") ][0]) as $namesAccepted
           | ([ $c[]? | select(.type == "Terminating") ][0]) as $terminating
           | ( if ($readable | not) then {s: "unread", l: "Unread"}
-              # A managed child we could NOT fetch (404 / API error) is not healthy: "pending"
-              # (issue #152), neither a green tag nor counted toward convergence.
+              # A managed child we could NOT fetch is not healthy. The apiserver's own NotFound for it
+              # (resErr) is "notFound": it is not there, a problem. Any other miss (refused, not served)
+              # is "pending" (issue #152): neither a green tag nor counted toward convergence.
+              elif $missing then {s: "notFound", l: "NotFound"}
               elif ($found | not) then {s: "pending", l: "Pending"}
               {{/* A CHILD BEING DELETED IS CONVERGING, for every class, labelled with Kubernetes' own
                    word: metadata.deletionTimestamp is set and the object is on its way out, whatever
@@ -350,7 +403,10 @@ spec:
                     else $healthy end )
               else $noReadiness end ) as $v
           | {
-              kind: ($kindMap[$m._kind] // (if (($obj.rkind) // "") != "" then $obj.rkind else (($m._kind | .[0:1] | ascii_upcase) + ($m._kind[1:] | sub("s$"; ""))) end)),
+              {{/* The kind as served: the fetched object's own, else discovery's for its group and
+                   plural, else the core map; a group discovery could not read prints the plural as
+                   status.managed records it, never a kind made up from it (REL-2). */}}
+              kind: (if (($obj.rkind) // "") != "" then $obj.rkind else ($served[$m._grp + "|" + $m._kind] // $kindMap[$m._kind] // $m._kind) end),
               name: $m._name,
               ns: $m._rns,
               state: $v.s,
@@ -374,7 +430,7 @@ spec:
                    has drifted. Terminal scores BELOW an unrecognised failure: the controller has
                    stopped and nothing will change it without a human. */}}
               healthPercent: ({healthy: 100, drift: 70, readyNotSet: 60, converging: 50, pending: 50, unknown: 50,
-                               noReadiness: 50, notObserved: 40, failed: 20, terminal: 15, unread: 0}[$v.s] // 50),
+                               noReadiness: 50, notObserved: 40, failed: 20, terminal: 15, unread: 0, notFound: 0}[$v.s] // 50),
               # IA F5 + F5-full: composition.krateo.io children drill into the first-class
               # /compositions detail; EVERY other kind drills into the generic /resources view
               # (namespaced → its ns; cluster-scoped → the "cluster" filler; core group → "core").
@@ -395,6 +451,12 @@ spec:
     # declares no managed resources.)
     | ($managed[0]._wh == false) as $whBad
     | (if $whBad then ($managed[0]._whMsg // "") else "" end) as $whMsg
+    # THE COMPOSITION'S OWN STATE, the one every page prints (portal.compositionStateDefs), from the
+    # Ready and Synced that ride on every row: the verdict says Paused or Unknown from it. Paused
+    # since: when a condition took the ReconcilePaused reason (the annotation carries no time).
+    | ({ conditions: ($managed[0]._conds // []), wh: $managed[0]._wh } | compositionVerdict) as $cv
+    | ([ ($managed[0]._conds // [])[] | select(.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused") | .lastTransitionTime // empty ] | min) as $pausedAt
+    | ([ ($managed[0]._conds // [])[] | select(.type == "Ready") ][0] // {}) as $cready
     | {
         resources: $rows,
         total: $total,
@@ -403,6 +465,7 @@ spec:
         driftCount: ($rows | map(select(.state == "drift")) | length),
         failedCount: ($rows | map(select(.state == "failed")) | length),
         pendingCount: ($rows | map(select(.state == "pending")) | length),
+        notFoundCount: ($rows | map(select(.state == "notFound")) | length),
         {{/* Each state counted by its OWN predicate rather than by subtraction, so a state added
              later cannot land in an existing bucket silently — which is how Ready=Unknown ended up
              reported as pending in the first place. The test asserts the counts PARTITION the
@@ -423,5 +486,12 @@ spec:
              it is counted healthy, and still keeps this false. */}}
         converged: (($rows | length) > 0 and $healthy == $total and ($rows | all(.state != "drift")) and ($whBad | not)),
         workloadUnhealthy: $whBad,
-        workloadMessage: $whMsg
+        workloadMessage: $whMsg,
+        composition: {
+          state: (if ($managed | length) == 0 then "" else $cv.state end),
+          stateLabel: (if ($managed | length) == 0 then "" else ($cv.state | compositionStateName) end),
+          pausedSince: (if $pausedAt == null then "" else (try ($pausedAt | fromdateiso8601 | ((strftime("%d") | tonumber | tostring) + " " + strftime("%b %H:%M") + " UTC")) catch "") end),
+          readyReason: (($cready.reason // "") | tostring),
+          readyMessage: (($cready.message // "") | tostring | ltrimstr("Composition health is unknown: "))
+        }
       }

@@ -120,12 +120,18 @@ class Chart:
         raise LookupError(f'{kind} {name} has no widgetDataTemplate for {path}')
 
 
+# jq module directories passed as -L, so a filter's `include "<name>";` loads what snowplow's
+# ModuleLoader loads: a caller that runs such a filter appends snowplow-path's jq_modules().
+JQ_LIBS = []
+
+
 def jq(program, data):
     with tempfile.NamedTemporaryFile('w', suffix='.jq', delete=False) as fh:
         fh.write(program)
         path = fh.name
     try:
-        proc = subprocess.run([JQ, '-c', '-f', path], input=json.dumps(data),
+        libs = [arg for d in JQ_LIBS for arg in ('-L', d)]
+        proc = subprocess.run([JQ, '-c', *libs, '-f', path], input=json.dumps(data),
                               capture_output=True, text=True, check=False)
     finally:
         os.unlink(path)

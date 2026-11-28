@@ -1,7 +1,8 @@
 {{/* The Traces figures over the spans read (the newest 200 in the range; the search narrows them):
-     Spans, Errors (red, the Error pill's colour), Services (the busiest named) and Users (a jwt.sub, AI
-     calls), the last three neutral. A failed read, or a filter refused, is an empty value (a muted "—")
-     captioned so, in orange, never a 0. Errors opens the list filtered to that state: its route is the
+     Spans, Errors (red and highlighted above 0 only, the Error pill's colour), Services (the busiest
+     named) and Users (a jwt.sub, AI calls), the others neutral. The colour and the highlight come
+     computed (obs-traces `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93). A failed read, or
+     a filter refused, is an empty value (a muted "—") captioned so, in orange and highlighted, never a 0. Errors opens the list filtered to that state: its route is the
      Error status chip's (?traceStatus=Error); the metrics and a failed read have none (plain tiles). */}}
 kind: Listy
 apiVersion: widgets.templates.krateo.io/v1beta1
@@ -24,10 +25,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          error: red
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
