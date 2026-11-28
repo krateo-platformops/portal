@@ -214,8 +214,10 @@ def check_figure_routes():
     r = routes(out)
     chips = {c['label']: c['route'] for c in w('Listy', 'agents-group-chips', out, ex)['dataSource']}
     expect(f, 'Needs attention routes as its group chip', r['Needs attention'], chips['Needs attention'])
-    expect(f, 'Needs attention keeps q, view, range and the facets (attention is the default: no ?group)',
-           r['Needs attention'], '/agents?projects=p&owner=agentiko&q=agent&view=table&range=7d')
+    expect(f, 'Needs attention keeps q, view, range and the facets (in the Full list, whose default group is All, it is named)',
+           r['Needs attention'], '/agents?projects=p&owner=agentiko&q=agent&view=table&range=7d&group=attention')
+    expect(f, 'Needs attention on the Summary: the default, no ?group',
+           routes(resolve(dict(ex, view=''))).get('Needs attention'), '/agents?projects=p&owner=agentiko&q=agent&range=7d')
     expect(f, 'Ready and registered: the new ?group=ready, the other params kept', r['Ready and registered'],
            '/agents?projects=p&owner=agentiko&q=agent&view=table&range=7d&group=ready')
     expect(f, 'Gateway gaps: the Status facet NotRegistered, the group cleared', r['Gateway gaps'],
@@ -424,6 +426,29 @@ def servers_out(extras, servers=None, agents_error=False, servers_error=False):
     return tbi.resolve(CH, 'agents-servers', r, extras)
 
 
+def check_full_list_shows_all():
+    f = []
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    chips = lambda o, ex: [c['label'] for c in w('Listy', 'agents-group-chips', o, ex)['dataSource'] if c['active']]
+    ex = {'view': 'table'}
+    out = resolve(ex)
+    nAgents = len([r for r in out['tableRows']])
+    expect(f, 'Full list with no ?group shows every agent (the All group)', (out['group'], nAgents, len(out['agentsInView'])), ('all', len(out['agentsInView']), len(out['agentsInView'])))
+    expect(f, 'Full list with no ?group: All is the active chip', chips(out, ex), ['All'])
+    expect(f, 'Full list with no ?group -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/agents'), ('Full list', True, '/agents?view=table')])
+    out = resolve({})
+    expect(f, 'Summary with no ?group still defaults to Needs attention while anything needs it', (out['group'], chips(out, {})), ('attention', ['Needs attention']))
+    expect(f, 'Summary with no ?group -> Full list: no ?group, so All', vc(out),
+           [('Summary', True, '/agents'), ('Full list', False, '/agents?view=table')])
+    ex = {'view': 'table', 'group': 'orchestrators'}
+    out = resolve(ex)
+    expect(f, 'Full list with ?group=orchestrators: the picked group applies and is active', (out['group'], chips(out, ex)), ('orchestrators', ['Orchestrators']))
+    expect(f, 'an explicit group is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/agents?group=orchestrators'), ('Full list', True, '/agents?view=table&group=orchestrators')])
+    return f
+
+
 def check_servers_tab():
     f = []
     expect(f, 'the tab', items('Flex', 'agents-servers', {}), ['agents-servers-notice', 'agents-servers-stats', 'agents-servers-main', 'agents-servers-bindings-head',
@@ -533,6 +558,31 @@ def role_rows(out, extras):
         rows = w('Table', f'agents-policies-table-{role}', out, extras)['dataSource']
         shown[role] = ([{c['valueKey']: c.get('stringValue') for c in r}['name'] for r in rows], w('Card', ref, out, extras)['extra'])
     return shown
+
+
+def check_servers_full_list_shows_all():
+    f = []
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    act = lambda o: [c['label'] for c in o['serverChips'] if c['active']]
+    out = servers_out({'view': 'table'})
+    expect(f, 'Full list with no ?group shows every tool server', (out['group'], len(out['tableRows']), out['listCount']), ('all', 4, 4))
+    expect(f, 'Full list with no ?group: All is the active chip', act(out), ['All'])
+    expect(f, 'Full list with no ?group -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/agents'), ('Full list', True, '/agents?view=table')])
+    out = servers_out({})
+    expect(f, 'Summary with no ?group still defaults to Needs attention while any server needs it', (out['group'], act(out)), ('attention', ['Needs attention']))
+    expect(f, 'Summary with no ?group -> Full list: no ?group, so All', vc(out),
+           [('Summary', True, '/agents'), ('Full list', False, '/agents?view=table')])
+    out = servers_out({'view': 'table', 'group': 'accepted'})
+    expect(f, 'Full list with ?group=accepted: the picked group applies and is active', (out['group'], act(out)), ('accepted', ['Accepted']))
+    expect(f, 'an explicit group is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/agents?group=accepted'), ('Full list', True, '/agents?view=table&group=accepted')])
+    out = servers_out({'view': 'table', 'group': 'attention'})
+    expect(f, 'Full list -> Summary: an explicit Needs attention is the Summary default, left out', vc(out)[0][2], '/agents')
+    chips = {c['label']: c['route'] for c in servers_out({'view': 'table'})['serverChips']}
+    expect(f, 'Full list: the Needs attention chip names its group, the All chip is the default and leaves it out',
+           (chips['Needs attention'], chips['All']), ('/agents?view=table&group=attention', '/agents?view=table'))
+    return f
 
 
 def check_policies_tab():
@@ -692,7 +742,7 @@ def check_filter_keys():
 
 
 CHECKS = [check_facets, check_figures, check_figure_routes, check_chips_and_cards, check_layout, check_search, check_side, check_page_and_table,
-          check_servers_tab, check_servers_figure_routes, check_policies_tab, check_token_usage_tab, check_filter_keys]
+          check_servers_tab, check_servers_figure_routes, check_full_list_shows_all, check_servers_full_list_shows_all, check_policies_tab, check_token_usage_tab, check_filter_keys]
 
 
 def main():

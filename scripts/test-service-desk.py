@@ -438,6 +438,43 @@ def check_dashboard(chart):
     return f
 
 
+def check_full_list_shows_all(chart):
+    """Full list is every request unless a state was picked; Summary keeps Active as its default."""
+    f = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ago = lambda h: (now - datetime.timedelta(hours=h)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    items = [zr('zr-new', conditions=FILED, zid=101, zstatus='new', created=ago(2), updated=ago(1)),
+             zr('zr-solved', conditions=FILED, zid=103, zstatus='solved', created=ago(24 * 9), updated=ago(5)),
+             zr('zr-old', conditions=FILED, zid=104, zstatus='closed', created=ago(24 * 40), updated=ago(24 * 20))]
+    for o in items:
+        if o['status'].get('created_at'):
+            o['status']['created_at'] = o['metadata']['creationTimestamp']
+    res = lambda extras: resolve(chart, 'zendesk-requests', {'requests': {'items': items}}, dict({'username': 'x'}, **extras))[0]
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    act = lambda o: [c['label'] for c in o['chips'] if c['active']]
+    shown = lambda o: len(o['rows'])
+    out = res({'view': 'table'})
+    expect(f, 'Full list with no ?state shows every request', (out['state'], shown(out)), ('all', 3))
+    expect(f, 'Full list with no ?state: All is the active chip', act(out), ['All'])
+    expect(f, 'Full list with no ?state -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/service-desk'), ('Full list', True, '/service-desk?view=table')])
+    out = res({})
+    expect(f, 'Summary with no ?state still defaults to Active', (out['state'], shown(out), act(out)), ('active', 1, ['Active']))
+    expect(f, 'Summary with no ?state -> Full list: no ?state, so All', vc(out),
+           [('Summary', True, '/service-desk'), ('Full list', False, '/service-desk?view=table')])
+    out = res({'view': 'table', 'state': 'solved', 'range': '30d'})
+    expect(f, 'Full list with ?state=solved: the picked state applies and is active', (shown(out), act(out)), (2, ['Solved']))  # solved and closed, both inside 30d
+    expect(f, 'an explicit state is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/service-desk?state=solved&range=30d'), ('Full list', True, '/service-desk?state=solved&range=30d&view=table')])
+    out = res({'view': 'table', 'state': 'active'})
+    expect(f, 'Full list with ?state=active: Active applies and is active', (shown(out), act(out)), (1, ['Active']))
+    expect(f, 'Full list -> Summary: an explicit Active is the Summary default, left out', vc(out)[0][2], '/service-desk')
+    chips = {c['label']: c['route'] for c in res({'view': 'table'})['chips']}
+    expect(f, 'Full list: the Active chip names its state, the All chip is the default and leaves it out',
+           (chips['Active'], chips['All']), ('/service-desk?state=active&view=table', '/service-desk?view=table'))
+    return f
+
+
 def check_solved_in_range(chart):
     f = []
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -980,7 +1017,7 @@ def check_against_the_served_crds(chart):
     return f
 
 
-CHECKS = [check_state_mapping, check_chips, check_dashboard, check_solved_in_range, check_search, check_unreachable_warning, check_failures_are_not_an_empty_queue,
+CHECKS = [check_state_mapping, check_chips, check_dashboard, check_full_list_shows_all, check_solved_in_range, check_search, check_unreachable_warning, check_failures_are_not_an_empty_queue,
           check_empty_queue, check_raise_context, check_form_submit, check_raised_from_an_incident, check_request_page,
           check_request_read_is_gated_and_as_the_caller, check_against_the_served_crds, check_ticket_desk_is_gone]
 

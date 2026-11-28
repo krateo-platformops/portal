@@ -389,13 +389,14 @@ spec:
             # it adds is a caveat, and colouring a caveat red would train the reader past the colour.
             subtitleType: ( if ($failed | length) > 0 or ($unreg | length) > 0 then "danger" else "secondary" end ) }
     # ── THE OVERVIEW TAB, A4 (figures, the agents on two thirds, the charts on one third) ─────────
-    # The group chips (?group=) pick what the cards and the Full list show: attention (the default
-    # while anything in view needs it, else all), orchestrators and specialists (the healthy agents,
+    # The group chips (?group=) pick what the cards and the Full list show: attention (the Summary's
+    # default while anything in view needs it, else all; the Full list's default is all: it shows every
+    # agent unless a group was picked), orchestrators and specialists (the healthy agents,
     # as before), all (every agent and tool server in view, triage order). An unknown value (another
     # tab's, e.g. the Tool servers tab's `healthy`) falls back to the default. `ready` (the healthy
     # agents, orchestrators then specialists) is the Ready and registered tile's group, and its chip.
     | ( .attention | length ) as $attN
-    | ( if $attN > 0 then "attention" else "all" end ) as $grpDefault
+    | ( if $tableView then "all" elif $attN > 0 then "attention" else "all" end ) as $grpDefault
     | ( (($in.group // "") | tostring | ascii_downcase) as $g
         | if ($g | IN("attention", "orchestrators", "specialists", "all", "ready")) then $g else $grpDefault end ) as $grp
     | ( $agErr != "" ) as $agFailed
