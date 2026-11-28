@@ -234,6 +234,19 @@ spec:
                  else tostring end ]
              | map(select(. != "")) | unique | join("; ") )
       end;
+    # A FEATURE THAT IS NOT INSTALLED IS NOT A FAILURE. The apiserver answers 404 for a list of a
+    # resource type it does not serve (no CRD: "404 page not found" for an unknown group, "the server
+    # could not find the requested resource" for an unknown kind in a served one), and snowplow keeps
+    # that code on the errorKey entry (Status.code). A list of a served type never answers 404, so
+    # "every entry of the stage's errorKey is a 404" is positive evidence the type is absent (a tenant
+    # Platform has no agentgateway or platform-review CRDs). Anything else (403, 5xx, a bare string,
+    # a mix with one non-404) is a read that failed and stays "could not be read". No extra call and
+    # no CRD read: a tenant cannot read CustomResourceDefinitions (lint-caller-cluster-reads).
+    def notServed($e):
+      if $e == null then false
+      else ( [ ($e | if type == "array" then .[] else . end) ] ) as $l
+           | (($l | length) > 0) and all($l[]; type == "object" and .code == 404)
+      end;
     def cut($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     # Human units, computed here: cores to two decimals (three under a tenth), bytes in the largest
     # binary unit that reads as 1 or more, to one decimal, trailing zeros dropped.
@@ -285,7 +298,8 @@ spec:
     # ── agents and the gateway ─────────────────────────────────────────────────────────────────
     | errText(.routesError) as $rtErr
     | errText(.policiesError) as $polErr
-    | errText(.serversError) as $srvErr
+    | (notServed(.routesError) or notServed(.policiesError)) as $gwAbsent
+    | (if notServed(.serversError) then "" else errText(.serversError) end) as $srvErr
     | agw_hosts as $hosts
     | agw_allow_exprs as $exprs
     | agw_known($rtErr; $polErr) as $gwKnown
@@ -301,6 +315,7 @@ spec:
     | { total: ($agentRows | length),
         gaps: $gaps,
         gatewayKnown: $gwKnown,
+        gatewayInstalled: ($gwAbsent | not),
         gatewayUnknownWhy: (if $gwKnown then "" else agw_unknown_why($rtErr; $polErr) end),
         registered: (if $gwKnown then (($agentRows | length) - ($gaps | length)) else null end),
         servers: ((.servers.items // []) | length),
@@ -308,7 +323,7 @@ spec:
         notAccepted: $notAccepted } as $agt
     # An unchecked gateway is said, never left silent: with agents to judge and no verdict, it is one
     # item of its own.
-    | ((($agt.gatewayKnown | not) and $agt.total > 0) or $srvErr != "") as $agtCaveat
+    | ((($agt.gatewayKnown | not) and $agt.gatewayInstalled and $agt.total > 0) or $srvErr != "") as $agtCaveat
     # ── platform review ────────────────────────────────────────────────────────────────────────
     | ((.proposals // []) | map(select(type == "object"))) as $props
     # WAITING FOR A DECISION is Proposed, as on /reviews. A proposal whose change request is open has had
@@ -396,15 +411,15 @@ spec:
     # ── the sources, gated ─────────────────────────────────────────────────────────────────────
     | (if $projects != "" then "projects=" + ($projects | @uri) else "" end) as $carry
     | def page($path; $query): ([ $query, $carry ] | map(select(. != "")) | join("&")) as $q | if $q == "" then $path else $path + "?" + $q end;
-      [ { key: "incidents", label: "Incidents", on: (.gateIncidents == true), err: errText(.incidentsError),
+      [ { key: "incidents", label: "Incidents", on: ((.gateIncidents == true) and (notServed(.incidentsError) | not)), err: errText(.incidentsError),
           items: $inc.open, href: page("/incidents"; "status=open") },
-        { key: "alerts", label: "Alerts", on: (.gateAlerts == true), err: errText(.alertsError),
+        { key: "alerts", label: "Alerts", on: ((.gateAlerts == true) and (notServed(.alertsError) | not)), err: errText(.alertsError),
           items: $alt.firing, href: page("/alerts"; "status=alert") },
-        { key: "agents", label: "Agents", on: (.gateAgents == true), err: errText(.agentsError),
+        { key: "agents", label: "Agents", on: ((.gateAgents == true) and (notServed(.agentsError) | not)), err: errText(.agentsError),
           items: (($agt.gaps | length) + ($agt.notAccepted | length) + (if $agtCaveat then 1 else 0 end)), href: page("/agents"; "") },
-        { key: "reviews", label: "Platform review", on: (.gateReviews == true), err: errText(.proposalsError),
+        { key: "reviews", label: "Platform review", on: ((.gateReviews == true) and (notServed(.proposalsError) | not)), err: errText(.proposalsError),
           items: $rev.waiting, href: page("/reviews"; "") },
-        { key: "compositions", label: "Compositions", on: (.gateCompositions == true),
+        { key: "compositions", label: "Compositions", on: ((.gateCompositions == true) and (notServed(.crdsError) | not)),
           err: ([ errText(.crdsError), errText(.allCompositionsError) ] | map(select(. != "")) | join("; ")),
           items: ($cmp.notReady + $cmp.drift), href: page("/compositions"; "") } ] as $all
     | [ $all[] | select(.on) | . + {failed: (.err != "")} ] as $src
@@ -432,7 +447,7 @@ spec:
         elif $s.key == "agents" then
           ([ (if ($agt.gaps | length) > 0 then n($agt.gaps | length; "agent"; "agents") + " not reachable through the gateway (" + ([ $agt.gaps[] | .name + ": " + .gap ] | .[0:3] | join("; ")) + ")" else empty end),
              (if ($agt.notAccepted | length) > 0 then n($agt.notAccepted | length; "tool server"; "tool servers") + " not Accepted (" + names([ $agt.notAccepted[] | .name ]) + ")" else empty end),
-             (if ($agt.gatewayKnown | not) and $agt.total > 0 then "gateway registration could not be checked (" + $agt.gatewayUnknownWhy + ")" else empty end),
+             (if ($agt.gatewayKnown | not) and $agt.gatewayInstalled and $agt.total > 0 then "gateway registration could not be checked (" + $agt.gatewayUnknownWhy + ")" else empty end),
              (if $srvErr != "" then "the tool servers could not be read (" + ($srvErr | cut(200)) + ")" else empty end) ]
            | if length == 0 then "all " + ($agt.total | tostring) + " agents registered at the gateway" else join(", ") end)
         elif $s.key == "reviews" then

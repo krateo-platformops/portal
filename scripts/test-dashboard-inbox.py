@@ -6,7 +6,13 @@ WHAT IT GUARDS.
     whose page is not theirs is ABSENT everywhere: no strip tile, no card, no facet value, no
     "fine" clause, nothing in the Agentiko prompt. A userAccessFilter read returns [] to a caller
     without the grant, so without the gate "nothing waiting" would be a claim nobody checked.
-  - A gated-in source whose read FAILS (refused, not installed, broken) is never quiet: its tile is
+  - A feature that is NOT INSTALLED (its list read is answered 404 by the apiserver, which snowplow
+    keeps as Status.code on the errorKey entry) is absent like a source whose page is not the
+    caller's: no tile, no card, no facet value, no clause. A tenant Platform has no agentgateway or
+    platform-review CRDs, so it shows no "Agent gateway gaps: not checked" and no review card. Only a
+    404 on EVERY entry counts; a 403, a 5xx, a bare string, or a 404 mixed with a failure is a failed
+    read and says so, as below.
+  - A gated-in source whose read FAILS (refused, broken) is never quiet: its tile is
     a muted "—" captioned "could not be read", it gets a "… could not be read" card carrying the
     error, it adds nothing to the calm line, and the prompt asks about it first.
   - An agent gateway that could not be checked (no route or no Allow policy visible) is said, as a
@@ -593,9 +599,9 @@ def _():
               'reviews': 'Waiting for a decision', 'compositions': 'Compositions not Ready'}
     labels = {'incidents': 'Incidents', 'alerts': 'Alerts', 'agents': 'Agents', 'reviews': 'Platform review', 'compositions': 'Compositions'}
     for key, (msg, why) in {'incidents': ('incidents.observability.krateo.io is forbidden: User "dev" cannot list', 'denied'),
-                            'alerts': ('the server could not find the requested resource', 'not installed'),
+                            'alerts': ('the server could not find the requested resource', 'unreadable, no status code'),
                             'agents': ('agents.kagent.dev is forbidden', 'denied'),
-                            'reviews': ('the server could not find the requested resource (get proposals.review.krateo.io)', 'not installed'),
+                            'reviews': ('the server could not find the requested resource (get proposals.review.krateo.io)', 'unreadable, no status code'),
                             'compositions': ('context deadline exceeded', 'failed')}.items():
         errs = {k: [{'message': msg}] for k in ERROR_KEYS[key]}
         out = inbox(raw={STAGE_OF[key]: None}, errors=errs)
@@ -634,6 +640,82 @@ def _():
     check('no route visible: no "registered" claim', 'registered' in got['quiet'], False)
     out = inbox(raw={'policies': None}, errors={'policiesError': ['boom']})
     check('policies failed: the reason', out['agents']['gatewayUnknownWhy'], 'the AgentgatewayPolicy read failed — boom')
+
+
+# --- 5b. a feature that is not installed is not a failure ----------------------------------------------
+def not_served(group):
+    """What snowplow keeps on the errorKey for a list the apiserver does not serve (no CRD)."""
+    return [{'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'reason': 'NotFound', 'code': 404,
+             'message': '404 page not found'}]
+
+
+def failed_status(code, reason, message):
+    return [{'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'reason': reason, 'code': code, 'message': message}]
+
+
+@case('a tenant Platform without the gateway and review CRDs shows neither card')
+def _():
+    out = inbox(raw={'routes': None, 'policies': None, 'proposals': None},
+                errors={'routesError': not_served('gateway'), 'policiesError': not_served('agentgateway'),
+                        'proposalsError': not_served('review')})
+    got = page(out)
+    names = [t[0] for t in got['strip']]
+    check('not installed: no gateway tile (not "not checked")', 'Agent gateway gaps' in names, False)
+    check('not installed: no review tile (not "could not be read")', 'Waiting for a decision' in names, False)
+    check('not installed: the other tiles stay', names, ['Open incidents', 'Alerts firing', 'Compositions not Ready'])
+    check('not installed: no gateway card', [t for t in got['titles'] if 'Gateway' in t], [])
+    check('not installed: no review card', [t for t in got['titles'] if 'Platform review' in t or 'decision' in t], [])
+    check('not installed: the review source is out of the facet', 'reviews' in dict((o[1], o[2]) for o in got['options']), False)
+    check('not installed: the review source is not a source', [s['key'] for s in out['sources']], ['incidents', 'alerts', 'agents', 'compositions'])
+    check('not installed: the gateway is said not installed, not unchecked', (out['agents']['gatewayInstalled'], out['agents']['gatewayKnown']), (False, False))
+    check('not installed: the prompt names neither', ('Platform review' in got['ask'][1], 'gateway registration' in got['ask'][1]), (False, False))
+    check('not installed: no gateway or review wording anywhere', 'gateway' in got['quiet'] or 'proposal' in got['quiet'], False)
+    # Either gateway CRD missing is no gateway; the agents and tool servers are still judged.
+    out = inbox(raw={'policies': None}, errors={'policiesError': not_served('agentgateway')})
+    check('one gateway CRD missing: no gateway tile', 'Agent gateway gaps' in [t[0] for t in page(out)['strip']], False)
+    # Tool servers not installed: no "could not be read" card for them either.
+    out = inbox(raw={'servers': None}, errors={'serversError': not_served('kagent')})
+    check('tool servers not installed: no card', [t for t in page(out)['titles'] if 'Tool servers' in t], [])
+    check('tool servers not installed: nothing counted', out['agents']['serversError'], '')
+    # Every other source behaves the same when its type is not served.
+    for key, stage, err in (('incidents', 'incidents', 'incidentsError'), ('alerts', 'alerts', 'alertsError'),
+                            ('agents', 'agents', 'agentsError'), ('compositions', 'crds', 'crdsError')):
+        out = inbox(raw={stage: None}, errors={err: not_served(key)})
+        got = page(out)
+        check(f'{key} not installed: not a source', key in [s['key'] for s in out['sources']], False)
+        check(f'{key} not installed: no "could not be read" card', [t for t in got['titles'] if 'could not be read' in t], [])
+        check(f'{key} not installed: not in the facet', key in dict((o[1], o[2]) for o in got['options']), False)
+
+
+@case('an installed feature keeps its content')
+def _():
+    got = page(inbox())
+    check('installed: the gateway tile reads its count', got['strip'][3][:3], ('Agent gateway gaps', '1', 'of 3 agents'))
+    check('installed: the review tile reads its count', got['strip'][4][:3], ('Waiting for a decision', '4', 'review proposals'))
+    check('installed: the review card', [t for t in got['titles'] if 'decision' in t], ['4 proposals waiting for a decision'])
+    out = inbox()
+    check('installed: the gateway is installed', out['agents']['gatewayInstalled'], True)
+
+
+@case('an installed feature whose read failed still says so')
+def _():
+    forbidden = failed_status(403, 'Forbidden', 'httproutes.gateway.networking.k8s.io is forbidden')
+    broken = failed_status(500, 'InternalError', 'etcdserver: request timed out')
+    out = inbox(raw={'routes': None, 'proposals': None}, errors={'routesError': forbidden, 'proposalsError': broken})
+    got = page(out)
+    names = [t[0] for t in got['strip']]
+    check('failed (403/500): the gateway tile is "not checked"', got['strip'][3], ('Agent gateway gaps', '', 'not checked', 'orange'))
+    check('failed (403/500): the review tile is "could not be read"', got['strip'][4], ('Waiting for a decision', '', 'could not be read', 'orange'))
+    check('failed (403/500): the gateway card says why', next(c['description'] for c in got['cards'] if c['primaryText'] == 'Gateway registration not checked'),
+          'Whether the gateway can reach your agents could not be checked: the HTTPRoute read failed — httproutes.gateway.networking.k8s.io is forbidden.')
+    check('failed (403/500): the review card', [c['primaryText'] for c in got['cards'] if 'could not be read' in c['primaryText']], ['Platform review could not be read'])
+    check('failed (403/500): the gateway is installed', out['agents']['gatewayInstalled'], True)
+    # A 404 beside another failure is not proof the type is absent.
+    out = inbox(raw={'proposals': None}, errors={'proposalsError': not_served('review') + broken})
+    check('404 mixed with a 500: the review read is still failed', page(out)['strip'][4], ('Waiting for a decision', '', 'could not be read', 'orange'))
+    # A bare string carries no code: never read as "not installed".
+    out = inbox(raw={'proposals': None}, errors={'proposalsError': ['404 page not found']})
+    check('a bare string: still failed', page(out)['strip'][4], ('Waiting for a decision', '', 'could not be read', 'orange'))
 
 
 # --- 6. ?source= and ?projects -------------------------------------------------------------------------
