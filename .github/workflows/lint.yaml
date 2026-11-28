@@ -1062,6 +1062,11 @@ jobs:
           grep '^version:' "$RUNNER_TEMP/crds/frontend-crds/Chart.yaml"
           python3 scripts/test-dashboard-inbox.py --crds "$RUNNER_TEMP/crds/frontend-crds"
 
+      # The Welcome card's gate, dashboard-compositions-count, answers what compositions-list's
+      # `.list | length == 0` did, over both RESTActions' own jq.
+      - name: Dashboard Welcome card gate equals compositions-list's emptiness
+        run: python3 scripts/test-dashboard-onboarding.py
+
       # /compositions (the dashboard: a ReconcilePaused composition is Paused, never Ready; the state
       # chips with Needs attention first; the figures, the cards, by state, by kind, needing attention
       # longest; a kind or search from a link as removable chips; the server-paged table at
