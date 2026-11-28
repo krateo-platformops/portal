@@ -247,6 +247,24 @@ spec:
         # A follower's line links its owner (core-provider 2.13.126 status.owner); "" otherwise.
         inputsHref: (([ ($d.status.conditions // [])[]? | objects | select(.type == "ValuesSchemaAuthored") ] | first) as $valuesSchemaCond
           | inferredInputsHref($valuesSchemaCond; ($d.status.owner // null))),
+        # The "Upgrades" row (portal#558): how a new version of this definition reaches its
+        # compositions (spec.upgradePolicy). Manual says what it means for the reader; Automatic, or
+        # any other value, is its word alone; no field (an older core-provider) is no row ({line: ""}).
+        # When some compositions are BEHIND (their krateo.io/composition-version label, where they
+        # carry one, differs from the version the definition serves now, status.apiVersion's), the
+        # row says how many and links the list of this kind. None behind, or the compositions could
+        # not be listed, adds nothing: a failed read is not "none behind", and it is not said either.
+        upgrades: ((($d.spec.upgradePolicy // "") | tostring) as $policy
+          | ((($d.status.apiVersion // "") | tostring | split("/"))[1] // "") as $served
+          | (($d.status.kind // "") | tostring) as $kind
+          | (if $compsError != "" or $served == "" then 0
+             else [ (.comps.items // [])[]? | objects | ((.metadata.labels // {})["krateo.io/composition-version"] // "") | tostring | select(. != "" and . != $served) ] | length end) as $behind
+          | if $policy == "" then {line: "", href: ""}
+            else {
+              line: ((if $policy == "Manual" then "Manual · New versions wait: each composition keeps its version until it is moved to a new one." else $policy end)
+                     + (if $behind > 0 then " · " + ($behind | tostring) + (if $behind == 1 then " composition" else " compositions" end) + " on an older version" else "" end)),
+              href: (if $behind > 0 and $kind != "" then "/compositions?kind=" + ($kind | @uri) + "&status=all&scope=all" else "" end)
+            } end),
         may: { uninstall: shown(.mayDelete), update: shown(.mayPatch), fleet: shown(.mayCreate) },
         detail: $d,
         compositions: $comps,
