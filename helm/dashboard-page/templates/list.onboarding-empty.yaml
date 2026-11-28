@@ -3,8 +3,9 @@
 {{/* disappears the moment they have one — a server-driven conditional section, not a */}}
 {{/* client "we decided you're new" flag. */}}
 {{/* */}}
-{{/* GATE: apiRef = compositions-list (returns the user's ns-scoped `.list`). The */}}
-{{/* widgetDataTemplate emits the intent tiles ONLY when `(.list | length) == 0`; otherwise */}}
+{{/* GATE: apiRef = dashboard-compositions-count (`.count`, how many compositions the user can see, */}}
+{{/* narrowed by the shell's scope: what compositions-list's `.list | length` was). The */}}
+{{/* widgetDataTemplate emits the intent tiles ONLY when `.count == 0`; otherwise */}}
 {{/* it emits an empty array and `hideWhenEmpty: true` makes the whole Listy render nothing */}}
 {{/* (instead of an antd "No data" box). So the card appears/vanishes purely with the data. */}}
 {{/* */}}
@@ -30,8 +31,8 @@ spec:
   {{/* it, and an extra the widget does not declare makes snowplow decline to cache it. */}}
   keyExtras: [projects, q, scope, source]
   apiRef:
-    name: compositions-list
-    namespace: {{ .Release.Namespace }}
+    name: dashboard-compositions-count
+    namespace: {{ $.Values.namespace }}
   widgetData:
     {{/* When the gate emits [] (the user already owns a composition), render nothing. */}}
     hideWhenEmpty: true
@@ -59,7 +60,7 @@ spec:
   widgetDataTemplate:
     - forPath: dataSource
       expression: >-
-        ${ if ((.list | type) == "array") and ((.list | length) == 0) then
+        ${ if ((.count | type) == "number") and (.count == 0) then
              [
                { name: "Help me choose", icon: "fa-wand-magic-sparkles", color: "orange",
                  description: "Not sure where to start? Ask Agentiko.",

@@ -1,0 +1,59 @@
+{{/* How many compositions the caller can see: the one number the Welcome card (onboarding-empty)
+     needs to know whether to show itself. It used to read the whole `compositions-list`, which
+     lists the same objects and then builds facets, rail state, counts and a prompt over them only
+     for the card to test `.list | length == 0`.
+
+     SAME VISIBILITY AS compositions-list, by the same stages: the CompositionDefinitions the caller
+     may list (`crds`), then one cluster LIST per kind under a userAccessFilter on that kind that
+     keeps the items in namespaces where the CALLER may list it. A stage that fails is kept under
+     its errorKey and contributes nothing, so a failed read counts zero, exactly as it does in
+     compositions-list (and the card then shows, as it does today).
+
+     THE SCOPE IS THE SAME TOO: `?projects` (else `?project`, else `?namespace`) narrows the count
+     to those namespaces, with compositions-list's own expression, so the card tracks the shell's
+     scope as before.
+
+     WHY A COUNT AND NOT "STOP AT THE FIRST NON-EMPTY KIND": a RESTAction stage with an iterator
+     runs for every element, and a LIST cannot be limited to one item because the first item may be
+     in a namespace the caller cannot list (the refilter runs after the read). So the upstream
+     calls are the same as compositions-list's; what goes is the work after them, and each stage
+     keeps only the namespace of each item. */}}
+apiVersion: templates.krateo.io/v1
+kind: RESTAction
+metadata:
+  name: dashboard-compositions-count
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  api:
+    - name: crds
+      path: /apis/core.krateo.io/v1alpha1/compositiondefinitions
+      verb: GET
+      userAccessFilter:
+        verb: list
+        group: core.krateo.io
+        resource: compositiondefinitions
+        namespaceFrom: .metadata.namespace
+      filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, version: (.status.apiVersion | split(\"/\")[1])}] | unique"
+      continueOnError: true
+      errorKey: crdsError
+    - name: allCompositions
+      dependsOn:
+        name: crds
+        iterator: ".crds"
+      path: ${ "/apis/composition.krateo.io/" + (.version) + "/" + (.plural) }
+      verb: GET
+      continueOnError: true
+      errorKey: allCompositionsError
+      userAccessFilter:
+        verb: list
+        group: composition.krateo.io
+        resourcesFrom: "[ (.crds // [])[] | .plural ]"
+        namespaceFrom: .metadata.namespace
+      filter: "[.allCompositions.items[]? | {ns: .metadata.namespace}]"
+  filter: >
+    (((.projects // "") | split(",") | map(select(. != ""))) as $projSel
+     | ((.project // .namespace) // "") as $proj
+     | if ($projSel | length) > 0 then $projSel elif $proj != "" then [$proj] else [] end) as $projects
+    | {count: ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | length)}
