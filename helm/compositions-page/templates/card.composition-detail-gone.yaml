@@ -1,0 +1,26 @@
+{{/* The body of /compositions/{namespace}/{name} when the composition is not there (portal#577): one
+     sentence (the breadcrumb is the one way back, rule P1), in place of every card the page draws for a live composition. Only
+     the page root mounts it, and only when composition-detail says `gone` or `unreadable`. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: card-composition-detail-gone
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  widgetData:
+    variant: outlined
+    allowedResources:
+      - paragraphs
+    items:
+      - resourceRefId: paragraph-composition-detail-gone
+  resourcesRefs:
+    items:
+      - id: paragraph-composition-detail-gone
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: composition-detail-gone
+        namespace: {{ $.Values.namespace }}
+        resource: paragraphs
+        verb: GET

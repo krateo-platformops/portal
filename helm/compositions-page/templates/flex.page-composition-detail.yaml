@@ -48,11 +48,21 @@ spec:
   widgetDataTemplate:
     - forPath: items
       expression: >-
-        ${ [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-detail-status-row" } ]
-        + (if (.access.visible // false) then [ { resourceRefId: "composition-detail-access" } ] else [] end)
-        + [ { resourceRefId: "composition-detail-tabs" } ] }
+        ${ if ((.gone // false) or (.unreadable // false)) then
+             [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-detail-gone" } ]
+           else
+             [ { resourceRefId: "composition-detail-page-header" }, { resourceRefId: "composition-detail-status-row" } ]
+             + (if (.access.visible // false) then [ { resourceRefId: "composition-detail-access" } ] else [] end)
+             + [ { resourceRefId: "composition-detail-tabs" } ]
+           end }
   resourcesRefs:
     items:
+      - id: composition-detail-gone
+        apiVersion: widgets.templates.krateo.io/v1beta1
+        name: card-composition-detail-gone
+        namespace: {{ $.Values.namespace }}
+        resource: cards
+        verb: GET
       - id: composition-detail-access
         apiVersion: widgets.templates.krateo.io/v1beta1
         name: composition-detail-access
