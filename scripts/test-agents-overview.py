@@ -115,6 +115,17 @@ def tiles(listy):
     return [(t['title'], t['value'], t['caption'], t['tone']) for t in listy['dataSource']]
 
 
+def looks(listy):
+    """Each figure's computed colour and border (portal.tileDefs)."""
+    return [(t['title'], t['value'], t['color'], t['highlight']) for t in listy['dataSource']]
+
+
+def from_data(name):
+    """The strip takes colour and border from the data: `color` with no map, and `highlight`."""
+    tpl = static('Listy', name)['itemTemplate']
+    return (tpl['color'], tpl.get('highlight'))
+
+
 def expect(f, what, got, want):
     if got != want:
         f.append(f'{what}: got {got!r}, want {want!r}')
@@ -155,20 +166,32 @@ def check_figures():
         ('Gateway gaps', '1', 'not routed or not allowed', 'bad'),
         ('Tool servers NotAccepted', '1', 'of 3 · 13 tools discovered', 'bad')])
     calm = [a for a in AGENTS if a['metadata']['name'] not in ('broken-agent', 'nightly-review-agent')]
-    rows = tiles(w('Listy', 'agents-stats', resolve({}, agents=calm, servers=SERVERS[:2])))
-    expect(f, 'zero is still coloured by its state', [(t[0], t[1], t[3]) for t in rows[2:]],
+    expect(f, 'above 0, the three bad figures red and highlighted; Agents and Ready neutral', looks(w('Listy', 'agents-stats', out)), [
+        ('Agents', '6', '', False), ('Ready and registered', '4', '', False), ('Needs attention', '3', 'red', True),
+        ('Gateway gaps', '1', 'red', True), ('Tool servers NotAccepted', '1', 'red', True)])
+    quiet = w('Listy', 'agents-stats', resolve({}, agents=calm, servers=SERVERS[:2]))
+    rows = tiles(quiet)
+    expect(f, 'a zero keeps its tone', [(t[0], t[1], t[3]) for t in rows[2:]],
            [('Needs attention', '0', 'bad'), ('Gateway gaps', '0', 'bad'), ('Tool servers NotAccepted', '0', 'bad')])
+    expect(f, 'a zero is neutral and plain, never red; nothing highlighted on a quiet page', [t[2:] for t in looks(quiet)], [('', False)] * 5)
+    sick = SERVERS[:2] + [server(f'down-{i}', accepted=False) for i in range(3)]
+    expect(f, 'Tool servers NotAccepted at 3: red and highlighted', looks(w('Listy', 'agents-stats', resolve({}, agents=calm, servers=sick)))[4],
+           ('Tool servers NotAccepted', '3', 'red', True))
     rows = tiles(w('Listy', 'agents-stats', resolve({}, routes=False)))
     expect(f, 'gateway not checked: "Ready", and "—" not checked in orange, never 0 gaps', (rows[1][0], rows[1][2], rows[3]),
            ('Ready', 'of 6 agents; gateway not checked', ('Gateway gaps', '', 'not checked', 'unchecked')))
+    expect(f, 'gateway not checked: orange and highlighted', looks(w('Listy', 'agents-stats', resolve({}, routes=False)))[3],
+           ('Gateway gaps', '', 'orange', True))
     rows = tiles(w('Listy', 'agents-stats', resolve({}, agents_error=True)))
     expect(f, 'a failed Agent read: "—", could not be read, orange; the servers tile still counts', rows, [
         ('Agents', '', 'could not be read', 'unread'), ('Ready and registered', '', 'could not be read', 'unread'),
         ('Needs attention', '', 'could not be read', 'unread'), ('Gateway gaps', '', 'could not be read', 'unread'),
         ('Tool servers NotAccepted', '1', 'of 3 · 13 tools discovered', 'bad')])
-    stats_map = static('Listy', 'agents-stats')['itemTemplate']['color']['map']
+    expect(f, 'a failed Agent read: orange and highlighted', [t[2:] for t in looks(w('Listy', 'agents-stats', resolve({}, agents_error=True)))],
+           [('orange', True)] * 4 + [('red', True)])
     cards_map = static('Listy', 'agents-cards')['itemTemplate']['color']['map']
-    expect(f, 'the figures and the cards share one colour map', (stats_map, cards_map), (CARD_MAP, CARD_MAP))
+    expect(f, 'the cards keep their colour map', cards_map, CARD_MAP)
+    expect(f, 'the figures take colour and border from the data', from_data('agents-stats'), ({'value': '{color}'}, '{highlight}'))
     return f
 
 
@@ -412,8 +435,16 @@ def check_servers_tab():
         ('NotAccepted', '1', 'kagent could not connect or list its tools', 'bad'),
         ('Advisories', '1', 'external endpoint, no gateway route or unknown', 'warn'),
         ('Tools discovered', '28', '0 tools in use by agents', 'all')])
-    expect(f, 'the figures and the cards share one colour map', static('Listy', 'agents-servers-stats')['itemTemplate']['color']['map'],
-           static('Listy', 'agents-servers-cards')['itemTemplate']['color']['map'])
+    smap = static('Listy', 'agents-servers-cards')['itemTemplate']['color']['map']
+    expect(f, 'the figures take colour and border from the data', from_data('agents-servers-stats'), ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, NotAccepted and Advisories wear their card colour, highlighted; the rest neutral',
+           [t[2:] for t in looks(w('Listy', 'agents-servers-stats', out))],
+           [('', False), ('', False), (smap['bad'], True), (smap['warn'], True), ('', False)])
+    calm = servers_out({}, servers=SERVERS[:2])
+    expect(f, 'no server in trouble: NotAccepted and Advisories at 0, neutral and plain', looks(w('Listy', 'agents-servers-stats', calm))[2:4],
+           [('NotAccepted', '0', '', False), ('Advisories', '0', '', False)])
+    sick = servers_out({}, servers=SERVERS[:2] + [server(f'down-{i}', accepted=False) for i in range(3)])
+    expect(f, 'NotAccepted at 3: red and highlighted', looks(w('Listy', 'agents-servers-stats', sick))[2], ('NotAccepted', '3', 'red', True))
     expect(f, 'the state chips, Needs attention by default', [(c['label'], c['count'], c['active'], c['route']) for c in w('Listy', 'agents-servers-chips', out)['dataSource']],
            [('Needs attention', 2, True, '/agents'), ('Healthy', 2, False, '/agents?group=healthy'), ('Accepted', 3, False, '/agents?group=accepted'),
             ('NotAccepted', 1, False, '/agents?group=notaccepted'), ('Advisories', 1, False, '/agents?group=advisory'), ('All', 4, False, '/agents?group=all')])
@@ -443,6 +474,8 @@ def check_servers_tab():
     expect(f, 'a failed server read: "—" in orange, and a warning line', ([t[3] for t in tiles(w('Listy', 'agents-servers-stats', failed))],
            items('Card', 'agents-servers-list-card', failed), w('Paragraph', 'agents-servers-empty', failed)['type']),
            (['unread'] * 5, ['agents-servers-chips', 'agents-servers-empty'], 'warning'))
+    expect(f, 'a failed server read: every figure orange and highlighted', [t[2:] for t in looks(w('Listy', 'agents-servers-stats', failed))],
+           [('orange', True)] * 5)
     return f
 
 
@@ -510,6 +543,12 @@ def check_policies_tab():
     expect(f, 'the four figures', tiles(w('Listy', 'agents-policies-stats', out)), [
         ('Policies', '3', 'in 3 roles', 'all'), ('Healthy', '2', 'accepted and attached by the gateway', 'ok'),
         ('Not healthy', '1', 'a condition not True', 'bad'), ('Not attached', '1', 'no targetRef or selector: enforces nothing', 'warn')])
+    expect(f, 'the figures take colour and border from the data', from_data('agents-policies-stats'), ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Not healthy red and Not attached orange, highlighted; Policies and Healthy neutral',
+           [t[2:] for t in looks(w('Listy', 'agents-policies-stats', out))], [('', False), ('', False), ('red', True), ('orange', True)])
+    retry = POLS[1]
+    sick = policies_out({}, pols=[POLS[0], POLS[2]] + [dict(retry, metadata=dict(retry['metadata'], name=f'agentgateway-policies-retry{i}')) for i in range(3)])
+    expect(f, 'Not healthy at 3: red and highlighted', looks(w('Listy', 'agents-policies-stats', sick))[2], ('Not healthy', '3', 'red', True))
     expect(f, 'the state chips, All by default', [(c['label'], c['count'], c['active'], c['route']) for c in w('Listy', 'agents-policies-chips', out)['dataSource']],
            [('All', 3, True, '/agents'), ('Healthy', 2, False, '/agents?group=healthy'),
             ('Not healthy', 1, False, '/agents?group=nothealthy'), ('Not attached', 1, False, '/agents?group=notattached')])
@@ -555,6 +594,8 @@ def check_policies_tab():
            w('Paragraph', 'agents-policies-empty', out, ex)['type']),
            (['agents-policies-stats', 'agents-policies-chips', 'agents-policies-empty'], 'Every policy is healthy.', 'secondary'))
     expect(f, 'a zero tile is still clickable', {t['title']: t['route'] for t in out['stats']}['Not healthy'], '/agents?group=nothealthy')
+    expect(f, 'every policy healthy: Not healthy and Not attached at 0, neutral and plain', looks(w('Listy', 'agents-policies-stats', out, ex))[2:],
+           [('Not healthy', '0', '', False), ('Not attached', '0', '', False)])
     expect(f, 'an active tile still routes to its filter (no toggle)', {t['title']: t['route'] for t in out['stats']}['Not healthy'],
            [c['route'] for c in out['stateChips'] if c['active']][0])
     # /agents/policies reads the same RESTAction with no ?group: every policy, as before.
@@ -565,6 +606,7 @@ def check_policies_tab():
     out = policies_out({}, error=True)
     expect(f, 'a failed read: "—" in orange, not clickable', [t[1:] + (r,) for t, r in zip(tiles(w('Listy', 'agents-policies-stats', out)), [t['route'] for t in out['stats']])],
            [('', 'could not be read', 'unread', '')] * 4)
+    expect(f, 'a failed read: every figure orange and highlighted', [t[2:] for t in looks(w('Listy', 'agents-policies-stats', out))], [('orange', True)] * 4)
     expect(f, 'a failed read: a warning line instead of the cards', (items('Flex', 'agents-policies-tab', out), w('Paragraph', 'agents-policies-empty', out)['type']),
            (['agents-policies-stats', 'agents-policies-chips', 'agents-policies-empty'], 'warning'))
     expect(f, 'the figures Listy navigates to {route}', static('Listy', 'agents-policies-stats')['itemTemplate'].get('navigateTo'), '{route}')

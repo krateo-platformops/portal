@@ -7,9 +7,10 @@ THE PAGE: the header (no subtitle), the toolbar (the time range left, the search
 stacked when narrow), the tabs; krateo.io/filter-keys on the root, and every widget the root reaches
 (every flag on) declaring exactly those keys (F6).
 EACH LISTING TAB (Reconciliation, Telemetry, Components, Traces):
-  - the figures: titles, values, captions and tones, each tile coloured by the state it counts
-    with the same palette colour its cards give that state, zero or not; a failed read is "",
-    "could not be read", orange — never a 0;
+  - the figures: titles, values, captions and tones; the colour and the highlighted border are the
+    data's (portal.tileDefs): a figure that counts something wrong wears the palette colour its
+    cards give that state and is highlighted above 0 only, a 0 and every other figure neutral and
+    plain; a failed read is "", "could not be read", orange and highlighted — never a 0;
   - the layout: figures, then the main row (list card 16 | charts 8, stacked when narrow); the list
     card's items (state chips, then the cards, ?view=table the full list, or the empty line) and its
     "Summary | Full list" chips (extraRefId); the side cards, a card with no data left out;
@@ -71,6 +72,11 @@ SINCE_S = traces.SINCE_S
 def expect(f, what, got, want):
     if got != want:
         f.append(f'{what}: got {got!r}, want {want!r}')
+
+
+def looks(out):
+    """Each figure's computed colour and border (portal.tileDefs)."""
+    return [(s['color'], s['highlight']) for s in out['stats']]
 
 
 def wd(c, kind, name, out, extras=None, label=None):
@@ -216,17 +222,26 @@ def check_recon_figures(c, on):
            ['Compositions', 'Healthy', 'Needs attention', 'Pending'])
     stats = wd(on, 'Listy', 'obs-recon-stats', out)
     cmap = wd(on, 'Listy', 'obs-recon-cards', out)['itemTemplate']['color']['map']
-    smap = stats['itemTemplate']['color']['map']
     expect(f, 'the cards colour each state as /compositions does', cmap, CARD_MAP)
-    expect(f, 'each figure wears its state\'s card colour',
-           (smap['healthy'], smap['pending'], smap['attention']), (cmap['healthy'], cmap['pending'], cmap['failed']))
-    expect(f, 'overdue is the cards\' clock colour', smap['overdue'], wd(on, 'Listy', 'obs-recon-cards', out)['dataSource'][0]['statusColor'])
-    expect(f, 'a failed read is orange; Compositions is neutral', (smap['unread'], 'total' in smap), ('orange', False))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)',
+           (stats['itemTemplate']['color'], stats['itemTemplate'].get('highlight')), ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Needs attention, Pending and Overdue wear their card colour, highlighted; Compositions and Healthy neutral',
+           looks(out), [('', False), ('', False), (cmap['failed'], True), (cmap['pending'], True),
+                        (wd(on, 'Listy', 'obs-recon-cards', out)['dataSource'][0]['statusColor'], True)])
+    calm = {FW: {'items': [LISTS[FW]['items'][0]]}, PT: LISTS[PT]}
+    _, _, quiet = recon_out(on, spans=SPANS[:2], lists=calm)
+    expect(f, 'a quiet scope: every 0 neutral and plain, never red or orange; Healthy too',
+           [(s['value'],) + l for s, l in zip(quiet['stats'], looks(quiet))], [('2', '', False), ('2', '', False)] + [('0', '', False)] * 3)
+    broken = LISTS[FW]['items'][1]
+    three = {FW: {'items': [dict(broken, metadata=dict(broken['metadata'], name=f'broken-{i}')) for i in range(3)]}, PT: LISTS[PT]}
+    _, _, o3 = recon_out(on, spans=SPANS[:1], lists=three)
+    expect(f, 'Needs attention at 3: red and highlighted', (o3['stats'][2]['value'],) + looks(o3)[2], ('3', 'red', True))
     for label, kw, want in (('ClickHouse down', {'ch_down': True}, ('', 'traces could not be read', 'unread')),
                             ('no reconcile span', {'spans': []}, ('', 'no reconcile traces in 24 hours', 'overdue'))):
         _, _, o = recon_out(on, **kw)
         s = o['stats'][4]
         expect(f, f'{label}: the overdue figure says why', (s['value'], s['caption'], s['tone']), want)
+        expect(f, f'{label}: with no count to show, the overdue figure stays orange and highlighted', looks(o)[4], ('orange', True))
         expect(f, f'{label}: nothing dated, nothing overdue', (o['counts']['overdue'], [r['statusIcon'] for r in o['rows']]),
                (0, [''] * 6))
         expect(f, f'{label}: the note says it', 'The compositions themselves are not affected.' in o['note'], True)
@@ -234,6 +249,7 @@ def check_recon_figures(c, on):
     _, _, bad = recon_out(on, crds={'__status__': {'kind': 'Status', 'code': 403, 'message': 'compositiondefinitions is forbidden'}}, lists={})
     expect(f, 'a failed read: every figure "could not be read", never 0',
            {(s['value'], s['caption'], s['tone']) for s in bad['stats']}, {('', 'could not be read', 'unread')})
+    expect(f, 'a failed read: every figure orange and highlighted', set(looks(bad)), {('orange', True)})
     expect(f, 'a failed read: the line, as a warning', (items(on, 'Card', 'obs-recon-list-card', bad)[-1],
                                                          wd(on, 'Paragraph', 'obs-recon-empty', bad)['type']), ('obs-recon-empty', 'warning'))
     expect(f, 'a failed read: no chart', (bad['byState'], bad['byKind'], bad['byNamespace']), ([], [], []))
@@ -464,16 +480,22 @@ def check_telemetry(c, on):
     expect(f, 'the figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
            [('Error lines', '1495', 'in the last 7 days', 'error'), ('Distinct problems', '15', 'grouped by service and message', 'error'),
             ('Services erroring', '2', 'among the 40 most frequent problems', 'error'), ('Window read', '7 d', 'the time range', 'window')])
-    smap = wd(c, 'Listy', 'obs-tel-stats', out)['itemTemplate']['color']['map']
+    tpl = wd(c, 'Listy', 'obs-tel-stats', out)['itemTemplate']
     cmap = wd(c, 'Listy', 'obs-error-log-list', out)['itemTemplate']['color']['map']
-    expect(f, 'an error figure wears the error cards\' colour; the window is neutral', (smap['error'], 'window' in smap, smap['unread']),
-           (cmap['ERROR'], False, 'orange'))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, an error figure wears the error cards\' colour, highlighted; the window is neutral', looks(out),
+           [(cmap['ERROR'], True)] * 3 + [('', False)])
+    none = digest(c, rows=[], tot=ch([{'total': '0', 'distinct_problems': '0'}]))
+    expect(f, 'no error logged: every 0 neutral and plain, never red', [(s['value'],) + l for s, l in zip(none['stats'], looks(none))][:3],
+           [('0', '', False)] * 3)
     six = digest(c, {'range': '6h'})
     expect(f, '6h: the window the SQL read, said', (six['stats'][3]['value'], six['stats'][3]['caption']),
            ('24 h', 'the logs are read per 1 h, 24 h or 7 d'))
     down = digest(c, rows=None, tot=None)
     expect(f, 'a failed read: "could not be read", never 0',
            [(s['value'], s['tone']) for s in down['stats']], [('', 'unread')] * 3 + [('24 h', 'window')])
+    expect(f, 'a failed read: orange and highlighted; the window still neutral', looks(down), [('orange', True)] * 3 + [('', False)])
     expect(f, 'a failed read: the line, as a warning', (items(c, 'Card', 'obs-errors-card', down), wd(c, 'Paragraph', 'obs-tel-empty', down)['type']),
            (['obs-tel-empty'], 'warning'))
     card = wd(c, 'Card', 'obs-errors-card', out)
@@ -565,14 +587,21 @@ def check_components(c):
     out = comps(c)
     expect(f, 'the figures', [(s['title'], s['value'], s['tone']) for s in out['stats']],
            [('Deployments', '4', 'total'), ('Ready', '2', 'ready'), ('Not ready', '1', 'notready'), ('Scaled to zero', '1', 'scaled')])
-    smap = wd(c, 'Listy', 'obs-components-stats', out)['itemTemplate']['color']['map']
+    tpl = wd(c, 'Listy', 'obs-components-stats', out)['itemTemplate']
     cmap = wd(c, 'Listy', 'obs-components-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'each figure wears its state\'s card colour', {k: v for k, v in smap.items() if k != 'unread'}, cmap)
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Not ready wears its card colour, highlighted; the rest neutral', looks(out),
+           [('', False), ('', False), (cmap['notready'], True), ('', False)])
+    calm = comps(c, deps={'items': [dep('snowplow', 2, 2), dep('core-provider', 1, 1)]})
+    expect(f, 'every Deployment ready: Not ready at 0 neutral and plain', (calm['stats'][2]['value'],) + looks(calm)[2], ('0', '', False))
+    sick = comps(c, deps={'items': [dep(f'down-{i}', 1, 0) for i in range(3)]})
+    expect(f, 'Not ready at 3: red and highlighted', (sick['stats'][2]['value'],) + looks(sick)[2], ('3', 'red', True))
     expect(f, 'the donut colours the states as the cards', wd(c, 'PieChart', 'obs-components-by-state', out)['colorMap'],
            {'Ready': cmap['ready'], 'Not ready': cmap['notready'], 'Scaled to zero': cmap['scaled']})
     down = comps(c, deps=None)
-    expect(f, 'a failed read: "could not be read", orange', ({(s['value'], s['tone']) for s in down['stats']}, smap['unread']),
-           ({('', 'unread')}, 'orange'))
+    expect(f, 'a failed read: "could not be read", orange and highlighted', ({(s['value'], s['tone']) for s in down['stats']}, set(looks(down))),
+           ({('', 'unread')}, {('orange', True)}))
     card = wd(c, 'Card', 'obs-components-list-card', out)
     expect(f, 'the list card', ([i['resourceRefId'] for i in card['items']], card['extraRefId']),
            (['obs-components-state-chips', 'obs-components-cards'], 'obs-components-view-chips'))
@@ -624,14 +653,23 @@ def check_traces(c):
     expect(f, 'the figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
            [('Spans', '6', 'in the time range', 'spans'), ('Errors', '1', 'spans with StatusCode Error', 'error'),
             ('Services', '2', 'most: agentgateway', 'services'), ('Users', '2', 'with a jwt.sub (AI calls)', 'users')])
-    smap = wd(c, 'Listy', 'obs-traces-stats', out)['itemTemplate']['color']['map']
+    tpl = wd(c, 'Listy', 'obs-traces-stats', out)['itemTemplate']
     cmap = wd(c, 'Listy', 'obs-traces-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'Errors wears the Error cards\' colour', (smap['error'], smap['unread']), (cmap['Error'], 'orange'))
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'above 0, Errors wears the Error cards\' colour, highlighted; the rest neutral', looks(out),
+           [('', False), (cmap['Error'], True), ('', False), ('', False)])
+    clean = spans(c, rows=[r for r in traces.LIST_ROWS if r['status'] != 'Error'])
+    expect(f, 'no error span: Errors at 0 neutral and plain, never red', (clean['stats'][1]['value'],) + looks(clean)[1], ('0', '', False))
+    errs = [dict(r, status='Error') for r in traces.LIST_ROWS[:3]]
+    three = spans(c, rows=errs)
+    expect(f, 'Errors at 3: red and highlighted', (three['stats'][1]['value'],) + looks(three)[1], ('3', 'red', True))
     expect(f, 'the donut colours the statuses as the cards', wd(c, 'PieChart', 'obs-traces-by-status', out)['colorMap'],
            {'Error': cmap['Error'], 'OK': cmap['Ok'], 'Unset': cmap['Unset']})
     down = spans(c, rows=False)
     expect(f, 'a failed read', ({(s['value'], s['caption'], s['tone']) for s in down['stats']}, items(c, 'Card', 'obs-traces-list-card', down)),
            ({('', 'could not be read', 'unread')}, ['obs-traces-status-chips', 'obs-traces-empty']))
+    expect(f, 'a failed read: orange and highlighted', set(looks(down)), {('orange', True)})
     bad = spans(c, {'traceUser': "x' OR 1=1"}, rows=[])
     expect(f, 'a refused filter: said, not counted', (bad['stats'][0]['caption'], wd(c, 'Paragraph', 'obs-traces-empty', bad)['text']),
            ('a filter was refused', 'The user filter holds a character it may not, so no span was read.'))

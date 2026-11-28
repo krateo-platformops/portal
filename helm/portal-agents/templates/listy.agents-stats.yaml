@@ -1,9 +1,10 @@
-{{/* The five Overview figures over the agents and tool servers in view (agents-list `stats`): Agents
-     (blue), Ready and registered (green; "Ready" while the gateway could not be checked), Needs
-     attention, Gateway gaps and Tool servers NotAccepted (red). Every tile wears the colour of the
-     state it counts, zero or not, with the same map as the cards (listy.agents-cards). A gateway that
-     could not be checked is "—", "not checked", in orange, never 0 gaps; a failed read is "—", "could
-     not be read", in orange. Replaces the exception-only strip (listy.agents-strip). A state tile opens
+{{/* The five Overview figures over the agents and tool servers in view (agents-list `stats`): Agents,
+     Ready and registered ("Ready" while the gateway could not be checked), Needs attention, Gateway
+     gaps and Tool servers NotAccepted. The colour and the highlighted border come computed (`color`,
+     `highlight`; portal.tileDefs, frontend >= 1.8.93): the last three are red and highlighted above 0
+     only; a 0, Agents and Ready are neutral. A gateway that could not be checked is "—", "not
+     checked", in orange and highlighted, never 0 gaps; a failed read is "—", "could not be read", in
+     orange and highlighted. Replaces the exception-only strip (listy.agents-strip). A state tile opens
      the list filtered to that state: Ready and registered ?group=ready, Needs attention the group chip's
      route, Gateway gaps and Tool servers NotAccepted the Status facet (NotRegistered, NotAccepted);
      Agents, an unchecked gateway and a failed read are plain tiles. */}}
@@ -27,14 +28,8 @@ spec:
       secondaryText: '{value}'
       subPrimaryText: '{caption}'
       color:
-        value: '{tone}'
-        map:
-          all: blue
-          ok: green
-          bad: red
-          warn: orange
-          unchecked: orange
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

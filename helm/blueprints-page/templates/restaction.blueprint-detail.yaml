@@ -7,7 +7,9 @@
 {{/* chart             : the chart name (spec.chart.repo) or its url */}}
 {{/* currentVersion    : spec.chart.version (installed) */}}
 {{/* availableVersions : every version the helm index lists for this chart (+ current), unique */}}
-{{/* latestVersion / updateAvailable : best-effort newest vs installed */}}
+{{/* latestVersion / updateAvailable : the catalog's newest version of this chart, as the Marketplace */}}
+{{/*                   reads it (the ConfigMap catalog + the live index, withLive), newest by */}}
+{{/*                   version number; "" when it is not known (latestLabel says why) */}}
 {{/* ready / synced / created : status surface */}}
 {{/* versionSchema / versionInitial : the update Form's JSON schema (version enum) + initial value */}}
 {{/* gvr               : PATCH/DELETE target (always core.krateo.io compositiondefinitions) */}}
@@ -52,6 +54,11 @@ spec:
       errorKey: jsonschemaError
     {{/* The helm index — used to enumerate the chart's available versions (update picker). */}}
     {{- include "portal.catalogStep" (dict "ctx" $ "name" "catalog" "index" "blueprints") | nindent 4 }}
+    {{/* The live blueprints index too (marketplace.liveIndex), merged by withLive in the filter as */}}
+    {{/* the Marketplace merges it (_catalog.tpl): the version a krateo-blueprints repository released */}}
+    {{/* after the catalog ConfigMap was rendered. Without it this page said "Latest version 0.1.0, Up */}}
+    {{/* to date" while /marketplace/<chart> said 0.1.1 (UX audit BP-2). */}}
+    {{- include "portal.catalogLiveStep" $ | nindent 4 }}
     {{/* IA correlation (blueprint → running instances): the compositions CREATED FROM this */}}
     {{/* blueprint are the instances of the CD's GENERATED kind — its status.apiVersion + */}}
     {{/* status.resource (e.g. composition.krateo.io/v0-1-0 + keystonedemoes). Listed */}}
@@ -144,6 +151,7 @@ spec:
       filter: >
         {allowed: (.mayCreate.status.allowed == true), evaluated: ((.mayCreate.status // null) != null)}
   filter: |
+    {{- include "portal.catalogLiveDefs" . | nindent 4 }}
     {{- include "portal.blueprintContentsDefs" . | nindent 4 }}
     {{- include "portal.inferredInputsDefs" . | nindent 4 }}
     {{- include "portal.migratedValuesDefs" . | nindent 4 }}
@@ -152,15 +160,34 @@ spec:
     # A control is left out only on an explicit no: the probe was evaluated and did not allow.
     # A probe that was skipped or failed keeps the control (see the stages above).
     def shown($p): ($p // {}) | (if type == "array" then (.[0] // {}) else . end) | (((.evaluated == true) and (.allowed != true)) | not);
-    (.name // "") as $n
+    # The catalog as the Marketplace reads it: the ConfigMap catalog with the live index merged in.
+    withLive
+    | (.name // "") as $n
     | (.namespace // "") as $ns
     | ((.compdef // {}) | del(.metadata.managedFields, .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])) as $d
     | ($d.spec.chart // {}) as $chart
     | ($chart.repo // "") as $bp
     | ($chart.version // "") as $cur
-    | ([ (.catalog.entries[$bp]? // [])[] | .version | select(. != null and . != "") ]) as $idxVers
+    | ([ (if $bp == "" then [] else (.catalog.entries[$bp]? // []) end)[] | objects | .version | select(. != null and . != "") ]) as $idxVers
     | (($idxVers + [$cur]) | map(select(. != "")) | unique) as $avail
-    | (if ($idxVers | length) > 0 then ($idxVers | sort | last) else $cur end) as $latest
+    # LATEST: the newest catalog version by version number (withLiveVer, the order the Marketplace
+    # sorts by), never by string ("0.1.10" sorts before "0.1.9"). NOT KNOWN — "" — when the catalog
+    # holds no version of this chart: a blueprint installed from a URL or an OCI registry (no
+    # spec.chart.repo), which nothing here reads, or a catalog that could not be read. It used to fall
+    # back to the installed version, which printed "Latest version <installed>" and "Up to date" for
+    # every such blueprint without having looked anywhere.
+    | (if ($idxVers | length) > 0 then ($idxVers | sort_by(withLiveVer) | last) else "" end) as $latest
+    | (((.catalogError // null) | . != null and . != [] and . != "")) as $catalogFailed
+    # The chart name an OCI/URL install points at (its last path segment), only to say what the
+    # Marketplace lists under that name when this blueprint's own source is not read.
+    | (if $bp == "" then (($chart.url // "") | sub("/+$"; "") | split("/") | last // "" | sub(":[^:/]*$"; "")) else "" end) as $urlChart
+    | ([ ((if $urlChart == "" then [] else (.catalog.entries[$urlChart]? // []) end)[] | objects | .version | select(. != null and . != "")) ]
+       | if length > 0 then (sort_by(withLiveVer) | last) else "" end) as $sameNameLatest
+    | (if $latest != "" then $latest
+       elif $catalogFailed and $bp != "" then "not known: the catalog could not be read"
+       elif $bp == "" then ("not known: installed from " + (if (($chart.url // "") | startswith("oci://")) then "an OCI registry" else "a URL" end) + ", which is not read here"
+                            + (if $sameNameLatest != "" then " (the Marketplace lists " + $urlChart + " " + $sameNameLatest + " from its own catalog)" else "" end))
+       else "not known: this chart is not in the catalog" end) as $latestLabel
     | ([ $d.status.conditions[]? | select(.type == "Ready") ][0].status // "Unknown") as $ready
     | ([ $d.status.conditions[]? | select(.type == "Synced") ][0].status // "Unknown") as $synced
     # A running composition's state is the one every page prints (portal.compositionStateDefs): a
@@ -197,7 +224,7 @@ spec:
     | (if $found then
          ("/blueprints/" + $bpNs + "/" + $bpName + "?ask="
           + (("Explain blueprint \"" + $bpName + "\" in namespace \"" + $bpNs + "\": it is at version " + (if $cur != "" then $cur else "unknown" end)
-              + (if ($idxVers | length) == 0 then " (not in the catalog)" elif $latest == $cur then " (the catalog's latest)" else " (latest " + $latest + ")" end)
+              + (if $latest == "" then " (its latest version is " + $latestLabel + ")" elif $latest == $cur then " (the catalog's latest)" else " (latest " + $latest + ")" end)
               + ", Ready=" + $ready + ", Synced=" + $synced + ", and "
               + (if $compsError != "" then "the compositions running from it could not be listed (" + $compsError + ")"
                  else ($comps | length | tostring) + (if ($comps | length) == 1 then " composition runs" else " compositions run" end) + " from it (" + ($notReady | tostring) + " not ready)" end)
@@ -237,7 +264,10 @@ spec:
         currentVersion: $cur,
         availableVersions: $avail,
         latestVersion: $latest,
-        updateAvailable: ($latest != $cur and $latest != ""),
+        latestLabel: $latestLabel,
+        # Newer by version number, not merely different: an installed version above the catalog's
+        # (a prerelease, a chart from elsewhere) is not an update to an older one.
+        updateAvailable: ($latest != "" and $cur != "" and (($latest | withLiveVer) > ($cur | withLiveVer))),
         ready: $ready,
         synced: $synced,
         created: ($d.metadata.creationTimestamp // ""),

@@ -69,6 +69,7 @@ spec:
        line and so comment out the rest of the program. */}}
   filter: |
     {{- include "servicedesk.requestDefs" . | nindent 4 }}
+    {{- include "portal.tileDefs" . | nindent 4 }}
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     def n($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
     def andjoin: if length <= 1 then (.[0] // "") elif length == 2 then (.[0] + " and " + .[1]) else ((.[0:-1] | join(", ")) + " and " + .[-1]) end;
@@ -251,7 +252,11 @@ spec:
           { title: "Need attention", value: ($attention | tostring), caption: "refused, held or unknown", tone: "attention", key: "attention" },
           { title: "Opened", value: ($openedIn | tostring), caption: ("in " + $rangeText), tone: "active", key: "" },
           { title: "Solved", value: ($solvedIn | tostring), caption: ("solved or closed in " + $rangeText), tone: "solved", key: "solved" } ]
-          | map({ title, value, caption, tone, route: (if $failed or .key == "" then "" else href(.key; $range; $tableView) end) }),
+          | map({ title, value, caption, tone, route: (if $failed or .key == "" then "" else href(.key; $range; $tableView) end) })
+          # Colour marks an exception (portal.tileDefs): Pending (waiting for a reply from someone
+          # here) gold and Need attention red, highlighted above 0 only; Active, Opened and Solved
+          # are neutral.
+          | map(tilePaint({ pending: "gold", attention: "red" }; {})),
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
         viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
                      { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
