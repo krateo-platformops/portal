@@ -1,8 +1,11 @@
 {{/* The five figures over every alert: Firing, Not evaluated, Pending, OK, and how many have open
-     incidents (and how many incidents). Each tile wears the colour the cards give the state it
-     counts (alerts-cards), zero or not; With unresolved incidents is red, as the cards' incident mark.
-     The title says the state too, so colour is never the only signal. A failed read of the alerts is an empty value (a muted "—") captioned "could not be read", never
-     a 0; an unread incident list is "—" on With unresolved incidents alone; either is orange. A tile
+     incidents (and how many incidents). The colour and the highlighted border come computed
+     (obs-alerts `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93): only a figure above 0
+     is coloured and highlighted, Firing and With unresolved incidents red, Not evaluated orange,
+     Pending blue; a 0 and OK are neutral. The title says the state too, so colour is never the
+     only signal. A failed read of the alerts is an empty value (a muted "—") captioned "could not
+     be read", never a 0; an unread incident list is "—" on With unresolved incidents alone; either
+     is orange and highlighted. A tile
      opens the list filtered to what it counts (its chip's route, every other param kept; With open
      incidents is ?status=open-incidents); a failed read is plain. */}}
 kind: Listy
@@ -25,14 +28,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          alert: red
-          not-evaluated: orange
-          pending: blue
-          ok: green
-          incident: red
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource

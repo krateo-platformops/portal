@@ -114,6 +114,7 @@ def check_no_access():
         out = resolve(resp)
         expect(f, f'{label}: access', out['access'], 'none')
         expect(f, f'{label}: no figure', {(s['caption'], s['tone']) for s in out['stats']}, {('not shared with you', 'hidden')})
+        expect(f, f'{label}: not a fault, so neutral and plain', {(s['color'], s['highlight']) for s in out['stats']}, {('', False)})
         expect(f, f'{label}: no rows', [out['series'], out['agents'], out['users'], out['groups']], [[], [], [], []])
         if access != 'ERROR':
             expect(f, f'{label}: says what to ask for', 'Ask an administrator for read access to Gateways' in out['notice'], True)
@@ -248,16 +249,22 @@ def check_figures_coloured():
     f = []
     gw = [row('admin', calls=2), row('mystery', model='mystery-model')]
     out = resolve(responses(gw))
-    expect(f, 'every figure has its own colour', [(s['title'], s['tone']) for s in out['stats']],
+    expect(f, 'every figure has its own tone', [(s['title'], s['tone']) for s in out['stats']],
            [('Spend', 'spend'), ('Per call', 'percall'), ('Cached input', 'cached'), ('Incident comparison', 'comparison'), ('Not priced', 'warn')])
-    cmap = tbi.resolved_widget(CH, 'Listy', 'agents-cost-stats', out, {}, 'Listy agents-cost-stats')['spec']['widgetData']['itemTemplate']['color']['map']
-    tones = {s['tone'] for s in out['stats']} | {'hidden', 'unread'}
-    expect(f, 'every tone is in the colour map', sorted(t for t in tones if t not in cmap), [])
-    expect(f, 'a failed read is orange, as on /incidents', cmap.get('unread'), 'orange')
+    tpl = tbi.resolved_widget(CH, 'Listy', 'agents-cost-stats', out, {}, 'Listy agents-cost-stats')['spec']['widgetData']['itemTemplate']
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)', (tpl['color'], tpl.get('highlight')),
+           ({'value': '{color}'}, '{highlight}'))
+    expect(f, 'the measures are neutral; Not priced (there only when a call is unpriced) orange and highlighted',
+           [(s['title'], s['color'], s['highlight']) for s in out['stats']],
+           [('Spend', '', False), ('Per call', '', False), ('Cached input', '', False), ('Incident comparison', '', False), ('Not priced', 'orange', True)])
+    priced = resolve(responses([row('admin', calls=2)]))
+    expect(f, 'every call priced: no Not priced tile, nothing highlighted', [(s['title'], s['color'], s['highlight']) for s in priced['stats']],
+           [('Spend', '', False), ('Per call', '', False), ('Cached input', '', False), ('Incident comparison', '', False)])
     bad = responses(gw)
     bad['gw'] = 'ERROR'
     out = resolve(bad)
     expect(f, 'a failed call log: "—", could not be read, unread', {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'unread')})
+    expect(f, 'a failed call log: orange and highlighted, as on /incidents', {(s['color'], s['highlight']) for s in out['stats']}, {('orange', True)})
     return f
 
 
