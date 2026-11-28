@@ -21,6 +21,12 @@ tag the installer PINS (`snowplow` in installer main's chart/files/component-pin
 lint-pinned-crds.py; SNOWPLOW_VERSION overrides it) is cloned into a temporary directory — the
 renderer the cluster runs, as --pinned does for the widget CRDs. Needs `git` and `go`. When it
 cannot be built the caller fails: a model without the encoding step is the model that missed this.
+
+SNOWPLOW'S jq MODULES. jq_modules() is the same checkout's built-in module directory
+(go/snowplow/internal/support/jq/modules: `quantity`, `health`, …), the files snowplow embeds and
+its gojq ModuleLoader resolves an `include "<name>";` to (internal/support/jq/modules.go). A test
+that runs a chart's filter passes it to jq as `-L <dir>`, so `include "quantity";` loads the module
+the cluster runs. Needs only `git`: the checkout is cloned once per run and shared with the renderer.
 """
 import atexit
 import importlib.util
@@ -57,6 +63,26 @@ def _run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'}, **kw)
 
 
+_SOURCE = None
+
+
+def source():
+    """(checkout root, how it was chosen), cloned at most once per run."""
+    global _SOURCE
+    if _SOURCE is None:
+        _SOURCE = _source()
+    return _SOURCE
+
+
+def jq_modules():
+    """snowplow's built-in jq module directory in that checkout, for jq's -L."""
+    root, desc = source()
+    mods = os.path.realpath(os.path.join(root, MODULE, 'internal', 'support', 'jq', 'modules'))
+    if not os.path.isfile(os.path.join(mods, 'quantity.jq')):
+        raise SystemExit(f'snowplow-path: {desc} has no {mods}/quantity.jq (the built-in jq modules)')
+    return mods
+
+
 def _source():
     """(checkout root, how it was chosen)."""
     if os.environ.get('SNOWPLOW_SRC'):
@@ -88,7 +114,7 @@ class Renderer:
         if not shutil.which('go'):
             raise SystemExit('snowplow-path: `go` is not on PATH; it builds snowplow\'s path renderer '
                              '(see the docstring of scripts/snowplow-path.py)')
-        root, self.source = _source()
+        root, self.source = source()
         # Real path: go matches overlay keys against the directory it resolves, and on macOS the
         # temporary directory is under /var, a symlink to /private/var.
         module = os.path.realpath(os.path.join(root, MODULE))

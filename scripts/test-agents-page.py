@@ -12,6 +12,11 @@ gateway is said as a gap, not as "all registered"; and an empty table is not "no
 Renders helm/portal-agents and runs the RESTActions' own filters rather than keeping copies here:
 a test holding its own copy of the jq passes while the chart drifts away from it. JQ=<gojq> runs the
 same checks on the engine snowplow uses.
+
+Also the states and words the UX audit found (AGT-4, AGT-5, TXT-1): a Ready agent's header pill says
+Ready, and so does a Ready delegate's Status (plain text: colour is for exceptions); "owner <x>" is
+left off a card whose agent is <x>; Created does not repeat its date; a card's body is the whole
+description (the card clamps it to two lines), not one cut mid-word at 120 characters.
 """
 import json
 import os
@@ -193,6 +198,44 @@ _, prompt = ask(jq(det, dict(base, models={'items': []}, modelsError='forbidden'
 check('detail, ModelConfig read failed -> said', 'It runs on ModelConfig default-model-config, which could not be read,' in prompt, True)
 check('detail, not found -> no link', jq(det, dict(base, agent={}))['askHref'], '')
 check('detail, failed read -> no link', jq(det, dict(base, agent={}, agentError='forbidden'))['askHref'], '')
+
+# --- states and words (UX audit AGT-4, AGT-5, TXT-1) --------------------------------------------
+out = jq(det, base)
+check('detail, Ready -> header pill', (out['statusLabel'], out['statusColor']), ('Ready', 'green'))
+check('detail, NotAccepted delegate -> its exception', [(r['name'], r['status'], r['statusColor']) for r in out['delegateRows']],
+      [('k8s-agent', 'NotAccepted', 'red')])
+out = jq(det, dict(base, agent=K8S))
+check('detail, NotAccepted -> header pill', (out['statusLabel'], out['statusColor']), ('NotAccepted', 'red'))
+out = jq(det, dict(base, agent=agent('autopilot', [], tools=ORCH['spec']['declarative']['tools'])))
+check('detail, no conditions -> no pill, never Ready', out['statusLabel'], '')
+out = jq(det, dict(base, peers={'items': [ORCH, agent('k8s-agent', READY)]}))
+check('detail, Ready delegate -> "Ready", no colour', [(r['status'], r['statusColor']) for r in out['delegateRows']], [('Ready', '')])
+cells = jq(named(docs, 'Table', 'agent-detail-delegates')['spec']['widgetDataTemplate'][0]['expression'].strip()[2:-1], out)
+check('delegates table, Ready -> plain text, not a tag', [c for c in cells[0] if c['valueKey'] == 'status'],
+      [{'valueKey': 'status', 'kind': 'jsonSchemaType', 'type': 'string', 'stringValue': 'Ready'}])
+cells = jq(named(docs, 'Table', 'agent-detail-delegates')['spec']['widgetDataTemplate'][0]['expression'].strip()[2:-1], jq(det, base))
+check('delegates table, NotAccepted -> a red tag', [c for c in cells[0] if c['valueKey'] == 'status'],
+      [{'valueKey': 'status', 'kind': 'tag', 'stringValue': 'NotAccepted', 'color': 'red'}])
+old_agent = dict(ORCH, metadata=dict(ORCH['metadata'], creationTimestamp='2026-01-02T15:37:00Z'))
+check('detail, created past 60 days -> the date once', jq(det, dict(base, agent=old_agent))['identity']['created'], '2026-01-02 15:37 UTC')
+new_agent = dict(ORCH, metadata=dict(ORCH['metadata'], creationTimestamp='2099-01-02T15:37:00Z'))
+check('detail, recent -> timestamp and age', jq(det, dict(base, agent=new_agent))['identity']['created'].startswith('2099-01-02 15:37 UTC · '), True)
+
+LONG = ('Authors and troubleshoots Krateo authentication across its four methods — basic-auth User '
+        '(basic.authn.krateo.io), LDAPConfig, OIDCConfig and OAuth2Config — and says which one a login used.')
+def shipped(name, by, conds=READY, description=LONG):
+    a = agent(name, conds, description=description)
+    a['metadata']['labels']['krateo.io/composition-name'] = by
+    return a
+all_routed = dict(GATEWAY, routes={'items': [route('authn-agent.krateo-system', 'helper.krateo-system')]},
+                  policies={'items': [policy('authn-agent.krateo-system', 'helper.krateo-system')]})
+out = jq(lst, {'agents': {'items': [shipped('authn-agent', 'authn-agent'), shipped('helper', 'agents-bundle')]},
+               'models': MODELS, 'servers': {'items': []}, 'group': 'all', **all_routed})
+cards = {c['title']: c for c in out['cards']}
+check('card, owner is the agent itself -> not said', cards['authn-agent']['foot'], '')
+check('card, owner is another composition -> said', cards['helper']['foot'], 'owner agents-bundle')
+check('card, body -> the whole description (the card clamps it)', cards['authn-agent']['body'], LONG)
+check('table, role -> still cut for the column', out['rows'][0]['role'].endswith('…'), True)
 
 # --- the buttons and where they sit ------------------------------------------------------------
 for name, ra, ke in (('agents-ask-agentiko', 'agents-list', ['projects', 'kind', 'status', 'owner', 'q', 'view', 'range', 'group', 'from', 'to']), ('agent-detail-ask-agentiko', 'agent-detail', ['name', 'namespace'])):
