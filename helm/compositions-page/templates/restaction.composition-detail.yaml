@@ -50,6 +50,7 @@ spec:
         namespaceFrom: .metadata.namespace
       filter: "[.crds.items[]? | select(.status.resource != null and .status.apiVersion != null) | {plural: .status.resource, version: (.status.apiVersion | split(\"/\")[1]), kind: (.status.kind // \"\"), group: (.status.apiVersion | split(\"/\")[0]), cdName: (.metadata.name // \"\"), cdNamespace: (.metadata.namespace // \"\")}]"
       continueOnError: true
+      errorKey: crdsError
     - name: found
       dependsOn:
         name: crds
@@ -71,6 +72,7 @@ spec:
       headers:
         - 'Accept: application/json'
       continueOnError: true
+      errorKey: foundError
       userAccessFilter:
         verb: list
         group: composition.krateo.io
@@ -78,9 +80,22 @@ spec:
         namespaceFrom: .metadata.namespace
       filter: "(.extras.name // \"\") as $n | (.extras.namespace // \"\") as $ns | [.found.items[]? | select(.metadata.name == $n and .metadata.namespace == $ns) | del(.metadata.managedFields, .metadata.annotations[\"kubectl.kubernetes.io/last-applied-configuration\"])]"
   filter: >
+    {{/* GONE, UNREADABLE, OR NEITHER. Both reads carry continueOnError, so a read that failed and a
+         read that found nothing both used to arrive as an empty `found`: a deleted composition and one
+         the caller may not read were one page, with every widget on its default. Now the errorKeys
+         (lists, accumulated per stage; never stringified) tell them apart:
+           gone       a name and namespace were asked for, nothing matched, and BOTH reads succeeded;
+           unreadable a name and namespace were asked for, nothing matched, and a read FAILED (a 403
+                      or any other status), so whether it exists is not known.
+         A match wins over a failed read (another kind's list failing does not unfind it). With no name
+         or namespace (snowplow's Phase-1 walk resolves the card with no extras) neither is true. */}}
+    def failed: . != null and . != [] and . != "";
     .name as $n
     | .namespace as $ns
-    | ([ .found[]? | select(.metadata.name == $n and .metadata.namespace == $ns) ][0] // {}) as $d
+    | ([ .found[]? | select(.metadata.name == $n and .metadata.namespace == $ns) ]) as $hits
+    | ($hits[0] // {}) as $d
+    | ((($n // "") != "") and (($ns // "") != "") and ($hits | length == 0)) as $missing
+    | ((.crdsError | failed) or (.foundError | failed)) as $readFailed
     | ($d.apiVersion // "") as $av
     | ($d.metadata.name // $n) as $cn
     | ($d.metadata.namespace // $ns) as $cns
@@ -137,6 +152,8 @@ spec:
             elif $available then "This address isn’t https, so it can’t be opened from here."
             else "This address can’t be confirmed right now." end)
         },
+        gone: ($missing and ($readFailed | not)),
+        unreadable: ($missing and $readFailed),
         detail: $d,
         conditions: (($d.status.conditions // []) + (if $d.status.workloadHealthy == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: ($d.status.healthMessage // "")}] else [] end)),
         workloadHealthy: $d.status.workloadHealthy,

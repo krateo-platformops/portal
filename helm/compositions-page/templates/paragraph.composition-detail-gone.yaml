@@ -1,0 +1,23 @@
+{{/* What the page says in place of a live composition (portal#577). Deleted and not readable never read
+     the same: "no longer exists" is said only when both of composition-detail's reads succeeded and
+     nothing matched; a refused or failed read says only what the portal knows, that this caller's
+     access did not let it read the object. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: composition-detail-gone
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [name, namespace]
+  apiRef:
+    name: composition-detail
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: This composition no longer exists.
+  widgetDataTemplate:
+    - forPath: text
+      expression: '${ if (.unreadable // false) then "You can’t read this composition with your access." else "This composition no longer exists." end }'
+  resourcesRefs:
+    items: []

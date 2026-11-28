@@ -882,6 +882,14 @@ jobs:
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
           python3 scripts/test-composition-access.py
 
+      # portal#577: a composition that is gone and one the caller may not read are told apart by the
+      # RESTAction's errorKeys, and the header, page root and body follow. Over the chart's own jq.
+      - name: Composition not found / not readable, over the chart's own jq
+        run: |
+          set -euo pipefail
+          python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
+          python3 scripts/test-composition-gone.py
+
       # portal#333. Same shape as the step above and in the same job for the same reason: it needs
       # helm and jq, and it runs the chart's OWN jq rather than a copy, so it is only a gate if CI
       # actually runs it. A test script nobody invokes reports nothing and looks like coverage.
