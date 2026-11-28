@@ -20,7 +20,7 @@
 
      THE FILTER is ?source= (portal.facets): which pages' items are in view. Each base item is one
      thing that needs someone (an open incident, a firing alert, an agent the gateway cannot reach,
-     a tool server not Accepted, a proposal waiting for a decision, a composition not Ready, paused or
+     a tool server not Accepted, a proposal waiting for a decision, a composition not Ready or
      drifted, a failed read), tagged with its source. The source facet counts those items and shows
      only when two or more sources have any (decision Q2: over the unfiltered set). ?projects (the
      shell's scope) narrows the compositions and blueprints to its namespaces, as compositions-list
@@ -28,7 +28,18 @@
 
      NOT READY leaves out Ready=Unknown/ZeroEvidence: the children publish no readiness the
      controller can read, which is permanent and nobody's defect (compositions-list's `assessable`).
-     A paused composition reports Ready=True on purpose, so it is "paused", not "not Ready".
+     A composition's class is its state, the one every page reads (portal.compositionStateDefs,
+     copied into this chart). What needs someone is what needs attention there
+     (compositionNeedsAttention: NotReady, Degraded, Children unreadable, Drift) and what is not
+     Ready yet (Pending). A paused composition is neither (Diego, 2026-11-25): it reports Ready=True
+     on purpose, it is never Ready (portal #530) and never needs attention, so it is counted apart
+     and named among what is fine. READY is the shared state healthy only: a drifting composition
+     reports Ready=True but is not Ready (Diego, 2026-11-25); it is in Needs you (it needs
+     attention) and the calm line names it apart.
+     THE NOT READY TILE'S COLOUR is computed here (`notReadyTone`): "bad" (red) when one counted
+     composition has failed (NotReady, Degraded, Children unreadable: compositionNeedsAttention, as
+     not Ready leaves drift out), "warn" (orange) when every counted one is converging (Pending), and
+     "" at zero.
 
      CAPACITY IN USE is read only when ?projects names exactly one namespace: that namespace's
      ResourceQuotas, as the caller (the `quotas` stage). With no scope or several namespaces there is
@@ -212,6 +223,7 @@ spec:
     {{- include "portal.facets" . | nindent 4 }}
     {{- include "portal.agentsGateway" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
+    {{- include "portal.compositionStateDefs" . | nindent 4 }}
     # snowplow ACCUMULATES an errorKey (resolve.go accumulateErrorKey): a list whose entries are
     # the apiserver's Status object or a bare message. "" means the read worked.
     def errText($e):
@@ -248,19 +260,8 @@ spec:
           elif . == null then ""
           else (tostring | split("\n")[0] | cut(80)) end ]
       | map(select(. != "")) | unique | join("; ") | cut(120);
-    # A composition's class, from its conditions (compositions-list's railState, read the same way).
-    def cclass:
-      (.conditions // []) as $c
-      | (any($c[]; .type == "Ready" and .status == "True")) as $ready
-      | if any($c[]; .type == "Ready" and (.reason == "ReconcilePaused" or .reason == "ReconcileGracefullyPaused")) then "paused"
-        elif any($c[]; .type == "Ready" and .status == "False" and (.reason | isConvergingFalse | not)) then "failed"
-        elif any($c[]; (.type == "Ready" and .status == "Unknown" and .reason != "ZeroEvidence" and .reason != "ChildrenForbidden")) and any($c[]; .type == "Synced" and .status == "False") then "failed"
-        elif $ready and (.wh == false) then "degraded"
-        elif $ready and any($c[]; .type == "Synced" and .status == "False") then "drift"
-        elif $ready then "ready"
-        elif any($c[]; .type == "Ready" and .status == "Unknown" and .reason == "ZeroEvidence") then "notAssessable"
-        elif any($c[]; .type == "Ready" and .status == "Unknown" and .reason == "ChildrenForbidden") then "unreadable"
-        else "pending" end;
+    # A composition's class: its state, the one every page reads (portal.compositionStateDefs).
+    def cclass: compositionVerdict.state;
     def readyReason: ([ (.conditions // [])[] | select(.type == "Ready") ] | .[0].reason) // "";
     (now | todate | .[0:10]) as $today
     | ((.projects // "") | tostring) as $projects
@@ -320,18 +321,19 @@ spec:
     # ── compositions and blueprints ────────────────────────────────────────────────────────────
     | ([ (.allCompositions // [])[] | select(type == "object") | select(inScope) | . + {class: cclass} ]) as $comps
     | ([ (.definitions // [])[] | select(type == "object") | select(inScope) ]) as $defs
-    | ([ $comps[] | select(.class == "failed" or .class == "degraded" or .class == "unreadable" or .class == "pending") ]) as $notReady
+    # WHAT NEEDS SOMEONE: needs attention (the shared set, never paused) or is not Ready yet.
+    | ([ $comps[] | select((.class | compositionNeedsAttention) or .class == "pending") ]) as $needs
+    | ([ $needs[] | select(.class != "drift") ]) as $notReady
+    | ([ $needs[] | select(.class == "drift") ]) as $drift
     | ([ $comps[] | select(.class == "paused") ]) as $paused
-    | ([ $comps[] | select(.class == "drift") ]) as $drift
     | { total: ($comps | length),
-        # Ready is Ready: a paused or drifted composition is not counted in it (audit DASH-1: 93 here, 92 on
-        # /compositions, the paused one counted Ready).
-        ready: ([ $comps[] | select(.class == "ready") ] | length),
+        ready: ([ $comps[] | select(.class == "healthy") ] | length),
         notReady: ($notReady | length),
+        notReadyTone: (if ($notReady | length) == 0 then "" elif any($notReady[]; .class | compositionNeedsAttention) then "bad" else "warn" end),
         paused: ($paused | length),
         drift: ($drift | length),
-        notAssessable: ([ $comps[] | select(.class == "notAssessable") ] | length),
-        problems: [ ($notReady + $paused + $drift)[] | {name, namespace: .ns, kind, class, reason: readyReason} ],
+        notAssessable: ([ $comps[] | select(.class == "unknown") ] | length),
+        problems: [ ($notReady + $drift)[] | {name, namespace: .ns, kind, class, reason: readyReason} ],
         blueprints: (if errText(.definitionsError) != "" then null else ($defs | length) end),
         blueprintsReady: (if errText(.definitionsError) != "" then null else ([ $defs[] | select(.ready == "True") ] | length) end) } as $cmp
     # ── health of compositions (approved mockup C6, option A: the Ready verdict) ───────────────
@@ -340,11 +342,11 @@ spec:
     # platform's). Colour marks an exception only: Warning and Critical are coloured and stand out
     # above 0; OK and Unknown (nothing to judge it by, not a fault) are neutral.
     | (if $projects != "" then "projects=" + ($projects | @uri) + "&" else "" end) as $hc
-    | ([ { key: "ok", title: "OK", icon: "fa-circle-check", classes: ["ready"], statuses: "healthy", caption: "Ready", alarm: "" },
+    | ([ { key: "ok", title: "OK", icon: "fa-circle-check", classes: ["healthy"], statuses: "healthy", caption: "Ready", alarm: "" },
          { key: "warning", title: "Warning", icon: "fa-triangle-exclamation", classes: ["pending", "drift", "degraded"],
            statuses: "pending,drift,degraded", caption: "changing, drifting or with unhealthy workloads", alarm: "orange" },
          { key: "critical", title: "Critical", icon: "fa-circle-xmark", classes: ["failed"], statuses: "failed", caption: "failed", alarm: "red" },
-         { key: "unknown", title: "Unknown", icon: "fa-circle-question", classes: ["notAssessable", "unreadable"],
+         { key: "unknown", title: "Unknown", icon: "fa-circle-question", classes: ["unknown", "unreadable"],
            statuses: "unknown,unreadable", caption: "can’t be assessed", alarm: "" } ]
        | map(. as $h | ([ $comps[] | select(.class | IN($h.classes[])) ] | length) as $v
              | { key, title, icon, caption, value: ($v | tostring),
@@ -404,7 +406,7 @@ spec:
           items: $rev.waiting, href: page("/reviews"; "") },
         { key: "compositions", label: "Compositions", on: (.gateCompositions == true),
           err: ([ errText(.crdsError), errText(.allCompositionsError) ] | map(select(. != "")) | join("; ")),
-          items: ($cmp.notReady + $cmp.paused + $cmp.drift), href: page("/compositions"; "") } ] as $all
+          items: ($cmp.notReady + $cmp.drift), href: page("/compositions"; "") } ] as $all
     | [ $all[] | select(.on) | . + {failed: (.err != "")} ] as $src
     # ── the facet ──────────────────────────────────────────────────────────────────────────────
     | [ $src[] | . as $s | range(0; (if $s.failed then 1 else $s.items end)) | {f: {source: $s.key}} ] as $base
@@ -439,7 +441,6 @@ spec:
         else
           (if $s.items == 0 then "no composition needing attention (" + ($cmp.ready | tostring) + " of " + ($cmp.total | tostring) + " Ready)"
            else ([ (if $cmp.notReady > 0 then ($cmp.notReady | tostring) + " not Ready" else empty end),
-                   (if $cmp.paused > 0 then ($cmp.paused | tostring) + " paused" else empty end),
                    (if $cmp.drift > 0 then ($cmp.drift | tostring) + " drifted" else empty end) ] | join(", "))
                 + " composition" + (if $s.items == 1 then "" else "s" end) + " (" + names([ $cmp.problems[] | .name ]) + ")" end)
         end;

@@ -12,6 +12,10 @@ WHAT IT GUARDS.
   - An agent gateway that could not be checked (no route or no Allow policy visible) is said, as a
     tile and a card, never as "all registered" (portal.agentsGateway).
   - Not Ready leaves out Ready=Unknown/ZeroEvidence; a paused composition is paused, not not Ready.
+  - A paused composition needs no one (Diego, 2026-11-25): it is never in Needs you, the strip, the
+    facet's count or the prompt's list, and never counted Ready; the calm line names it apart. A
+    composition's class is portal.compositionStateDefs' state, and what needs someone is its
+    compositionNeedsAttention plus Pending (copied byte-identical from helm/portal).
     (This carries over test-dashboard-assessable.py's rule, which the removed stat cards held.)
   - ?source= drives the strip, the cards, the calm line and the prompt; the facet counts stay over
     the other filters; the facet is hidden with fewer than two sources (decision Q2); the chips
@@ -397,14 +401,14 @@ def _():
     check('present: only a fault above 0 is highlighted; a 0 and the proposals waiting are plain', got['strip_hl'],
           [True, True, False, True, False])
     check('present: one Needs you panel, red, counting its cards', got['panel'],
-          {'key': 'needs-you', 'label': 'Needs you', 'count': 5, 'status': 'error'})
+          {'key': 'needs-you', 'label': 'Needs you', 'count': 4, 'status': 'error'})
     check('present: the panel has no footer (the Dashboard has no table view to link to)',
           [k for k in ('footer', 'footerNavigateTo', 'cap') if k in resolved('dashboard-needs-you', 'Collapse', out)['items'][0]], [])
     check('present: each card opens its own page', [c['navigateTo'] for c in got['cards']],
-          ['/incidents?status=open', '/alerts?status=alert', '/agents', '/reviews', '/compositions'])
-    check('present: faults first, then work, in source order', got['titles'], [
+          ['/incidents?status=open', '/alerts?status=alert', '/agents', '/reviews'])
+    check('present: faults first, then work, in source order; the paused composition needs no one', got['titles'], [
         '5 open incidents', '1 alert firing', '1 agent not reachable through the gateway',
-        '4 proposals waiting for a decision', '1 composition paused'])
+        '4 proposals waiting for a decision'])
     inc = got['cards'][0]
     check('present: the incidents card', (inc['secondaryText'], inc['subPrimaryText'], inc['description'], inc['subSecondaryText'], inc['cardCta'], inc['navigateTo'], inc['color']),
           ('Open', 'from 2 alerts · oldest opened 2026-10-02', '3 of them come from one alert, probe.', 'Incidents', 'Triage', '/incidents?status=open', 'red'))
@@ -414,14 +418,11 @@ def _():
     rev = got['cards'][3]
     check('present: the review card is work, not a fault', (rev['subPrimaryText'], rev['description'], rev['color']),
           ('1 new today · 1 more with a change request open', '2 proposals decided so far.', None))
-    cmp_ = got['cards'][4]
-    check('present: the paused composition', (cmp_['subPrimaryText'], cmp_['description'], cmp_['color']),
-          ('acme-feedback-controller', 'Ready reason ReconcilePaused.', None))
-    check('present: the calm line lists what is fine, beside Needs you', got['quiet'],
-          'The rest is fine: 79 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
+    check('present: the calm line lists what is fine, beside Needs you; paused apart, never Ready', got['quiet'],
+          'The rest is fine: 79 compositions Ready · 1 composition paused · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
     check('present: the source facet, largest first, counted in items', got['options'], [
         ('Incidents', 'incidents', 5), ('Platform review', 'reviews', 4), ('Agents', 'agents', 2),
-        ('Alerts', 'alerts', 1), ('Compositions', 'compositions', 1)])
+        ('Alerts', 'alerts', 1)])
     check('present: no chips without a filter', got['chips'], [])
     href, prompt, params = got['ask']
     check('present: Ask Agentiko -> this page, no params', (href, params), ('/dashboard', {}))
@@ -429,7 +430,7 @@ def _():
           'Brief me on what needs me on my platform: 5 open incidents from 2 alerts, 3 of them from probe; '
           '1 alert firing (Probe failing); 1 agent not reachable through the gateway (nightly-review-agent: not routed · no Allow rule), '
           '1 tool server not Accepted (cujbench-evidence); 4 review proposals waiting for a decision (1 new today) and 1 with a change request open; '
-          '1 paused composition (acme-feedback-controller). Tell me what to look at first and why, grounded in the evidence on those pages.')
+          'no composition needing attention (79 of 82 Ready). Tell me what to look at first and why, grounded in the evidence on those pages.')
 
 
 # --- 2. Not Ready: ZeroEvidence out, other Unknowns and ChildrenForbidden in --------------------------
@@ -445,16 +446,16 @@ def _():
     c = out['compositions']
     check('defects: InventoryNotRecorded, ChildrenForbidden, a failure and the four converging reasons are not Ready', c['notReady'], 7)
     check('defects: ZeroEvidence still set aside', c['notAssessable'], 2)
-    check('defects: each problem is classed', sorted((p['name'], p['class']) for p in c['problems']), [
-        ('acme-feedback-controller', 'paused'), ('broken', 'failed'), ('children-forbidden', 'unreadable'),
+    check('defects: each problem is classed, the paused one is none', sorted((p['name'], p['class']) for p in c['problems']), [
+        ('broken', 'failed'), ('children-forbidden', 'unreadable'),
         ('creating', 'pending'), ('deleting', 'pending'), ('helm-pending', 'pending'), ('helm-running', 'pending'), ('inventory-not-recorded', 'pending')])
     got = page(out)
     check('defects: the tile goes red', got['strip'][2], ('Compositions not Ready', '7', 'of 89', 'red'))
     check('defects: and is highlighted (at 0 it is plain, see every source present)', got['strip_hl'][2], True)
     card = next(c for c in got['cards'] if c['subSecondaryText'] == 'Compositions')
     check('defects: one card, a fault, names capped at three', (card['primaryText'], card['subPrimaryText'], card['description'], card['color']),
-          ('8 compositions need attention', 'inventory-not-recorded, children-forbidden, broken and 5 more',
-           '7 not Ready · 1 paused', 'red'))
+          ('7 compositions not Ready', 'inventory-not-recorded, children-forbidden, broken and 4 more',
+           '7 not Ready', 'red'))
     zero = [i for i in COMPS057 if i['status']['conditions'][0]['reason'] == 'ZeroEvidence']
     out = inbox(raw={'allCompositions': {'items': zero}})
     check('only ZeroEvidence: nothing not Ready, nothing needs anyone', (out['compositions']['notReady'], out['sources'][4]['items']), (0, 0))
@@ -467,7 +468,7 @@ def _():
                                                               unknown('first-observe', 'ObserveFailed'),
                                                               failing(unknown('children-forbidden', 'ChildrenForbidden'))]}})
     check('Unknown/ObserveFailed + Synced=False: failed; with Synced=True: pending; ChildrenForbidden keeps unreadable',
-          sorted((p['name'], p['class']) for p in out['compositions']['problems'] if p['name'] != 'acme-feedback-controller'),
+          sorted((p['name'], p['class']) for p in out['compositions']['problems']),
           [('alerts-page', 'failed'), ('children-forbidden', 'unreadable'), ('first-observe', 'pending')])
     states = {t['key']: (t['value'], t['color'], t['highlight']) for t in out['health']['tiles']}
     check('health: a failed one is Critical, red and standing out; a converging one is Warning; unreadable is Unknown',
@@ -479,6 +480,75 @@ def _():
           (True, '/compositions?projects=krateo-system&scope=all&status=healthy'))
     failed = inbox(raw={'allCompositions': None}, errors={'allCompositionsError': ['forbidden']})
     check('health: a failed read of the compositions shows no health card', (failed['health'], 'dashboard-health' in page(failed)['body']), (None, False))
+
+
+# --- 2b. a paused composition needs no one (Diego, 2026-11-25) --------------------------------------
+@case('a paused composition needs no one')
+def _():
+    paused = [i for i in COMPS057 if i['metadata']['name'] == 'acme-feedback-controller']
+    check('the fixture holds one paused composition', [c['reason'] for c in paused[0]['status']['conditions'] if c['type'] == 'Ready'],
+          ['ReconcilePaused'])
+    quiet = dict(QUIET_RAW, allCompositions={'items': paused})
+    out = inbox(raw=quiet)
+    got = page(out)
+    c = out['compositions']
+    check('paused only: counted paused, not Ready, not not Ready, nothing needs anyone',
+          (c['paused'], c['ready'], c['notReady'], c['drift'], c['problems'], out['sources'][4]['items']), (1, 0, 0, 0, [], 0))
+    check('paused only: no Needs you, the strip tile neutral at 0', (got['panel'], got['strip'][2]),
+          (None, ('Compositions not Ready', '0', 'of 1', None)))
+    check('paused only: the calm line opens All quiet and names it paused', got['quiet'],
+          'All quiet: 0 compositions Ready · 1 composition paused · 2 alerts OK · 2 blueprints Ready · 2 of 2 agents registered at the gateway · '
+          'no open incident · no proposal waiting for a decision.')
+    check('paused only: the prompt lists nothing needing attention', 'no composition needing attention (0 of 1 Ready)' in got['ask'][1], True)
+    mixed = paused + [unknown('broken', 'ApplyFailed', 'False'), unknown('creating', 'Creating', 'False')]
+    out = inbox(raw=dict(QUIET_RAW, allCompositions={'items': mixed}))
+    got = page(out)
+    card = next(x for x in got['cards'] if x['subSecondaryText'] == 'Compositions')
+    check('mixed: the card counts the failed and the pending one, never the paused one',
+          (out['sources'][4]['items'], card['primaryText'], card['subPrimaryText'], card['description']),
+          (2, '2 compositions not Ready', 'broken, creating', '2 not Ready'))
+
+
+# --- 2c. a drifting composition is not Ready (Diego, 2026-11-25) ----------------------------------
+def drifting(name):
+    item = unknown(name, 'Available', 'True')
+    item['status']['conditions'][1].update(status='False', reason='ReconcileError')
+    return item
+
+
+@case('a drifting composition is not Ready')
+def _():
+    out = inbox(raw=dict(QUIET_RAW, allCompositions={'items': QUIET_RAW['allCompositions']['items'] + [drifting('drifted')]}))
+    got = page(out)
+    c = out['compositions']
+    check('drift: not counted Ready, counted drifting, not not Ready', (c['ready'], c['drift'], c['notReady']), (79, 1, 0))
+    check('drift: the calm line names it apart from the Ready ones', got['quiet'],
+          'The rest is fine: 79 compositions Ready · 1 drifting · 2 alerts OK · 2 blueprints Ready · 2 of 2 agents registered at the gateway · '
+          'no open incident · no proposal waiting for a decision.')
+    card = next(x for x in got['cards'] if x['subSecondaryText'] == 'Compositions')
+    check('drift: it is in Needs you, the shared attention set', (card['primaryText'], card['subPrimaryText']), ('1 composition drifted', 'drifted'))
+    check('drift: the prompt names it drifted', '; 1 drifted composition (drifted).' in got['ask'][1], True)
+
+
+# --- 2d. the not Ready tile's colour, computed by dashboard-inbox (Diego, 2026-11-25) --------------
+@case('the not Ready tile is red for a failure, orange for converging')
+def _():
+    base = QUIET_RAW['allCompositions']['items']
+    def tile(extra):
+        out = inbox(raw=dict(QUIET_RAW, allCompositions={'items': base + extra}))
+        return out['compositions'].get('notReadyTone'), page(out)['strip'][2]
+    check('none not Ready: no colour', tile([]), ('', ('Compositions not Ready', '0', 'of 81', None)))
+    check('only converging (Creating, Deleting): orange', tile([unknown('creating', 'Creating', 'False'), unknown('deleting', 'Deleting', 'False')]),
+          ('warn', ('Compositions not Ready', '2', 'of 83', 'orange')))
+    check('one failed among converging: red', tile([unknown('creating', 'Creating', 'False'), unknown('broken', 'ApplyFailed', 'False')]),
+          ('bad', ('Compositions not Ready', '2', 'of 83', 'red')))
+    check('Children unreadable: red', tile([unknown('locked', 'ChildrenForbidden')])[0], 'bad')
+    degraded = unknown('web', 'Available', 'True')
+    degraded['status']['workloadHealthy'] = False
+    check('Degraded: red', tile([degraded])[0], 'bad')
+    check('drift alone is not not Ready: no colour', tile([drifting('drifted')]), ('', ('Compositions not Ready', '0', 'of 82', None)))
+    check('a paused one: no colour', tile([i for i in COMPS057 if i['metadata']['name'] == 'acme-feedback-controller']),
+          ('', ('Compositions not Ready', '0', 'of 82', None)))
 
 
 # --- 3. each source absent (its page is not the caller's) -------------------------------------------
@@ -576,7 +646,7 @@ def _():
     check('?source=incidents: nothing else is called fine', got['quiet'], '')
     check('?source=incidents: no calm line in the body', 'dashboard-quiet' in got['body'], False)
     check('?source=incidents: the facet still counts every source', dict((o[1], o[2]) for o in got['options']),
-          {'reviews': 4, 'incidents': 5, 'agents': 2, 'alerts': 1, 'compositions': 1})
+          {'reviews': 4, 'incidents': 5, 'agents': 2, 'alerts': 1})
     check('?source=incidents: one removable chip, then Clear all', got['chips'],
           [('Source: Incidents', '/dashboard', True), ('Clear all', '/dashboard', False)])
     check('?source=incidents: the chips are in the body', 'dashboard-active-filters' in got['body'], True)
@@ -585,7 +655,8 @@ def _():
     check('?source=incidents: the prompt says what is in view', prompt.startswith(
         'Brief me on what needs me on my platform (only Incidents): 5 open incidents'), True)
     check('?source=incidents: and nothing else', 'proposal' in prompt, False)
-    out = inbox(extras={'source': 'alerts,compositions', 'projects': 'krateo-system'})
+    out = inbox(extras={'source': 'alerts,compositions', 'projects': 'krateo-system'},
+                raw={'allCompositions': {'items': COMPS057 + [unknown('broken', 'ApplyFailed', 'False')]}})
     got = page(out)
     check('two sources: their tiles', [t[0] for t in got['strip']], ['Alerts firing', 'Compositions not Ready'])
     check('two sources: a chip each, removing only itself, keeping ?projects', got['chips'], [

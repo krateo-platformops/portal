@@ -167,7 +167,7 @@ check('compositions: ?scope=platform -> said', prompt.startswith('Review my comp
 check('compositions: ?scope=platform -> the platform component listed', '1. Portal/portal · krateo-system — failed.' in prompt, True)
 _, prompt = ask(run_comps(q='site', status='all')['askHref'])
 check('compositions: nothing unhealthy -> no empty list', 'The ones that need attention are' in prompt, False)
-check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted, paused or unreadable.' in prompt, True)
+check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted or unreadable.' in prompt, True)
 check('compositions: ?status=all -> carried (Needs attention is the default)', ask(run_comps(status='all')['askHref'])[0], '/compositions?status=all')
 
 href, prompt = ask(run_comps(status='pending')['askHref'])
