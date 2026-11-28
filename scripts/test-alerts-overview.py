@@ -196,7 +196,7 @@ def check_search():
     expect(f, 'the incident charts are not searched', (out['incidentTrend'], out['topIncidents']),
            (resolve({'status': 'all'})['incidentTrend'], resolve({'status': 'all'})['topIncidents']))
     expect(f, 'every route keeps it', ([c['route'] for c in out['chips']][:2], out['viewChips'][1]['route'], out['rangeChips'][0]['route']),
-           (['/alerts?q=PROBE', '/alerts?status=not-evaluated&q=PROBE'], '/alerts?status=all&view=table&q=PROBE', '/alerts?status=all&range=24h&q=PROBE'))
+           (['/alerts?q=PROBE', '/alerts?status=not-evaluated&q=PROBE'], '/alerts?view=table&q=PROBE', '/alerts?status=all&range=24h&q=PROBE'))
     ex = {'status': 'ok', 'q': 'cert'}
     path = w('Button', 'alerts-ask-agentiko', resolve(ex), ex)['actions']['navigate'][0]['path']
     params = parse_qs(path.partition('?')[2])
@@ -308,6 +308,32 @@ def check_filter_keys():
     return f
 
 
+def check_full_list_shows_all():
+    f = []
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    act = lambda o: [c['label'] for c in o['chips'] if c['active']]
+    out = resolve({'view': 'table'})
+    expect(f, 'Full list with no ?status shows every alert', (out['status'], out['matched'], out['counts']['all']), ('all', 10, 10))
+    expect(f, 'Full list with no ?status: All is the active chip', act(out), ['All'])
+    expect(f, 'Full list with no ?status -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/alerts'), ('Full list', True, '/alerts?view=table')])
+    out = resolve({})
+    expect(f, 'Summary with no ?status still defaults to Firing', (out['status'], out['matched'], act(out)), ('alert', 1, ['Firing']))
+    expect(f, 'Summary with no ?status -> Full list: no ?status, so All', vc(out),
+           [('Summary', True, '/alerts'), ('Full list', False, '/alerts?view=table')])
+    out = resolve({'view': 'table', 'status': 'ok'})
+    expect(f, 'Full list with ?status=ok: the picked state applies and is active', (out['matched'], act(out)), (7, ['OK']))
+    expect(f, 'an explicit status is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/alerts?status=ok'), ('Full list', True, '/alerts?status=ok&view=table')])
+    out = resolve({'view': 'table', 'status': 'alert'})
+    expect(f, 'Full list with ?status=alert: Firing applies and is active', (out['matched'], act(out)), (1, ['Firing']))
+    expect(f, 'Full list -> Summary: an explicit Firing is the Summary default, left out', vc(out)[0][2], '/alerts')
+    chips = {c['label']: c['route'] for c in resolve({'view': 'table'})['chips']}
+    expect(f, 'Full list: the Firing chip names its state, the All chip is the default and leaves it out',
+           (chips['Firing'], chips['All']), ('/alerts?status=alert&view=table', '/alerts?view=table'))
+    return f
+
+
 def check_tile_routes():
     f = []
     ex = {'projects': 'team-a', 'status': 'ok', 'range': '30d', 'view': 'table', 'q': 'o'}
@@ -315,9 +341,9 @@ def check_tile_routes():
     chip = {c['label']: c['route'] for c in out['chips']}
     expect(f, 'each figure routes as its chip (q, view, range, projects kept)', [(s['title'], s['route']) for s in out['stats']],
            [(t, chip[t]) for t in ('Firing', 'Not evaluated', 'Pending', 'OK', 'With unresolved incidents')])
-    expect(f, 'Firing (the default) leaves ?status out; With unresolved incidents is a status value',
+    expect(f, 'Firing is the Summary default, not the Full list one: it is named in the table view; With unresolved incidents is a status value',
            (out['stats'][0]['route'], out['stats'][4]['route']),
-           ('/alerts?projects=team-a&range=30d&view=table&q=o', '/alerts?projects=team-a&status=open-incidents&range=30d&view=table&q=o'))
+           ('/alerts?projects=team-a&status=alert&range=30d&view=table&q=o', '/alerts?projects=team-a&status=open-incidents&range=30d&view=table&q=o'))
     zero = resolve({}, [alert('a', 'OK')], incidents=[])
     expect(f, 'a zero figure still routes', [(s['value'], s['route']) for s in zero['stats']],
            [('0', '/alerts'), ('0', '/alerts?status=not-evaluated'), ('0', '/alerts?status=pending'), ('1', '/alerts?status=ok'),
@@ -346,7 +372,7 @@ def check_tile_routes():
     return f
 
 
-CHECKS = [check_incidents_read, check_figures, check_tile_routes, check_charts, check_search, check_layout, check_cards, check_header_and_asks, check_filter_keys]
+CHECKS = [check_incidents_read, check_figures, check_full_list_shows_all, check_tile_routes, check_charts, check_search, check_layout, check_cards, check_header_and_asks, check_filter_keys]
 
 
 def main():

@@ -1231,6 +1231,34 @@ def check_overview_trend_and_charts(chart):
     return f
 
 
+def check_full_list_shows_all(chart):
+    f = []
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    act = lambda o: [c['label'] for c in o['stateChips'] if c['active']]
+    out, w = ov(chart, {'view': 'table'})
+    allN = [c['count'] for c in out['stateChips'] if c['label'] == 'All'][0]
+    expect(f, 'Full list with no ?state shows every proposal', (out['state'], out['matched'], len(w['platform-proposals']['dataSource'])), ('all', allN, allN))
+    expect(f, 'Full list with no ?state: All is the active chip', act(out), ['All'])
+    expect(f, 'Full list with no ?state -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/reviews'), ('Full list', True, '/reviews?view=table')])
+    out, w = ov(chart, {})
+    expect(f, 'Summary with no ?state still defaults to Open', (out['state'], act(out)), ('open', ['Open']))
+    expect(f, 'Summary with no ?state -> Full list: no ?state, so All', vc(out),
+           [('Summary', True, '/reviews'), ('Full list', False, '/reviews?view=table')])
+    out, w = ov(chart, {'view': 'table', 'state': 'proposed'})
+    expect(f, 'Full list with ?state=proposed: the picked state applies and is active',
+           (act(out), out['matched']), (['Proposed'], [c['count'] for c in out['stateChips'] if c['label'] == 'Proposed'][0]))
+    expect(f, 'an explicit state is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/reviews?state=proposed'), ('Full list', True, '/reviews?view=table&state=proposed')])
+    _, prompt = ask(ov(chart, {'view': 'table'})[0]['askHref'])
+    expect(f, 'Ask Agentiko on the Full list names the state on screen (All), not the open ones', prompt.startswith(
+        'Review the nightly-review proposals in the view on screen (state: All): '), True)
+    chips = {c['label']: c['route'] for c in ov(chart, {'view': 'table'})[0]['stateChips']}
+    expect(f, 'Full list: the Open chip names its state, the All chip is the default and leaves it out',
+           (chips['Open'], chips['All']), ('/reviews?view=table&state=open', '/reviews?view=table'))
+    return f
+
+
 def check_overview_today_and_table(chart):
     f = []
     out, w = ov(chart, {'projects': 'team-a'})
@@ -1243,8 +1271,8 @@ def check_overview_today_and_table(chart):
     expect(f, '?today=1: an applied-filter chip too', [c['label'] for c in out['chips']], ['New today: yes', 'Clear all'])
     ex = {'projects': 'team-a', 'kind': 'Alert', 'view': 'table', 'range': '30d'}
     out, w = ov(chart, ex)
-    expect(f, '?view=table: the table holds what the filters match', [cells(r)['name']['stringValue'] for r in w['platform-proposals']['dataSource']],
-           ['p-a1', 'p-a2', 'p-a3', 'p-a4'])
+    expect(f, '?view=table with no ?state: the table holds what the filters match, every state (p-m1 is Merged)', [cells(r)['name']['stringValue'] for r in w['platform-proposals']['dataSource']],
+           ['p-a1', 'p-a2', 'p-m1', 'p-a3', 'p-a4'])
     expect(f, '?view=table: Summary drops ?view and keeps every other param',
            [(c['label'], c['route']) for c in w['reviews-view-chips']['dataSource']],
            [('Summary', '/reviews?projects=team-a&kind=Alert&range=30d'), ('Full list', '/reviews?projects=team-a&kind=Alert&view=table&range=30d')])
@@ -1297,6 +1325,7 @@ CHECKS = [
     check_overview_search,
     check_overview_trend_and_charts,
     check_overview_today_and_table,
+    check_full_list_shows_all,
 ]
 
 

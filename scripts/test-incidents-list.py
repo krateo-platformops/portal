@@ -404,7 +404,7 @@ def check_routes():
            [('Summary', False, '/incidents?projects=team-a&status=resolved&range=30d'),
             ('Full list', True, '/incidents?projects=team-a&status=resolved&range=30d&view=table')])
     expect(f, 'state chips keep range and view', [c['route'] for c in out['chips']][:2],
-           ['/incidents?projects=team-a&range=30d&view=table', '/incidents?projects=team-a&status=analyzing&range=30d&view=table'])
+           ['/incidents?projects=team-a&status=open&range=30d&view=table', '/incidents?projects=team-a&status=analyzing&range=30d&view=table'])
     href, _ = ask(out['askHref'])
     expect(f, 'Ask Agentiko keeps every param, in the page order', href, '/incidents?projects=team-a&status=resolved&range=30d&view=table')
     expect(f, 'an unknown range is 7d', resolve(responses(), {'range': '1y'})['range'], '7d')
@@ -622,6 +622,32 @@ def check_closed_in_range():
     return f
 
 
+def check_full_list_shows_all():
+    f = []
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    act = lambda o: [c['label'] for c in o['chips'] if c['active']]
+    out = resolve(responses(), {'view': 'table'})
+    expect(f, 'Full list with no ?status shows every incident', (out['status'], len(out['rows'])), ('all', 5))
+    expect(f, 'Full list with no ?status: All is the active chip', act(out), ['All'])
+    expect(f, 'Full list with no ?status -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/incidents'), ('Full list', True, '/incidents?view=table')])
+    out = resolve(responses(), {})
+    expect(f, 'Summary with no ?status still defaults to Open', (out['status'], len(out['rows']), act(out)), ('open', 2, ['Open']))
+    expect(f, 'Summary with no ?status -> Full list: no ?status, so All', vc(out),
+           [('Summary', True, '/incidents'), ('Full list', False, '/incidents?view=table')])
+    out = resolve(responses(), {'view': 'table', 'status': 'resolved'})
+    expect(f, 'Full list with ?status=resolved: the picked state applies and is active', (len(out['rows']), act(out)), (1, ['Resolved']))
+    expect(f, 'an explicit status is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/incidents?status=resolved'), ('Full list', True, '/incidents?status=resolved&view=table')])
+    out = resolve(responses(), {'view': 'table', 'status': 'open'})
+    expect(f, 'Full list with ?status=open: Open applies and is active', (len(out['rows']), act(out)), (2, ['Open']))
+    expect(f, 'Full list -> Summary: an explicit Open is the Summary default, left out', vc(out)[0][2], '/incidents')
+    chips = {c['label']: c['route'] for c in resolve(responses(), {'view': 'table'})['chips']}
+    expect(f, 'Full list: the Open chip names its state, the All chip is the default and leaves it out',
+           (chips['Open'], chips['All']), ('/incidents?status=open&view=table', '/incidents?view=table'))
+    return f
+
+
 def check_tile_routes():
     f = []
     ex = {'projects': 'team-a', 'status': 'verifying', 'range': '30d', 'view': 'table', 'q': 'a b'}
@@ -630,8 +656,8 @@ def check_tile_routes():
     expect(f, 'a state figure routes as its chip (q, view, range, projects kept); Time to resolve does not',
            [(s['title'], s['route']) for s in out['stats']],
            [(t, chip[t]) for t in ('Open', 'Analyzing', 'Verifying', 'Resolved')] + [('Time to resolve', '')])
-    expect(f, 'Open (the default) leaves ?status out, keeps the rest', out['stats'][0]['route'],
-           '/incidents?projects=team-a&range=30d&view=table&q=a%20b')
+    expect(f, 'Open is the Summary default, not the Full list one: it is named in the table view, the rest kept', out['stats'][0]['route'],
+           '/incidents?projects=team-a&status=open&range=30d&view=table&q=a%20b')
     zero = resolve(responses(incidents={'items': []}), {})
     expect(f, 'a zero figure still routes', [s['route'] for s in zero['stats']],
            ['/incidents', '/incidents?status=analyzing', '/incidents?status=verifying', '/incidents?status=resolved', ''])
@@ -642,7 +668,7 @@ def check_tile_routes():
     return f
 
 
-CHECKS = [check_default_is_open, check_no_model_analysis, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_closed_in_range, check_tile_routes, check_routes,
+CHECKS = [check_default_is_open, check_full_list_shows_all, check_no_model_analysis, check_status_param, check_empty_and_failed, check_figures_and_charts, check_resolved_in_range, check_closed_in_range, check_tile_routes, check_routes,
           check_search, check_layout, check_cards_and_table, check_awaiting, check_display_names, check_filter_keys]
 
 

@@ -16,7 +16,8 @@
      cache cell on it. With no username (the prewarm) there are no drafts, never an error.
 
      THE PAGE'S PARAMS, echoed back as routes built here (chip navigateTo does not merge params):
-       ?state=  attention (the default: failed, action, ready, draft), all, or one state;
+       ?state=  attention (the Summary's default: failed, action, ready, draft), all (the Full list's
+                default: it shows every row unless a state was picked), or one state;
        ?range=  7d, 30d (the default) or 90d: the window of the trend, of time to merge and of the
                 Merged figure's caption. The list is never windowed: a draft from last year is
                 still yours to resume;
@@ -83,20 +84,25 @@ spec:
         review: "fa-code-pull-request", merged: "fa-code-merge", live: "fa-circle-check", closed: "fa-circle-xmark" } as $icons
     | $cfg.colors as $colors
     | now as $now
-    | ((.state // "") | str | ascii_downcase | if . == "" then "attention" else . end) as $state
-    | ($state == "attention" or $state == "all" or ($order | index($state)) != null) as $stateValid
-    | ((.range // "") | str | if IN("7d", "30d", "90d") then . else "30d" end) as $range
-    | ({ "7d": "the last 7 days", "30d": "the last 30 days", "90d": "the last 90 days" }[$range]) as $rangeText
     # THE VIEW: the Summary (""), the Full list ("table"), or one the builder adds (builders.overviews
     # views: the Controller Builder's RestDefinitions). The figures and the state chips belong to the
     # list, so from a builder's own view they lead back to the Summary.
     | ((.view // "") | str | if IN([ "table" ] + [ $cfg.views[].key ] | .[]) then . else "" end) as $view
     | ($view == "table") as $tableView
+    # The default state is the view's: Needs attention on the Summary, All on the Full list (?view=table
+    # shows every row unless a state was picked). A route leaves its view's default out of the URL;
+    # the view chips keep a picked state and drop an implicit one.
+    | ((.state // "") | str | ascii_downcase) as $stateRaw
+    | ($stateRaw != "") as $explicit
+    | (if $explicit then $stateRaw elif $tableView then "all" else "attention" end) as $state
+    | ($state == "attention" or $state == "all" or ($order | index($state)) != null) as $stateValid
+    | ((.range // "") | str | if IN("7d", "30d", "90d") then . else "30d" end) as $range
+    | ({ "7d": "the last 7 days", "30d": "the last 30 days", "90d": "the last 90 days" }[$range]) as $rangeText
     | (if $tableView then "table" else "" end) as $listView
     | ((.q // "") | str | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
     | ($qRaw | ascii_downcase) as $q
     | def href($st; $rng; $v):
-        ([ (if $st != "attention" then "state=" + ($st | @uri) else empty end),
+        ([ (if $st != (if $v == "table" then "all" else "attention" end) then "state=" + ($st | @uri) else empty end),
            (if $rng != "30d" then "range=" + $rng else empty end),
            (if $v != "" then "view=" + $v else empty end),
            (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ] | join("&")) as $qs
@@ -283,9 +289,9 @@ spec:
                      | map(. as $k | select($k == "attention" or $k == "all" or ($counts[$k] // 0) > 0 or $k == $state))
                      | map({ key: ., label: (if . == "attention" then "Needs attention" elif . == "all" then "All" else $names[.] end),
                              count: ($counts[.] // 0), active: (. == $state), route: href(.; $range; $listView) })),
-        viewChips: ([ { label: "Summary", active: ($view == ""), route: href($state; $range; "") },
-                      { label: "Full list", active: $tableView, route: href($state; $range; "table") } ]
-                    + [ $cfg.views[] | { label, active: ($view == .key), route: href($state; $range; .key) } ]),
+        viewChips: ([ { label: "Summary", active: ($view == ""), route: href(if $explicit then $state else "attention" end; $range; "") },
+                      { label: "Full list", active: $tableView, route: href(if $explicit then $state else "all" end; $range; "table") } ]
+                    + [ $cfg.views[] | { label, active: ($view == .key), route: href(if $explicit then $state else "attention" end; $range; .key) } ]),
         rangeChips: ([ "7d", "30d", "90d" ] | map({ label: ., active: (. == $range), route: href($state; .; $view) })),
         cardsHead: [ $first[] | select(.order < 2) | card ],
         cardsDrafts: [ $first[] | select(.draft) | card ],

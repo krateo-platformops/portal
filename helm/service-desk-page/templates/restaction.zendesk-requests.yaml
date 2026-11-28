@@ -115,7 +115,12 @@ spec:
     | ($failed and (($codes | index(404)) != null or ($err | test("404|not found|could not find|no matches for"; "i")))) as $absent
     | ($failed and ($absent | not) and (($codes | index(403)) != null or ($err | test("403|forbidden"; "i")))) as $denied
     | ((.username // "") | labelslug) as $me
-    | ((.state // "") | str | ascii_downcase | if . == "" then "active" else . end) as $sel
+    # The default state is the view's: Active on the Summary, All on the Full list (?view=table shows
+    # everything unless a state was picked). A route leaves its view's default out of the URL.
+    | ((.view // "") | str | . == "table") as $tableView
+    | ((.state // "") | str | ascii_downcase) as $stateRaw
+    | ($stateRaw != "") as $explicit
+    | (if $explicit then $stateRaw elif $tableView then "all" else "active" end) as $sel
     | ((.q // "") | str | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
     | ($qRaw | ascii_downcase) as $q
     # THE DASHBOARD (the /incidents layout, mockup A4). ?range= (24h, 7d, 30d; 7d when absent) sets
@@ -125,7 +130,7 @@ spec:
     | def epoch: (if type == "string" and . != "" then (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z")) else "" end) | (fromdateiso8601? // null);
       def utcstamp: if type != "string" or . == "" then "" else ((capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ](?<t>[0-9]{2}:[0-9]{2})") // null) as $m | if $m == null then "" else $m.d + " " + $m.t + " UTC" end) end;
       def href($st; $rng; $table):
-        ([ (if $st != "active" then "state=" + ($st | @uri) else empty end),
+        ([ (if $st != (if $table then "all" else "active" end) then "state=" + ($st | @uri) else empty end),
            (if $rng != "7d" then "range=" + $rng else empty end),
            (if $table then "view=table" else empty end),
            (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ] | join("&")) as $qs
@@ -133,7 +138,6 @@ spec:
       .
     | ((.range // "") | str | if IN("24h", "7d", "30d") then . else "7d" end) as $range
     | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
-    | ((.view // "") | str | . == "table") as $tableView
     | now as $now
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
     | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start
@@ -258,8 +262,8 @@ spec:
           # are neutral.
           | map(tilePaint({ pending: "gold", attention: "red" }; {})),
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
-        viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
-                     { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $explicit then $sel else "active" end; $range; false) },
+                     { label: "Full list", active: $tableView, route: href(if $explicit then $sel else "all" end; $range; true) } ],
         # One card per request in view: the pill as its tag, kind and priority, the request text,
         # and its Zendesk number, who raised it and when it last changed. A request someone has to
         # act on (refused, held, an unknown reason) carries a red mark.
