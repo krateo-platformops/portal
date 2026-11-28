@@ -106,6 +106,14 @@ def main():
     check('a top-level compositionName stays', sorted(named['properties']), ['compositionName'])
     check('an emptied global leaves root required', named.get('required'), [])
 
+    # `x-krateo-required-on-create` is the CREATE form's: an existing instance may lack the field, so
+    # editing it must not demand one (test-builder-install.py covers the create side).
+    flagged = run(prog, {'type': 'object', 'required': ['replicas'],
+                         'properties': {'replicas': {'type': 'integer'},
+                                        'datastore': {'type': 'string', 'x-krateo-required-on-create': True}}})['schemaSpec']
+    check('required-on-create is not honoured on edit: required is the schema\'s own', flagged.get('required'), ['replicas'])
+    check('required-on-create: the field is still editable', sorted(flagged['properties']), ['datastore', 'replicas'])
+
     missing = run(prog, None)['schemaSpec']
     check('no schema: unchanged (no "Nothing to edit")', missing, {})
 

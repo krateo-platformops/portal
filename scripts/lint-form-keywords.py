@@ -12,8 +12,8 @@ WHAT IT CHECKS:
   1. A rendered Form carries none of RETIRED. A Form's schema is read as written, so the frontend
      sees the keyword directly and ignores it. The list is the way to say it.
   2. No chart or example values.schema.json carries UNTRANSLATED. That file reaches a form through
-     `blueprint-formdef`, which translates `x-krateo-options` and `x-krateo-notice` into the lists
-     and nothing else, so those two are legal there and the rest do nothing.
+     `blueprint-formdef`, which translates `x-krateo-options`, `x-krateo-notice` and
+     `x-krateo-required-on-create` and nothing else, so those three are legal there and the rest do nothing.
 
 WHAT IT DOES NOT CHECK. Charts outside this repo: a blueprint's own values.schema.json is read at
 run time. Other `x-krateo-*` names are not form keywords (`x-krateo-cmp-rules` is a validator's), so
@@ -33,8 +33,9 @@ lpc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lpc)
 
 REPO = lpc.REPO
-# `blueprint-formdef` translates the first two (see docs/form-options.md).
-TRANSLATED = ('x-krateo-options', 'x-krateo-notice')
+# `blueprint-formdef` translates these (see docs/form-options.md): the first two into widgetData lists,
+# the third into the create form's `required`.
+TRANSLATED = ('x-krateo-options', 'x-krateo-notice', 'x-krateo-required-on-create')
 UNTRANSLATED = ('x-krateo-row-title', 'x-krateo-suggestions', 'x-krateo-visible-when')
 RETIRED = TRANSLATED + UNTRANSLATED
 

@@ -237,6 +237,14 @@ spec:
     # can create in, defaulting to $blueprintNs when allowed (admin) else the first allowed ns
     # (tenant → own ns). Renders single-option/pre-filled only when exactly one ns is permitted.
     | ((.jsonschema.data["values.schema.json"]) // null) as $raw
+    # `x-krateo-required-on-create: true` on a TOP-LEVEL property (docs/form-options.md): the field is
+    # required of whoever CREATES the composition, without being `required` in the schema itself,
+    # which would also fail an existing instance that lacks it. composition-editdef never reads it.
+    # Read from the RAW schema: the CRD drops every x-krateo-* key, so the schemaSpec fallback below
+    # takes the same list, narrowed to fields the CRD has.
+    | (if $raw == null then []
+       else ((try ($raw | fromjson | .properties | to_entries | map(select((.value | type) == "object" and .value["x-krateo-required-on-create"] == true) | .key)) catch []) // [])
+       end) as $onCreate
     # "" (never null) when there is no raw schema: the Form CRD types stringSchema a string and snowplow
     # refuses a resolved widget it does not admit; the Form reads "" as absent and uses schemaSpec.
     | (if $raw == null then ""
@@ -259,7 +267,7 @@ spec:
               # key so it wins. Identity keys first, then the blueprint's own required (minus any dup —
               # the blueprint's own `namespace`, if present, stays required as a real spec field).
               | (((try ($raw | fromjson | .required) catch null) // []) - ["__composition_name__","__composition_namespace__"]) as $rawReq
-              | (["__composition_name__","__composition_namespace__"] + $rawReq) as $req
+              | (["__composition_name__","__composition_namespace__"] + $rawReq + ($onCreate - $rawReq - ["__composition_name__","__composition_namespace__"])) as $req
               | (($spliced | sub("\\s+$"; "")) | .[:-1]) as $body
               | ($body + ",\"required\":" + ($req | tojson) + "}")
             end)
@@ -331,7 +339,11 @@ spec:
               __composition_name__:      { type: "string", title: "Name",      description: "Name for the new composition instance" },
               __composition_namespace__: { type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts, default: $nsDefault }
             } + (.properties // {}))
-          | .required = (["__composition_name__", "__composition_namespace__"] + (.required // []))),
+          # The CRD carries no x-krateo-* keys: the flag comes from the raw schema ($onCreate), for the
+          # fields the CRD has and does not already require.
+          | . as $sch
+          | .required = (["__composition_name__", "__composition_namespace__"] + ($sch.required // [])
+                          + ([ $onCreate[] | select(. as $k | (($sch.properties // {}) | has($k)) and ((($sch.required // []) | index($k)) | not)) ]))),
         # Only when stringSchema is "" (no jsonschema ConfigMap): say what that costs, instead of
         # silently rendering a form without its field order or dynamic options.
         # Inputs inferred from the chart's values.yaml (core-provider #568 child 7): an info notice
