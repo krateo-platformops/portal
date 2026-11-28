@@ -197,6 +197,42 @@ def check_detail_pill():
     return f
 
 
+def check_create_form_offers_services():
+    """The create form offers, on `where`, a predicate per service with telemetry in the last hour
+    (portal#228), without closing the field; ClickHouse down leaves a plain field and a working form."""
+    f = []
+    crd = {'spec': {'versions': [{'name': 'v1alpha1', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'required': ['interval'],
+        'properties': {'where': {'type': 'string'}, 'interval': {'type': 'string'}}}}}}}]}}
+    nss = {'items': [{'metadata': {'name': 'krateo-system'}}]}
+    # ClickHouse FORMAT JSON: 64-bit counts arrive quoted.
+    services = {'data': [{'svc': 'api', 'logs': '1200', 'spans': '0'},
+                         {'svc': 'snowplow', 'logs': '1', 'spans': '35'},
+                         {'svc': 'otel.collector-1', 'logs': '0', 'spans': '1'},
+                         {'svc': "it's", 'logs': '3', 'spans': '0'},   # no SQL literal as it is: left out
+                         {'svc': '', 'logs': '9', 'spans': '0'}]}
+
+    def form(responses):
+        out = tbi.resolve(CH, 'alert-formdef', responses, {})
+        return out, tbi.resolved_widget(CH, 'Form', 'alert-create', out, {}, 'alert create form')['spec']['widgetData']
+
+    out, wd = form({'crd': crd, 'namespaces': nss, 'services': services})
+    group = 'Services with telemetry in the last hour'
+    expect(f, 'where: one predicate per populated service', wd.get('suggestions'), [{'name': 'where', 'options': [
+        {'value': "ServiceName = 'api'", 'description': '1200 log lines in the last hour', 'group': group},
+        {'value': "ServiceName = 'snowplow'", 'description': '1 log line · 35 spans in the last hour', 'group': group},
+        {'value': "ServiceName = 'otel.collector-1'", 'description': '1 span in the last hour', 'group': group}]}])
+    expect(f, 'where stays an open text field (no enum)', 'enum' in wd['schema']['properties']['where'], False)
+    expect(f, 'the services read is a static query',
+           '${' in CH.get('RESTAction', 'alert-formdef')['spec']['api'][2]['path'], False)
+    for label, resp in (('ClickHouse down', 'ERROR'), ('no telemetry', {'data': []})):
+        out, wd = form({'crd': crd, 'namespaces': nss, 'services': resp})
+        expect(f, f'{label}: no suggestions', wd.get('suggestions'), [])
+        expect(f, f'{label}: the form still renders the spec', sorted(wd['schema']['properties']),
+               ['__alert_name__', '__alert_namespace__', 'interval', 'where'])
+    return f
+
+
 def check_detail_subtitle():
     """The alert page's header says the rule in words and when it was last checked: the threshold,
     the interval and the last evaluation, which only the manifest showed (audit ALD-1)."""
@@ -249,7 +285,7 @@ def check_detail_subtitle():
 
 
 CHECKS = [check_counts_and_rows, check_state_chips, check_table, check_incidents_column, check_button_and_page, check_detail_pill,
-          check_detail_subtitle]
+          check_create_form_offers_services, check_detail_subtitle]
 
 
 def main():

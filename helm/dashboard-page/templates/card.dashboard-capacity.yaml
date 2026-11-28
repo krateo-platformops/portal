@@ -1,0 +1,139 @@
+{{/* CAPACITY IN USE (approved mockup C6, board "One tenant chosen"). Placed by dashboard-inbox-body */}}
+{{/* under the health card only while ?projects names exactly ONE namespace (dashboard-inbox's */}}
+{{/* `capacity` is null otherwise, and no quota read is made). The rows are that namespace's */}}
+{{/* ResourceQuotas, read as the caller: Pods, CPU, Memory, Volumes (PVCs), each "<used> of <limit>" */}}
+{{/* in human units, from the tightest quota on that resource; a resource no quota limits is left */}}
+{{/* out. With no row, one sentence says why (no quota, no quota on these, or a failed read with its */}}
+{{/* reason). "Use over time" is fixed text: nothing on this install reads a usage collector. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-capacity
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Capacity in use
+    titleVariant: eyebrow
+    variant: outlined
+    extra: from the namespace's quota, now
+    allowedResources:
+    - descriptions
+    - paragraphs
+    items:
+    - resourceRefId: dashboard-capacity-note
+    - resourceRefId: dashboard-capacity-over-time-label
+    - resourceRefId: dashboard-capacity-over-time
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ (if ((.capacity.rows // []) | length) > 0 then [ { resourceRefId: "dashboard-capacity-rows" } ] else [ { resourceRefId: "dashboard-capacity-note" } ] end) + [ { resourceRefId: "dashboard-capacity-over-time-label" }, { resourceRefId: "dashboard-capacity-over-time" } ] }'
+  resourcesRefs:
+    items:
+    - id: dashboard-capacity-rows
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-capacity-rows
+      namespace: {{ $.Values.namespace }}
+      resource: descriptions
+      verb: GET
+    - id: dashboard-capacity-note
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-capacity-note
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: dashboard-capacity-over-time-label
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-capacity-over-time-label
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+    - id: dashboard-capacity-over-time
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-capacity-over-time
+      namespace: {{ $.Values.namespace }}
+      resource: paragraphs
+      verb: GET
+---
+kind: Descriptions
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-capacity-rows
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    column: 1
+    variant: form
+    bordered: false
+    size: small
+    items: []
+  widgetDataTemplate:
+  - forPath: items
+    expression: '${ [ (.capacity.rows // [])[] | { label: .label, value: .value } ] }'
+  resourcesRefs:
+    items: []
+---
+{{/* The one sentence in place of the rows: no quota, no quota on these four, or a failed read. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-capacity-note
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    text: ""
+    type: secondary
+  widgetDataTemplate:
+  - forPath: text
+    expression: '${ (.capacity // {}) as $c | if $c.state == "failed" then "The quota could not be read: " + (($c.error // "") | rtrimstr(".")) + "." elif $c.state == "none" then "No quota limits this namespace." elif $c.state == "unlimited" then "No quota limits this namespace''s pods, CPU, memory or volumes." else "" end }'
+  - forPath: type
+    expression: '${ if (.capacity.state // "") == "failed" then "warning" else "secondary" end }'
+  resourcesRefs:
+    items: []
+---
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-capacity-over-time-label
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  widgetData:
+    text: Use over time
+    variant: eyebrow
+  resourcesRefs:
+    items: []
+---
+{{/* Fixed text: no usage collector is read on this install, so there is no series to draw. */}}
+kind: Paragraph
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-capacity-over-time
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  widgetData:
+    text: Not measured on this install. The usage collector is off, so there are no figures for an hour, a day or a week.
+    type: secondary
+  resourcesRefs:
+    items: []

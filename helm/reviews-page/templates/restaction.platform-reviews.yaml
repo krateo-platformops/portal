@@ -40,7 +40,9 @@
 {{/*              range (the chips, the donut); */}}
 {{/*   stats      the five figures: Waiting for a decision (Proposed), Pull request open (PrOpen), */}}
 {{/*              Merged and Rejected in the range (their chips' counts), the last run. Each tile's tone is the phase it */}}
-{{/*              counts, so it wears the colour the cards (or the run rows) give that phase; */}}
+{{/*              counts; `color` and `highlight` (portal.tileDefs) mark only a last run Failed */}}
+{{/*              (red) or PartiallyCompleted (orange) and a failed read (orange): a proposal */}}
+{{/*              waiting is work, not a fault, so the proposal figures are "" and false; */}}
 {{/*              `unread` on a failed read (value "", drawn as "—"), `none` when no run is recorded. */}}
 {{/*              `route`: a state tile's is its state chip's route (stateHref), so it opens the list */}}
 {{/*              filtered to that state; the last run and a failed read have "" (a plain tile); */}}
@@ -102,6 +104,7 @@ spec:
   filter: |
     {{- include "portal.reviewDefs" . | nindent 4 }}
     {{- include "portal.facets" . | nindent 4 }}
+    {{- include "portal.tileDefs" . | nindent 4 }}
     . as $in
     | ["projects", "kind", "repo", "today", "q", "view", "state", "range"] as $keys
     | (($in.q // "") | tostring | gsub("^\\s+|\\s+$"; "")) as $qraw
@@ -217,7 +220,11 @@ spec:
                elif $last == null then { title: "Last run (all kinds)", value: "", caption: "no review has run yet", tone: "none", route: "" }
                else ($last.status.phase // "Pending") as $lp
                  | { title: "Last run (all kinds)", value: $lp,
-                     caption: ($last.metadata.name + " · " + ($last.status.startedAt | rv_when | .[11:])), tone: $lp, route: "" } end) ]) as $stats
+                     caption: ($last.metadata.name + " · " + ($last.status.startedAt | rv_when | .[11:])), tone: $lp, route: "" } end) ]
+    # Colour marks an exception (portal.tileDefs): a last run that Failed (red) or PartiallyCompleted
+    # (orange) is highlighted. A proposal waiting, a change request open, merged or rejected is work,
+    # not a fault, so those four are neutral, as are a run Completed, Running or Pending and no run.
+      | map(tilePaint({}; { Failed: "red", PartiallyCompleted: "orange" }))) as $stats
     # THE TREND: per bucket, the newest bucket the current hour or day, so the chart ends now.
     | (if $range == "24h" then { size: 3600, n: 24, unit: "hour" } elif $range == "30d" then { size: 86400, n: 30, unit: "day" } else { size: 86400, n: 7, unit: "day" } end) as $b
     | ((($now / $b.size) | floor) * $b.size - ($b.n - 1) * $b.size) as $start

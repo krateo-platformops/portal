@@ -1,6 +1,7 @@
-{{/* The /incidents/{namespace}/{name} page header: the incident title, its state pill (plus */}}
-{{/* "Flagged" when the first precondition run exited 0), and the page's actions. The alert chip */}}
-{{/* and the meta line are content, so they sit below it in incident-detail-header-block. */}}
+{{/* The /incidents/{namespace}/{name} page header: the incident title, its state pill, the note */}}
+{{/* "Precondition flagged" (its reason on hover) when the first precondition run exited 0 and the */}}
+{{/* incident is Open or Verifying, and the page's actions. The alert chip and the meta line are */}}
+{{/* content, so they sit below it in incident-detail-header-block. */}}
 kind: PageHeader
 apiVersion: widgets.templates.krateo.io/v1beta1
 metadata:
@@ -31,6 +32,10 @@ spec:
     {{/* What is in progress and since when (PageHeader `progress`, frontend >= the release that adds it). */}}
     - forPath: progress
       expression: '${ .headerProgress }'
+    {{/* A flagged precondition (PageHeader `note`, frontend-crd >= 1.8.97): a note, not a pill, */}}
+    {{/* because "Flagged" is not the incident's state. */}}
+    - forPath: note
+      expression: '${ .headerNote }'
   resourcesRefs:
     items:
     - id: incident-detail-actions

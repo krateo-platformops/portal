@@ -38,6 +38,7 @@ spec:
        param, obs.href), `cards` (one per Deployment, Not ready first), `byState` and `readiness`
        (the side charts), `failed`, `emptyText`. */}}
   filter: >
+    {{ include "portal.tileDefs" . }}
     {{ include "obs.href" . }}
     {{ include "obs.search" . }}
     def errtext: if . == null then "" elif type == "array" then map(if type == "object" then (.message // tojson) else tostring end) | join("; ") elif type == "object" then (.message // tojson) else tostring end;
@@ -76,7 +77,10 @@ spec:
                   { title: "Ready", value: $counts.ready, caption: "every wanted replica ready", tone: "ready", route: stateRoute("ready") },
                   { title: "Not ready", value: $counts.notready, caption: "a wanted replica is not ready", tone: "notready", route: stateRoute("notready") },
                   { title: "Scaled to zero", value: $counts.scaled, caption: "no replica wanted", tone: "scaled", route: stateRoute("scaled") } ]
-                | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)),
+                | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else . + { value: (.value | tostring) } end)
+                {{- /* Colour marks an exception (portal.tileDefs): Not ready red and highlighted
+                     above 0 only; Deployments, Ready and Scaled to zero are neutral. */}}
+                | map(tilePaint({ notready: "red" }; {}))),
         chips: ([ "all", "notready", "ready", "scaled" ] | map(select(. == "all" or . == "notready" or ($counts[.] // 0) > 0 or . == $sel))
                 | map(. as $k | { key: $k, label: $names[$k], count: ($counts[$k] // 0), active: ($k == $sel),
                                   route: stateRoute($k) })),

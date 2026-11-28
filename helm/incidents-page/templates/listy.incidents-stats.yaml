@@ -1,9 +1,11 @@
 {{/* The five figures over every incident: Open, Analyzing, Verifying (now), Resolved and the median
-     Time to resolve (in the range). Each tile wears the colour the cards give the state it counts
-     (incidents-cards), zero or not, so a figure and its cards read as one; Time to resolve is
-     Resolved's. The title says the state too, so colour is never the only signal. A failed read
+     Time to resolve (in the range). The colour and the highlighted border come computed
+     (incidents-list `color`, `highlight`; portal.tileDefs, frontend >= 1.8.93): an incident not
+     resolved yet is an exception, so Open (red), Analyzing (blue) and Verifying (orange), the
+     cards' colours, are coloured and highlighted above 0 only; a 0, Resolved and Time to resolve
+     are neutral. The title says the state too, so colour is never the only signal. A failed read
      of the incidents is an empty value (drawn as a muted "—") captioned "could not be read" on
-     every tile, never a 0, in orange. A state tile opens the list filtered to that state (the
+     every tile, never a 0, in orange and highlighted. A state tile opens the list filtered to that state (the
      route of its state chip, every other param kept; Resolved's lists what it counts, the
      incidents resolved in the range); Time to resolve and a failed read are plain. */}}
 kind: Listy
@@ -26,13 +28,8 @@ spec:
       subPrimaryText: '{caption}'
       navigateTo: '{route}'
       color:
-        value: '{tone}'
-        map:
-          open: red
-          analyzing: blue
-          verifying: orange
-          resolved: green
-          unread: orange
+        value: '{color}'
+      highlight: '{highlight}'
     dataSource: []
   widgetDataTemplate:
   - forPath: dataSource
