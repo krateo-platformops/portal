@@ -204,13 +204,17 @@ spec:
     # userAccessFilter output (namespaces where the user CAN create this resource — all existent,
     # RBAC-verified). Offer those as the picker; default to $blueprintNs when it's allowed (platform
     # admin case → unchanged), else the first allowed ns (tenant case → their own ns). Empty (no
-    # create RBAC anywhere) → fall back to [$blueprintNs] so the form still renders one option. This
-    # does NOT reintroduce the old synthetic-`namespace` bug: __composition_namespace__ is an
+    # create RBAC anywhere) → NO options, and the form says so (notices, below) and cannot be
+    # submitted: [$blueprintNs] used to stand in, offering a namespace that may not exist or may
+    # refuse the create. This does NOT reintroduce the old synthetic-`namespace` bug: __composition_namespace__ is an
     # UNDERSCORE-FENCED identity key (never collides with a blueprint's own spec `namespace`), and
     # every option is a real, create-permitted namespace (no nonexistent-ns 404).
     | (.namespaces // []) as $nsAll
-    | (if ($nsAll | length) > 0 then $nsAll else [$blueprintNs] end) as $nsOpts
-    | (if ($nsOpts | index($blueprintNs)) then $blueprintNs else $nsOpts[0] end) as $nsDefault
+    | $nsAll as $nsOpts
+    | (($nsOpts | length) == 0) as $noNs
+    | (if $noNs then null elif ($nsOpts | index($blueprintNs)) then $blueprintNs else $nsOpts[0] end) as $nsDefault
+    # `default` only when there is one: a null default on an enum with no values is not a value.
+    | (if $noNs then {} else { default: $nsDefault } end) as $nsDefaultKey
     # WRAPPED IN AN ARRAY, and that is load-bearing rather than tidy: with no CRD read the
     # generator `.crd.spec.versions[]?` yields ZERO values, and `(empty) as $spec` makes the whole
     # filter produce no output — which snowplow treats as a failed stage ("jq filter yielded no
@@ -245,7 +249,7 @@ spec:
             else ($raw[0:$pi]) as $pfx
               | ($raw[$pi:]) as $rst
               | ({ __composition_name__:      { type: "string", title: "Name",      description: "Name for the new composition instance" },
-                   __composition_namespace__: { type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts, default: $nsDefault } } | tojson) as $id
+                   __composition_namespace__: ({ type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts } + $nsDefaultKey) } | tojson) as $id
               # `{}` (a schema that declares no fields yet) takes the identity object whole: a
               # trailing comma before its `}` would make the string unparseable.
               | ($pfx + $id[:-1] + (if ($rst[1:] | test("^\\s*\\}")) then "" else "," end) + $rst[1:]) as $spliced
@@ -329,7 +333,7 @@ spec:
         schemaSpec: ($spec
           | .properties = ({
               __composition_name__:      { type: "string", title: "Name",      description: "Name for the new composition instance" },
-              __composition_namespace__: { type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts, default: $nsDefault }
+              __composition_namespace__: ({ type: "string", title: "Composition namespace", description: "Where the composition record is created (must be one you can create in) — distinct from any namespace the blueprint itself provisions", enum: $nsOpts } + $nsDefaultKey)
             } + (.properties // {}))
           | .required = (["__composition_name__", "__composition_namespace__"] + (.required // []))),
         # Only when stringSchema is "" (no jsonschema ConfigMap): say what that costs, instead of
@@ -339,7 +343,13 @@ spec:
         # Details. [] for an authored schema, or when there is no ConfigMap (then `notice` speaks).
         # portal.inferredInputsDefs, _inferred-inputs.tpl. Approved mockup:
         # https://claude.ai/artifact/TqxGgtmyM8smwiE83BMEjD.
-        notices: ($raw | inferredInputsNotices($valuesSchemaCond; $hidden; "create")),
+        notices: ((if $noNs
+                    then [ { title: "You can't create this blueprint in any namespace yet.",
+                             description: [ "Ask an administrator for access." ] } ]
+                    else [] end)
+                  + ($raw | inferredInputsNotices($valuesSchemaCond; $hidden; "create"))),
+        # True when the caller may create in no namespace: the Form then locks (form.blueprint-create).
+        noNamespace: $noNs,
         notice: (if $stringSchema == "" then
             "This form is built from the blueprint's CRD because its schema ConfigMap was not found: fields are in alphabetical order, and options a field loads at runtime are not available."
           else "" end),
@@ -357,9 +367,8 @@ spec:
         # can create in; on submit the frontend rewrites the URL namespace from the body's
         # metadata.namespace (the picked value).
         # Its own key, not `namespace`: that word is the route's blueprint namespace and, in a
-        # blueprint's spec, its own workload target. With no create-permitted namespace anywhere,
-        # $nsOpts falls back to [$blueprintNs] (above), the ref names a namespace the user cannot
-        # create in, and snowplow drops it — the same no-ref outcome, not a ref that would 403.
-        createNamespace: $nsDefault
+        # blueprint's spec, its own workload target. With no create-permitted namespace anywhere
+        # it is "": there is no namespace to name, so the ref has none and the form is locked.
+        createNamespace: ($nsDefault // "")
       }
       end

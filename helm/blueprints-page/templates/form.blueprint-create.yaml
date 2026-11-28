@@ -126,6 +126,14 @@ spec:
     {{/* (portal.inferredInputsDefs). Needs the Form's `notices`, frontend-crds >= 1.8.68. */}}
     - forPath: notices
       expression: '${ .notices // [] }'
+    {{/* The caller may create this blueprint in NO namespace (the formdef's `noNamespace`, with the */}}
+    {{/* info notice saying so): the fields lock, and with them the form cannot change from its */}}
+    {{/* initial values, so submitDisabledWhenPristine keeps the primary button disabled. Both are */}}
+    {{/* ordinary Form fields (frontend-crds >= 1.8.97): no field of its own exists for "no submit". */}}
+    - forPath: disabled
+      expression: '${ .noNamespace // false }'
+    - forPath: submitDisabledWhenPristine
+      expression: '${ .noNamespace // false }'
     {{/* Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these */}}
     {{/* over schema defaults; __owner has no schema field so it stays unrendered. */}}
     - forPath: initialValues

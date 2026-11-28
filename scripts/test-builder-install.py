@@ -1035,15 +1035,60 @@ def check_create_ref_names_a_namespace_the_user_can_create_in(chart):
         picker = json.loads(out['stringSchema'])['properties']['__composition_namespace__']
         expect(f, f'{label}: the ref and the namespace picker\'s default agree', picker.get('default'), ref.get('namespace'))
 
-    # Nowhere to create: the picker falls back to the blueprint namespace, and so does the ref — one
-    # the caller cannot create in, which snowplow drops. No ref is the honest answer; one invented to
-    # resolve would only 403.
+    # Nowhere to create: no namespace to name, so no ref namespace either (the form says so and is
+    # locked: check_create_form_without_a_namespace).
     out, ref = create('can create nowhere', 'tenant-b', allowed())
-    expect(f, 'can create nowhere: the ref names the picker\'s fallback, not a guess', ref.get('namespace'), bp_ns)
+    expect(f, 'can create nowhere: no namespace is guessed for the ref', ref.get('namespace'), '')
 
     out, ref = create('not registered', 'tenant-a', allowed('team-a'),
                       compdef={k: v for k, v in registered.items() if k != 'status'})
     expect(f, 'not registered: no create namespace (no form, no target)', out.get('createNamespace'), '')
+    return f
+
+
+def check_create_form_without_a_namespace(chart):
+    """A caller who may create the blueprint in NO namespace (`namespaces`, the userAccessFilter output,
+    is empty) used to be offered [blueprint namespace]: one that may not exist, or may refuse the
+    create. The form now offers none, says so in an info notice, and cannot be submitted: its fields
+    lock and submitDisabledWhenPristine holds the primary button (the Form has no other way to say
+    "no submit" at frontend-crds 1.8.97). A caller with namespaces is unchanged."""
+    f = []
+    bp_ns = 'krateo-blueprints'
+    extras = {'name': 'my-bp', 'namespace': bp_ns, 'username': 'tenant-b'}
+    registered = {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+                  'metadata': {'name': 'my-bp', 'namespace': bp_ns},
+                  'status': {'apiVersion': 'composition.krateo.io/v0-1-0', 'kind': 'MyBp', 'resource': 'mybps'}}
+    schema_cm = {'data': {'values.schema.json': json.dumps({'type': 'object', 'properties': {'replicas': {'type': 'integer'}}})}}
+    crd = {'spec': {'versions': [{'name': 'v0-1-0', 'schema': {'openAPIV3Schema': {'properties': {'spec': {
+        'type': 'object', 'properties': {'replicas': {'type': 'integer'}}}}}}}]}}
+    notice = [{'title': "You can't create this blueprint in any namespace yet.",
+               'description': ['Ask an administrator for access.']}]
+
+    def create(label, names):
+        out = resolve(chart, 'blueprint-formdef',
+                      {'compdef': registered, 'jsonschema': schema_cm, 'crd': crd,
+                       'namespaces': {'items': [{'metadata': {'name': n}} for n in names]}}, extras)
+        return out, resolved_widget(chart, 'Form', 'blueprint-create', out, extras, f'blueprint-create ({label})')['spec']['widgetData']
+
+    out, wd = create('no namespace', [])
+    for where, picker in (('stringSchema', json.loads(out['stringSchema'])['properties']['__composition_namespace__']),
+                          ('schemaSpec', out['schemaSpec']['properties']['__composition_namespace__'])):
+        expect(f, f'no namespace: {where} offers no option and no default (not the blueprint namespace)',
+               [picker.get('enum'), 'default' in picker], [[], False])
+    expect(f, 'no namespace: the info notice says so', wd['notices'], notice)
+    expect(f, 'no namespace: no create namespace', out['createNamespace'], '')
+    expect(f, 'no namespace: the fields lock and the primary button stays disabled',
+           [wd.get('disabled'), wd.get('submitDisabledWhenPristine')], [True, True])
+
+    out, wd = create('one namespace', ['team-a'])
+    picker = json.loads(out['stringSchema'])['properties']['__composition_namespace__']
+    expect(f, 'with a namespace: the picker is unchanged', [picker['enum'], picker['default']], [['team-a'], 'team-a'])
+    expect(f, 'with a namespace: no notice, not locked', [wd['notices'], wd.get('disabled'), wd.get('submitDisabledWhenPristine')],
+           [[], False, False])
+    out, wd = create('admin', ['krateo-system', bp_ns, 'team-a'])
+    picker = json.loads(out['stringSchema'])['properties']['__composition_namespace__']
+    expect(f, 'with several: the blueprint namespace is the default', [picker['enum'], picker['default']],
+           [['krateo-system', bp_ns, 'team-a'], bp_ns])
     return f
 
 
@@ -1378,6 +1423,7 @@ CHECKS = [
     check_create_form_says_when_the_blueprint_is_not_registered_yet,
     check_create_form_loads_field_options,
     check_create_ref_names_a_namespace_the_user_can_create_in,
+    check_create_form_without_a_namespace,
     check_marketplace_detail_resolves_without_a_name,
     check_render_draft_reads_the_chart_from_its_configmap,
     check_my_drafts_are_the_callers_own,
