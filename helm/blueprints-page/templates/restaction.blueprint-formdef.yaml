@@ -348,7 +348,7 @@ spec:
                              description: [ "Ask an administrator for access." ] } ]
                     else [] end)
                   + ($raw | inferredInputsNotices($valuesSchemaCond; $hidden; "create"))),
-        # True when the caller may create in no namespace: the Form then locks (form.blueprint-create).
+        # True when the caller may create in no namespace: the Form then disables its submit (form.blueprint-create).
         noNamespace: $noNs,
         notice: (if $stringSchema == "" then
             "This form is built from the blueprint's CRD because its schema ConfigMap was not found: fields are in alphabetical order, and options a field loads at runtime are not available."
@@ -368,7 +368,7 @@ spec:
         # metadata.namespace (the picked value).
         # Its own key, not `namespace`: that word is the route's blueprint namespace and, in a
         # blueprint's spec, its own workload target. With no create-permitted namespace anywhere
-        # it is "": there is no namespace to name, so the ref has none and the form is locked.
+        # it is "": there is no namespace to name, so the ref has none and the form's submit is disabled.
         createNamespace: ($nsDefault // "")
       }
       end
