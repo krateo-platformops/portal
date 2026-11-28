@@ -24,10 +24,17 @@ WHAT IT GUARDS.
   - Recent changes asks ClickHouse for the latest five changes of 7 days, narrowed to the caller's
     namespaces (none for a cluster-wide reader), as snowplow's OWN path renderer dials it
     (snowplow-path.py: needs git and go), decoded once.
+  - Capacity in use (mockup C6, "One tenant chosen"): only with ?projects naming exactly one
+    namespace, that namespace's ResourceQuotas as "<used> of <limit>" rows in human units (the
+    tightest limit per resource across quotas, a resource no quota limits left out, quantities
+    read by snowplow's own `quantity` jq module, every suffix checked), one sentence for no quota or a failed read (its reason, never the body),
+    and the fixed "Use over time" sentence. Zero or several namespaces: no card.
   - With --crds DIR, every widget, as authored and as resolved in every case, validates against the
     frontend CRDs, closed the way the apiserver's strict field validation is.
 
-HOW. The chart is rendered with helm. Raw objects go through each stage's OWN filter (as snowplow
+HOW. The chart is rendered with helm. jq runs with snowplow's built-in modules on its search path
+(-L, from the snowplow the installer pins, via snowplow-path.py; SNOWPLOW_SRC=<checkout> skips the
+clone), so dashboard-inbox's `include "quantity";` loads the module the cluster runs. Raw objects go through each stage's OWN filter (as snowplow
 runs it), then the RESTAction's filter, then each widget's widgetDataTemplate, and Listy/Collapse
 rows are resolved the way the frontend's itemTemplate.ts does, so the checks read what a person
 sees. JQ=<gojq> runs the same on snowplow's engine. Each case is run on its own, so the control on
@@ -97,12 +104,20 @@ def named(docs, kind, name):
     raise AssertionError(f'{kind}/{name} not in the rendered chart')
 
 
+# snowplow's own path renderer and jq modules, from the snowplow the installer pins (snowplow-path.py).
+_spec = importlib.util.spec_from_file_location('spath', os.path.join(HERE, 'snowplow-path.py'))
+spath = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(spath)
+
+
 def jq(program, data):
+    """`program` over `data`, with snowplow's built-in modules on the search path, as its ModuleLoader
+    has them: dashboard-inbox's filter starts `include "quantity";`."""
     with tempfile.NamedTemporaryFile('w', suffix='.jq', delete=False) as fh:
         fh.write(program)
         path = fh.name
     try:
-        proc = subprocess.run([JQ, '-c', '-f', path], input=json.dumps(data),
+        proc = subprocess.run([JQ, '-c', '-L', spath.jq_modules(), '-f', path], input=json.dumps(data),
                               capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             raise AssertionError(f'jq failed: {proc.stderr.strip()[:300]}')
@@ -148,11 +163,22 @@ def interpolate(template, item):
 
 
 def accent(spec, item):
-    """The statistic/card colour: resolved only through the map (no fallback), as resolveAccent does."""
+    """The statistic/card colour, as resolveAccent does: through the map when there is one (no
+    fallback); with no map (frontend >= 1.8.93) the value is the palette name itself, "" none."""
     if not spec:
         return None
     got = interpolate(spec.get('value'), item)
+    if 'map' not in spec:
+        return got or None
     return (spec.get('map') or {}).get(got, spec.get('default'))
+
+
+def border(template, item, colour):
+    """Whether a statistic tile's border is highlighted (frontend >= 1.8.93): `highlight` is a
+    {dot.path} to a boolean and only true highlights; without it the border follows the colour."""
+    if 'highlight' not in template:
+        return colour is not None
+    return interpolate(template['highlight'], item) == 'true'
 
 
 def rows(template, data_source):
@@ -161,6 +187,7 @@ def rows(template, data_source):
         row = {k: interpolate(template.get(k), item) for k in
                ('primaryText', 'secondaryText', 'subPrimaryText', 'subSecondaryText', 'description', 'cardCta', 'navigateTo')}
         row['color'] = accent(template.get('color'), item)
+        row['highlight'] = border(template, item, row['color'])
         row['removable'] = item.get('removable') is True
         out.append(row)
     return out
@@ -290,8 +317,8 @@ def page(out):
     """What /dashboard shows for one dashboard-inbox output."""
     body = [i['resourceRefId'] for i in resolved('dashboard-inbox-body', 'Flex', out)['items']]
     strip_w = resolved('dashboard-strip', 'Listy', out)
-    strip = [(r['primaryText'], r['secondaryText'], r['subPrimaryText'], r['color'])
-             for r in rows(strip_w['itemTemplate'], strip_w['dataSource'])]
+    strip_rows = rows(strip_w['itemTemplate'], strip_w['dataSource'])
+    strip = [(r['primaryText'], r['secondaryText'], r['subPrimaryText'], r['color']) for r in strip_rows]
     needs = resolved('dashboard-needs-you', 'Collapse', out)
     panels = needs['items']
     cards = rows(needs['itemTemplate'], panels[0]['dataSource']) if panels else []
@@ -302,6 +329,8 @@ def page(out):
     return {
         'body': body,
         'strip': strip,
+        'strip_hl': [r['highlight'] for r in strip_rows],
+        'strip_tpl': (strip_w['itemTemplate'].get('color'), strip_w['itemTemplate'].get('highlight')),
         'panel': {k: panels[0].get(k) for k in ('key', 'label', 'count', 'status')} if panels else None,
         'cards': cards,
         'titles': [c['primaryText'] for c in cards],
@@ -340,13 +369,33 @@ def _():
 def _():
     out = inbox()
     got = page(out)
-    check('present: the body', got['body'], ['dashboard-filter-bar', 'dashboard-strip', 'dashboard-needs-you', 'dashboard-quiet'])
+    check('present: the body', got['body'], ['dashboard-filter-bar', 'dashboard-strip', 'dashboard-health', 'dashboard-needs-you', 'dashboard-quiet'])
+    # Health of compositions (mockup C6): the four states from the Ready verdict, paused apart.
+    health = out['health']
+    states = {t['key']: (t['value'], t['color'], t['highlight']) for t in health['tiles']}
+    check('health: the four states add up with paused to all', sum(int(v[0]) for v in states.values()) + health['paused'], health['total'])
+    check('health: OK is every Ready one, and only those', states['ok'][0], str(out['compositions']['ready']))
+    check('health: paused is apart, said in the header', (health['paused'] >= 1, health['summary'].startswith(f"{health['paused']} paused · ")), (True, True))
+    check('health: OK and Unknown are neutral; a zero alarm is neutral too',
+          [(k, c, h) for k, (v, c, h) in states.items() if k in ('ok', 'unknown') or v == '0'],
+          [(k, '', False) for k, (v, _c, _h) in states.items() if k in ('ok', 'unknown') or v == '0'])
+    check('health: each state opens the list filtered to it, every scope',
+          [t['route'] for t in health['tiles']],
+          ['/compositions?scope=all&status=healthy', '/compositions?scope=all&status=pending,drift,degraded',
+           '/compositions?scope=all&status=failed', '/compositions?scope=all&status=unknown,unreadable'])
+    tiles = resolved('dashboard-health-tiles', 'Listy', out)
+    check('health: the tiles draw the data\'s colour and highlight, with icons and no frames',
+          {k: tiles['itemTemplate'].get(k) for k in ('tileVariant', 'icon', 'highlight')} | {'color': tiles['itemTemplate']['color']},
+          {'tileVariant': 'borderless', 'icon': '{icon}', 'highlight': '{highlight}', 'color': {'value': '{color}'}})
     check('present: the strip, in the mockup order, red only for a fault', got['strip'], [
         ('Open incidents', '5', '2 alerts', 'red'),
         ('Alerts firing', '1', 'of 3', 'red'),
         ('Compositions not Ready', '0', 'of 82', None),
         ('Agent gateway gaps', '1', 'of 3 agents', 'red'),
         ('Waiting for a decision', '4', 'review proposals', None)])
+    check('present: colour and border are the data\'s (portal.tileDefs)', got['strip_tpl'], ({'value': '{color}'}, '{highlight}'))
+    check('present: only a fault above 0 is highlighted; a 0 and the proposals waiting are plain', got['strip_hl'],
+          [True, True, False, True, False])
     check('present: one Needs you panel, red, counting its cards', got['panel'],
           {'key': 'needs-you', 'label': 'Needs you', 'count': 5, 'status': 'error'})
     check('present: the panel has no footer (the Dashboard has no table view to link to)',
@@ -369,7 +418,7 @@ def _():
     check('present: the paused composition', (cmp_['subPrimaryText'], cmp_['description'], cmp_['color']),
           ('acme-feedback-controller', 'Ready reason ReconcilePaused.', None))
     check('present: the calm line lists what is fine, beside Needs you', got['quiet'],
-          'The rest is fine: 80 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
+          'The rest is fine: 79 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 3 agents registered at the gateway.')
     check('present: the source facet, largest first, counted in items', got['options'], [
         ('Incidents', 'incidents', 5), ('Platform review', 'reviews', 4), ('Agents', 'agents', 2),
         ('Alerts', 'alerts', 1), ('Compositions', 'compositions', 1)])
@@ -401,6 +450,7 @@ def _():
         ('creating', 'pending'), ('deleting', 'pending'), ('helm-pending', 'pending'), ('helm-running', 'pending'), ('inventory-not-recorded', 'pending')])
     got = page(out)
     check('defects: the tile goes red', got['strip'][2], ('Compositions not Ready', '7', 'of 89', 'red'))
+    check('defects: and is highlighted (at 0 it is plain, see every source present)', got['strip_hl'][2], True)
     card = next(c for c in got['cards'] if c['subSecondaryText'] == 'Compositions')
     check('defects: one card, a fault, names capped at three', (card['primaryText'], card['subPrimaryText'], card['description'], card['color']),
           ('8 compositions need attention', 'inventory-not-recorded, children-forbidden, broken and 5 more',
@@ -419,6 +469,16 @@ def _():
     check('Unknown/ObserveFailed + Synced=False: failed; with Synced=True: pending; ChildrenForbidden keeps unreadable',
           sorted((p['name'], p['class']) for p in out['compositions']['problems'] if p['name'] != 'acme-feedback-controller'),
           [('alerts-page', 'failed'), ('children-forbidden', 'unreadable'), ('first-observe', 'pending')])
+    states = {t['key']: (t['value'], t['color'], t['highlight']) for t in out['health']['tiles']}
+    check('health: a failed one is Critical, red and standing out; a converging one is Warning; unreadable is Unknown',
+          (states['critical'], states['warning'][1:], int(states['unknown'][0]) >= 1, states['unknown'][1:]),
+          (('1', 'red', True), ('orange', True), True, ('', False)))
+    scoped = inbox(extras={'projects': 'krateo-system'}, raw={'allCompositions': {'items': COMPS057}})
+    check('health: a namespace scope narrows the counts and rides the links',
+          (scoped['health']['total'] <= out['health']['total'] - 3, scoped['health']['tiles'][0]['route']),
+          (True, '/compositions?projects=krateo-system&scope=all&status=healthy'))
+    failed = inbox(raw={'allCompositions': None}, errors={'allCompositionsError': ['forbidden']})
+    check('health: a failed read of the compositions shows no health card', (failed['health'], 'dashboard-health' in page(failed)['body']), (None, False))
 
 
 # --- 3. each source absent (its page is not the caller's) -------------------------------------------
@@ -472,6 +532,7 @@ def _():
         got = page(out)
         tile = next((t for t in got['strip'] if t[0] == titles[key]), None)
         check(f'{key} {why}: the tile is "—", not 0', tile, (titles[key], '', 'could not be read', 'orange'))
+        check(f'{key} {why}: the tile is highlighted', got['strip_hl'][[t[0] for t in got['strip']].index(titles[key])] if tile else None, True)
         card = next((c for c in got['cards'] if c['subSecondaryText'] == labels[key]), None)
         check(f'{key} {why}: a card says it could not be read, with the error',
               card and (card['primaryText'], card['secondaryText'], card['description'], card['color']),
@@ -495,6 +556,7 @@ def _():
     out = inbox(raw={'routes': {'items': []}})
     got = page(out)
     check('no route visible: the tile says not checked', got['strip'][3], ('Agent gateway gaps', '', 'not checked', 'orange'))
+    check('no route visible: and is highlighted', got['strip_hl'][3], True)
     caveat = next(c for c in got['cards'] if c['primaryText'] == 'Gateway registration not checked')
     check('no route visible: the card says why', caveat['description'],
           'Whether the gateway can reach your agents could not be checked: no HTTPRoute is visible to you.')
@@ -585,9 +647,10 @@ def _():
 def _():
     out = inbox(raw=QUIET_RAW)
     got = page(out)
-    check('all quiet: no Needs you, no facet', got['body'], ['dashboard-strip', 'dashboard-quiet'])
+    check('all quiet: no Needs you, no facet', got['body'], ['dashboard-strip', 'dashboard-health', 'dashboard-quiet'])
     check('all quiet: no panel', got['panel'], None)
     check('all quiet: the strip is neutral', [t[3] for t in got['strip']], [None] * 5)
+    check('all quiet: nothing is highlighted', got['strip_hl'], [False] * 5)
     check('all quiet: the calm line', got['quiet'],
           'All quiet: 79 compositions Ready · 2 alerts OK · 2 blueprints Ready · 2 of 2 agents registered at the gateway · '
           'no open incident · no proposal waiting for a decision.')
@@ -664,9 +727,6 @@ NOT_REVIEWS = (" AND LogAttributes['k8s.resource.resource'] NOT IN ('selfsubject
 
 @case('Recent changes: the request snowplow dials')
 def _():
-    spec = importlib.util.spec_from_file_location('spath', os.path.join(HERE, 'snowplow-path.py'))
-    spath = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(spath)
     st = next(s for s in named(DASH, 'RESTAction', 'dashboard-recent-changes')['spec']['api'] if s['name'] == 'recent')
     tail = " ORDER BY Timestamp DESC LIMIT 5 FORMAT JSON"
     for label, item, access in [
@@ -679,6 +739,166 @@ def _():
         once = urllib.parse.unquote(path[len('/?query='):])
         check(f'{label}: no escape survives one decode (not encoded twice)', re.search(r'%[0-9A-Fa-f]{2}', once), None)
         check(f'{label}: the SQL', once, SELECT + POP + ' AND Timestamp > now() - INTERVAL 7 DAY AND NOT ' + DRY + access + SUCCESS + NOT_AUDIT + NOT_REVIEWS + tail)
+
+
+# --- 10c. capacity in use (mockup C6, "One tenant chosen") ---------------------------------------
+def quota(name, hard, used=None, ns='team-a'):
+    """A ResourceQuota as the apiserver returns it: status.hard mirrors spec.hard once admitted."""
+    q = {'metadata': {'name': name, 'namespace': ns}, 'spec': {'hard': dict(hard)}, 'status': {'hard': dict(hard)}}
+    if used is not None:
+        q['status']['used'] = dict(used)
+    return q
+
+
+OVER_TIME = 'Not measured on this install. The usage collector is off, so there are no figures for an hour, a day or a week.'
+
+
+def capacity(out):
+    """What the capacity card shows for one dashboard-inbox output, or None when it is not placed."""
+    if 'dashboard-capacity' not in page(out)['body']:
+        return None
+    card = resolved('dashboard-capacity', 'Card', out)
+    items = [i['resourceRefId'] for i in card['items']]
+    note = resolved('dashboard-capacity-note', 'Paragraph', out)
+    return {
+        'head': (card['title'], card['titleVariant'], card['extra']),
+        'items': items,
+        'rows': [(i['label'], i['value']) for i in resolved('dashboard-capacity-rows', 'Descriptions', out)['items']]
+                if 'dashboard-capacity-rows' in items else None,
+        'note': (note['text'], note['type']) if 'dashboard-capacity-note' in items else None,
+        'over': (named(DASH, 'Paragraph', 'dashboard-capacity-over-time-label')['spec']['widgetData'],
+                 named(DASH, 'Paragraph', 'dashboard-capacity-over-time')['spec']['widgetData']['text']),
+    }
+
+
+def cap_out(quotas=None, ns='team-a', errors=None):
+    """One resolve scoped to `ns`, its quotas stage served `quotas` (a list of ResourceQuotas)."""
+    raw = {'quotas': None if quotas is None else {'items': quotas}}
+    return inbox(extras={'projects': ns}, raw=raw, errors=errors)
+
+
+def ra_defs():
+    """The RESTAction filter's own defs (everything before the program's first binding)."""
+    f = RA['filter']
+    return f[:f.index('(now | todate')]
+
+
+@case('capacity: one namespace with a quota')
+def _():
+    out = cap_out([quota('compute', {'pods': '10', 'requests.cpu': '4', 'requests.memory': '8Gi', 'persistentvolumeclaims': '5'},
+                         {'pods': '3', 'requests.cpu': '1500m', 'requests.memory': '3276Mi', 'persistentvolumeclaims': '2'})])
+    got = capacity(out)
+    check('capacity: placed under the health card', page(out)['body'][page(out)['body'].index('dashboard-health') + 1], 'dashboard-capacity')
+    check('capacity: the title, eyebrow, and the extra', got['head'], ('Capacity in use', 'eyebrow', "from the namespace's quota, now"))
+    check('capacity: the rows, then Use over time', got['items'],
+          ['dashboard-capacity-rows', 'dashboard-capacity-over-time-label', 'dashboard-capacity-over-time'])
+    check('capacity: each resource, used of limit, in human units', got['rows'],
+          [('Pods', '3 of 10'), ('CPU', '1.5 of 4 cores'), ('Memory', '3.2 GiB of 8 GiB'), ('Volumes (PVCs)', '2 of 5')])
+    check('capacity: Use over time is the fixed sentence, under an eyebrow', got['over'],
+          ({'text': 'Use over time', 'variant': 'eyebrow'}, OVER_TIME))
+    check('capacity: the data keeps the numbers in base units', [(r['key'], r['used'], r['hard']) for r in out['capacity']['rows']],
+          [('pods', 3, 10), ('cpu', 1.5, 4), ('memory', 3276 * 2**20, 8 * 2**30), ('volumes', 2, 5)])
+    # Each resource on its own: a resource no quota limits is left out.
+    for key, label, want in (('pods', 'Pods', '0 of 20'), ('requests.cpu', 'CPU', '0 of 1 core'),
+                             ('requests.memory', 'Memory', '0 GiB of 2 GiB'), ('persistentvolumeclaims', 'Volumes (PVCs)', '0 of 1')):
+        hard = {'pods': '20', 'requests.cpu': '1', 'requests.memory': '2Gi', 'persistentvolumeclaims': '1'}[key]
+        one = capacity(cap_out([quota('only', {key: hard, 'services': '4'}, {key: '0', 'services': '1'})]))
+        check(f'capacity: only {key} is limited, only its row', one['rows'], [(label, want)])
+    # The bare synonyms: `cpu` and `memory` are requests.cpu and requests.memory.
+    bare = capacity(cap_out([quota('bare', {'cpu': '2', 'memory': '1G'}, {'cpu': '250m', 'memory': '500M'})]))
+    check('capacity: cpu and memory as bare names; decimal G and M read as bytes', bare['rows'],
+          [('CPU', '0.25 of 2 cores'), ('Memory', '476.8 MiB of 953.7 MiB')])
+    # Several quotas: per resource the tightest hard limit and its own used figure; another
+    # namespace's quota (snowplow's cluster-list collapse serves every namespace's) is not this one's.
+    several = cap_out([quota('team', {'requests.cpu': '8', 'requests.memory': '4Gi', 'pods': '50'},
+                             {'requests.cpu': '3', 'requests.memory': '1Gi', 'pods': '12'}),
+                       quota('burst', {'cpu': '2', 'requests.cpu': '3', 'memory': '16Gi'}, {'cpu': '1', 'requests.cpu': '1', 'memory': '1Gi'}),
+                       quota('pvc', {'persistentvolumeclaims': '10'}, {'persistentvolumeclaims': '4'}),
+                       quota('elsewhere', {'requests.cpu': '1', 'pods': '1'}, {'requests.cpu': '0', 'pods': '0'}, ns='team-b')])
+    check('capacity: several quotas, the tightest wins per resource', capacity(several)['rows'],
+          [('Pods', '12 of 50'), ('CPU', '1 of 2 cores'), ('Memory', '1 GiB of 4 GiB'), ('Volumes (PVCs)', '4 of 10')])
+    check('capacity: each row names the quota it came from', [r['quota'] for r in several['capacity']['rows']], ['team', 'burst', 'team', 'pvc'])
+    tie = cap_out([quota('a', {'pods': '10'}, {'pods': '2'}), quota('b', {'pods': '10'}, {'pods': '7'})])
+    check('capacity: two quotas with the same limit: the fuller one', capacity(tie)['rows'], [('Pods', '7 of 10')])
+    # Units through the whole path.
+    units = capacity(cap_out([quota('u', {'requests.cpu': '4000m', 'requests.memory': '1Ti', 'pods': '1k'},
+                                    {'requests.cpu': '5m', 'requests.memory': '512Gi', 'pods': '1e2'})]))
+    check('capacity: millicores, Ti and Gi, k and an exponent', units['rows'],
+          [('Pods', '100 of 1000'), ('CPU', '0.005 of 4 cores'), ('Memory', '512 GiB of 1 TiB')])
+    counting = capacity(cap_out([quota('fresh', {'pods': '10'})]))
+    check('capacity: a limit not counted yet is said as unknown, never 0', counting['rows'], [('Pods', '— of 10')])
+
+
+@case('capacity: Kubernetes quantities')
+def _():
+    # The filter's `include "quantity";` is snowplow's built-in module (the pinned snowplow's copy, on
+    # jq's -L): these hold what the card relies on from it. Not here: "1 Gi" (a space before the
+    # suffix), which the module reads as 1Gi under jq 1.7 (its tonumber accepts "1 ") and as null under
+    # gojq, snowplow's engine; the apiserver never emits it.
+    defs = ra_defs()
+    cases = [('0', 0), ('7', 7), ('1.5', 1.5), ('.5', 0.5), ('1.', 1), ('+2', 2), ('-1', -1),
+             ('100n', 1e-7), ('5u', 5e-6), ('500m', 0.5), ('1500m', 1.5),
+             ('1k', 1000), ('2M', 2e6), ('3G', 3e9), ('4T', 4e12), ('5P', 5e15), ('6E', 6e18),
+             ('1Ki', 1024), ('1Mi', 2**20), ('2Gi', 2 * 2**30), ('1.5Gi', 1.5 * 2**30), ('1Ti', 2**40), ('1Pi', 2**50), ('1Ei', 2**60),
+             ('1e3', 1000), ('1E3', 1000), ('2e-3', 0.002), ('1E', 1e18),
+             ('100M', 1e8), ('100m', 0.1),          # case is load-bearing
+             ('1K', 1000),                           # the module's one hand-written variant
+             (' 2Gi ', 2 * 2**30), ('1KiB', None), ('Gi', None), ('abc', None), ('', None), (None, None), (True, None), (12, 12)]
+    got = jq(defs + ' [ .[] | quantity ]', [c[0] for c in cases])
+    for (text, want), value in zip(cases, got):
+        ok = value == want if want is None or value is None else abs(value - want) <= abs(want) * 1e-12
+        check(f'qty {text!r}', value if not ok else want, want)
+    cores = jq(defs + ' [ .[] | coresText ]', [0, 0.0004, 0.005, 0.05, 0.25, 1.5, 4, 1.234])
+    check('cores: two decimals, three under a tenth, never a false 0', cores,
+          ['0', '< 0.001', '0.005', '0.05', '0.25', '1.5', '4', '1.23'])
+    sizes = jq(defs + ' [ .[] | bytesIn(bytesUnit) ]',
+               [500, 1024, 1536, 512 * 2**20, 3276 * 2**20, 8 * 2**30, 1023.96 * 2**20, 3 * 2**40])
+    check('bytes: the largest binary unit that reads as 1 or more, one decimal', sizes,
+          ['500 B', '1 KiB', '1.5 KiB', '512 MiB', '3.2 GiB', '8 GiB', '1 GiB', '3 TiB'])
+
+
+@case('capacity: no quota')
+def _():
+    for label, quotas in (('no ResourceQuota', []),
+                          ("only another namespace's (the cluster-list collapse)", [quota('x', {'pods': '1'}, {'pods': '0'}, ns='team-b')])):
+        got = capacity(cap_out(quotas))
+        check(f'no quota, {label}: one sentence, no rows', (got['items'], got['rows'], got['note']),
+              (['dashboard-capacity-note', 'dashboard-capacity-over-time-label', 'dashboard-capacity-over-time'], None,
+               ('No quota limits this namespace.', 'secondary')))
+        check(f'no quota, {label}: Use over time still said', got['over'][1], OVER_TIME)
+    other = capacity(cap_out([quota('objects', {'services': '10', 'configmaps': '50'}, {'services': '2', 'configmaps': '9'})]))
+    check('a quota on none of the four: said, not "no quota"', other['note'],
+          ("No quota limits this namespace's pods, CPU, memory or volumes.", 'secondary'))
+
+
+@case('capacity: a failed read')
+def _():
+    status = {'kind': 'Status', 'apiVersion': 'v1', 'status': 'Failure', 'reason': 'Forbidden', 'code': 403,
+              'message': 'resourcequotas is forbidden: User "cyberjoker" cannot list resource "resourcequotas" in API group "" in the namespace "team-a"'}
+    BARE = 'Get "https://10.0.0.1/api/v1/namespaces/team-a/resourcequotas": dial tcp 10.0.0.1:443: i/o timeout'
+    for label, err, want in (
+            ('refused (the apiserver Status)', [status], 'The quota could not be read: forbidden (HTTP 403).'),
+            ('a non-2xx envelope: the code, never the body', [{'code': 502, 'message': '<html><body>Bad gateway ' + 'x' * 2000}],
+             'The quota could not be read: HTTP 502.'),
+            ('a bare message: its first line, short', [BARE + '\n' + 'y' * 500],
+             'The quota could not be read: ' + BARE[:79] + '….')):
+        out = cap_out(None, errors={'quotasError': err})
+        got = capacity(out)
+        check(f'failed, {label}: the reason, as a warning, no rows', (got['note'], got['rows']), ((want, 'warning'), None))
+        check(f'failed, {label}: never "no quota"', out['capacity']['state'], 'failed')
+    # A read that recorded an error AND served a list (an iterator that half-failed) is still failed.
+    half = cap_out([quota('compute', {'pods': '10'}, {'pods': '1'})], errors={'quotasError': [status]})
+    got = capacity(half)
+    check('failed with a partial answer: still failed, no rows', (got['note'], got['rows']),
+          (('The quota could not be read: forbidden (HTTP 403).', 'warning'), None))
+
+
+@case('capacity: zero or several namespaces, no card')
+def _():
+    for label, extras in (('no scope', {}), ('an empty scope', {'projects': ''}), ('two namespaces', {'projects': 'team-a,team-b'}),
+                          ('one namespace and a trailing comma', {'projects': 'team-a,'}), ('not a namespace name', {'projects': 'Team_A'})):
+        out = inbox(extras=extras, raw={'quotas': {'items': [quota('compute', {'pods': '10'}, {'pods': '1'})]}})
+        check(f'{label}: no capacity, no card', (out['capacity'], 'dashboard-capacity' in page(out)['body']), (None, False))
 
 
 # --- 11. the widgets against the CRDs ------------------------------------------------------------------------
@@ -723,7 +943,11 @@ def crd_case(crds_dir):
         validate(f'authored {d["kind"]} {d["metadata"]["name"]}', d)
     outs = {'present': inbox(), 'quiet': inbox(raw=QUIET_RAW), 'filtered': inbox(extras={'source': 'incidents,nonsense'}),
             'failed': inbox(raw={'incidents': None}, errors={'incidentsError': ['forbidden']}),
-            'no gateway': inbox(raw={'routes': {'items': []}}), 'no pages': inbox(gates={g: False for g in GATES})}
+            'no gateway': inbox(raw={'routes': {'items': []}}), 'no pages': inbox(gates={g: False for g in GATES}),
+            'capacity rows': cap_out([quota('compute', {'pods': '10', 'requests.cpu': '4', 'requests.memory': '8Gi', 'persistentvolumeclaims': '5'},
+                                            {'pods': '3', 'requests.cpu': '1500m', 'requests.memory': '3Gi', 'persistentvolumeclaims': '2'})]),
+            'capacity none': cap_out([]),
+            'capacity failed': cap_out(None, errors={'quotasError': [{'kind': 'Status', 'reason': 'Forbidden', 'code': 403}]})}
     for case_name, out in outs.items():
         for d in widgets:
             if d['spec'].get('apiRef', {}).get('name') != 'dashboard-inbox':

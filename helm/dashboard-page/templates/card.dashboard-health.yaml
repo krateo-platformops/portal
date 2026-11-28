@@ -1,0 +1,69 @@
+{{/* HEALTH OF COMPOSITIONS (approved mockup C6, option A): OK, Warning, Critical, Unknown from each */}}
+{{/* composition's Ready verdict, counted by dashboard-inbox; paused shown apart in the header ("1 paused */}}
+{{/* · 94 in all"), never as a health state. Each tile opens the compositions list filtered to it. The */}}
+{{/* tiles' colour and border are the data's (frontend 1.8.93 highlight), their icons beside the title */}}
+{{/* and no frames (frontend 1.8.91 icon and tileVariant borderless): the card is their frame. Shown */}}
+{{/* only while the compositions source is in the caller's inbox and its read worked. */}}
+kind: Card
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-health
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    title: Health of compositions
+    titleVariant: eyebrow
+    variant: outlined
+    extra: ""
+    allowedResources:
+    - listies
+    items:
+    - resourceRefId: dashboard-health-tiles
+  widgetDataTemplate:
+  - forPath: extra
+    expression: '${ .health.summary // "" }'
+  resourcesRefs:
+    items:
+    - id: dashboard-health-tiles
+      apiVersion: widgets.templates.krateo.io/v1beta1
+      name: dashboard-health-tiles
+      namespace: {{ $.Values.namespace }}
+      resource: listies
+      verb: GET
+---
+kind: Listy
+apiVersion: widgets.templates.krateo.io/v1beta1
+metadata:
+  name: dashboard-health-tiles
+  namespace: {{ $.Values.namespace }}
+  annotations:
+    "krateo.io/verbose": "true"
+spec:
+  keyExtras: [projects, source]
+  apiRef:
+    name: dashboard-inbox
+    namespace: {{ $.Values.namespace }}
+  widgetData:
+    itemTemplate:
+      rowVariant: statistic
+      tileVariant: borderless
+      icon: '{icon}'
+      primaryText: '{title}'
+      secondaryText: '{value}'
+      subPrimaryText: '{caption}'
+      navigateTo: '{route}'
+      color:
+        value: '{color}'
+      highlight: '{highlight}'
+    dataSource: []
+  widgetDataTemplate:
+  - forPath: dataSource
+    expression: '${ .health.tiles // [] }'
+  resourcesRefs:
+    items: []

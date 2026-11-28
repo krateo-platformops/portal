@@ -135,6 +135,7 @@ spec:
   filter: >
     {{- include "portal.facets" . | nindent 4 }}
     {{- include "portal.readyReasonDefs" . | nindent 4 }}
+    {{- include "portal.tileDefs" . | nindent 4 }}
     def errmsg: (if type == "array" then .[0] else . end) | if type == "object" then (.message // .reason // tojson) elif type == "string" then . else tojson end;
     def cap($n): if length > $n then (.[0:($n - 1)] + "…") else . end;
     def nn($k; $one; $many): ($k | tostring) + " " + (if $k == 1 then $one else $many end);
@@ -277,7 +278,11 @@ spec:
                   { title: "Drift", v: $stateCounts.drift, caption: "Synced=False", tone: "drift" },
                   { title: "Paused", v: $stateCounts.paused, caption: "ReconcilePaused", tone: "paused" },
                   { title: "Ready", v: $stateCounts.healthy, caption: nn($base | map(select(.railState == "healthy") | .kind) | unique | length; "kind"; "kinds"), tone: "healthy" } ]
-               | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else { title, value: (.v | tostring), caption, tone, route: go(.tone; $tableView) } end)),
+               | map(if $failed then { title, value: "", caption: "could not be read", tone: "unread", route: "" } else { title, value: (.v | tostring), caption, tone, route: go(.tone; $tableView) } end)
+               {{- /* Colour marks an exception (portal.tileDefs): NotReady, Degraded, Drift and
+                    Paused (all four count toward Needs attention, isAttention) in their colour and
+                    highlighted above 0 only; Ready is neutral. */}}
+               | map(tilePaint({ failed: "red", degraded: "red", drift: "orange", paused: "gray" }; {}))),
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($stateCounts[$k] // 0) > 0 or any($statusSel[]; . == $k)))
                      | map({ key: ., label: $stateNames[.], count: ($stateCounts[.] // 0), active: (if . == "all" then $status == "all" else ($statusSel == [.]) end), route: go(.; $tableView) })),

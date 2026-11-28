@@ -214,9 +214,9 @@ def check_figures():
     expect(f, 'portal figures', stats, {'Publish failed': ('1', 'failed'), 'Needs a step': ('0', 'action'), 'Change request open': ('2', 'review'),
                                         'Drafts': ('2', 'draft'), 'Merged': ('1', 'merged')})
     look = {s['title']: (s['color'], s['highlight']) for s in out['stats']}
-    expect(f, 'colour and highlight are the data\'s: a zero is grey, only a non-zero alarm stands out', look,
-           {'Publish failed': ('red', True), 'Needs a step': ('gray', False), 'Change request open': ('blue', False),
-            'Drafts': ('gray', False), 'Merged': ('gray', False)})
+    expect(f, 'colour and highlight are the data\'s: only a non-zero alarm is coloured and stands out', look,
+           {'Publish failed': ('red', True), 'Needs a step': ('', False), 'Change request open': ('', False),
+            'Drafts': ('', False), 'Merged': ('', False)})
     cap = {s['title']: s['caption'] for s in out['stats']}
     expect(f, 'oldest open', cap['Change request open'], 'oldest open 12 days')
     expect(f, 'merged in the range', cap['Merged'], '1 merged in the last 30 days')

@@ -74,6 +74,12 @@ spec:
       expression: '${ .schemaSpec }'
     - forPath: propertiesToHide
       expression: '${ .propertiesToHide }'
+    {{/* The services with telemetry in the last hour, offered on `where` without closing it: an */}}
+    {{/* expression nobody catalogued still submits (portal#228). Built by alert-formdef. The */}}
+    {{/* Form reads `suggestions` from frontend 1.8.18; the CRD declares it from frontend-crds */}}
+    {{/* 1.8.21 (the chart floor is higher). Defaulted because the CRD refuses null. */}}
+    - forPath: suggestions
+      expression: '${ .suggestions // [] }'
     {{/* Resume: a saved draft (+ the __owner key) pre-fills the form. Form merges these over schema */}}
     {{/* defaults; __owner has no schema field so it stays unrendered. */}}
     - forPath: initialValues

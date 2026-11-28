@@ -11,6 +11,12 @@ Synced=False is "we cannot observe it"; the same reason with Synced=TRUE is a co
 provider finished Observe and never set Ready — for which the runtime records a Warning event whose
 reason is verbatim `ReadyNotSetAfterObserve`.
 
+A child's state is core-provider's verdict for it (classifyChildEval, childhealth.go): a group rule,
+not a list of kinds. In a native group only the kinds that carry readiness are judged (apps workloads,
+Job, CronJob, Pod, PVC, CRD) and every other native kind is healthy by existence; a custom resource is
+read only through a Ready condition (or a documented kind's own), else it has no readiness. So the
+page's "N of M healthy" is the count the composition's own Ready verdict was made from.
+
 THE ASSERTION THAT CANNOT BE REPLACED BY A COMMENT: every state the RA can emit must appear in the
 relations list's colour map. A state missing from it falls through to the raw state string as a
 palette colour NAME, and getColorCode returns near-black for a name it does not know — so the row
@@ -75,15 +81,24 @@ def conds(*triples):
 
 # One managed child, fetched, with these conditions. The shapes mirror what the upstream stages
 # project: `found[]` carries the managed entry, `resources` the fetched object.
-def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps', grp=None, phase=''):
+def payload(conditions, getpath='/api/v1/namespaces/ns/configmaps/c', kind='configmaps', grp=None, phase='', **live):
     grp, rns = ('apiextensions.k8s.io', '') if kind == 'customresourcedefinitions' else (grp or 'core', 'ns')
     return {
         'found': [{'_cn': 'comp', '_cns': 'ns', '_rns': rns, '_name': 'c', '_kind': kind,
                    '_grp': grp, '_ver': 'v1', '_cluster': rns == '', '_getpath': getpath,
                    '_wh': True, '_whMsg': ''}],
-        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions, 'phase': phase}],
+        # `live` is the rest of what the resources step projects (gen, ogen, counts).
+        'resources': [{'rname': 'c', 'rns': rns, 'rkind': 'ConfigMap', 'conditions': conditions, 'phase': phase, **live}],
         'name': 'comp', 'namespace': 'ns',
     }
+
+
+# The condition cases below are read off a KRATEO custom resource (a rest-dynamic-controller kind),
+# because core-provider reads conditions only there and on a third-party CR: a ConfigMap carrying a
+# Ready=False is healthy by existence (native group), so these cases used to test a reading that the
+# controller never makes.
+KRATEO_KIND, KRATEO_GRP = 'repoes', 'github.ogen.krateo.io'
+KRATEO_PATH = f'/apis/{KRATEO_GRP}/v1alpha1/namespaces/ns/{KRATEO_KIND}/c'
 
 
 CASES = [
@@ -115,13 +130,33 @@ CASES = [
      conds(('Ready', 'False', 'DriftNotConverging'),), 'terminal', 'DriftNotConverging'),
     ('Ready=False/AuthorizationDenied',
      conds(('Ready', 'False', 'AuthorizationDenied'),), 'terminal', 'AuthorizationDenied'),
-    # The set is OPEN: a Ready=False reason nothing here lists must stay a failure rather than
-    # become progress. That direction is the safe one and it is asserted, not assumed.
+    # A Ready=False reason core-provider's krateoEval does not list as a failure is CONVERGING there
+    # (its `default` arm, childhealth.go:1403), so it is here, labelled with the reason verbatim. It
+    # used to be "failed", which put a Ready=False/Creating child Composition in the problems list
+    # while its parent's own verdict said Creating.
     ('Ready=False/SomeNewReason',
-     conds(('Ready', 'False', 'SomeNewReason2028'),), 'failed', 'NotReady'),
+     conds(('Ready', 'False', 'SomeNewReason2028'),), 'converging', 'SomeNewReason2028'),
+    ('Ready=False/Creating (a child Composition)',
+     conds(('Ready', 'False', 'Creating'),), 'converging', 'Creating'),
+    # A timer-bounded helm operation reads Pending (portal.readyReasonDefs, Diego 2026-11-15).
+    ('Ready=False/HelmOperationInProgress',
+     conds(('Ready', 'False', 'HelmOperationInProgress'),), 'converging', 'Pending'),
+    ('Ready=False/Unavailable', conds(('Ready', 'False', 'Unavailable'),), 'failed', 'NotReady'),
+    ('Ready=Unknown/Unavailable', conds(('Ready', 'Unknown', 'Unavailable'),), 'failed', 'NotReady'),
+    ('Ready=False/CreateWithheldByPolicy', conds(('Ready', 'False', 'CreateWithheldByPolicy'),), 'failed', 'NotReady'),
+    ('Ready=False/InstallFailing', conds(('Ready', 'False', 'InstallFailing'),), 'failed', 'NotReady'),
+    # Ready=True/AssumedUpToDate is ASSERTED, not observed (oasgen-provider#709): unevaluated there,
+    # so no readiness here — not healthy.
+    ('Ready=True/AssumedUpToDate', conds(('Ready', 'True', 'AssumedUpToDate'),), 'noReadiness', 'AssumedUpToDate'),
+    # Resting at Ready=False is the child's declared design (#498): healthy there, healthy here.
+    ('Ready=False/TerminalByDesign', conds(('Ready', 'False', 'TerminalByDesign'),), 'healthy', 'TerminalByDesign'),
+    # A child Composition that could judge none of its own children: unevaluated (noEvidenceBelow).
+    ('Ready=Unknown/ZeroEvidence', conds(('Ready', 'Unknown', 'ZeroEvidence'),), 'noReadiness', 'ZeroEvidence'),
     # Conditions, but none that says ready for a kind with no readiness model: honest, not pending.
     ('no Ready/Available among conditions',
      conds(('Complete', 'True', ''),), 'noReadiness', 'NoReadyCondition'),
+    # Only Ready is read on a custom resource. Available is not core-provider's reading of a CR.
+    ('Available=True, no Ready', conds(('Available', 'True', ''),), 'noReadiness', 'NoReadyCondition'),
 ]
 
 # EXISTING IS NOT BEING HEALTHY (portal#230): with no conditions, only a kind whose existence is
@@ -133,9 +168,21 @@ PRESENCE_CASES = [
     ('a custom resource with no conditions and no phase', 'widgets', 'example.io', '', 'noReadiness', 'NoReadyCondition', 50),
     ('a Bound PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Bound', 'healthy', 'Bound', 100),
     ('an Active Namespace', 'namespaces', 'core', 'Active', 'healthy', 'Healthy', 100),
-    ('a Terminating Namespace', 'namespaces', 'core', 'Terminating', 'converging', 'Terminating', 50),
+    # core-provider never reads a Namespace: native and not judged, so healthy by existence,
+    # Terminating included (it used to be "converging" here).
+    ('a Terminating Namespace', 'namespaces', 'core', 'Terminating', 'healthy', 'Healthy', 100),
     ('a Pending PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Pending', 'converging', 'Pending', 50),
     ('a Lost PersistentVolumeClaim', 'persistentvolumeclaims', 'core', 'Lost', 'failed', 'Lost', 20),
+    # pvcReady: a phase not yet written is healthy, fail-safe (it used to be "converging" here).
+    ('a PersistentVolumeClaim with no phase yet', 'persistentvolumeclaims', 'core', '', 'healthy', 'Healthy', 100),
+    # THE GROUP RULE (isNativeGroup): a native kind no list here names is healthy by existence. Each of
+    # these read "noReadiness" before, because it was not on the presence list.
+    ('an HPA (autoscaling)', 'horizontalpodautoscalers', 'autoscaling', '', 'healthy', 'Healthy', 100),
+    ('a PDB (policy)', 'poddisruptionbudgets', 'policy', '', 'healthy', 'Healthy', 100),
+    ('a Lease (coordination.k8s.io)', 'leases', 'coordination.k8s.io', '', 'healthy', 'Healthy', 100),
+    ('a ControllerRevision (apps, unjudged)', 'controllerrevisions', 'apps', '', 'healthy', 'Healthy', 100),
+    ('a CronJob (batch)', 'cronjobs', 'batch', '', 'healthy', 'Healthy', 100),
+    ('a legacy extensions kind', 'ingresses', 'extensions', '', 'healthy', 'Healthy', 100),
 ]
 
 # A CRD child: readiness is Established/NamesAccepted, never Ready (krateo-057 authn-crd showed
@@ -165,11 +212,11 @@ def check(label, got, want):
 docs = render()
 prog = named(docs, 'composition-resources')['spec']['filter']
 
-ALL = [(l, c, s, lb, 'configmaps', '/api/v1/namespaces/ns/configmaps/c') for l, c, s, lb in CASES] + \
-      [(l, c, s, lb, 'customresourcedefinitions', CRD) for l, c, s, lb in CRD_CASES]
+ALL = [(l, c, s, lb, KRATEO_KIND, KRATEO_GRP, KRATEO_PATH) for l, c, s, lb in CASES] + \
+      [(l, c, s, lb, 'customresourcedefinitions', None, CRD) for l, c, s, lb in CRD_CASES]
 
-for label, conditions, want_state, want_label, kind, getpath in ALL:
-    out = jq(prog, payload(conditions, getpath=getpath, kind=kind))
+for label, conditions, want_state, want_label, kind, grp, getpath in ALL:
+    out = jq(prog, payload(conditions, getpath=getpath, kind=kind, grp=grp))
     rows = out['resources']
     check(f'{label}: one row', len(rows), 1)
     if not rows:
@@ -178,11 +225,18 @@ for label, conditions, want_state, want_label, kind, getpath in ALL:
     check(f'{label}: stateLabel', rows[0]['stateLabel'], want_label)
     # THE PARTITION. Every checked row belongs to exactly one counted bucket; a state added later
     # must not land in an existing one silently, which is how Ready=Unknown became "pending".
-    buckets = ['healthyCount', 'driftCount', 'failedCount', 'pendingCount',
+    # healthyCount is core-provider's count and so INCLUDES the drifted rows; driftCount is the
+    # display count of those same rows. Every other display state has its own bucket.
+    buckets = ['healthyCount', 'failedCount', 'pendingCount',
                'notObservedCount', 'readyNotSetCount', 'unknownCount',
                'terminalCount', 'convergingCount', 'noReadinessCount', 'notFoundCount']
     summed = sum(out.get(b, 0) for b in buckets)
     check(f'{label}: counts sum to total', summed, out['total'])
+    # THE BOUNDARY. The portal's finer states sit inside core-provider's buckets: none of these may
+    # be counted healthy or without readiness, so a later change cannot move one across silently.
+    if want_state in ('notObserved', 'readyNotSet', 'unknown', 'terminal'):
+        check(f'{label}: {want_state} crosses neither the healthy nor the noReadiness boundary',
+              (out['healthyCount'], out['noReadinessCount'], rows[0].get('countedAs')), (0, 0, want_state))
 
 for label, kind, grp, phase, want_state, want_label, want_pct in PRESENCE_CASES:
     out = jq(prog, payload([], getpath=f'/apis/{grp}/v1/namespaces/ns/{kind}/c', kind=kind, grp=grp, phase=phase))
@@ -193,15 +247,196 @@ out = jq(prog, payload([], getpath='/apis/mongodbcommunity.mongodb.com/v1/namesp
                        kind='mongodbcommunity', grp='mongodbcommunity.mongodb.com', phase='Failed'))
 check('a failed conditionless custom resource: not healthy, not converged', (out['healthyCount'], out['converged']), (0, False))
 
+# ---------------------------------------------------------------------------------------------
+# core-provider's classifyChildEval, kind by kind (childhealth.go:832-879). Each case is the child
+# as it is fetched — conditions, phase and the counts the resources step projects — and the state
+# the controller's own rollup gives it. (label, kind, group, conditions, phase, live, state, label)
+BUSY = conds(('AbleToScale', 'True', 'ReadyForNewScale'), ('ScalingActive', 'False', 'FailedGetResourceMetric'))
+GROUP_CASES = [
+    # A native kind's conditions are NOT read: healthy by existence whatever they say.
+    ('an HPA whose metrics fail', 'horizontalpodautoscalers', 'autoscaling', BUSY, '', {}, 'healthy', 'Healthy'),
+    ('a PDB with no disruption allowed', 'poddisruptionbudgets', 'policy',
+     conds(('DisruptionAllowed', 'False', 'InsufficientPods'),), '', {}, 'healthy', 'Healthy'),
+    ('an APIService Available=False', 'apiservices', 'apiregistration.k8s.io',
+     conds(('Available', 'False', 'MissingEndpoints'),), '', {}, 'healthy', 'Healthy'),
+    ('a Namespace Terminating with conditions', 'namespaces', 'core',
+     conds(('NamespaceDeletionContentFailure', 'False', 'ContentDeleted'),), 'Terminating', {}, 'healthy', 'Healthy'),
+    ('a ConfigMap carrying a Ready=False', 'configmaps', 'core', conds(('Ready', 'False', 'Unavailable'),), '', {}, 'healthy', 'Healthy'),
+    ('a ConfigMap, plain', 'configmaps', 'core', [], '', {}, 'healthy', 'Healthy'),
+    # workloadReady (:1438-1456): replica counts, never failed; spec.replicas defaults to 1.
+    ('a Deployment 2 of 2 ready', 'deployments', 'apps', conds(('Available', 'True', 'MinimumReplicasAvailable'),), '',
+     {'counts': {'replicas': 2, 'readyReplicas': 2}}, 'healthy', 'Healthy'),
+    ('a Deployment 0 of 1 ready, Available=False', 'deployments', 'apps', conds(('Available', 'False', 'MinimumReplicasUnavailable'),), '',
+     {'counts': {'replicas': 1, 'readyReplicas': None, 'unavailableReplicas': 1}}, 'converging', 'NotReady'),
+    ('a Deployment with replicas unset and none ready', 'deployments', 'apps', [], '', {'counts': {}}, 'converging', 'NotReady'),
+    ('a Deployment scaled to 0', 'deployments', 'apps', [], '', {'counts': {'replicas': 0}}, 'healthy', 'Healthy'),
+    ('a StatefulSet 3 of 3, 1 unavailable', 'statefulsets', 'apps', [], '',
+     {'counts': {'replicas': 3, 'readyReplicas': 3, 'unavailableReplicas': 1}}, 'converging', 'NotReady'),
+    ('a DaemonSet on every node', 'daemonsets', 'apps', [], '',
+     {'counts': {'desiredNumberScheduled': 3, 'numberReady': 3, 'numberUnavailable': 0}}, 'healthy', 'Healthy'),
+    ('a DaemonSet short of a node', 'daemonsets', 'apps', [], '',
+     {'counts': {'desiredNumberScheduled': 3, 'numberReady': 2, 'numberUnavailable': 1}}, 'converging', 'NotReady'),
+    # jobReady (:1498-1507).
+    ('a Job that succeeded', 'jobs', 'batch', conds(('Complete', 'True', 'CompletionsReached'),), '',
+     {'counts': {'succeeded': 1, 'backoffLimit': 6}}, 'healthy', 'Healthy'),
+    ('a Job past its backoffLimit', 'jobs', 'batch', conds(('Failed', 'True', 'BackoffLimitExceeded'),), '',
+     {'counts': {'failed': 7, 'backoffLimit': 6}}, 'failed', 'BackoffLimitExceeded'),
+    ('a Job still running', 'jobs', 'batch', [], '', {'counts': {'failed': 1, 'backoffLimit': 6}}, 'converging', 'Running'),
+    # podReady (:999-1016).
+    ('a Pod that Succeeded', 'pods', 'core', conds(('Ready', 'False', 'PodCompleted'),), 'Succeeded', {}, 'healthy', 'Healthy'),
+    ('a Pod that Failed', 'pods', 'core', conds(('Ready', 'False', 'PodFailed'),), 'Failed', {}, 'failed', 'Failed'),
+    ('a Running Pod, Ready', 'pods', 'core', conds(('Ready', 'True', ''),), 'Running', {}, 'healthy', 'Healthy'),
+    ('a Running Pod failing its probe', 'pods', 'core', conds(('Ready', 'False', 'ContainersNotReady'),), 'Running', {}, 'converging', 'NotReady'),
+    ('a Pending Pod', 'pods', 'core', conds(('PodScheduled', 'False', 'Unschedulable'),), 'Pending', {}, 'converging', 'Pending'),
+    # pvcReady reads the phase even when the claim carries conditions (a resize).
+    ('a Bound PVC mid-resize', 'persistentvolumeclaims', 'core', conds(('Resizing', 'True', ''),), 'Bound', {}, 'healthy', 'Bound'),
+    # thirdPartyEval (:904-949): a current Ready, or a documented kind's own condition; nothing else.
+    ('a CR in an undocumented shape (Synced only)', 'widgets', 'example.io', conds(('Synced', 'True', 'ReconcileSuccess'),), '', {}, 'noReadiness', 'NoReadyCondition'),
+    ('a CR with only Available', 'widgets', 'example.io', conds(('Available', 'True', ''),), '', {}, 'noReadiness', 'NoReadyCondition'),
+    ('a CR Ready=True', 'clusters', 'postgresql.cnpg.io', conds(('Ready', 'True', 'ClusterIsReady'),), '', {}, 'healthy', 'Healthy'),
+    # Not failed: a third party's reasons are its own vocabulary.
+    ('a CR Ready=False', 'clusters', 'postgresql.cnpg.io', conds(('Ready', 'False', 'ClusterIsNotReady'),), '', {}, 'converging', 'ClusterIsNotReady'),
+    ('a CR Ready=True for an older generation', 'clusters', 'postgresql.cnpg.io',
+     [{'type': 'Ready', 'status': 'True', 'reason': 'ClusterIsReady', 'observedGeneration': 3}], '', {'gen': 4}, 'converging', 'Updating'),
+    ('a CR Ready=True, status.observedGeneration behind', 'keycloaks', 'k8s.keycloak.org',
+     conds(('Ready', 'True', '')), '', {'gen': 2, 'ogen': 1}, 'converging', 'Updating'),
+    ('a CR Ready=True, current', 'keycloaks', 'k8s.keycloak.org', conds(('Ready', 'True', '')), '', {'gen': 2, 'ogen': 2}, 'healthy', 'Healthy'),
+    ('a kagent ModelConfig Accepted', 'modelconfigs', 'kagent.dev', conds(('Accepted', 'True', 'ModelConfigReconciled'),), '', {}, 'healthy', 'Healthy'),
+    ('a kagent ModelConfig, refs unresolved', 'modelconfigs', 'kagent.dev',
+     conds(('Accepted', 'True', 'ModelConfigReconciled'), ('ResolvedRefs', 'False', 'SecretNotFound')), '', {}, 'converging', 'SecretNotFound'),
+    ('a kagent ModelConfig not Accepted', 'modelconfigs', 'kagent.dev',
+     conds(('Accepted', 'False', 'ModelConfigReconcileFailed'),), '', {}, 'converging', 'ModelConfigReconcileFailed'),
+    # `Accepted` is never read generically: in Gateway API, Accepted is not Programmed.
+    ('a Gateway API HTTPRoute Accepted', 'httproutes', 'gateway.networking.k8s.io',
+     conds(('Accepted', 'True', 'Accepted'),), '', {}, 'healthy', 'Healthy'),  # .k8s.io: native, by existence
+    ('another CR with only Accepted', 'agents', 'kagent.dev', conds(('Accepted', 'True', ''),), '', {}, 'noReadiness', 'NoReadyCondition'),
+]
+group_emitted = set()
+for label, kind, grp, c, phase, live, want_state, want_label in GROUP_CASES:
+    path = f'/apis/{grp}/v1/namespaces/ns/{kind}/c' if grp != 'core' else f'/api/v1/namespaces/ns/{kind}/c'
+    out = jq(prog, payload(c, getpath=path, kind=kind, grp=grp, phase=phase, **live))
+    row = out['resources'][0]
+    check(f'{label}: state, label', (row['state'], row['stateLabel']), (want_state, want_label))
+    group_emitted.add(row['state'])
+
+# core-provider's own table of a composition's Ready reasons and the verdict a PARENT's rollup gives
+# each (ready-reasons.yaml: the snapshot test-ready-reasons.py holds equal to core-provider's
+# docs/ready-reasons.md). A child Composition carrying each one lands in that verdict's bucket here.
+# The portal's finer states sit inside a bucket: `terminal` is a failure, `unknown` a Ready=Unknown
+# core-provider counts converging, notObserved/readyNotSet its unevaluated `notObserved` cause.
+VERDICT_STATES = {'healthy': {'healthy'}, 'failed': {'failed', 'terminal'}, 'converging': {'converging', 'unknown'},
+                  'unevaluated (rolls up as healthy)': {'noReadiness', 'notObserved', 'readyNotSet'}}
+with open(os.path.join(REPO, 'ready-reasons.yaml'), encoding='utf-8') as fh:
+    _table = yaml.safe_load(fh)['table']
+check('the ready-reasons snapshot is read', len(_table) > 0, True)
+for _row in _table:
+    _out = jq(prog, payload(conds(('Ready', _row['status'], _row['reason'])),
+                            getpath='/apis/composition.krateo.io/v1-2-0/namespaces/ns/portals/c',
+                            kind='portals', grp='composition.krateo.io'))
+    _state = _out['resources'][0]['state']
+    check(f'child Composition Ready={_row["status"]}/{_row["reason"]}: {_state} is core-provider\'s {_row["verdict"]}',
+          _state in VERDICT_STATES.get(_row['verdict'], set()), True)
+
+# DRIFT: counted as core-provider counts it (healthy), shown as what it is (Drift), and it keeps the
+# composition from reading converged ("All N resources match the desired state").
+out = jq(prog, payload(conds(('Ready', 'True', 'Available'), ('Synced', 'False', 'ReconcileError')),
+                       getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP))
+check('one drifting child: counted healthy, its row reads Drift, not converged',
+      (out['healthyCount'], out['driftCount'], out['total'], out['resources'][0]['state'],
+       out['resources'][0]['stateLabel'], out['resources'][0].get('countedAs'), out['converged']),
+      (1, 1, 1, 'drift', 'Drift', 'healthy', False))
+
+# CONTROLS for the two assertions above, run on mutated copies of the chart's own program: drift
+# counted by its display state, and a Ready=Unknown counted healthy, must each be caught.
+DRIFT_ARM = '{s: "drift", l: "Drift", c: "healthy"}'
+UNKNOWN_ARM = '{s: "unknown", l: "Unknown"}'
+check('the drift arm carries its count class (both CR arms)', prog.count(DRIFT_ARM), 2)
+check('the Ready=Unknown arm is there once', prog.count(UNKNOWN_ARM), 1)
+_drift_in = payload(conds(('Ready', 'True', 'Available'), ('Synced', 'False', 'ReconcileError')),
+                    getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP)
+_ctl = jq(prog.replace(DRIFT_ARM, '{s: "drift", l: "Drift"}'), _drift_in)
+check('control: drift counted by its display state is caught', _ctl['healthyCount'] == 1, False)
+_ctl = jq(prog.replace(UNKNOWN_ARM, '{s: "unknown", l: "Unknown", c: "healthy"}'),
+          payload(conds(('Ready', 'Unknown', '')), getpath=KRATEO_PATH, kind=KRATEO_KIND, grp=KRATEO_GRP))
+check('control: a Ready=Unknown counted healthy is caught', (_ctl['healthyCount'], _ctl['resources'][0].get('countedAs')) == (0, 'unknown'), False)
+
+# A CHILD BEING DELETED (core-provider#678, implemented here ahead of the controller): converging
+# "Terminating" for every class — unless the composition itself is being deleted, when the row keeps
+# the reading it has without the timestamp.
+DELETING = [
+    ('a deleting ConfigMap', 'configmaps', 'core', [], '', {}, ('healthy', 'Healthy')),
+    ('a deleting Namespace', 'namespaces', 'core', [], 'Terminating', {}, ('healthy', 'Healthy')),
+    ('a deleting Deployment', 'deployments', 'apps', [], '', {'counts': {'replicas': 1, 'readyReplicas': 1}}, ('healthy', 'Healthy')),
+    ('a deleting failed Pod', 'pods', 'core', [], 'Failed', {}, ('failed', 'Failed')),
+]
+for label, kind, grp, c, phase, live, without in DELETING:
+    path = f'/api/v1/namespaces/ns/{kind}/c' if grp == 'core' else f'/apis/{grp}/v1/namespaces/ns/{kind}/c'
+    p = payload(c, getpath=path, kind=kind, grp=grp, phase=phase, deletionTimestamp='2026-11-25T10:00:00Z', **live)
+    out = jq(prog, p)
+    row = out['resources'][0]
+    check(f'{label}: converging Terminating, not counted healthy',
+          (row['state'], row['stateLabel'], row.get('countedAs'), out['healthyCount'], out['convergingCount']),
+          ('converging', 'Terminating', 'converging', 0, 1))
+    p['found'][0]['_cdel'] = True
+    row = jq(prog, p)['resources'][0]
+    check(f'{label}, under a composition itself being deleted: unchanged', (row['state'], row['stateLabel']), without)
+    p['found'][0]['_cdel'] = False
+    del p['resources'][0]['deletionTimestamp']
+    row = jq(prog, p)['resources'][0]
+    check(f'{label}, without the timestamp: its class reading', (row['state'], row['stateLabel']), without)
+
+# THE HEADLINE. One composition with the children the issue names: the page's "N of M healthy" is
+# core-provider's count of healthy children, and its no-readiness count is the unevaluated one.
+MIXED = [
+    ('cm', 'configmaps', 'core', [], {}),
+    ('hpa', 'horizontalpodautoscalers', 'autoscaling', BUSY, {}),
+    ('pdb', 'poddisruptionbudgets', 'policy', conds(('DisruptionAllowed', 'True', 'SufficientPods'),), {}),
+    ('lease', 'leases', 'coordination.k8s.io', [], {}),
+    ('cr', 'widgets', 'example.io', conds(('Synced', 'True', 'ReconcileSuccess'),), {}),
+    ('crd', 'customresourcedefinitions', 'apiextensions.k8s.io',
+     conds(('NamesAccepted', 'True', 'NoConflicts'), ('Established', 'False', 'Installing')), {}),
+]
+mixed = {'found': [], 'resources': [], 'name': 'comp', 'namespace': 'ns'}
+for nm, kind, grp, c, live in MIXED:
+    rns = '' if kind == 'customresourcedefinitions' else 'ns'
+    path = (f'/apis/{grp}/v1/{kind}/{nm}' if rns == '' else
+            f'/api/v1/namespaces/ns/{kind}/{nm}' if grp == 'core' else f'/apis/{grp}/v1/namespaces/ns/{kind}/{nm}')
+    mixed['found'].append({'_cn': 'comp', '_cns': 'ns', '_rns': rns, '_name': nm, '_kind': kind, '_grp': grp, '_ver': 'v1',
+                           '_cluster': rns == '', '_getpath': path, '_wh': True, '_whMsg': ''})
+    mixed['resources'].append({'rname': nm, 'rns': rns, 'rkind': '', 'conditions': c, 'phase': '', **live})
+out = jq(prog, mixed)
+check('the mixed composition: healthy / no readiness / converging of total',
+      (out['healthyCount'], out['noReadinessCount'], out['convergingCount'], out['total']), (4, 1, 1, 6))
+
+# The resources step projects what those predicates read, off the object as fetched: the counts and
+# generations, and nothing that errors on a kind whose spec is not an object.
+res_prog = [_st for _st in named(docs, 'composition-resources')['spec']['api'] if _st['name'] == 'resources'][0]['filter']
+_deploy = {'metadata': {'name': 'd', 'namespace': 'ns', 'generation': 4},
+           'spec': {'replicas': 2, 'backoffLimit': None},
+           'status': {'readyReplicas': 1, 'unavailableReplicas': 1, 'observedGeneration': 3, 'conditions': []}}
+_odd = {'metadata': {'name': 'o', 'namespace': 'ns'}, 'spec': 'not-an-object', 'status': {}}
+_proj = jq(res_prog, {'resources': _deploy}) + jq(res_prog, {'resources': _odd})
+check('resources step: a Deployment counts and generations',
+      [(_p['rname'], _p.get('gen'), _p.get('ogen'), *[(_p.get('counts') or {}).get(k)
+        for k in ('replicas', 'readyReplicas', 'unavailableReplicas')]) for _p in _proj],
+      [('d', 4, 3, 2, 1, 1), ('o', 0, None, None, None, None)])
+
+# The RA names core-provider's function as the source of truth, beside the chain that ports it.
+with open(os.path.join(CHART, 'templates', 'restaction.composition-resources.yaml'), encoding='utf-8') as fh:
+    _src = fh.read()
+check('the RA names classifyChildEval as its source of truth', 'core-provider\'s classifyChildEval' in _src, True)
+check('the presence list is gone (the rule is by group)', '$presenceKind' in _src, False)
+
 # A state the chain can emit but nothing counts would pass every case above and still be wrong, so
 # the set of emitted states is compared against the colour map rather than enumerated by hand.
 emitted = set()
-for _, conditions, _, _, kind, getpath in ALL:
-    emitted.add(jq(prog, payload(conditions, getpath=getpath, kind=kind))['resources'][0]['state'])
+for _, conditions, _, _, kind, grp, getpath in ALL:
+    emitted.add(jq(prog, payload(conditions, getpath=getpath, kind=kind, grp=grp))['resources'][0]['state'])
 # `unread` (a Secret, refused by fetchablePath) and `pending` (managed but not fetched) are reachable
 # through inputs these fixtures do not build; they are in the map and in the chain, so they are
 # listed here rather than silently excluded.
 emitted |= {'unread', 'pending'}
+emitted |= group_emitted
 # `notFound` (managed, not fetched, and the apiserver said NotFound) is built by the NOT THERE cases
 # below; it is listed here so the maps are checked against it.
 emitted |= {'notFound'}
@@ -277,13 +512,15 @@ join_in = {
     ],
     'name': 'alerts-page', 'namespace': 'krateo-system',
 }
+# A joined Role/ClusterRole is healthy by existence whatever its conditions say (native group); an
+# unjoined one is "pending", so a joined row is still told from an unjoined one.
 WANT_JOIN = [
     # (name, row ns, state, navHref)
-    ('admins-read', 'krateo-alerts', 'failed', '/resources/krateo-alerts/rbac.authorization.k8s.io/v1/roles/admins-read'),
+    ('admins-read', 'krateo-alerts', 'healthy', '/resources/krateo-alerts/rbac.authorization.k8s.io/v1/roles/admins-read'),
     ('krateo-alerts', '', 'healthy', '/resources/cluster/core/v1/namespaces/krateo-alerts'),
     ('obs-alerts', 'krateo-alerts', 'healthy', '/resources/krateo-alerts/templates.krateo.io/v1/restactions/obs-alerts'),
     ('legacy', 'krateo-system', 'healthy', '/resources/krateo-system/core/v1/configmaps/legacy'),
-    ('shared', '', 'failed', '/resources/cluster/rbac.authorization.k8s.io/v1/clusterroles/shared'),
+    ('shared', '', 'healthy', '/resources/cluster/rbac.authorization.k8s.io/v1/clusterroles/shared'),
     # Not fetched: the same-named ClusterRole must not stand in for it.
     ('shared', 'krateo-alerts', 'pending', '/resources/krateo-alerts/rbac.authorization.k8s.io/v1/roles/shared'),
 ]
@@ -444,6 +681,20 @@ if '--pinned' in sys.argv[1:]:
         _tbi.RESOLVED.append(('authored list-composition-detail-relations', relations))
         failures.extend(f'pinned frontend-crds {_version}: {p}' for p in _tbi.validate_resolved(_pinned.unpack(_version)))
         print(f'relations widget checked against frontend-crds {_version} ({_why})')
+
+# The two upstream steps carry what the arm reads: the child's deletionTimestamp, the composition's own.
+check('resources step: deletionTimestamp passed through',
+      [_p.get('deletionTimestamp') for _p in jq([_st for _st in named(docs, 'composition-resources')['spec']['api'] if _st['name'] == 'resources'][0]['filter'], {'resources': {'metadata': {'name': 'd', 'deletionTimestamp': 'T'}}})],
+      ['T'])
+_found_del = {'found': {'items': [{'metadata': {'name': 'p', 'namespace': 'ns', 'deletionTimestamp': 'T'},
+                                   'status': {'managed': [{'path': '/api/v1/namespaces/ns/configmaps/c'}]}},
+                                  {'metadata': {'name': 'q', 'namespace': 'ns'},
+                                   'status': {'managed': [{'path': '/api/v1/namespaces/ns/configmaps/c'}]}}]}}
+check('found step: the composition being deleted is carried as _cdel',
+      [r.get('_cdel') for n in ('p', 'q') for r in jq(named(docs, 'composition-resources')['spec']['api'][1]['filter'], {**_found_del, 'extras': {'name': n, 'namespace': 'ns'}})],
+      [True, False])
+with open(os.path.join(CHART, 'templates', 'restaction.composition-resources.yaml'), encoding='utf-8') as fh:
+    check('the deletion arm names core-provider#678 as the disagreement', 'core-provider#678' in fh.read(), True)
 
 for f in failures:
     print(f'FAIL  {f}')
