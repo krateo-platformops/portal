@@ -14,12 +14,16 @@ what a reader would see:
   - a waiting request and a recorded reanalysis show in the incident's meta items;
   - a precondition or verify whose last run gave no verdict shows what the run printed
     (status.lastChecks.<script>.output); the apply step never does;
-  - the Flagged note offers the re-run;
+  - the Flagged note offers the re-run; a flagged Open or Verifying incident says "Precondition
+    flagged" in its header, as a note with the reason on hover, never as a pill beside the state,
+    and a Resolved or Closed one says nothing of it (audit INC-7);
   - an incident no model analyses (its alert is analysed by a person, or no analysis agent is
     installed) is information, never a failed analysis: no Re-run and no "Analyzed";
   - a Resolved or Closed incident names what ended it (status.resolution.by): the verify script, a
     person, or an automated close (alert-gone: its Alert was deleted; analysis-failed: the analysis
-    failed), and a value the page does not know yet reads as itself, never as "a person".
+    failed), and a value the page does not know yet reads as itself, never as "a person". A Resolved
+    incident whose header already says who resolved it and when has no Resolved item in its meta row
+    (audit INC-7: the time once); Closed keeps its item, as the header has no line for Closed.
 
 HOW. As test-incident-apply: helm/portal is rendered, incident-detail is resolved over fixtures shaped
 like krateo-057's Incidents, and the widgets are evaluated over its output.
@@ -48,7 +52,8 @@ expect, apply_overrides, ref_template = tpr.expect, tpr.apply_overrides, tpr.ref
 WIDGETS = (('Flex', 'incident-detail-actions'), ('Button', 'incident-detail-reanalyze'),
            ('Form', 'incident-reanalyze-form'),
            ('Markdown', 'incident-rem-step-md-0'), ('Markdown', 'incident-rem-step-md-1'),
-           ('Markdown', 'incident-rem-step-md-2'), ('Alert', 'incident-no-analysis'))
+           ('Markdown', 'incident-rem-step-md-2'), ('Alert', 'incident-no-analysis'),
+           ('PageHeader', 'incident-detail-page-header'))
 
 # As krateo-057 carries it (sre-probe-failing-20261011-224948): verify exits 2 on a jq parse error.
 JQ_ERROR = ('jq: error: Invalid escape at line 1, column 4 (while parsing \'"\\x"\') at <top-level>, line 1:\n'
@@ -220,8 +225,11 @@ def check_meta_items_show_the_reanalysis(chart):
 # status.resolution.by -> the meta item a reader sees. "Resolved" only for verify; everything else is
 # "Closed". The automated closes (incident-provider's alert-gone, alert-provider's analysis-failed)
 # must never read "by a person", and neither may a value the page has not been taught yet.
+# A Resolved incident the header names the resolver of (verify, user) has no item: None below.
 RESOLUTIONS = [
-    ('verify', 'Resolved', 'Resolved', '2026-10-21 10:00 UTC by the verify script'),
+    ('verify', 'Resolved', None, None),
+    ('user', 'Resolved', None, None),
+    ('budget-exceeded', 'Resolved', 'Closed', '2026-10-21 10:00 UTC (budget-exceeded)'),
     ('user', 'Closed', 'Closed', '2026-10-21 10:00 UTC by a person'),
     ('alert-gone', 'Closed', 'Closed', '2026-10-21 10:00 UTC automatically: its Alert was deleted'),
     ('analysis-failed', 'Closed', 'Closed', '2026-10-21 10:00 UTC automatically: the analysis failed'),
@@ -237,7 +245,11 @@ def check_meta_items_name_what_ended_it(chart):
         inc = incident(f'r-{by or "none"}', state=state)
         inc['status']['resolution'] = {'at': '2026-10-21T10:00:00Z'} if by is None else {'at': '2026-10-21T10:00:00Z', 'by': by}
         out, _ = resolve(chart, inc, f'resolution {by!r}')
-        expect(f, f'resolution.by={by!r}', out['metaItems'][-1], {'label': label, 'value': value})
+        if label is None:
+            expect(f, f'{state}, resolution.by={by!r}: the header says it, the meta row does not',
+                   [i['label'] for i in out['metaItems']], ['Started', 'Analyzed'])
+        else:
+            expect(f, f'{state}, resolution.by={by!r}', out['metaItems'][-1], {'label': label, 'value': value})
     inc = incident('r-open')
     out, _ = resolve(chart, inc, 'no resolution')
     expect(f, 'no resolution: no item', [i['label'] for i in out['metaItems']], ['Started'])
@@ -267,6 +279,17 @@ def check_flagged_note_offers_the_rerun(chart):
     if 'Apply the fix, re-run the analysis, or close the incident.' not in w['incident-rem-step-md-0']['markdown']:
         f.append('the Flagged note does not offer the re-run')
     expect(f, 'flagged: button', 'incident-detail-reanalyze' in actions(w), True)
+    note = {'text': 'Precondition flagged',
+            'tooltip': "Its first run already passed, so it can't see the problem, and it no longer runs. "
+                       'Apply the fix, re-run the analysis, or close the incident.'}
+    for state, want in (('Open', note), ('Verifying', note), ('Resolved', {'text': ''}), ('Closed', {'text': ''})):
+        out, w = resolve(chart, incident(f'fl-{state}', state=state, flagged=True,
+                                         last_checks={'precondition': {'exit': 0, 'since': '2026-10-20T10:46:00Z'}}), f'flagged {state}')
+        header = w['incident-detail-page-header']
+        expect(f, f'flagged, {state}: the header note', header.get('note'), want)
+        expect(f, f'flagged, {state}: the state pill alone', [t['label'] for t in header['tags']], [state])
+    out, w = resolve(chart, incident('fl-not'), 'not flagged')
+    expect(f, 'not flagged: an empty note, which draws nothing', w['incident-detail-page-header'].get('note'), {'text': ''})
     return f
 
 

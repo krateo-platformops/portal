@@ -14,7 +14,8 @@ incident per state and checks the line it emits:
   Open                     "Analyzed at" completedAt, not live
   Open, no model analyses  no line: analysed by a person (label observability.krateo.io/analysis=human)
                            or no analysis agent (AnalysisUnavailable=True); completedAt is not an analysis
-  Resolved                 "Resolved at" resolution.at, not live
+  Resolved                 "Resolved by the verify script at" / "Resolved by a person at" resolution.at,
+                           not live; "Resolved at" for a resolution.by it has no words for
   Closed / missing         no line
 A control: with the Analyzing branch forced off, the re-analysis case must fail.
 Another: ignoring ChecksUnknown must make the gave-up Verifying case tick again, and fail.
@@ -97,8 +98,15 @@ CASES = [
     ('Open, no analysis agent', incident('Open', completedAt='2026-11-24T12:00:00Z',
                                          conditions=[{'type': 'AnalysisUnavailable', 'status': 'True', 'reason': 'NoAnalysisAgent'}]),
      None),
+    # Who resolved it, in the header, so the meta row need not say it again (audit INC-7).
     ('Resolved', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
                           resolution={'at': '2026-11-21T12:21:24Z', 'by': 'verify'}),
+     {'label': 'Resolved by the verify script at', 'since': '2026-11-21T12:21:24Z', 'live': False}),
+    ('Resolved by a person', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
+                                      resolution={'at': '2026-11-21T12:21:24Z', 'by': 'user'}),
+     {'label': 'Resolved by a person at', 'since': '2026-11-21T12:21:24Z', 'live': False}),
+    ('Resolved, by a value with no words', incident('Resolved', completedAt='2026-11-21T12:11:19Z',
+                                                    resolution={'at': '2026-11-21T12:21:24Z', 'by': 'budget-exceeded'}),
      {'label': 'Resolved at', 'since': '2026-11-21T12:21:24Z', 'live': False}),
     ('Closed', incident('Closed', completedAt='2026-11-21T12:11:19Z'), None),
 ]
