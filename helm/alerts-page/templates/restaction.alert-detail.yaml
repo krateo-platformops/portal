@@ -55,10 +55,13 @@ spec:
   {{/* - what is compared follows the spec, as the CRD's rules decide the alert's type: a metric */}}
   {{/* (metricRef, aggregated, per groupBy series), a value read from rows (value), or a count of */}}
   {{/* the rows of source (logs when omitted; an empty where is every row). */}}
-  {{/* - "last checked" is status.stateObservedAt: set on every pass that reads the live state, so */}}
-  {{/* an old stamp is a provider that stopped evaluating, whatever Ready says. Shown as the page */}}
-  {{/* shows a time (utcstamp: the same normalisation as obs-alerts' stateSince), and left out when */}}
-  {{/* HyperDX holds no alert (the About card says nothing checks it) or the stamp is absent. */}}
+  {{/* - the state and when it began: "Firing since 2026-11-25 14:02 UTC", from status.stateSince (the */}}
+  {{/* same field obs-alerts reads: when .status.state last CHANGED, never moved by a re-read), in the */}}
+  {{/* state words the /alerts cards use (Firing, Pending, OK), as the page shows a time (utcstamp, */}}
+  {{/* the same normalisation as obs-alerts'). Left out when HyperDX holds no alert (the About card */}}
+  {{/* says nothing checks it), when stateSince is absent, empty or unparseable (an alert that fired */}}
+  {{/* before alert-provider 0.2.83: nothing stands in for it, not stateObservedAt and not now), and */}}
+  {{/* while the alert is paused (its state is frozen, no paused-since stamp exists to say so). */}}
   filter: >
     def utcstamp:
       if type != "string" or . == "" then ""
@@ -139,7 +142,7 @@ spec:
         displayName: $dn,
         where: ($sp.where // "all logs"),
         interval: ($sp.interval // ""),
-        # "Fires when the number of matching log lines over 5 minutes is at least 1 · last checked
+        # "Fires when the number of matching log lines over 5 minutes is at least 1 · Firing since
         # 2026-11-25 14:02 UTC". "" when the alert could not be read.
         subtitle: (if (.alert.metadata.name // "") == "" then ""
           else
@@ -162,11 +165,12 @@ spec:
                elif $op != null then $op + $t
                else $tt + " " + $t end) as $cmp
             | (($sp.consecutiveWindows // 1) | if . > 1 then ", " + tostring + " intervals in a row" else "" end) as $windows
-            | (if $haid == "" then "" else (($st.stateObservedAt // "") | utcstamp) end) as $checked
+            | ({ ALERT: "Firing", PENDING: "Pending", OK: "OK" }[$state]) as $word
+            | (if $haid == "" or $paused or $word == null then "" else (($st.stateSince // "") | utcstamp) end) as $since
             | "Fires when " + $subject
               + (if ($sp.interval // "") == "" then "" else " over " + ($sp.interval | span) end)
               + " is " + $cmp + $windows
-              + (if $checked == "" then "" else " · last checked " + $checked end)
+              + (if $since == "" then "" else " · " + $word + " since " + $since end)
           end),
         description: ($sp.description // ""),
         state: $state,

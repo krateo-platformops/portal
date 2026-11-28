@@ -234,8 +234,8 @@ def check_create_form_offers_services():
 
 
 def check_detail_subtitle():
-    """The alert page's header says the rule in words and when it was last checked: the threshold,
-    the interval and the last evaluation, which only the manifest showed (audit ALD-1)."""
+    """The alert page's header says the rule in words and the state with when it began: the threshold,
+    the interval and the state since, which only the manifest showed (audit ALD-1)."""
     f = []
     ra = CH.get('RESTAction', 'alert-detail')
     ex = {'name': 'x', 'namespace': 'krateo-system'}
@@ -247,37 +247,48 @@ def check_detail_subtitle():
         out = tbi.jq(ra['spec']['filter'], dict(ex, alert=a, incidents={'items': []}))
         return tbi.resolved_widget(CH, 'PageHeader', 'alert-detail-page-header', out, ex, 'detail header')['spec']['widgetData']['subtitle']
 
-    seen = {'stateObservedAt': '2026-11-25T14:02:31Z'}
+    seen = {'stateSince': '2026-11-25T14:02:31Z'}
     expect(f, 'log alert, every row', subtitle(status=seen),
-           'Fires when the number of log lines over 5 minutes is at least 1 · last checked 2026-11-25 14:02 UTC')
+           'Fires when the number of log lines over 5 minutes is at least 1 · OK since 2026-11-25 14:02 UTC')
     expect(f, 'log alert with a where; an offset stamp in UTC',
-           subtitle({'where': "ServiceName = 'api'"}, {'stateObservedAt': '2026-11-25T16:02:31.5+02:00'}),
-           'Fires when the number of matching log lines over 5 minutes is at least 1 · last checked 2026-11-25 14:02 UTC')
+           subtitle({'where': "ServiceName = 'api'"}, {'stateSince': '2026-11-25T16:02:31.5+02:00'}),
+           'Fires when the number of matching log lines over 5 minutes is at least 1 · OK since 2026-11-25 14:02 UTC')
     expect(f, 'traces, strictly more than, 1 hour',
            subtitle({'source': 'traces', 'where': "StatusCode = 'Error'", 'thresholdType': 'above_exclusive',
                      'threshold': 10, 'interval': '1h'}, seen),
-           'Fires when the number of matching spans over 1 hour is more than 10 · last checked 2026-11-25 14:02 UTC')
+           'Fires when the number of matching spans over 1 hour is more than 10 · OK since 2026-11-25 14:02 UTC')
     expect(f, 'grouped metric, consecutive intervals',
            subtitle({'metricRef': {'name': 'k8s-container-ready'}, 'aggregation': 'max', 'thresholdType': 'below',
                      'interval': '1m', 'groupBy': ['k8s.pod.name', 'k8s.container.name'], 'consecutiveWindows': 5}, seen),
            'Fires when the maximum of k8s-container-ready per k8s.pod.name, k8s.container.name over 1 minute'
-           ' is less than 1, 5 intervals in a row · last checked 2026-11-25 14:02 UTC')
+           ' is less than 1, 5 intervals in a row · OK since 2026-11-25 14:02 UTC')
     expect(f, 'ratio metric, a range',
            subtitle({'metricRef': {'name': 'http-requests'}, 'aggregation': 'sum', 'ratio': {'labels': {}},
                      'thresholdType': 'not_between', 'threshold': 0, 'thresholdMax': 0.01}, seen),
            'Fires when the sum of http-requests as a share over 5 minutes is outside 0 to 0.01'
-           ' · last checked 2026-11-25 14:02 UTC')
+           ' · OK since 2026-11-25 14:02 UTC')
     expect(f, 'value read from log rows, at most',
            subtitle({'value': 'toFloat64OrZero(Body)', 'aggregation': 'p95', 'where': 'x', 'thresholdType': 'below_or_equal',
                      'threshold': 2.5}, seen),
            'Fires when the 95th percentile of a value read from matching log lines over 5 minutes is at most 2.5'
-           ' · last checked 2026-11-25 14:02 UTC')
+           ' · OK since 2026-11-25 14:02 UTC')
     expect(f, 'between names both bounds', subtitle({'thresholdType': 'between', 'threshold': 1, 'thresholdMax': 3}),
            'Fires when the number of log lines over 5 minutes is between 1 and 3')
-    expect(f, 'never read: no "last checked"', subtitle(), 'Fires when the number of log lines over 5 minutes is at least 1')
-    expect(f, 'nothing evaluates it: no "last checked", whatever the stale stamp says',
+    expect(f, 'never read: no time part', subtitle(), 'Fires when the number of log lines over 5 minutes is at least 1')
+    expect(f, 'nothing evaluates it: no time part, whatever the stamp says',
            subtitle(status=seen, a=alert('x', 'OK', synced=False)),
            'Fires when the number of log lines over 5 minutes is at least 1')
+    since = {'stateSince': '2026-11-28T14:02:31Z'}
+    base = 'Fires when the number of log lines over 5 minutes is at least 1'
+    expect(f, 'firing, with stateSince', subtitle(status=dict(since, state='ALERT')), base + ' · Firing since 2026-11-28 14:02 UTC')
+    expect(f, 'pending, with stateSince', subtitle(status=dict(since, state='PENDING')), base + ' · Pending since 2026-11-28 14:02 UTC')
+    expect(f, 'OK, with stateSince', subtitle(status=since), base + ' · OK since 2026-11-28 14:02 UTC')
+    expect(f, 'stateSince empty: no time part', subtitle(status={'stateSince': ''}), base)
+    expect(f, 'stateObservedAt without stateSince: the old field is never used',
+           subtitle(status={'stateObservedAt': '2026-11-28T14:02:31Z', 'state': 'ALERT'}), base)
+    expect(f, 'paused: no time part (no paused-since stamp)',
+           subtitle(status=dict(since, state='ALERT'), a=alert('x', 'ALERT', paused=True)), base)
+    expect(f, 'no HyperDX alert: no time part', subtitle(status=dict(since, state='ALERT'), a=alert('x', 'ALERT', synced=False)), base)
     out = tbi.jq(ra['spec']['filter'], dict(ex, alertError=['forbidden'], incidents={'items': []}))
     expect(f, 'unreadable alert: no subtitle',
            tbi.resolved_widget(CH, 'PageHeader', 'alert-detail-page-header', out, ex, 'detail header')['spec']['widgetData']['subtitle'], '')
