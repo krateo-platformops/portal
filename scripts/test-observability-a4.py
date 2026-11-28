@@ -17,7 +17,7 @@ EACH LISTING TAB (Reconciliation, Telemetry, Components, Traces):
   - the search (?q=, case-insensitive, trimmed): the rows, the counts and the figures follow it;
     every route the tab builds carries it; nothing matching is said, "No <thing> matches "<q>"."
 RECONCILIATION (obs-reconciliation): the state is compositions-list's railState; Needs attention is
-NotReady, Degraded, Children unreadable, Drift and Paused; with reconcile tracing, a composition is
+NotReady, Degraded, Children unreadable and Drift (compositionNeedsAttention), never Paused; with reconcile tracing, a composition is
 dated from its reconcile spans (kind|ns|name, trace-only rows dropped) and Overdue when it has none
 in the window or none for 5 min; unreadable or empty traces date nothing and flag nothing; the
 full list's columns follow the data.
@@ -718,7 +718,8 @@ def check_traces(c):
 
 def check_recon_paused(on):
     """A paused composition (visual audit CMP-9): Paused, as on /compositions; never overdue, since
-    Krateo is not reconciling it on purpose; named apart in the bars ("1 paused"), neutral."""
+    Krateo is not reconciling it on purpose; named apart in the bars ("1 paused"), neutral; never
+    one that needs attention (Diego, 2026-11-25), in the count, the figure or the chip."""
     f = []
     paused = comp('Portal', 'krateo-system', 'held', '2026-09-01T10:00:00Z',
                   [cond('Ready', 'True', 'ReconcilePaused'), cond('Synced', 'False', 'ReconcilePaused')])
@@ -730,6 +731,27 @@ def check_recon_paused(on):
     kinds = wd(on, 'Listy', 'obs-by-kind-list', out)['dataSource']
     expect(f, 'by kind: named apart, neutral', [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] == 'Portal'],
            [('Portal', '2 · 1 paused', 'ok')])
+    expect(f, 'not one that needs attention: the count, the figure and its caption are as without it',
+           (out['counts']['attention'], out['counts']['paused'], [(s['value'], s['caption']) for s in out['stats'] if s['title'] == 'Needs attention']),
+           (3, 1, [('3', '1 NotReady · 1 Degraded · 1 Drift')]))
+    _, _, att = recon_out(on, {'status': 'attention'}, lists=lists)
+    expect(f, 'the Needs attention chip does not hold it', 'held' in [r['name'] for r in att['table']], False)
+    only = {FW: {'items': []}, PT: {'items': [paused]}}
+    _, _, out = recon_out(on, {'status': 'attention'}, lists=only)
+    expect(f, 'paused only: Needs attention 0, Paused 1, the chip empty and said calmly',
+           (out['counts']['attention'], out['counts']['paused'], out['matched'], out['emptyText'],
+            [s['caption'] for s in out['stats'] if s['title'] == 'Needs attention']),
+           (0, 1, 0, 'No composition needs attention. 1 paused composition is under the Paused chip.',
+            ['nothing NotReady, degraded, drifted or unreadable']))
+    expect(f, 'paused only: the Paused chip is there to point to', [(c['label'], c['count']) for c in out['chips'] if c['key'] == 'paused'], [('Paused', 1)])
+    held2 = comp('Portal', 'krateo-system', 'held-2', '2026-09-01T10:00:00Z',
+                 [cond('Ready', 'True', 'ReconcileGracefullyPaused'), cond('Synced', 'True', 'ReconcileSuccess')])
+    _, _, out = recon_out(on, {'status': 'attention'}, lists={FW: {'items': []}, PT: {'items': [paused, held2]}})
+    expect(f, 'two paused: counted in the empty text', out['emptyText'], 'No composition needs attention. 2 paused compositions are under the Paused chip.')
+    fine = comp('Portal', 'krateo-system', 'fine', '2026-09-01T10:00:00Z',
+                [cond('Ready', 'True', 'Available'), cond('Synced', 'True', 'ReconcileSuccess')])
+    _, _, out = recon_out(on, {'status': 'attention'}, lists={FW: {'items': []}, PT: {'items': [fine]}})
+    expect(f, 'none paused, none needing attention: the sentence alone', out['emptyText'], 'No composition needs attention.')
     return f
 
 

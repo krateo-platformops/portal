@@ -167,7 +167,7 @@ check('compositions: ?scope=platform -> said', prompt.startswith('Review my comp
 check('compositions: ?scope=platform -> the platform component listed', '1. Portal/portal · krateo-system — failed.' in prompt, True)
 _, prompt = ask(run_comps(q='site', status='all')['askHref'])
 check('compositions: nothing unhealthy -> no empty list', 'The ones that need attention are' in prompt, False)
-check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted, paused or unreadable.' in prompt, True)
+check('compositions: nothing unhealthy -> says so', 'None of them is failed, degraded, drifted or unreadable.' in prompt, True)
 check('compositions: ?status=all -> carried (Needs attention is the default)', ask(run_comps(status='all')['askHref'])[0], '/compositions?status=all')
 
 href, prompt = ask(run_comps(status='pending')['askHref'])
@@ -213,14 +213,15 @@ check('compositions header: Ask, then Create', items_of(named(cpage, 'PageHeader
 cards_prog = named(portal, 'RESTAction', 'blueprints-cards')['spec']['filter']
 
 
-def card(name, ns, state, reason='', category='blueprint'):
-    color = {'ready': 'green', 'failed': 'red', 'installing': 'orange', 'paused': 'gray', 'unobserved': 'gray'}[state]
+def card(name, ns, state, reason='', origin='added'):
+    color = {'ready': '', 'failed': 'red', 'installing': 'orange', 'paused': 'gray', 'unobserved': 'gray'}[state]
     return {'metadata': {'name': name, 'namespace': ns}, 'provisions': name.title(), 'readyState': state,
-            'readyColor': color, 'readyReason': reason, 'category': category, 'version': '1.0.0'}
+            'readyColor': color, 'readyReason': reason, 'origin': origin,
+            'originTag': 'Added' if origin == 'added' else '', 'version': '1.0.0'}
 
 
 CARDS = [card('web-app', 'krateo-system', 'ready'), card('redis', 'team-alpha', 'failed', 'ReconcileError'),
-         card('kafka', 'krateo-system', 'installing', category='platform')]
+         card('kafka', 'krateo-system', 'installing', origin='platform')]
 out = jq(cards_prog, {'compdefs': CARDS})
 check('blueprints: cards unchanged', [c['metadata']['name'] for c in out['cards']], ['kafka', 'redis', 'web-app'])
 href, prompt = ask(out['askHref'])
@@ -234,10 +235,10 @@ check('blueprints: paused and not-observed are counted apart, never as installin
       'Review the blueprints installed on this platform: 5 blueprints — 1 ready, 1 failing to reconcile '
       '(redis · team-alpha — ReconcileError), 1 still installing, 1 paused, 1 not observed by core-provider. '
       'Explain what the failing ones are stuck on and how to fix them.')
-href, prompt = ask(jq(cards_prog, {'compdefs': CARDS, 'category': 'platform', 'q': 'kaf'})['askHref'])
-check('blueprints: filtered -> keeps category and q', href, '/blueprints?category=platform&q=kaf')
+href, prompt = ask(jq(cards_prog, {'compdefs': CARDS, 'origin': 'platform', 'q': 'kaf'})['askHref'])
+check('blueprints: filtered -> keeps origin and q', href, '/blueprints?origin=platform&q=kaf')
 check('blueprints: filtered -> the filtered view', prompt,
-      'Review the blueprints installed on this platform (category platform; name or kind matching "kaf"): 1 blueprint — '
+      'Review the blueprints installed on this platform (origin Platform; name or kind matching "kaf"): 1 blueprint — '
       '0 ready, 0 failing to reconcile, 1 still installing. None is failing to reconcile. Tell me whether any still '
       'installing looks stuck, and what each blueprint lets me create.')
 _, prompt = ask(jq(cards_prog, {'compdefs': CARDS, 'projects': 'nowhere'})['askHref'])
@@ -250,11 +251,86 @@ _, prompt = ask(refused['askHref'])
 check('blueprints: refused -> asks about the error, not "none installed"', prompt,
       f'The blueprints on this platform could not be read ({ERR403[0]["message"]}). Explain what that error means and what to check.')
 bpage = render('blueprints-page')
+
+# --- /blueprints: where each blueprint came from (UX audit BP-3, approved mockup) -------------------
+# Platform: a composition created the definition (krateo.io/composition-kind), or its status.kind is
+# a kind that created others among the definitions read (the installer's own). Added: the rest.
+# Computed from labels and status, never from a list of names.
+stage_prog = named(portal, 'RESTAction', 'blueprints-cards')['spec']['api'][0]['filter']
+READY = [{'type': 'Ready', 'status': 'True', 'reason': 'Available'}, {'type': 'Synced', 'status': 'True', 'reason': 'ReconcileSuccess'}]
+FAILED = [{'type': 'Ready', 'status': 'False', 'reason': 'RemoteChartUnreachable', 'message': 'chart not found'},
+          {'type': 'Synced', 'status': 'True', 'reason': 'ReconcileSuccess'}]
+
+
+def cd(name, kind, labels=None, conditions=READY, ns='krateo-system'):
+    return {'apiVersion': 'core.krateo.io/v1alpha1', 'kind': 'CompositionDefinition',
+            'metadata': {'name': name, 'namespace': ns, 'labels': labels or {}},
+            'spec': {'chart': {'url': f'oci://ghcr.io/x/{name}', 'version': '0.1.0'}},
+            'status': {'kind': kind, 'conditions': conditions}}
+
+
+CDS = {'items': [cd('frontend', 'Frontend', {'krateo.io/composition-kind': 'Installer', 'krateo.io/tier': 'platform'}),
+                 cd('builder-publish', 'BuilderPublish', {'krateo.io/composition-kind': 'Portal'}),
+                 # The installer's own definition: no composition created it, but its kind created others.
+                 cd('installer', 'Installer', {'krateo.io/tier': 'platform'}),
+                 cd('acme-feedback', 'AcmeFeedback', conditions=FAILED, ns='team-alpha'),
+                 # A tier label alone is not an origin: nothing created it, and its kind created nothing.
+                 cd('rds-chart', 'RdsChart', {'krateo.io/tier': 'blueprint'})]}
+staged = {c['metadata']['name']: c for c in jq(stage_prog, {'compdefs': CDS})}
+check('origin: composition-kind label -> platform', [staged[n].get('origin') for n in ('frontend', 'builder-publish')], ['platform', 'platform'])
+check('origin: status.kind is a creator kind -> platform', staged['installer'].get('origin'), 'platform')
+check('origin: neither -> added', [staged[n].get('origin') for n in ('acme-feedback', 'rds-chart')], ['added', 'added'])
+check('origin: the tag says Added, and nothing for a platform one',
+      {n: c.get('originTag') for n, c in staged.items()},
+      {'frontend': '', 'builder-publish': '', 'installer': '', 'acme-feedback': 'Added', 'rds-chart': 'Added'})
+check('origin: no tier category left on the card', [k for k in ('category', 'tags') if k in staged['frontend']], [])
+check('mark: a Ready blueprint has none', (staged['frontend'].get('readyIcon'), staged['frontend'].get('readyColor'), staged['frontend'].get('readyState')),
+      ('', '', 'ready'))
+check('mark: a failed one keeps its glyph, colour and reason',
+      (staged['acme-feedback'].get('readyIcon'), staged['acme-feedback'].get('readyColor'), staged['acme-feedback'].get('readyReason')),
+      ('fa-circle-xmark', 'red', 'RemoteChartUnreachable · chart not found'))
+check('origin: a creator kind seen only on a definition the caller cannot list does not count',
+      jq(stage_prog, {'compdefs': {'items': [cd('installer', 'Installer')]}})[0].get('origin'), 'added')
+
+staged_list = list(staged.values())
+def chips(**extras):
+    return [(o['label'], o['count'], o['active'], o['route']) for o in jq(cards_prog, dict({'compdefs': staged_list}, **extras)).get('origins') or []]
+check('chips: All, Platform, Added with their counts', chips(),
+      [('All', 5, True, '/blueprints'), ('Platform', 3, False, '/blueprints?origin=platform'), ('Added', 2, False, '/blueprints?origin=added')])
+check('chips: ?origin=added -> active, counts unchanged', chips(origin='added'),
+      [('All', 5, False, '/blueprints'), ('Platform', 3, False, '/blueprints?origin=platform'), ('Added', 2, True, '/blueprints?origin=added')])
+# q=a keeps installer, acme-feedback and rds-chart (name or kind); both namespaces are in scope.
+check('chips: counts follow q and projects, routes keep them', chips(q='a', projects='team-alpha,krateo-system'),
+      [('All', 3, True, '/blueprints?q=a&projects=team-alpha%2Ckrateo-system'),
+       ('Platform', 1, False, '/blueprints?origin=platform&q=a&projects=team-alpha%2Ckrateo-system'),
+       ('Added', 2, False, '/blueprints?origin=added&q=a&projects=team-alpha%2Ckrateo-system')])
+check('filter: ?origin=added -> the added cards', [c['metadata']['name'] for c in jq(cards_prog, {'compdefs': staged_list, 'origin': 'added'})['cards']],
+      ['acme-feedback', 'rds-chart'])
+check('filter: ?origin=platform -> the platform cards', [c['metadata']['name'] for c in jq(cards_prog, {'compdefs': staged_list, 'origin': 'Platform'})['cards']],
+      ['builder-publish', 'frontend', 'installer'])
+old_link = jq(cards_prog, {'compdefs': staged_list, 'category': 'platform'})
+check('filter: an old ?category= link shows All', (len(old_link['cards']), [o['label'] for o in old_link.get('origins') or [] if o['active']]), (5, ['All']))
+check('filter: an unknown ?origin= shows All', len(jq(cards_prog, {'compdefs': staged_list, 'origin': 'observability'})['cards']), 5)
+check('ask: ?origin=added -> kept and said',
+      (ask(jq(cards_prog, {'compdefs': staged_list, 'origin': 'added'})['askHref'])[0],
+       ask(jq(cards_prog, {'compdefs': staged_list, 'origin': 'added'})['askHref'])[1].startswith('Review the blueprints installed on this platform (origin Added): 2 blueprints')),
+      ('/blueprints?origin=added', True))
 button_check('blueprints button', named(bpage, 'Button', 'blueprints-ask-agentiko'), out, 'askHref', '/blueprints')
 grid = [d for d in bpage if d.get('metadata', {}).get('name') == 'blueprints-grid' and d.get('kind') != 'RESTAction'][0]
 check('blueprints button: keyExtras = the grid\'s', named(bpage, 'Button', 'blueprints-ask-agentiko')['spec']['keyExtras'],
       grid['spec']['keyExtras'])
 check('blueprints header: the button alone', items_of(named(bpage, 'PageHeader', 'blueprints-page-header')), ['blueprints-ask-agentiko'])
+chipw = named(bpage, 'Listy', 'blueprints-category-chips')
+check('origin chips: read blueprints-cards', (chipw['spec'].get('apiRef', {}).get('name'), jq(expr_of(chipw, 'dataSource'), {'origins': [{'label': 'All', 'count': 2}]})),
+      ('blueprints-cards', [{'label': 'All', 'count': 2}]))
+check('origin chips: keyExtras = the grid\'s', chipw['spec']['keyExtras'], grid['spec']['keyExtras'])
+check('grid: keyExtras carry origin, not the retired category', ('origin' in grid['spec']['keyExtras'], 'category' in grid['spec']['keyExtras']), (True, False))
+tmpl = grid['spec']['widgetData']['itemTemplate']
+check('grid: one neutral tint, no tier map', tmpl['color'], {'default': 'gray'})
+check('grid: the tag is the origin tag', tmpl['secondaryText'], '{originTag}')
+row = jq(expr_of(grid, 'dataSource'), {'cards': [staged['acme-feedback'], staged['frontend']]})
+check('grid: the row carries the tag and the mark', [(r.get('name'), r.get('originTag'), r.get('readyIcon')) for r in row],
+      [('acme-feedback', 'Added', 'fa-circle-xmark'), ('frontend', '', '')])
 # UX review round 3: the card's Create is SECONDARY (the card click is the main path). Without
 # `type`, the frontend makes a card's first row action primary (rowActionButtonType).
 check('blueprints grid: Create is a secondary button',

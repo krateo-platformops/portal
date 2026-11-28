@@ -7,7 +7,8 @@ WHAT IT GUARDS:
   - a ReconcilePaused composition is Paused: its own state, never counted Ready or healthy (it
     reports Ready=True on purpose, and the old RA counted it healthy);
   - the state chips are the page's filter: Needs attention (NotReady, Degraded, Children unreadable,
-    Drift, Paused) by default, then each state some composition is in, in triage order, then All,
+    Drift; never Paused, Diego 2026-11-25) by default, then each state some composition is in, in
+    triage order, then All,
     each counted over the scope; ?status= keeps the old values (healthy, failed, degraded, drift,
     pending, unreadable, paused), any case, several, and `all`;
   - the five figures: NotReady, Degraded, Drift, Paused, Ready (in how many kinds), coloured only
@@ -20,14 +21,21 @@ WHAT IT GUARDS:
     the scope, the state and the view;
   - ?view=table keeps today's server-paged table, filtered; the view and scope chips keep every
     param; Ask Agentiko keeps every param and names the view;
-  - every widget of the page declares the page's filter keys.
+  - every widget of the page declares the page's filter keys;
+  - a paused composition never needs attention: not in Needs attention, its count, by kind,
+    needing attention longest or Ask Agentiko's list; with only paused ones the default list is
+    empty and its sentence points to the Paused chip, saying nothing is wrong;
+  - the attention set is written once, portal.compositionStateDefs' compositionNeedsAttention (and
+    its byte-identical copies): a second definition anywhere in helm/ fails.
 compositions-list lives in helm/portal; the widgets in helm/compositions-page.
 
 Usage: test-compositions-overview.py [--crds DIR]. JQ=gojq runs the same on snowplow's engine.
 """
 import datetime
+import glob
 import importlib.util
 import os
+import re
 import sys
 from urllib.parse import parse_qs
 
@@ -109,10 +117,10 @@ def check_state_chips():
     f = []
     out = resolve({})
     expect(f, 'no ?status: Needs attention, and the chips in triage order with their counts', chips(out),
-           [('Needs attention', 5, True), ('NotReady', 1, False), ('Degraded', 1, False), ('Children unreadable', 1, False),
+           [('Needs attention', 4, True), ('NotReady', 1, False), ('Degraded', 1, False), ('Children unreadable', 1, False),
             ('Drift', 1, False), ('Paused', 1, False), ('Unknown', 1, False), ('Pending', 1, False), ('Ready', 18, False), ('All', 25, False)])
-    expect(f, 'Needs attention holds the five attention states', sorted(i['name'] for i in out['filtered']),
-           ['acme', 'cache', 'locked', 'orders', 'web'])
+    expect(f, 'Needs attention holds the four attention states, not the paused one', sorted(i['name'] for i in out['filtered']),
+           ['cache', 'locked', 'orders', 'web'])
     expect(f, 'each chip keeps the scope and the view, Needs attention drops ?status',
            [c['route'] for c in resolve({'scope': 'all', 'view': 'table', 'projects': 'team-a'})['stateChips']][:2],
            ['/compositions?projects=team-a&scope=all&view=table', '/compositions?projects=team-a&scope=all&status=failed&view=table'])
@@ -156,7 +164,7 @@ def check_stats_and_empty():
            [('', False)] * 5)
     expect(f, 'quiet: the sentence in place of the cards', (items(w('Card', 'compositions-list-card', out)), w('Paragraph', 'compositions-empty', out)['text']),
            (['compositions-state-chips', 'compositions-empty'],
-            'Nothing needs attention in My workloads: none is NotReady, Degraded, drifting, paused or with unreadable children.'))
+            'Nothing needs attention in My workloads: none is NotReady, Degraded, drifting or with unreadable children.'))
     out = resolve({}, [], err={'message': 'compositiondefinitions is forbidden'})
     empty = w('Paragraph', 'compositions-empty', out)
     expect(f, 'nothing read: said, as a warning', (empty['text'], empty['type']),
@@ -187,7 +195,7 @@ def check_cards():
     out = resolve({}, many)
     expect(f, 'past 48: the first 48, and a line for the rest',
            (len(out['rows']), out['more'], items(w('Card', 'compositions-list-card', out)), w('Paragraph', 'compositions-more', out)['text']),
-           (48, 7, ['compositions-state-chips', 'compositions-cards', 'compositions-more'], '48 of 55 shown here. Full list has all 55.'))
+           (48, 6, ['compositions-state-chips', 'compositions-cards', 'compositions-more'], '48 of 54 shown here. Full list has all 54.'))
     return f
 
 
@@ -203,19 +211,18 @@ def check_charts():
            [('BuilderPublish', '17', 100, 'ok', '/compositions?projects=team-a&status=all&kind=BuilderPublish'),
             ('Probe', '2', 11, 'ok', '/compositions?projects=team-a&status=all&kind=Probe'),
             ('Redis', '2 · 2 need attention', 11, 'bad', '/compositions?projects=team-a&status=all&kind=Redis')])
-    expect(f, 'needing attention longest: oldest first, Degraded and undated left out',
+    expect(f, 'needing attention longest: oldest first, Degraded, undated and paused left out',
            [(r['name'], r['why'], r['href']) for r in w('Listy', 'compositions-longest', out)['dataSource']],
-           [('cache', 'Drift · 3 d 12 h', '/compositions/team-a/cache'), ('acme', 'Paused · 2 d', '/compositions/team-a/acme'),
-            ('orders', 'NotReady · 6 h', '/compositions/team-a/orders')])
+           [('cache', 'Drift · 3 d 12 h', '/compositions/team-a/cache'), ('orders', 'NotReady · 6 h', '/compositions/team-a/orders')])
     expect(f, 'by kind: a paused composition is named apart, neutral, and is not one that needs attention (CMP-9)',
            [(k['name'], k['count'], k['tone']) for k in kinds if k['name'] in ('AcmeFeedback', 'Redis')],
            [('Redis', '2 · 2 need attention', 'bad'), ('AcmeFeedback', '1 · 1 paused', 'ok')])
     longest = w('Listy', 'compositions-longest', out)
     lmap = longest['itemTemplate']['color'].get('map', {})
     cmap = w('Listy', 'compositions-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'needing attention longest: each dot is its state\'s card colour, paused gray, never red (CMP-9)',
+    expect(f, 'needing attention longest: each dot is its state\'s card colour',
            [(r['name'], lmap.get(r.get('tone'), longest['itemTemplate']['color'].get('default'))) for r in longest['dataSource']],
-           [('cache', cmap['drift']), ('acme', 'gray'), ('orders', cmap['failed'])])
+           [('cache', cmap['drift']), ('orders', cmap['failed'])])
     expect(f, 'the dot\'s colour comes from the row', longest['itemTemplate']['color']['value'], '{tone}')
     expect(f, 'the side shows it while there are any', items(w('Flex', 'compositions-side', out)),
            ['compositions-by-state-card', 'compositions-by-kind-card', 'compositions-longest-card'])
@@ -307,7 +314,96 @@ def check_stat_tiles_route():
     return f
 
 
-CHECKS = [check_paused_is_not_ready, check_state_chips, check_stats_and_empty, check_stat_tiles_route, check_cards, check_charts,
+def check_paused_never_needs_attention():
+    f = []
+    acme = [c for c in WORK if c['name'] == 'acme']
+    out = resolve({}, acme)
+    expect(f, 'paused only: Needs attention 0 (the default), Paused 1', chips(out), [('Needs attention', 0, True), ('Paused', 1, False), ('All', 1, False)])
+    expect(f, 'paused only: the default list is empty', (out['filtered'], out['rows']), ([], []))
+    expect(f, 'paused only: the sentence says nothing needs attention and points to the Paused chip',
+           (items(w('Card', 'compositions-list-card', out)), w('Paragraph', 'compositions-empty', out)),
+           (['compositions-state-chips', 'compositions-empty'],
+            {'text': 'Nothing needs attention in My workloads: none is NotReady, Degraded, drifting or with unreadable children. '
+                     '1 paused composition is under the Paused chip.', 'type': 'secondary'}))
+    expect(f, 'paused only: the Paused chip holds it', [i['name'] for i in resolve({'status': 'paused'}, acme)['filtered']], ['acme'])
+    expect(f, 'paused only: the Paused figure counts it', [t['value'] for t in out['stats'] if t['title'] == 'Paused'], ['1'])
+    expect(f, 'paused only: nothing has needed attention longest, the side has no such card',
+           (out['longest'], items(w('Flex', 'compositions-side', out))), ([], ['compositions-by-state-card', 'compositions-by-kind-card']))
+    expect(f, 'paused only: by kind, neutral and named paused', [(k['name'], k['count'], k['tone']) for k in out['byKind']],
+           [('AcmeFeedback', '1 · 1 paused', 'ok')])
+    two = acme + [comp('acme-2', 'AcmeFeedback', reason='ReconcileGracefullyPaused')]
+    expect(f, 'two paused: counted in the sentence', w('Paragraph', 'compositions-empty', resolve({}, two))['text'],
+           'Nothing needs attention in My workloads: none is NotReady, Degraded, drifting or with unreadable children. '
+           '2 paused compositions are under the Paused chip.')
+    mixed = acme + [c for c in WORK if c['name'] in ('orders', 'pub-00')]
+    out = resolve({}, mixed)
+    expect(f, 'mixed: Needs attention counts the NotReady one only, Paused apart',
+           chips(out), [('Needs attention', 1, True), ('NotReady', 1, False), ('Paused', 1, False), ('Ready', 1, False), ('All', 3, False)])
+    expect(f, 'mixed: the default list holds the NotReady one', [i['name'] for i in out['filtered']], ['orders'])
+    expect(f, 'mixed: by kind, the paused one is not counted as needing attention',
+           sorted((k['name'], k['count'], k['tone']) for k in out['byKind']),
+           [('AcmeFeedback', '1 · 1 paused', 'ok'), ('BuilderPublish', '1', 'ok'), ('WebApp', '1 · 1 need attention', 'bad')])
+    prompt = parse_qs(resolve({'status': 'all'}, mixed)['askHref'].partition('?')[2])['ask'][0]
+    expect(f, 'mixed, all in view: Ask Agentiko lists only the one that needs attention, not the paused one',
+           prompt.split('The ones that need attention are: ')[-1].split('. For each')[0],
+           '1. WebApp/orders · team-a — failed')
+    out = resolve({}, WORK)
+    expect(f, 'the full fleet: Needs attention is NotReady + Degraded + Children unreadable + Drift',
+           [c[1] for c in chips(out) if c[0] in ('Needs attention', 'NotReady', 'Degraded', 'Children unreadable', 'Drift', 'Paused')],
+           [4, 1, 1, 1, 1, 1])
+    return f
+
+
+# The attention set, written once: portal.compositionStateDefs' compositionNeedsAttention, in
+# helm/portal/templates/_composition-state.tpl and its COPIED FROM copies (test-copied-helpers.py
+# keeps those byte-identical). A second definition is a def named for attention, or an IN(...) or an
+# `or`-chain of == comparisons naming two or more composition states. _cd-ready-reasons.tpl is a
+# blueprint's state (a CompositionDefinition's), not a composition's, and is left out.
+ATTN_STATES = r'(?:failed|degraded|unreadable|drift|paused)'
+ATTN_DEF = re.compile(r'\bdef\s+(\w*[aA]ttention\w*)\s*[:(]')
+ATTN_IN = re.compile(r'\bIN\(([^)]*)\)')
+ATTN_OR = re.compile(r'==\s*"' + ATTN_STATES + r'"\s+or\s+[.\w$]+\s*==\s*"' + ATTN_STATES + r'"')
+SHARED_STATE = 'helm/portal/templates/_composition-state.tpl'
+
+
+def attention_definitions(text):
+    hits = [m.group(0) for m in ATTN_DEF.finditer(text)]
+    hits += [m.group(0) for m in ATTN_IN.finditer(text) if len(set(re.findall(r'"' + ATTN_STATES + '"', m.group(1)))) >= 2]
+    return hits + [m.group(0) for m in ATTN_OR.finditer(text)]
+
+
+def check_one_attention_definition():
+    f = []
+    root = os.path.normpath(os.path.join(HERE, '..'))
+    shared = open(os.path.join(root, SHARED_STATE), encoding='utf-8').read()
+    expect(f, 'the shared definition: the four states, never paused', re.findall(r'def compositionNeedsAttention: [^;]*;', shared),
+           ['def compositionNeedsAttention: IN("failed", "degraded", "unreadable", "drift");'])
+    seen, copies = 0, 0
+    for path in sorted(glob.glob(os.path.join(root, 'helm', '*', 'templates', '*'))):
+        rel = os.path.relpath(path, root).replace(os.sep, '/')
+        text = open(path, encoding='utf-8').read()
+        if os.path.basename(path) == '_cd-ready-reasons.tpl':
+            continue
+        if rel == SHARED_STATE:
+            continue
+        if text.startswith('{{/* COPIED FROM ' + SHARED_STATE + ' '):
+            copies += 1
+            continue
+        seen += 1
+        for hit in attention_definitions(text):
+            f.append(f'{rel}: a second attention set ({hit}); read compositionNeedsAttention from portal.compositionStateDefs')
+    expect(f, 'the scan read the templates and the copies', (seen > 100, copies >= 4), (True, True))
+    expect(f, 'control: each shape of a second definition is caught, a non-state IN is not',
+           [bool(attention_definitions(t)) for t in ('def isAttention: .railState == "x";', 'select(.s | IN("failed", "drift", "paused"))',
+                                                     'select(.class == "failed" or .class == "degraded")', 'IN("failed", "Ready")')],
+           [True, True, True, False])
+    for chart, name in (('portal', 'compositions-list'), ('observability-page', 'obs-reconciliation'), ('dashboard-page', 'dashboard-inbox')):
+        program = tbi.Chart(tbi.render(os.path.join(root, 'helm', chart))).get('RESTAction', name)['spec']['filter']
+        expect(f, f'{name} reads the shared set', (program.count('def compositionNeedsAttention:'), 'compositionNeedsAttention)' in program), (1, True))
+    return f
+
+
+CHECKS = [check_paused_is_not_ready, check_paused_never_needs_attention, check_one_attention_definition, check_state_chips, check_stats_and_empty, check_stat_tiles_route, check_cards, check_charts,
           check_narrowing, check_table_view, check_filter_keys]
 
 

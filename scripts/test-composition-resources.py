@@ -22,6 +22,7 @@ relations list's colour map. A state missing from it falls through to the raw st
 palette colour NAME, and getColorCode returns near-black for a name it does not know — so the row
 renders as dark ink and nothing reports it.
 """
+import importlib.util
 import json
 import sys
 import os
@@ -320,15 +321,19 @@ for label, kind, grp, c, phase, live, want_state, want_label in GROUP_CASES:
     group_emitted.add(row['state'])
 
 # core-provider's own table of a composition's Ready reasons and the verdict a PARENT's rollup gives
-# each (ready-reasons.yaml: the snapshot test-ready-reasons.py holds equal to core-provider's
-# docs/ready-reasons.md). A child Composition carrying each one lands in that verdict's bucket here.
+# each (docs/ready-reasons.json at the core-provider ref scripts/gen-reason-defs.py pins, the same
+# JSON the ready-reasons workflow generates the portal's maps from). A child Composition carrying
+# each one lands in that verdict's bucket here.
 # The portal's finer states sit inside a bucket: `terminal` is a failure, `unknown` a Ready=Unknown
 # core-provider counts converging, notObserved/readyNotSet its unevaluated `notObserved` cause.
 VERDICT_STATES = {'healthy': {'healthy'}, 'failed': {'failed', 'terminal'}, 'converging': {'converging', 'unknown'},
-                  'unevaluated (rolls up as healthy)': {'noReadiness', 'notObserved', 'readyNotSet'}}
-with open(os.path.join(REPO, 'ready-reasons.yaml'), encoding='utf-8') as fh:
-    _table = yaml.safe_load(fh)['table']
-check('the ready-reasons snapshot is read', len(_table) > 0, True)
+                  'unevaluated': {'noReadiness', 'notObserved', 'readyNotSet'}}
+_spec = importlib.util.spec_from_file_location('gen_reason_defs', os.path.join(HERE, 'gen-reason-defs.py'))
+_gen = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_gen)
+# A Ready entry with no fixed reason (reasonFrom: the reason is copied from elsewhere) has none to feed.
+_table = [e for e in _gen.ready_entries(_gen.load_tables()[_gen.COMPOSITION]) if e.get('reason')]
+check('the ready-reasons JSON is read', len(_table) > 0, True)
 for _row in _table:
     _out = jq(prog, payload(conds(('Ready', _row['status'], _row['reason'])),
                             getpath='/apis/composition.krateo.io/v1-2-0/namespaces/ns/portals/c',

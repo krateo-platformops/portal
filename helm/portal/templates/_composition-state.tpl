@@ -18,6 +18,12 @@
     unknown     Ready=Unknown, ZeroEvidence: nothing can assess it. Unknown, never Pending.
     pending     anything else: converging, or no verdict yet.
 
+  NEEDS ATTENTION is failed, degraded, unreadable and drift: the states a person should look at.
+  A paused composition is never one of them (Diego, 2026-11-25; portal #530: paused is never Ready,
+  attention or overdue): Krateo is not reconciling it on purpose, and it keeps its own Paused chip.
+  compositionNeedsAttention reads a state (`.railState | compositionNeedsAttention`); it is the only
+  place the set is written, and scripts/test-compositions-overview.py fails on a second one.
+
   Input of compositionVerdict: an object with `conditions` (status.conditions) and `wh`
   (status.workloadHealthy, null when the engine does not project it). Output: the facts the rule
   reads, and `state`. compositionStateName maps a state to the word every page prints.
@@ -39,5 +45,6 @@ def compositionVerdict: ((.conditions // []) | if type == "array" then . else []
       state: (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded"
               elif $ready and ($unsynced | not) then "healthy" elif $ready and $unsynced then "drift"
               elif $unreadable then "unreadable" elif $silent then "unknown" else "pending" end) };
+def compositionNeedsAttention: IN("failed", "degraded", "unreadable", "drift");
 def compositionStateName: {healthy: "Ready", paused: "Paused", degraded: "Degraded", drift: "Drift", failed: "NotReady", unreadable: "Children unreadable", unknown: "Unknown", pending: "Pending"}[.] // .;
 {{- end -}}
