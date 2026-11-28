@@ -207,6 +207,35 @@ def check_chips_and_routes():
     return f
 
 
+def check_full_list_shows_all():
+    f = []
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    act = lambda o: [c['label'] for c in o['stateChips'] if c['active']]
+    out = overview('portal', {'view': 'table'})
+    expect(f, 'Full list with no ?state shows every row', (out['state'], out['matched'], len(out['table'])), ('all', 7, 7))
+    expect(f, 'Full list with no ?state: All is the active chip', act(out), ['All'])
+    expect(f, 'Full list with no ?state -> Summary drops the implicit all; Summary -> Full list adds none', vc(out),
+           [('Summary', False, '/portal-builder'), ('Full list', True, '/portal-builder?view=table')])
+    out = overview('portal')
+    expect(f, 'Summary with no ?state still defaults to Needs attention', (out['state'], out['matched'], act(out)), ('attention', 3, ['Needs attention']))
+    expect(f, 'Summary with no ?state -> Full list: no ?state, so All', vc(out),
+           [('Summary', True, '/portal-builder'), ('Full list', False, '/portal-builder?view=table')])
+    out = overview('portal', {'view': 'table', 'state': 'failed'})
+    expect(f, 'Full list with ?state=failed: the picked state applies and is active', (out['matched'], act(out)), (1, ['Failed']))
+    expect(f, 'an explicit state is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/portal-builder?state=failed'), ('Full list', True, '/portal-builder?state=failed&view=table')])
+    out = overview('portal', {'view': 'table', 'state': 'attention'})
+    expect(f, 'Full list with ?state=attention: Needs attention applies and is active', (out['matched'], act(out)), (3, ['Needs attention']))
+    expect(f, 'Full list -> Summary: an explicit Needs attention is the Summary default, left out', vc(out)[0][2], '/portal-builder')
+    chips = {c['label']: c['route'] for c in overview('portal', {'view': 'table'})['stateChips']}
+    expect(f, 'Full list: the Needs attention chip names its state, the All chip is the default and leaves it out',
+           (chips['Needs attention'], chips['All']), ('/portal-builder?state=attention&view=table', '/portal-builder?view=table'))
+    ctl = overview('controller', {'view': 'table'})
+    expect(f, 'a builder-added view keeps the Summary default: from the Full list it drops the implicit all', [c[2] for c in vc(ctl)],
+           ['/controller-builder', '/controller-builder?view=table', '/controller-builder?view=restdefs'])
+    return f
+
+
 def check_figures():
     f = []
     out = overview('portal')
@@ -457,7 +486,7 @@ def check_what_the_review_asked():
     return f
 
 
-CHECKS = [check_states_and_sources, check_what_the_review_asked, check_what_the_old_pages_had, check_drafts_are_the_callers, check_chips_and_routes, check_figures, check_cards,
+CHECKS = [check_states_and_sources, check_what_the_review_asked, check_what_the_old_pages_had, check_drafts_are_the_callers, check_chips_and_routes, check_full_list_shows_all, check_figures, check_cards,
           check_search_and_charts, check_widgets_declare_the_page]
 CH = None
 

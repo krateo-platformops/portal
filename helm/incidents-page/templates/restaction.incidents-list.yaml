@@ -90,18 +90,22 @@ spec:
     # Open first: the order of the chips, the donut and the figures (most urgent first).
     | ["open", "analyzing", "verifying", "resolved", "closed"] as $states
     | { analyzing: "Analyzing", open: "Open", verifying: "Verifying", resolved: "Resolved", closed: "Closed" } as $stateNames
-    | ((($in.status // "") | tostring | ascii_downcase) | if . == "" then "open" else . end) as $sel
+    # The default state is the view's: `open` on the Summary, `all` on the Full list (?view=table shows
+    # everything unless a state was picked). A route leaves its view's default out of the URL.
+    | ((($in.view // "") | tostring) == "table") as $tableView
+    | (($in.status // "") | tostring | ascii_downcase) as $statusRaw
+    | ($statusRaw != "") as $explicit
+    | (if $explicit then $statusRaw elif $tableView then "all" else "open" end) as $sel
     | ((($in.range // "") | tostring) | if IN("24h", "30d") then . else "7d" end) as $range
     | ({ "24h": 86400, "7d": 604800, "30d": 2592000 }[$range]) as $window
     | ({ "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days" }[$range]) as $rangeText
-    | ((($in.view // "") | tostring) == "table") as $tableView
     | ((.projects // "") | tostring) as $projects
     | (($in.q // "") | tostring | sub("^\\s+"; "") | sub("\\s+$"; "")) as $qRaw
     | ($qRaw | ascii_downcase) as $q
     # The params every link on the page carries, in the page's order; one is set by each link.
     | def href($status; $rng; $view):
         [ (if $projects != "" then "projects=" + ($projects | @uri) else empty end),
-          (if $status != "open" then "status=" + ($status | @uri) else empty end),
+          (if $status != (if $view then "all" else "open" end) then "status=" + ($status | @uri) else empty end),
           (if $rng != "7d" then "range=" + $rng else empty end),
           (if $view then "view=table" else empty end),
           (if $qRaw != "" then "q=" + ($qRaw | @uri) else empty end) ]
@@ -302,8 +306,8 @@ spec:
         stats: $stats,
         chips: ([ ($states[] | { key: ., label: $stateNames[.] }), { key: "all", label: "All" } ]
                 | map({ label, count: ($counts[.key] // 0), active: (.key == $sel), route: href(.key; $range; $tableView) })),
-        viewChips: [ { label: "Summary", active: ($tableView | not), route: href($sel; $range; false) },
-                     { label: "Full list", active: $tableView, route: href($sel; $range; true) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $explicit then $sel else "open" end; $range; false) },
+                     { label: "Full list", active: $tableView, route: href(if $explicit then $sel else "all" end; $range; true) } ],
         rangeChips: ([ "24h", "7d", "30d" ] | map({ label: ., active: (. == $range), route: href($sel; .; $tableView) })),
         byState: ([ $states[] | { state: $stateNames[.], count: $counts[.] } | select(.count > 0) ]),
         trend: $trend,

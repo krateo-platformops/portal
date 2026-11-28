@@ -360,11 +360,17 @@ spec:
       ( if $serversDenied then [] else $serverRows end ) as $rowsOK
     | ( [ $rowsOK[] | select(.tone != "ok") ] | sort_by((if .tone == "bad" then 0 else 1 end), .name) ) as $attention
     | ( [ $rowsOK[] | select(.tone == "ok") ] ) as $healthy
-    | ( if ($attention | length) > 0 then "attention" else "all" end ) as $grpDefault
-    | ( (($in.group // "") | tostring | ascii_downcase) as $g | if ($g | IN("attention", "healthy", "all", "accepted", "notaccepted", "advisory")) then $g else $grpDefault end ) as $grp
     | ( (($in.view // "") | tostring) == "table" ) as $tableView
+    # The default group is the view's: Needs attention while anything needs it (else All) on the
+    # Summary, All on the Full list (?view=table shows every server unless a group was picked). A
+    # route leaves its view's default out of the URL; the view chips keep a picked group and drop an
+    # implicit one.
+    | ( if $tableView then "all" elif ($attention | length) > 0 then "attention" else "all" end ) as $grpDefault
+    | ( (($in.group // "") | tostring | ascii_downcase) | if IN("attention", "healthy", "all", "accepted", "notaccepted", "advisory") then . else null end ) as $grpPicked
+    | ( $grpPicked // $grpDefault ) as $grp
+    | def grpEnc($k; $table): if $k == (if $table then "all" elif ($attention | length) > 0 then "attention" else "all" end) then "" else $k end;
     # accepted / notaccepted / advisory: what the Accepted, NotAccepted and Advisories figures count.
-    | { attention: $attention, healthy: $healthy, all: ($attention + $healthy),
+      { attention: $attention, healthy: $healthy, all: ($attention + $healthy),
         accepted: [ ($attention + $healthy)[] | select(.accepted) ],
         notaccepted: [ $attention[] | select(.tone == "bad") ], advisory: [ $attention[] | select(.tone == "warn") ] } as $groups
     | ( $groups[$grp] ) as $members
@@ -391,8 +397,8 @@ spec:
         serverChips: ( [ { k: "attention", l: "Needs attention" }, { k: "healthy", l: "Healthy" }, { k: "accepted", l: "Accepted" },
                          { k: "notaccepted", l: "NotAccepted" }, { k: "advisory", l: "Advisories" }, { k: "all", l: "All" } ]
                        | map({ label: .l, count: ($groups[.k] | length), active: (.k == $grp), route: href(if .k == $grpDefault then "" else .k end; $tableView) }) ),
-        viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $grp == $grpDefault then "" else $grp end; false) },
-                     { label: "Full list", active: $tableView, route: href(if $grp == $grpDefault then "" else $grp end; true) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: href(if $grpPicked != null then grpEnc($grp; false) else "" end; false) },
+                     { label: "Full list", active: $tableView, route: href(if $grpPicked != null then grpEnc($grp; true) else "" end; true) } ],
         cards: [ $members[]
                  | { title: .name, tone: .tone,
                      tag: (if .statusLabel != "" then .statusLabel elif .accepted then "Accepted" else "No Accepted condition" end),

@@ -121,9 +121,12 @@ def check_state_chips():
             ('Drift', 1, False), ('Paused', 1, False), ('Unknown', 1, False), ('Pending', 1, False), ('Ready', 18, False), ('All', 25, False)])
     expect(f, 'Needs attention holds the four attention states, not the paused one', sorted(i['name'] for i in out['filtered']),
            ['cache', 'locked', 'orders', 'web'])
-    expect(f, 'each chip keeps the scope and the view, Needs attention drops ?status',
+    expect(f, 'each chip keeps the scope and the view; in the Full list, whose default is All, Needs attention is the explicit one',
            [c['route'] for c in resolve({'scope': 'all', 'view': 'table', 'projects': 'team-a'})['stateChips']][:2],
-           ['/compositions?projects=team-a&scope=all&view=table', '/compositions?projects=team-a&scope=all&status=failed&view=table'])
+           ['/compositions?projects=team-a&scope=all&status=attention&view=table', '/compositions?projects=team-a&scope=all&status=failed&view=table'])
+    expect(f, 'in the Summary, Needs attention drops ?status',
+           [c['route'] for c in resolve({'scope': 'all', 'projects': 'team-a'})['stateChips']][:2],
+           ['/compositions?projects=team-a&scope=all', '/compositions?projects=team-a&scope=all&status=failed'])
     names = lambda out: sorted(i['name'] for i in out['filtered'])
     expect(f, '?status=failed', names(resolve({'status': 'failed'})), ['orders'])
     expect(f, '?status=Failed (any case)', names(resolve({'status': 'Failed'})), ['orders'])
@@ -282,6 +285,41 @@ def check_table_view():
     return f
 
 
+def check_full_list_shows_all():
+    f = []
+    names = lambda o: sorted(i['name'] for i in o['filtered'])
+    vc = lambda o: [(c['label'], c['active'], c['route']) for c in o['viewChips']]
+    out = resolve({'view': 'table'})
+    expect(f, 'Full list with no ?status shows every composition', len(out['filtered']), len(WORK))
+    expect(f, 'Full list with no ?status: All is the active chip', [c[0] for c in chips(out) if c[2]], ['All'])
+    expect(f, 'Full list with no ?status is not a filtered view', out['filteredAny'], False)
+    expect(f, 'Full list with nothing failing is not empty', len(resolve({'view': 'table'}, [c for c in WORK if c['name'].startswith('pub-')])['filtered']) > 0, True)
+    expect(f, 'Full list with no ?status -> Summary drops the implicit all; Summary -> Full list adds none',
+           vc(out), [('Summary', False, '/compositions'), ('Full list', True, '/compositions?view=table')])
+    out = resolve({})
+    expect(f, 'Summary with no ?status still defaults to Needs attention', (names(out), [c[0] for c in chips(out) if c[2]]),
+           (['cache', 'locked', 'orders', 'web'], ['Needs attention']))
+    expect(f, 'Summary with no ?status -> Full list: no ?status, so All', vc(out),
+           [('Summary', True, '/compositions'), ('Full list', False, '/compositions?view=table')])
+    out = resolve({'view': 'table', 'status': 'failed'})
+    expect(f, 'Full list with ?status=failed: the picked state applies, its chip is active',
+           (names(out), [c[0] for c in chips(out) if c[2]]), (['orders'], ['NotReady']))
+    expect(f, 'an explicit status is kept across the switch, both ways', vc(out),
+           [('Summary', False, '/compositions?status=failed'), ('Full list', True, '/compositions?status=failed&view=table')])
+    out = resolve({'view': 'table', 'status': 'attention'})
+    expect(f, 'Full list with ?status=attention: Needs attention applies and is active',
+           (names(out), [c[0] for c in chips(out) if c[2]]), (['cache', 'locked', 'orders', 'web'], ['Needs attention']))
+    expect(f, 'Full list -> Summary: an explicit attention is the Summary default, left out', vc(out)[0][2], '/compositions')
+    out = resolve({'status': 'all'})
+    expect(f, 'Summary with ?status=all keeps it into the Full list (the default there, left out)', vc(out)[1][2], '/compositions?view=table')
+    out = resolve({'view': 'table'})
+    expect(f, 'Full list: the stat tiles route to their state and keep the view',
+           [t['route'] for t in out['stats']][:1], ['/compositions?status=failed&view=table'])
+    expect(f, 'the cap line counts what the Summary shows, and the Full list from that Summary has that many',
+           (resolve({'status': 'all'})['matched'], resolve({'status': 'all', 'view': 'table'})['matched']), (len(WORK), len(WORK)))
+    return f
+
+
 def check_filter_keys():
     f = []
     root = CH.get('Flex', 'page-compositions')
@@ -404,7 +442,7 @@ def check_one_attention_definition():
 
 
 CHECKS = [check_paused_is_not_ready, check_paused_never_needs_attention, check_one_attention_definition, check_state_chips, check_stats_and_empty, check_stat_tiles_route, check_cards, check_charts,
-          check_narrowing, check_table_view, check_filter_keys]
+          check_narrowing, check_table_view, check_full_list_shows_all, check_filter_keys]
 
 
 def main():

@@ -123,7 +123,12 @@ spec:
         { key: "rejected", label: "Rejected", phases: ["Rejected"], windowed: true },
         { key: "failed", label: "Failed", phases: ["Failed"] },
         { key: "all", label: "All", phases: ["Proposed", "PrOpen", "Merged", "Rejected", "Failed"] } ] as $states
-    | ((($in.state // "") | tostring | ascii_downcase) | if . == "" then "open" else . end) as $sel
+    # The default state is the view's: Open on the Summary, All on the Full list (?view=table shows
+    # everything unless a state was picked). A route leaves its view's default out of the URL; the
+    # view chips keep ?state= as the URL named it, so a picked state survives the switch and an
+    # implicit one does not.
+    | (if $tableView then "all" else "open" end) as $dflt
+    | ((($in.state // "") | tostring | ascii_downcase) | if . == "" then $dflt else . end) as $sel
     | (([ $states[] | select(.key == $sel) ][0]) // { phases: [] }) as $selState
     | ((($in.range // "") | tostring) | if . == "24h" or . == "30d" then . else "7d" end) as $range
     | ({ "24h": 86400, "7d": 604800, "30d": 2592000 }[$range]) as $window
@@ -207,7 +212,7 @@ spec:
     # in the range. Each is its state chip's count, so the list a tile opens holds that many. A proposals read that failed is "—" on those four, never 0; a runs read that
     # failed is "—" on the last.
     # A state chip's route, and a state tile's: every other param kept.
-    | def stateHref($k): fx_href("/reviews"; fx_set($p; "state"; (if $k == "open" then "" else $k end)));
+    | def stateHref($k): fx_href("/reviews"; fx_set($p; "state"; (if $k == $dflt then "" else $k end)));
       ([ $matchedAll[] | select(.decidedAt != "") | { phase, at: (.decidedAt | rv_epoch) } | select(.at != null) ]) as $decisions
     | ([ $matchedAll[] | select(.phase == "Proposed" and .f.today == "1") ] | length) as $newToday
     | ([ { title: "Waiting for a decision", value: $counts.proposed,
@@ -241,7 +246,7 @@ spec:
        | map({ name: .[0].f.kind, count: length }) | sort_by(-.count, .name) | .[0:8]) as $kindRows
     | (($kindRows[0].count // 0)) as $kindMax
     | ([ $kindRows[] | . + { percent: (if $kindMax > 0 then (.count * 100 / $kindMax | floor) else 0 end),
-                              href: fx_href("/reviews"; fx_set(fx_set($p; "kind"; .name); "state"; "")) } ]) as $byKind
+                              href: fx_href("/reviews"; fx_set(fx_set($p; "kind"; .name); "state"; (if $dflt == "open" then "" else "open" end))) } ]) as $byKind
     | def cap($k): if length > $k then (.[0:($k - 1)] + "…") else . end;
       def numbered: .[0:8] | to_entries
         | map(((.key + 1) | tostring) + ". \"" + (.value.title | cap(110)) + "\" (" + .value.kind + ", " + .value.phase + ")") | join(" ");

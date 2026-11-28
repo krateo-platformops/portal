@@ -151,18 +151,28 @@ spec:
     {{/* THE STATE IS THE PAGE'S FILTER (the /incidents dashboard's layout, mockup A4). ?status= takes
          one state or several (healthy, failed, degraded, drift, pending, unreadable, unknown, paused, any
          case), `attention` (NotReady, Degraded, Children unreadable, Drift: compositionNeedsAttention, never
-         Paused) or `all`; absent, it is `attention`. Kind and search stay as narrowing params, for the links that carry them
+         Paused) or `all`; absent, it is `attention` on the Summary and `all` on the Full list (?view=table:
+         the Full list shows everything unless a state was picked). Kind and search stay as narrowing params, for the links that carry them
          (Observability's by-kind rows, the by-kind chart here), each a removable chip. */}}
     | ($in | fx_filters(["kind"])) as $flt0
+    | ((($in.view // "") | tostring) == "table") as $tableView
+    | (if $tableView then "all" else "attention" end) as $dflt
     | ((.status // "") | tostring | ascii_downcase | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")) | unique) as $rawSel
-    | (if ($rawSel | length) == 0 then ["attention"] elif any($rawSel[]; . == "all") then [] else $rawSel end) as $statusSel
+    | (if ($rawSel | length) == 0 then (if $tableView then [] else ["attention"] end) elif any($rawSel[]; . == "all") then [] else $rawSel end) as $statusSel
     | (if ($statusSel | length) == 1 then $statusSel[0] elif ($statusSel | length) == 0 then "all" else "several" end) as $status
     | (.scope // "workloads") as $scope
     | ((.q // "") | tostring | gsub("^\\s+|\\s+$"; "") | ascii_downcase) as $q
     | ($flt0 + { q: (if $q == "" then [] else ["1"] end) }) as $flt
-    | fx_set(($in | fx_params($keys)); "status"; (if $status == "attention" then "" elif $status == "all" then "all" else ($statusSel | join(",")) end)) as $p
-    | ((($in.view // "") | tostring) == "table") as $tableView
-    | def go($st; $table): fx_href("/compositions"; fx_set(fx_set($p; "status"; (if $st == "attention" then "" else $st end)); "view"; (if $table then "table" else "" end)));
+    {{/* A state the page's default for that view is left out of every URL: the Summary's default is
+         `attention`, the Full list's is `all`. $sel is the state as a ?status= value; $explicit is
+         whether the URL named one. A view switch keeps a named state and drops an implicit one, so
+         Full list (all, implicit) -> Summary lands on `attention`, not on `all`. */}}
+    | (if $status == "several" then ($statusSel | join(",")) else $status end) as $sel
+    | (($rawSel | length) > 0) as $explicit
+    | def enc($st; $table): if $st == (if $table then "all" else "attention" end) then "" else $st end;
+      fx_set(($in | fx_params($keys)); "status"; enc($sel; $tableView)) as $p
+    | def go($st; $table): fx_href("/compositions"; fx_set(fx_set($p; "status"; enc($st; $table)); "view"; (if $table then "table" else "" end)));
+      def viewHref($table): fx_href("/compositions"; fx_set(fx_set($p; "status"; (if $explicit then enc($sel; $table) else "" end)); "view"; (if $table then "table" else "" end)));
     now as $now
     | ((.allCompositions // []) | map(select(($projects | length) == 0 or (([.ns] - $projects) | length == 0))) | map(. + ((.conditions // []) as $c | compositionVerdict as $v | $v.ready as $ready | $v.notready as $notready | $v.paused as $paused | $v.unsynced as $unsynced | $v.degraded as $degraded | $v.silent as $silent | $v.unreadable as $unreadable | $v.state as $railState | (if $notready then 20 elif $degraded then 50 elif $ready and ($unsynced | not) then 100 elif $ready and $unsynced then 50 else 50 end) as $healthPercent | {conditions: ((.conditions // []) + (if .wh == false then [{type: "Workload", status: "False", reason: "Unhealthy", message: (.whMsg // "")}] else [] end)), state: (if $paused then "paused" elif $notready then "failed" elif $degraded then "degraded" elif $ready then "healthy" elif $unreadable then "unreadable" elif $silent then "unknown" else "pending" end), railState: $railState, healthPercent: $healthPercent, coverage: (if (.evaluated != null and .managed != null and .evaluated != .managed) then ((.evaluated | tostring) + "/" + (.managed | tostring)) else "" end), assessable: (($silent or $unreadable) | not), rail: (if ($silent or $unreadable) then {percent: 0, state: (if $silent then "notAssessable" else "unreadable" end), label: (if $silent then "No signal" else "Children unreadable" end), reason: (first($c[]? | select(.type == "Ready" and .status == "Unknown" and (.reason == "ZeroEvidence" or .reason == "ChildrenForbidden")) | ((.message // "") | ltrimstr("Composition health is unknown: ")) as $m | "Ready=" + .status + " · " + .reason + (if $m != "" then ": " + $m else "" end)) // "")} else {percent: $healthPercent, state: $railState, label: (($healthPercent | tostring) + "%")} end)}))) as $all
     | $all as $dated
@@ -269,7 +279,7 @@ spec:
              tile opens the list filtered to it; a failed read's tile has `route: ""`. */}}
         facets: $facets,
         filteredBy: $facetDesc,
-        filteredAny: (($narrow | length) > 0 or $status != "attention"),
+        filteredAny: (($narrow | length) > 0 or $status != $dflt),
         view: (if $tableView then "table" else "" end),
         chips: (if ($narrow | length) == 0 then [] else $narrow + [ { label: "Clear all", href: fx_href("/compositions"; [ $p[] | select(.[0] == "projects" or .[0] == "scope" or .[0] == "status" or .[0] == "view") ]) } ] end),
         stats: ([ { title: "NotReady", v: $stateCounts.failed, caption: ("of " + ($stateCounts.all | tostring)), tone: "failed" },
@@ -285,8 +295,8 @@ spec:
         stateChips: ([ "attention", $order[], "all" ]
                      | map(. as $k | select($k == "attention" or $k == "all" or ($stateCounts[$k] // 0) > 0 or any($statusSel[]; . == $k)))
                      | map({ key: ., label: $stateNames[.], count: ($stateCounts[.] // 0), active: (if . == "all" then $status == "all" else ($statusSel == [.]) end), route: go(.; $tableView) })),
-        viewChips: [ { label: "Summary", active: ($tableView | not), route: fx_href("/compositions"; fx_set($p; "view"; "")) },
-                     { label: "Full list", active: $tableView, route: fx_href("/compositions"; fx_set($p; "view"; "table")) } ],
+        viewChips: [ { label: "Summary", active: ($tableView | not), route: viewHref(false) },
+                     { label: "Full list", active: $tableView, route: viewHref(true) } ],
         matched: ($filtered | length),
         more: (if ($filtered | length) > $cardCap then (($filtered | length) - $cardCap) else 0 end),
         rows: [ $sorted[0:$cardCap][] | (stateAt | utcstamp) as $at | {
