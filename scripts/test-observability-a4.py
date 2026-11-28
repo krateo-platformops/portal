@@ -34,8 +34,14 @@ SLOs and the snowplow SLI tabs keep their own layout (charts and cards only): te
 No trend is bucketed here: the line charts on these tabs (reconcile throughput, resource usage) are
 bucketed by ClickHouse and guarded by their own tests.
 
+THE FLOOR: --floor validates every widget (rendered and resolved, every flag on) against
+frontend-crds AT the version observability-page declares in krateo.io/requires-frontend-crd, pulled
+as lint-pinned-crds.py pulls it. That gate checks only undeclared fields, so an enum value an older
+release refuses (the Telemetry and Traces figures' `rowVariant: statistic`, which frontend-crds
+admits from 1.8.43) passed it at a floor of 1.8.35 that would not have admitted the chart.
+
 Uses the `jq` binary; JQ=gojq runs the same checks on it.
-Usage: test-observability-a4.py [--crds DIR]. Exit code = failed checks.
+Usage: test-observability-a4.py [--crds DIR | --floor]. Exit code = failed checks.
 """
 import copy
 import importlib.util
@@ -862,6 +868,14 @@ def check_authored(c, on):
 def main():
     args = sys.argv[1:]
     crds_dir = args[args.index('--crds') + 1] if '--crds' in args else None
+    if '--floor' in args:
+        pinned = _load('pinned', 'lint-pinned-crds.py')
+        floor, why = pinned.floor_of('observability-page')
+        if floor is None:
+            print(f'observability-page declares no usable frontend-crds floor: {why}')
+            return 1
+        print(f'validating against frontend-crds {floor}, the floor observability-page declares')
+        crds_dir = os.path.join(pinned.unpack(floor), 'templates')
     c = traces.render()
     on = traces.render(values={'observability': {'reconcileTracing': True, 'snowplowSli': True}})
     checks = [

@@ -1,8 +1,12 @@
-# The portal's Ready-reason classification against core-provider's generated tables
-# (docs/ready-reasons.md for a composition, docs/cd-ready-reasons.md for a CompositionDefinition, both
-# on core-provider main). On every PR and push, and DAILY: core-provider can add
-# or reclassify a reason without touching this repo, and a reason the portal does not know renders as a
-# failure. The daily run is how that is noticed even when no portal PR is open. See ready-reasons.yaml.
+# The portal's reason definitions against core-provider's reason JSON (docs/ready-reasons.json for a
+# composition, docs/cd-ready-reasons.json for a CompositionDefinition), at the core-provider ref that
+# scripts/gen-reason-defs.py pins (CORE_PROVIDER_REF, the one place it is set; --fetch reads it there).
+# On every PR and push: the generated maps in the .tpl files are what the generator writes from that
+# JSON, and the two tests check, from the .tpl files on their own, that they mean what the JSON says.
+# DAILY, the generator's --check also runs against core-provider main: core-provider can add or
+# reclassify a reason without touching this repo, and a reason the portal does not know renders as a
+# failure. A red scheduled run says main has moved past the pin: decide how the portal shows the
+# change, then move the pin and regenerate.
 name: ready-reasons
 
 on:
@@ -32,13 +36,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Ready reasons match core-provider's table
+      - name: Fetch core-provider's reason JSON at the pinned ref
+        run: python3 scripts/gen-reason-defs.py --fetch "$RUNNER_TEMP/reasons"
+
+      - name: The generated reason definitions are what the pinned JSON gives
+        run: python3 scripts/gen-reason-defs.py --check --json-dir "$RUNNER_TEMP/reasons"
+
+      - name: Ready reasons match core-provider's JSON
         run: |
           set -euo pipefail
           python3 -c "import yaml" 2>/dev/null || pip3 install --user pyyaml
-          python3 scripts/test-ready-reasons.py
+          python3 scripts/test-ready-reasons.py --json-dir "$RUNNER_TEMP/reasons"
 
-      - name: A blueprint's state matches core-provider's CompositionDefinition table
+      - name: A blueprint's state matches core-provider's CompositionDefinition JSON
+        run: python3 scripts/test-cd-ready-reasons.py --json-dir "$RUNNER_TEMP/reasons"
+
+      - name: core-provider main has not moved past the pin
+        if: github.event_name == 'schedule'
         run: |
           set -euo pipefail
-          python3 scripts/test-cd-ready-reasons.py
+          python3 scripts/gen-reason-defs.py --fetch "$RUNNER_TEMP/reasons-main" --ref main
+          python3 scripts/gen-reason-defs.py --check --json-dir "$RUNNER_TEMP/reasons-main"

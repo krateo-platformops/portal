@@ -22,7 +22,8 @@
      OUTPUT.
        rows      the incidents in the picked state (resolved, closed: in the range), newest first: title, cause, state, target (the
                  composition the analysis read, else the first object it read), category (the root
-                 cause's), fixReady (an Open incident whose fix can be applied);
+                 cause's), fixReady (an Open incident whose fix can be applied), stateIcon (the
+                 card tile's mark for the state);
        counts    per state, the chips' and the donut's: the live states over every incident,
                  Resolved and Closed in the range, as their lists are; all over every incident;
        stats     the five figures: Open, Analyzing, Verifying, Resolved in the range, the median time
@@ -138,6 +139,10 @@ spec:
             age: (.metadata.creationTimestamp // .spec.triggeredAt // ""),
             triggeredAt: $at,
             sevColor: ({ Open: "var(--red-color)", Verifying: "var(--orange-color)", Resolved: "var(--green-color)" }[$state] // "var(--gray-color)"),
+            # The card tile's mark, one per state (audit INC-7): a Resolved card shows a check, never
+            # the warning triangle of an Open one. A state this map does not know gets the circle.
+            stateIcon: ({ Open: "fa-triangle-exclamation", Analyzing: "fa-magnifying-glass", Verifying: "fa-hourglass-half",
+                          Resolved: "fa-circle-check", Closed: "fa-circle-xmark" }[$state] // "fa-circle"),
             alert: $alert,
             # The root cause's category (config, capacity, image, network, dependency, permission,
             # other), capitalized for the card and the table.
