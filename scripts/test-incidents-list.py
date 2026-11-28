@@ -26,8 +26,9 @@ THE DASHBOARD (mockup A4):
     (chips, then the cards, or ?view=table the table, or a line when there is nothing to list or the
     read failed) on two thirds, the charts on one third, the "Firing, not investigated" card only
     while there are such alerts or their read failed;
-  - a card says the state (its colour), the category, the cause and the object the analysis read,
-    and a wrench marks an Open incident whose fix can be applied;
+  - a card says the state (its colour, and its tile's mark: a triangle while Open, a check once
+    Resolved, never the triangle on a settled incident), the category, the cause and the object
+    the analysis read, and a wrench marks an Open incident whose fix can be applied;
   - an alert's display name loses a decorative emoji but keeps its punctuation (an em dash), with
     whitespace runs collapsed: it is the card title and the table's Incident.
 THE PROMPT. incidents-list builds the header button's `askHref`: /incidents with every param and the
@@ -233,6 +234,8 @@ def check_empty_and_failed():
            'crashloop, Pod restarts). Tell me which alert to investigate first and why — grounded in the evidence on this page.')
     expect(f, 'no incidents: the line', widget_data('Paragraph', 'incidents-empty', out)['text'], 'There are no incidents.')
     expect(f, 'no incidents: zeros, not dashes', [s['value'] for s in out['stats']], ['0', '0', '0', '0', '—'])
+    expect(f, 'no incidents: every figure neutral and plain, a 0 never red or orange',
+           [(s['color'], s['highlight']) for s in out['stats']], [('', False)] * 5)
     _, prompt = ask(resolve(responses(incidents={'items': []}, alerts={'items': []}), {})['askHref'])
     expect(f, 'nothing at all', prompt,
            'There are no incidents on this platform, and no alert firing without an incident. Tell me whether anything '
@@ -249,6 +252,8 @@ def check_empty_and_failed():
         expect(f, f'failed read ({label}): keeps the state', href, '/incidents?status=verifying')
         expect(f, f'failed read ({label}): every figure "could not be read", never 0',
                {(s['value'], s['caption'], s['tone']) for s in out['stats']}, {('', 'could not be read', 'unread')})
+        expect(f, f'failed read ({label}): every figure orange and highlighted',
+               {(s['color'], s['highlight']) for s in out['stats']}, {('orange', True)})
         para = widget_data('Paragraph', 'incidents-empty', out)
         expect(f, f'failed read ({label}): said, as a warning', (para['text'], para['type']),
                ('The incidents could not be read (' + said + '), so nothing on this page counts them.', 'warning'))
@@ -312,10 +317,16 @@ def check_figures_and_charts():
     expect(f, 'no analysis agent is said as such; a real failure stays one', causes, {'n1': 'no analysis agent', 'n2': 'analysis failed'})
     stats = widget_data('Listy', 'incidents-stats', out)
     cards = widget_data('Listy', 'incidents-cards', out)
-    expect(f, 'each figure wears its state\'s card colour, zero or not',
-           {k: v for k, v in stats['itemTemplate']['color']['map'].items() if k != 'unread'},
-           {k.lower(): v for k, v in cards['itemTemplate']['color']['map'].items() if k != 'Closed'})
-    expect(f, 'a failed read is orange', stats['itemTemplate']['color']['map']['unread'], 'orange')
+    expect(f, 'the strip takes colour and border from the data (portal.tileDefs)',
+           (stats['itemTemplate']['color'], stats['itemTemplate'].get('highlight')), ({'value': '{color}'}, '{highlight}'))
+    cmap = cards['itemTemplate']['color']['map']
+    expect(f, 'above 0, each unresolved state wears its card colour, highlighted; Resolved and Time to resolve neutral',
+           [(s['title'], s['color'], s['highlight']) for s in out['stats']],
+           [('Open', cmap['Open'], True), ('Analyzing', cmap['Analyzing'], True), ('Verifying', cmap['Verifying'], True),
+            ('Resolved', '', False), ('Time to resolve', '', False)])
+    three = resolve(responses(incidents={'items': [incident(f'o{i}', 'Open', ago(2), alert='a') for i in range(3)]},
+                              alerts={'items': [alert('a', 'A', 'OK')]}), {})
+    expect(f, 'Open at 3: red and highlighted', [(s['value'], s['color'], s['highlight']) for s in three['stats']][0], ('3', 'red', True))
     out30 = timed({'range': '30d'})
     expect(f, '30d: Resolved and Time to resolve widen', [s['value'] for s in out30['stats'][3:]], ['3', '2 h'])
     out24 = timed({'range': '24h'})
@@ -480,6 +491,14 @@ def check_cards_and_table():
            [rows[n]['fixIcon'] for n in ('o1', 'o2', 'o3')], ['fa-wrench', '', 'fa-wrench'])
     ver = widget_data('Listy', 'incidents-cards', timed({'status': 'verifying'}), {'status': 'verifying'})['dataSource']
     expect(f, 'no wrench once it is not Open', [r['fixIcon'] for r in ver], [''])
+    # INC-7: the tile's mark is the state's, so a Resolved card shows no warning triangle.
+    expect(f, 'the tile mark is the row\'s', tpl['icon'], '{stateIcon}')
+    every = widget_data('Listy', 'incidents-cards', resolve(responses(), {'status': 'all'}), {'status': 'all'})['dataSource']
+    expect(f, 'a mark per state', sorted({(r['state'], r['stateIcon']) for r in every}),
+           [('Analyzing', 'fa-magnifying-glass'), ('Open', 'fa-triangle-exclamation'), ('Resolved', 'fa-circle-check'),
+            ('Verifying', 'fa-hourglass-half')])
+    closed = resolve(responses(incidents={'items': [incident('c1', 'Closed', ago(30), alert='disk', resolved=ago(2))]}), {'status': 'closed'})
+    expect(f, 'a Closed card: the cross', [r['stateIcon'] for r in closed['rows']], ['fa-circle-xmark'])
     table = widget_data('Table', 'incidents-table', out, {'view': 'table'})
     expect(f, 'the table: every column', [c['valueKey'] for c in table['columns']], ['sev', 'title', 'cause', 'category', 'target', 'state', 'age'])
     first = {c['valueKey']: c.get('stringValue') for c in table['dataSource'][0]}

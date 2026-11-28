@@ -299,8 +299,11 @@ def check_proposal_conditions(chart):
     expect(f, 'shown: title and text', (card['title'], card['headerLeft']),
            ('Agentiko suggests raising a Zendesk request for this incident',
             'Owner: your organization. The request goes to your organisation’s Zendesk, from the service desk.'))
-    expect(f, 'shown: marked as Agentiko\'s', (card['icon'], card['extra'], card['extraVariant']),
-           ({'name': 'fa-wand-magic-sparkles', 'color': 'blue'}, 'Agentiko', 'tag'))
+    # INC-5: the wand tile alone. The frontend Card floats `icon` into the corner `extra` sits in,
+    # so a tag beside the tile draws over it.
+    expect(f, 'shown: marked as Agentiko\'s by the wand tile, with no tag over it',
+           (card['icon'], [k for k in ('extra', 'extraVariant', 'extraStatus', 'extraRefId') if k in card]),
+           ({'name': 'fa-wand-magic-sparkles', 'color': 'blue'}, []))
     out, _, w = page(chart, incident(state='Verifying', **base), EMPTY, 'verifying')
     expect(f, 'Verifying: shown', out['sections']['proposal'], True)
     # Krateo-owned: the same request, for now — the send to Krateo waits for the relay.

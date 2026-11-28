@@ -8,8 +8,10 @@ WHAT IT GUARDS:
     alert label, state and trigger time (an Incident is ~26 KB), for each alert's unresolved incidents and
     the incidents opened in the range;
   - the five figures over every alert: Firing (of N, red above 0), Not evaluated (orange above 0),
-    Pending, OK, With unresolved incidents (and how many incidents); with the incidents unread that figure
-    is "—", never 0; with the alerts unread every figure is "—";
+    Pending (blue above 0), OK (neutral), With unresolved incidents (red above 0, and how many
+    incidents); the colour and the highlighted border are the data's (portal.tileDefs): a 0 is
+    neutral and plain, a figure above 0 coloured and highlighted; with the incidents unread that
+    figure is "—", never 0; with the alerts unread every figure is "—"; either orange and highlighted;
   - each figure opens the list filtered to what it counts, the route of its chip, every other param
     kept, zero or not; With unresolved incidents is ?status=open-incidents (a chip too): the alerts in any
     state with an unresolved incident, said when the incidents are unread; a failed read is not clickable;
@@ -128,18 +130,29 @@ def check_figures():
     expect(f, 'the five figures', [(s['title'], s['value'], s['caption'], s['tone']) for s in out['stats']],
            [('Firing', '1', 'of 10 alerts', 'alert'), ('Not evaluated', '1', 'no HyperDX alert behind it', 'not-evaluated'),
             ('Pending', '1', 'not decided yet', 'pending'), ('OK', '7', '', 'ok'), ('With unresolved incidents', '4', '8 not resolved', 'incident')])
-    smap = w('Listy', 'alerts-stats', out)['itemTemplate']['color']['map']
+    # The colour and the border are the data's (portal.tileDefs): the Listy reads `color` with no
+    # map and `highlight`, so only a figure above 0 that counts something wrong stands out.
+    tpl = w('Listy', 'alerts-stats', out)['itemTemplate']
+    expect(f, 'the strip takes colour and border from the data', (tpl['color'], tpl.get('highlight')), ({'value': '{color}'}, '{highlight}'))
     cmap = w('Listy', 'alerts-cards', out)['itemTemplate']['color']['map']
-    expect(f, 'each state figure wears its card colour, zero or not', {k: smap[k] for k in ('alert', 'not-evaluated', 'pending', 'ok')},
-           {k: cmap[k] for k in ('alert', 'not-evaluated', 'pending', 'ok')})
-    expect(f, 'unresolved incidents red, as the cards\' mark; a failed read orange', (smap['incident'], smap['unread']), ('red', 'orange'))
+    look = lambda o: [(s['title'], s['color'], s['highlight']) for s in o['stats']]
+    expect(f, 'above 0, each alarm figure wears its card colour, highlighted; OK neutral', look(out),
+           [('Firing', cmap['alert'], True), ('Not evaluated', cmap['not-evaluated'], True), ('Pending', cmap['pending'], True),
+            ('OK', '', False), ('With unresolved incidents', 'red', True)])
+    zero = resolve({}, [alert('a', 'OK')], incidents=[])
+    expect(f, 'a quiet page: every 0 neutral and plain, never red or orange', [(s['value'], s['color'], s['highlight']) for s in zero['stats']],
+           [('0', '', False)] * 3 + [('1', '', False), ('0', '', False)])
+    three = resolve({}, [alert(f'f{i}', 'ALERT') for i in range(3)], incidents=[])
+    expect(f, 'the same tile at 3: red and highlighted', look(three)[0], ('Firing', 'red', True))
     out = resolve({}, incidents='ERROR')
-    expect(f, 'incidents unread: that figure is a dash, said', out['stats'][4],
-           {'title': 'With unresolved incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread', 'route': ''})
+    expect(f, 'incidents unread: that figure is a dash, said, orange and highlighted', out['stats'][4],
+           {'title': 'With unresolved incidents', 'value': '', 'caption': 'the incidents could not be read', 'tone': 'unread', 'route': '',
+            'color': 'orange', 'highlight': True})
     expect(f, 'incidents unread: no trend, no top list', (out['incidentTrend'], out['topIncidents']), ([], []))
     ra = CH.get('RESTAction', 'obs-alerts')
     failed = tbi.jq(ra['spec']['filter'], {'alertsError': ['dial tcp: i/o timeout'], 'incidents': []})
-    expect(f, 'alerts unread: every figure a dash', {(s['value'], s['caption']) for s in failed['stats']}, {('', 'could not be read')})
+    expect(f, 'alerts unread: every figure a dash, orange and highlighted', {(s['value'], s['caption'], s['color'], s['highlight']) for s in failed['stats']},
+           {('', 'could not be read', 'orange', True)})
     para = w('Paragraph', 'alerts-empty', failed)
     expect(f, 'alerts unread: said, as a warning', (para['text'], para['type']),
            ('The alerts could not be read (dial tcp: i/o timeout), so nothing on this page counts them.', 'warning'))

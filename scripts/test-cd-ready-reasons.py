@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""A blueprint's state matches core-provider's generated table of a CompositionDefinition's reasons.
+"""A blueprint's state matches core-provider's reason JSON for a CompositionDefinition.
 
-core-provider generates the complete, closed list of a CompositionDefinition's condition reasons
-(docs/cd-ready-reasons.md, core-provider#557): each Ready reason with its status and how a parent
-composition's rollup reads it (`parent verdict`), and the Synced reasons. The portal classifies a
-blueprint from ONE definition, cdState in portal.cdReadyDefs (helm/portal/templates/_cd-ready-reasons.tpl,
-copied byte-identical into blueprints-page), read by the blueprint cards and the detail header pill.
-Before it, a card was red only on Synced=False, so a failed Ready read "still installing".
+core-provider publishes the complete, closed list of a CompositionDefinition's condition reasons as
+JSON generated from its code (docs/cd-ready-reasons.json, core-provider#667): one entry per
+(condition, status, reason), each Ready reason with how a parent composition's rollup reads it
+(`verdict`), and the Synced reasons. The portal classifies a blueprint from ONE definition, cdState in
+portal.cdReadyDefs (helm/portal/templates/_cd-ready-reasons.tpl, copied byte-identical into
+blueprints-page), read by the blueprint cards and the detail header pill; its cdReadyVerdict map is
+generated from the JSON at the core-provider ref scripts/gen-reason-defs.py pins. Before it, a card
+was red only on Synced=False, so a failed Ready read "still installing".
 
-Checks, in order:
-  1. cd-ready-reasons.yaml's `table` is the table core-provider publishes now, row for row:
-     (condition, reason, writer) -> (status, parent verdict), columns found by header name. A reason
-     added, removed or reclassified fails here, so the portal's handling is decided before the
-     snapshot is updated.
-  2. cdReadyVerdict maps every Ready reason in the snapshot to its verdict (first word), and nothing
-     else; a reason two writers write must carry one status and verdict. cdSyncedPaused names only
-     Synced reasons the snapshot has.
-  3. The cards' own jq (the rendered blueprints-cards RESTAction), run over one CompositionDefinition
-     per Ready row with Synced=True, shows the state that row's verdict means; and the cases where
+The generator's --check says the .tpl is what it would write; this says, reading the .tpl on its own,
+that what is there means what the JSON says. Checks, in order:
+  1. cdReadyVerdict maps every Ready reason in the JSON to its verdict, and nothing else; a reason
+     with two Ready entries (two statuses) must carry one verdict. cdSyncedPaused names only Synced
+     reasons the JSON has.
+  2. The cards' own jq (the rendered blueprints-cards RESTAction), run over one CompositionDefinition
+     per Ready entry with Synced=True, shows the state that entry's verdict means; and the cases where
      Synced decides (paused, a failed pass, drift) show theirs, with the reason core-provider wrote.
 
-Usage: test-cd-ready-reasons.py [--table FILE]   (default: fetch the `source` URL in cd-ready-reasons.yaml)
+Usage: test-cd-ready-reasons.py [--json-dir DIR]   (default: fetch the JSON at the generator's pin)
 Exit code = number of failures. Runs its controls first: an added reason, a reclassified reason, a
 verdict map missing a reason and a card jq without the verdict table must each be caught.
 """
@@ -31,22 +30,17 @@ import re
 import subprocess
 import sys
 import tempfile
-import urllib.error
-import urllib.request
 
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-SNAPSHOT = os.path.join(REPO, 'cd-ready-reasons.yaml')
 DEFS = os.path.join(REPO, 'helm', 'portal', 'templates', '_cd-ready-reasons.tpl')
-COLUMNS = ('condition', 'reason', 'status', 'writer', 'parent verdict')   # read BY HEADER NAME
 JQ = os.environ.get('JQ', 'jq')
 
-_spec = importlib.util.spec_from_file_location('ready_reasons', os.path.join(HERE, 'test-ready-reasons.py'))
-ready_reasons = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(ready_reasons)
-cells = ready_reasons.cells
+_spec = importlib.util.spec_from_file_location('gen_reason_defs', os.path.join(HERE, 'gen-reason-defs.py'))
+gen = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gen)
 
 # What each verdict means on a card (readyState), with Synced=True.
 STATE_OF = {'healthy': 'ready', 'converging': 'installing', 'failed': 'failed', 'unevaluated': 'unobserved'}
@@ -54,35 +48,9 @@ VERDICTS = re.compile(r'def cdReadyVerdict: (\{[^}]*\});')
 PAUSED = re.compile(r'def cdSyncedPaused: (\[[^\]]*\]);')
 
 
-def short(verdict):
-    return verdict.split(' ', 1)[0]
-
-
-def parse_table(markdown):
-    """{(condition, reason, writer): (status, verdict)} from core-provider's markdown table."""
-    lines = markdown.splitlines()
-    head = next((i for i, l in enumerate(lines) if l.lstrip().startswith('|') and 'reason' in cells(l)), None)
-    if head is None:
-        raise ValueError('no table header with a `reason` column')
-    names = cells(lines[head])
-    missing = [c for c in COLUMNS if c not in names]
-    if missing:
-        raise ValueError(f'table header {names} lacks {missing}')
-    at = {c: names.index(c) for c in COLUMNS}
-    rows = {}
-    for line in lines[head + 2:]:
-        if not line.lstrip().startswith('|'):
-            break
-        row = cells(line)
-        if len(row) != len(names):
-            raise ValueError(f'a row has {len(row)} cells, the header {len(names)}: {line[:80]}')
-        key = (row[at['condition']].strip('`'), row[at['reason']].strip('`'), row[at['writer']])
-        rows[key] = (row[at['status']], row[at['parent verdict']])
-    return rows
-
-
-def snapshot_rows(doc):
-    return {(r['condition'], r['reason'], r['writer']): (str(r['status']), r['verdict']) for r in doc['table']}
+def entries(doc):
+    """{(condition, reason, status): verdict} from the JSON, one per entry."""
+    return {(e['condition'], e['reason'], e['status']): e['verdict'] for e in doc['reasons']}
 
 
 def read_defs(text):
@@ -90,35 +58,23 @@ def read_defs(text):
     return (json.loads(v.group(1)) if v else None), (json.loads(p.group(1)) if p else None)
 
 
-def check_table(live, snap):
-    out = []
-    if not live:
-        return ['core-provider table: no rows parsed (a parse that reads nothing must not pass)']
-    for key in sorted(set(live) | set(snap)):
-        if key not in snap:
-            out.append(f'core-provider added {key[0]}/{key[1]} ({key[2]}): {live[key]}; decide how the portal shows it, then add it to cd-ready-reasons.yaml')
-        elif key not in live:
-            out.append(f'core-provider removed {key[0]}/{key[1]} ({key[2]}); drop it from cdState and cd-ready-reasons.yaml')
-        elif live[key] != snap[key]:
-            out.append(f'core-provider reclassified {key[0]}/{key[1]} ({key[2]}): {snap[key]} -> {live[key]}')
-    return out
-
-
 def check_defs(snap, verdicts, paused):
+    if not snap:
+        return ['cd-ready-reasons.json: no entries (a table that lists nothing must not pass)']
     if verdicts is None or paused is None:
         return ['_cd-ready-reasons.tpl: no cdReadyVerdict or cdSyncedPaused definition found']
     out, want = [], {}
-    for (cond, reason, _), (status, verdict) in snap.items():
+    for (cond, reason, status), verdict in snap.items():
         if cond != 'Ready':
             continue
-        if reason in want and want[reason] != (status, short(verdict)):
-            out.append(f'Ready/{reason} has two statuses or verdicts across writers {want[reason]} / {(status, short(verdict))}: '
+        if reason in want and want[reason] != (status, verdict):
+            out.append(f'Ready/{reason} has two statuses with verdicts {want[reason]} / {(status, verdict)}: '
                        'cdReadyVerdict is keyed by reason alone and cannot express it')
-        want[reason] = (status, short(verdict))
+        want[reason] = (status, verdict)
     have = {r: v for r, v in verdicts.items()}
     if set(have) != set(want):
         out.append(f'cdReadyVerdict keys {sorted(have)} != the table\'s Ready reasons {sorted(want)}')
-    out += [f'cdReadyVerdict[{r!r}] = {have[r]!r}, the table says {want[r][1]!r}'
+    out += [f'cdReadyVerdict[{r!r}] = {have[r]!r}, the JSON says {want[r][1]!r}'
             for r in sorted(set(have) & set(want)) if have[r] != want[r][1]]
     out += [f'cdReadyVerdict[{r!r}] = {v!r}, not a verdict the cards show' for r, v in have.items() if v not in STATE_OF]
     synced = {reason for (cond, reason, _) in snap if cond == 'Synced'}
@@ -191,11 +147,11 @@ SYNCED_CASES = [
 
 def check_cards(program, snap):
     out, cases = [], []
-    for (c, reason, writer), (status, verdict) in sorted(snap.items()):
+    for (c, reason, status), verdict in sorted(snap.items()):
         if c != 'Ready':
             continue
-        want = STATE_OF.get(short(verdict))
-        cases.append((f'Ready={status}/{reason} ({writer}), verdict {short(verdict)}',
+        want = STATE_OF.get(verdict)
+        cases.append((f'Ready={status}/{reason}, verdict {verdict}',
                       [cond('Ready', status, reason, 'msg'), SYNCED_OK], want, None,
                       (reason + ' · msg') if want == 'failed' else reason))
     cases += SYNCED_CASES
@@ -207,48 +163,34 @@ def check_cards(program, snap):
     return out
 
 
-TABLE_CONTROL = """intro
-| condition | reason | status | writer | parent verdict | written by |
-|---|---|---|---|---|---|
-| Ready | `Creating` | False | provider-runtime | converging | the create path |
-| Synced | `ReconcilePaused` | False | provider-runtime | — | paused |
-"""
-
-
-def controls(snap, defs_text, program):
+def controls(snap, program):
+    """Each mutant must be caught. The verdict map they are checked against, and the one put in the
+    cards' jq, are built from the JSON itself, and each mutant picks an entry the JSON has, so the
+    controls mean the same whatever the JSON lists and whether or not the .tpl agrees with it. When
+    even a map built from the JSON is refused, the real check after this says why."""
+    verdicts = {reason: verdict for (cond, reason, _), verdict in snap.items() if cond == 'Ready'}
+    paused = [r for r in ('ReconcilePaused',) if ('Synced', r, 'False') in snap]
+    program = VERDICTS.sub(lambda _: f'def cdReadyVerdict: {json.dumps(verdicts)};', program)
+    if check_defs(snap, verdicts, paused) or check_cards(program, snap):
+        return []
     problems = []
-    want = {('Ready', 'Creating', 'provider-runtime'): ('False', 'converging'),
-            ('Synced', 'ReconcilePaused', 'provider-runtime'): ('False', '—')}
-    if parse_table(TABLE_CONTROL) != want:
-        problems.append('control: the plain table did not parse')
-    for label, broken in (('a header without `condition`', TABLE_CONTROL.replace('| condition |', '| kind |')),
-                          ('no table at all', 'intro only')):
-        try:
-            parse_table(broken)
-            problems.append(f'control: {label} was parsed instead of refused')
-        except ValueError:
-            pass
-    if check_table(dict(snap), snap):
-        problems.append('control: the snapshot against itself was refused')
-    added = dict(snap)
-    added[('Ready', 'NewReason2028', 'core-provider')] = ('False', 'failed')
-    if not check_table(added, snap):
-        problems.append('control: an added reason was NOT caught')
-    reclassified = dict(snap)
-    reclassified[('Ready', 'Creating', 'core-provider')] = ('False', 'failed')
-    if not check_table(reclassified, snap):
-        problems.append('control: a reclassified reason was NOT caught')
-    if check_table({}, snap) == []:
-        problems.append('control: an empty table was accepted')
-    verdicts, paused = read_defs(defs_text)
-    if check_defs(snap, verdicts, paused):
-        problems.append('control: the defs against the snapshot were refused')
-    if not check_defs(snap, {k: v for k, v in verdicts.items() if k != 'SchemaDefaultContradiction'}, paused):
+    ready = sorted(k for k in snap if k[0] == 'Ready')
+    other = {'healthy': 'converging', 'converging': 'failed', 'failed': 'converging', 'unevaluated': 'failed'}
+    mutants = [('an added Ready reason', {**snap, ('Ready', 'NewReason2028', 'False'): 'failed'}),
+               ('a reclassified Ready reason', {**snap, ready[0]: other[snap[ready[0]]]}),
+               ('a removed Ready reason', {k: v for k, v in snap.items() if k != ready[0]}),
+               ('an empty table', {})]
+    if paused:
+        mutants.append(('cdSyncedPaused naming a removed Synced reason',
+                        {k: v for k, v in snap.items() if k != ('Synced', paused[0], 'False')}))
+    for label, mutant in mutants:
+        if not check_defs(mutant, verdicts, paused):
+            problems.append(f'control: {label} was NOT caught')
+    failed = next((r for r, v in verdicts.items() if v == 'failed'), None)
+    if not check_defs(snap, {k: v for k, v in verdicts.items() if k != failed}, paused):
         problems.append('control: a verdict map missing a reason was NOT caught')
-    if not check_defs(snap, {**verdicts, 'Deleting': 'failed'}, paused):
+    if not check_defs(snap, {**verdicts, ready[0][1]: other[verdicts[ready[0][1]]]}, paused):
         problems.append('control: a verdict map disagreeing with the table was NOT caught')
-    if check_cards(program, snap):
-        problems.append('control: the cards against the snapshot were refused')
     # Mutant: the card jq with the verdict table emptied must fail (a failed Ready=False with
     # Synced=True must not pass by falling back on status; converging ones would read failed).
     if not check_cards(VERDICTS.sub('def cdReadyVerdict: {};', program), snap):
@@ -257,44 +199,32 @@ def controls(snap, defs_text, program):
 
 
 def main():
-    with open(SNAPSHOT, encoding='utf-8') as fh:
-        doc = yaml.safe_load(fh)
-    snap = snapshot_rows(doc)
+    args = sys.argv[1:]
+    json_dir = args[args.index('--json-dir') + 1] if '--json-dir' in args else None
+    where = json_dir or f'core-provider {gen.CORE_PROVIDER_REF[:12]} (the pin)'
+    try:
+        snap = entries(gen.load_tables(json_dir)[gen.CD])
+    except ValueError as exc:
+        print(f'[FAIL] {exc}')
+        return 1
     with open(DEFS, encoding='utf-8') as fh:
         defs_text = fh.read()
     program = render_portal()
-    problems = controls(snap, defs_text, program)
+    problems = controls(snap, program)
     if problems:
         for p in problems:
             print(f'[FAIL] {p}')
         return len(problems)
-    print('[PASS] controls: an added and a reclassified reason, a verdict map missing or contradicting a reason, '
-          'an empty table and the cards without the verdict table are caught; a header without `condition` is refused')
+    print('[PASS] controls: an added, a reclassified and a removed Ready reason, a paused reason the JSON lacks, an empty '
+          'table, a verdict map missing or contradicting a reason and the cards without the verdict table are caught')
     failures = check_defs(snap, *read_defs(defs_text)) + check_cards(program, snap)
-    args = sys.argv[1:]
-    if '--table' in args:
-        where = args[args.index('--table') + 1]
-        with open(where, encoding='utf-8') as fh:
-            markdown = fh.read()
-    else:
-        where = doc['source']
-        try:
-            with urllib.request.urlopen(where, timeout=30) as resp:
-                markdown = resp.read().decode('utf-8')
-        except urllib.error.URLError as exc:
-            markdown = None
-            failures.append(f'core-provider table at {where}: could not be read ({exc})')
-    if markdown is not None:
-        try:
-            failures += check_table(parse_table(markdown), snap)
-        except ValueError as exc:
-            failures.append(f'core-provider table at {where}: {exc}')
     for f in failures:
         print(f'[FAIL] {f}')
     if not failures:
         ready = sum(1 for k in snap if k[0] == 'Ready')
-        print(f'[PASS] {len(snap)} CompositionDefinition reasons match {where}; the cards show each of the {ready} '
-              f'Ready rows as its verdict means, and the {len(SYNCED_CASES)} cases where Synced decides')
+        print(f'[PASS] {len(snap)} CompositionDefinition reasons in the reason JSON from {where}; cdReadyVerdict '
+              f'matches the {ready} Ready entries, the cards show each as its verdict means, and the {len(SYNCED_CASES)} '
+              'cases where Synced decides')
     return min(len(failures), 125)
 
 
